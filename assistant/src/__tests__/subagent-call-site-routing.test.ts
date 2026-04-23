@@ -27,7 +27,7 @@ interface CapturedConversationState {
   assistantId: string | undefined;
 }
 
-let capturedConversation: CapturedConversationState | undefined = undefined;
+const capturedConversations: CapturedConversationState[] = [];
 
 // Stub Conversation so spawn() doesn't try to actually run an agent loop —
 // we only care about what provider it was constructed with.
@@ -47,7 +47,7 @@ class FakeConversation {
       authContext: undefined,
       assistantId: undefined,
     };
-    capturedConversation = this.capturedState;
+    capturedConversations.push(this.capturedState);
   }
   updateClient() {}
   setIsSubagent() {}
@@ -234,7 +234,7 @@ describe("SubagentManager — provider call-site routing", () => {
       actorPrincipalId: "guardian-1",
     };
 
-    capturedConversation = undefined;
+    capturedConversations.length = 0;
     const manager = new SubagentManager();
     manager.resolveParentConversation = (id) =>
       id === "parent-perms"
@@ -255,7 +255,7 @@ describe("SubagentManager — provider call-site routing", () => {
       () => {},
     );
 
-    const createdConversation = capturedConversation;
+    const createdConversation = capturedConversations[0];
     expect(createdConversation).toBeDefined();
     if (!createdConversation) {
       throw new Error("Expected subagent conversation to be constructed");
