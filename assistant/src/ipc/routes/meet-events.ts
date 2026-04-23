@@ -18,12 +18,12 @@ import { timingSafeEqual } from "node:crypto";
 
 import { z } from "zod";
 
-import type { IpcRoute } from "../cli-server.js";
 import { MeetBotEventSchema } from "../../../../skills/meet-join/contracts/index.js";
 import {
   getMeetSessionEventRouter,
   type MeetSessionEventRouter,
 } from "../../../../skills/meet-join/daemon/session-event-router.js";
+import type { IpcRoute } from "../cli-server.js";
 
 const BatchSchema = z.array(MeetBotEventSchema);
 
