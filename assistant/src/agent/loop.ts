@@ -10,6 +10,7 @@ import {
   calculateMaxToolResultChars,
   truncateToolResultText,
 } from "../context/tool-result-truncation.js";
+import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
@@ -712,7 +713,7 @@ export class AgentLoop {
         const emptyResponseDecision: EmptyResponseDecision = await runPipeline(
           "emptyResponse",
           getMiddlewaresFor("emptyResponse"),
-          async () => ({ action: "accept" }),
+          async (args) => defaultEmptyResponseTerminal(args),
           emptyResponseArgs,
           emptyResponseCtx,
           DEFAULT_TIMEOUTS.emptyResponse,
@@ -749,7 +750,7 @@ export class AgentLoop {
           );
         }
 
-        // action === "accept" — fall through. Preserve the historic log for
+        // action === "accept" — fall through. Emit a dedicated log line for
         // the specific "empty turn after tool results, retries exhausted"
         // case so ops dashboards that grep on this line keep working.
         if (
