@@ -42,7 +42,7 @@ Because this is a multi-workspace Bun monorepo with **no root-level `package.jso
   - `--pr-limit 3` — cap per matrix leg (12 × 3 = 36 PRs/week ceiling).
   - `--minimum-release-age 1w` — skip versions published in the last 7 days. Defense against malware-via-update (compromised maintainer pushing a poisoned patch release).
 
-Socket Certified Patches (`socket-patch`) are deferred pending a `socket-patch setup` postinstall-hook rollout across all workspaces — see "Follow-ups / deferred" below.
+Socket Certified Patches (`socket-patch`) are deferred: `socket-patch apply` modifies files in `node_modules/`, which don't persist across `bun install`. Adoption requires running `bunx @socketsecurity/socket-patch setup` per workspace to install a `postinstall: socket-patch apply` hook — a cross-workspace install-time dependency added to every workspace's `package.json`. File as a follow-up when the team is ready to take on that rollout.
 
 ## Policy file
 
@@ -148,11 +148,7 @@ Open a small PR that touches `assistant/package.json` (or any dependency manifes
 
 ## Scan-count watch
 
-Socket Free has ~1,000 scans/month. Each PR with a manifest/lockfile touch consumes 1 scan; each weekly `Socket Fix` run consumes one scan per matrix leg (12) plus extra per fix opened. Check monthly usage at the Socket dashboard. If usage hits **70% (~700 scans) for two consecutive months**, lower the cron cadence or upgrade to Team tier, and file a Linear ticket the first time the threshold is reached. POSIX cron can't express biweekly cleanly — switch to monthly (`cron: '0 9 1 * *'`) or gate with `github.run_number % 2`.
-
-## Follow-ups / deferred
-
-- **Socket Certified Patches** — deferred. `socket-patch apply` modifies files in `node_modules/`, which don't persist across `bun install`. Adoption requires running `bunx @socketsecurity/socket-patch setup` per workspace to install a `postinstall` hook; this rolls out an install-time dependency on every workspace's `package.json`. File as a follow-up when the team is ready to take on that cross-workspace change.
+Socket Free has ~1,000 scans/month. Each PR with a manifest/lockfile touch consumes 1 scan; each weekly `Socket Fix` run consumes one scan per matrix leg (12) plus extra per fix opened. Check monthly usage at the Socket dashboard. If usage hits **70% (~700 scans) for two consecutive months**, lower the cron cadence or upgrade to Team tier, and file a Linear ticket the first time the threshold is reached. POSIX cron can't express true biweekly cleanly. If cadence needs to drop, switch to monthly: `cron: '0 9 1 * *'` (09:00 UTC on the first of each month). A bash step gating on `$(( GITHUB_RUN_NUMBER % 2 ))` works too but lives in `run:` scripts, not `if:` expressions — document and test before relying on it.
 
 ## See also
 
