@@ -34,6 +34,7 @@ import {
   buildUpstreamUrl,
   createTimeoutController,
   isTimeoutError,
+  stripHopByHop,
 } from "@vellumai/assistant-client";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
