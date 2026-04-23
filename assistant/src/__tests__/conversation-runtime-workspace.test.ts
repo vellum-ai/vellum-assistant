@@ -1,9 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
+import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
 import {
-  applyRuntimeInjections,
-  injectWorkspaceTopLevelContext,
-} from "../daemon/conversation-runtime-assembly.js";
+  registerPlugin,
+  resetPluginRegistryForTests,
+} from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -21,43 +23,21 @@ function userMsg(text: string): Message {
 const sampleContext =
   "<workspace>\nRoot: /sandbox\nDirectories: src, lib, tests\n</workspace>";
 
-describe("Workspace top-level context — injection", () => {
-  test("prepends workspace block to user message content", () => {
-    const original = userMsg("Hello");
-    const injected = injectWorkspaceTopLevelContext(original, sampleContext);
-
-    expect(injected.content).toHaveLength(2);
-    expect(injected.content[0]).toEqual({ type: "text", text: sampleContext });
-    expect(injected.content[1]).toEqual({ type: "text", text: "Hello" });
-  });
-
-  test("preserves multi-block user content after prepend", () => {
-    const original: Message = {
-      role: "user",
-      content: [
-        { type: "text", text: "First" },
-        { type: "text", text: "Second" },
-      ],
-    };
-    const injected = injectWorkspaceTopLevelContext(original, sampleContext);
-
-    expect(injected.content).toHaveLength(3);
-    expect(injected.content[0].type).toBe("text");
-    expect((injected.content[0] as { text: string }).text).toBe(sampleContext);
-    expect((injected.content[1] as { text: string }).text).toBe("First");
-    expect((injected.content[2] as { text: string }).text).toBe("Second");
-  });
-
-  test("does not mutate original message", () => {
-    const original = userMsg("Hello");
-    const originalContentLength = original.content.length;
-    injectWorkspaceTopLevelContext(original, sampleContext);
-
-    expect(original.content).toHaveLength(originalContentLength);
-  });
-});
+// The standalone `injectWorkspaceTopLevelContext` helper was removed in
+// G2.1. The workspace-context default injector (registered by
+// `defaultInjectorsPlugin`) now emits the workspace block as a
+// `prepend-user-tail` placement during `applyRuntimeInjections`. The suite
+// below exercises that end-to-end path instead.
 
 describe("applyRuntimeInjections — workspace top-level context", () => {
+  beforeEach(() => {
+    // Post-G2.1: workspace injection is driven by the `workspace-context`
+    // default injector, so the plugin must be registered for the chain to
+    // produce a block. Each test gets a clean registry.
+    resetPluginRegistryForTests();
+    registerPlugin(defaultInjectorsPlugin);
+  });
+
   test("injects workspace context when provided", async () => {
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {
@@ -100,6 +80,11 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 });
 
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
+  beforeEach(() => {
+    resetPluginRegistryForTests();
+    registerPlugin(defaultInjectorsPlugin);
+  });
+
   test("minimal mode skips workspace top-level context", async () => {
     const messages: Message[] = [userMsg("Hello")];
     const { messages: result } = await applyRuntimeInjections(messages, {

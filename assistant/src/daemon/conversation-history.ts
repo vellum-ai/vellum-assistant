@@ -191,10 +191,7 @@ export function consolidateAssistantMessages(
 
     // Clean up Qdrant vectors (fire-and-forget)
     if (allSegmentIds.length > 0) {
-      cleanupQdrantVectors(
-        conversationId,
-        allSegmentIds,
-      ).catch((err) => {
+      cleanupQdrantVectors(conversationId, allSegmentIds).catch((err) => {
         log.warn(
           { err, conversationId },
           "Qdrant cleanup after consolidation failed (non-fatal)",
@@ -326,10 +323,7 @@ export function consolidateAssistantMessages(
 
   // Clean up Qdrant vectors (fire-and-forget)
   if (allSegmentIds.length > 0) {
-    cleanupQdrantVectors(
-      conversationId,
-      allSegmentIds,
-    ).catch((err) => {
+    cleanupQdrantVectors(conversationId, allSegmentIds).catch((err) => {
       log.warn(
         { err, conversationId },
         "Qdrant cleanup after consolidation failed (non-fatal)",
@@ -365,7 +359,6 @@ export interface HistoryConversationContext {
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
     options?: {
-      skipPreMessageRollback?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
     },
@@ -534,15 +527,14 @@ export async function regenerate(
   }
 
   // Clean up Qdrant vectors (fire-and-forget).
-  cleanupQdrantVectors(
-    conversation.conversationId,
-    allSegmentIds,
-  ).catch((err) => {
-    log.warn(
-      { err, conversationId: conversation.conversationId },
-      "Qdrant cleanup after regenerate failed (non-fatal)",
-    );
-  });
+  cleanupQdrantVectors(conversation.conversationId, allSegmentIds).catch(
+    (err) => {
+      log.warn(
+        { err, conversationId: conversation.conversationId },
+        "Qdrant cleanup after regenerate failed (non-fatal)",
+      );
+    },
+  );
 
   // Re-extract the user message content for the agent loop.
   // Use all content blocks (text, image, file) so attachments are
@@ -581,7 +573,6 @@ export async function regenerate(
   // observability contract is preserved on those paths too.
   void conversation
     .runAgentLoop(content, existingUserMessageId, onEvent, {
-      skipPreMessageRollback: true,
       isUserMessage: true,
     })
     .catch((err) => {

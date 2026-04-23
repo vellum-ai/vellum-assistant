@@ -416,7 +416,6 @@ export function ensureDataDir(): void {
     // Workspace dirs
     workspace,
     join(workspace, "signals"),
-    join(workspace, "hooks"),
     join(workspace, "skills"),
     join(workspace, "routes"),
     join(workspace, "embedding-models"),

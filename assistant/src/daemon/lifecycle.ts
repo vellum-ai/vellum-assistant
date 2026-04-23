@@ -41,8 +41,6 @@ import {
   startFeedScheduler,
 } from "../home/feed-scheduler.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import { getHookManager } from "../hooks/manager.js";
-import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -71,6 +69,7 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { loadUserPlugins } from "../plugins/user-loader.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
@@ -105,6 +104,7 @@ import {
   getInterfacesDir,
   getWorkspaceDir,
 } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
 import {
   listWorkItems,
   updateWorkItem,
@@ -122,6 +122,7 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
   createGuardianFollowUpConversationGenerator,
@@ -337,8 +338,7 @@ export async function runDaemon(): Promise<void> {
 
     seedInterfaceFiles();
 
-    log.info("Daemon startup: installing templates and initializing DB");
-    installTemplates();
+    log.info("Daemon startup: initializing DB");
     ensurePromptFiles();
 
     // DB must be initialized before workspace migrations because some
@@ -695,6 +695,24 @@ export async function runDaemon(): Promise<void> {
         });
       }
     }
+
+    // Populate the registry with user plugins from `~/.vellum/plugins/*`
+    // AFTER first-party plugins have already registered via their static
+    // side-effect imports. User plugins may fail to load individually; a
+    // failing user plugin is logged and skipped so one bad install can't
+    // prevent the daemon from starting. Ordering is load-bearing:
+    //   first-party registrations → user registrations → bootstrap (init).
+    // Both groups are fully registered before any `init()` runs so plugins
+    // that depend on each other's registration observably see a stable
+    // registry at init time.
+    await loadUserPlugins();
+
+    // Bootstrap registered plugins. Runs after the plugin registry is
+    // populated (first-party static side-effect imports + user plugins
+    // loaded above) and before the DaemonServer starts handling
+    // conversations. Credential resolution + per-plugin storage directory
+    // creation happen here.
+    await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
@@ -1336,13 +1354,6 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Assistant symlink installation failed — continuing");
     }
 
-    const hookManager = getHookManager();
-    hookManager.watch();
-
-    void hookManager.trigger("daemon-start", {
-      pid: process.pid,
-    });
-
     // Download embedding runtime in background (non-blocking).
     // If download fails, local embeddings gracefully fall back to cloud backends.
     void (async () => {
@@ -1456,7 +1467,6 @@ export async function runDaemon(): Promise<void> {
       workspaceHeartbeat,
       heartbeat,
       filing,
-      hookManager,
       runtimeHttp,
       scheduler,
       feedScheduler,

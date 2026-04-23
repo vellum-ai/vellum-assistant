@@ -23,7 +23,7 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
+
     llm: {
       default: {
         provider: "mock-provider",
@@ -140,6 +140,9 @@ mock.module("../agent/loop.js", () => ({
     constructor() {}
     getToolTokenBudget() {
       return 0;
+    }
+    getResolvedTools() {
+      return [];
     }
     getActiveModel() {
       return undefined;

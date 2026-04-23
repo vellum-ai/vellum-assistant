@@ -170,6 +170,7 @@ export function createToolExecutor(
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
+  turnContext?: import("../plugins/types.js").TurnContext,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
   registerConversationSender(ctx.conversationId, (msg) =>
@@ -181,6 +182,7 @@ export function createToolExecutor(
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
     toolUseId?: string,
+    turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
     if (isDoordashCommand(name, input)) {
       markDoordashStepInProgress(ctx, input);
@@ -318,7 +320,12 @@ export function createToolExecutor(
         };
       }
 
-      const result = await executor.execute(toolName, toolInput, toolContext);
+      const result = await executor.execute(
+        toolName,
+        toolInput,
+        toolContext,
+        turnContext,
+      );
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -331,7 +338,12 @@ export function createToolExecutor(
       return result;
     }
 
-    const result = await executor.execute(name, input, toolContext);
+    const result = await executor.execute(
+      name,
+      input,
+      toolContext,
+      turnContext,
+    );
     if (toolContext.approvedViaPrompt) {
       ctx.approvedViaPromptThisTurn = true;
     }

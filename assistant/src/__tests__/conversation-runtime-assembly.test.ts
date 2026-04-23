@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
@@ -31,8 +31,6 @@ import {
   findLastInjectedNowContent,
   injectChannelCapabilityContext,
   injectChannelCommandContext,
-  injectNowScratchpad,
-  injectSubagentStatus,
   isGroupChatType,
   isSlackChannelConversation,
   loadSlackActiveThreadFocusBlock,
@@ -49,8 +47,23 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
+import {
+  registerPlugin,
+  resetPluginRegistryForTests,
+} from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 import type { SubagentState } from "../subagent/types.js";
+
+// `applyRuntimeInjections` is now driven by the default injector chain
+// (PR G2.1). The default-injectors plugin must be registered for the chain
+// to emit workspace, PKB, NOW.md, subagent, Slack, and thread-focus blocks.
+// Each test gets a clean registry so a test that registers its own plugin
+// doesn't leak into the next one.
+beforeEach(() => {
+  resetPluginRegistryForTests();
+  registerPlugin(defaultInjectorsPlugin);
+});
 
 // ---------------------------------------------------------------------------
 // resolveChannelCapabilities
@@ -797,86 +810,12 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// injectNowScratchpad
-// ---------------------------------------------------------------------------
-
-describe("injectNowScratchpad", () => {
-  const baseUserMessage: Message = {
-    role: "user",
-    content: [{ type: "text", text: "What should I work on?" }],
-  };
-
-  test("inserts NOW.md before user content", () => {
-    const result = injectNowScratchpad(
-      baseUserMessage,
-      "Current focus: shipping PR 3",
-    );
-    expect(result.content.length).toBe(2);
-    // Scratchpad comes first (before user content)
-    const injected = result.content[0];
-    expect(injected.type).toBe("text");
-    const text = (injected as { type: "text"; text: string }).text;
-    expect(text).toBe(
-      "<NOW.md Always keep this up to date; keep under 10 lines>\nCurrent focus: shipping PR 3\n</NOW.md>",
-    );
-    // Original content comes last
-    expect((result.content[1] as { type: "text"; text: string }).text).toBe(
-      "What should I work on?",
-    );
-  });
-
-  test("inserts after memory_context but before user content", () => {
-    const messageWithMemory: Message = {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: "<memory_context __injected>\nrecalled notes\n</memory_context>",
-        },
-        { type: "text", text: "What should I work on?" },
-      ],
-    };
-
-    const result = injectNowScratchpad(messageWithMemory, "scratchpad notes");
-    expect(result.content.length).toBe(3);
-    // Memory context stays first
-    expect(
-      (result.content[0] as { type: "text"; text: string }).text,
-    ).toContain("<memory_context");
-    // Scratchpad inserted after memory
-    expect(
-      (result.content[1] as { type: "text"; text: string }).text,
-    ).toContain("<NOW.md");
-    // User content is last
-    expect((result.content[2] as { type: "text"; text: string }).text).toBe(
-      "What should I work on?",
-    );
-  });
-
-  test("preserves existing multi-block content with scratchpad before it", () => {
-    const multiBlockMessage: Message = {
-      role: "user",
-      content: [
-        { type: "text", text: "First block" },
-        { type: "text", text: "Second block" },
-      ],
-    };
-
-    const result = injectNowScratchpad(multiBlockMessage, "scratchpad notes");
-    expect(result.content.length).toBe(3);
-    // Scratchpad is first (no memory_context to skip)
-    expect(
-      (result.content[0] as { type: "text"; text: string }).text,
-    ).toContain("<NOW.md");
-    expect((result.content[1] as { type: "text"; text: string }).text).toBe(
-      "First block",
-    );
-    expect((result.content[2] as { type: "text"; text: string }).text).toBe(
-      "Second block",
-    );
-  });
-});
+// The standalone `injectNowScratchpad` helper was removed in G2.1. The
+// now-md default injector (registered by `defaultInjectorsPlugin`) emits
+// the `<NOW.md>` block as an `after-memory-prefix` placement during
+// `applyRuntimeInjections`. The suites below (`applyRuntimeInjections with
+// nowScratchpad` and the injection-mode tests) cover that behaviour
+// end-to-end.
 
 // ---------------------------------------------------------------------------
 // stripNowScratchpad
@@ -1837,22 +1776,9 @@ describe("buildSubagentStatusBlock", () => {
   });
 });
 
-describe("injectSubagentStatus", () => {
-  test("appends status block to user message", () => {
-    const msg: Message = {
-      role: "user",
-      content: [{ type: "text", text: "hello" }],
-    };
-    const result = injectSubagentStatus(
-      msg,
-      "<active_subagents>\ntest\n</active_subagents>",
-    );
-    expect(result.content).toHaveLength(2);
-    expect(
-      (result.content[1] as { type: string; text: string }).text,
-    ).toContain("<active_subagents>");
-  });
-});
+// `injectSubagentStatus` was removed in G2.1 — coverage of the append
+// placement lives in the `applyRuntimeInjections — subagent status` suite
+// below, which exercises the subagent-status default injector end-to-end.
 
 describe("applyRuntimeInjections — subagent status", () => {
   const userMsg: Message = {

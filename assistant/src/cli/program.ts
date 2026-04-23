@@ -5,7 +5,6 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
-import { registerHooksCommand } from "../hooks/cli.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
@@ -88,7 +87,6 @@ Examples:
   registerAuthCommand(program);
   registerAttachmentCommand(program);
   registerAvatarCommand(program);
-  registerHooksCommand(program);
   registerMcpCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
     registerDomainCommand(program);

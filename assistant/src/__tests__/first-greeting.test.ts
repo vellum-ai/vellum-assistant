@@ -81,10 +81,10 @@ describe("first-greeting", () => {
         ...base,
         tools: ["github", "linear"],
         tasks: ["code-building", "project-management"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
-      expect(greeting).toContain("Hey Alex, I'm Pip.");
+      expect(greeting).toContain("Hey Bob, I'm Pip.");
       expect(greeting).toContain("You mentioned using GitHub and Linear");
       expect(greeting).toContain(
         "shipping code or figuring out what to ship next",
@@ -97,7 +97,7 @@ describe("first-greeting", () => {
         ...base,
         tools: ["linear", "notion"],
         tasks: ["project-management", "writing"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("You mentioned using Notion and Linear");
@@ -109,7 +109,7 @@ describe("first-greeting", () => {
         ...base,
         tools: ["notion", "google-drive"],
         tasks: ["writing"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Luna",
       });
       expect(greeting).toContain("You mentioned using Notion and Google Drive");
@@ -120,7 +120,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["code-building"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("Probably shipping something or debugging");
@@ -132,7 +132,7 @@ describe("first-greeting", () => {
         ...base,
         tools: ["github"],
         tasks: ["code-building"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("You mentioned using GitHub");
@@ -142,7 +142,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["code-building", "writing", "research", "project-management"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("wear a lot of hats");
@@ -160,7 +160,7 @@ describe("first-greeting", () => {
           "scheduling",
           "personal",
         ],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("wear a lot of hats");
@@ -171,7 +171,7 @@ describe("first-greeting", () => {
         ...base,
         tools: ["gmail", "linear"],
         tasks: [],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("What's on your plate?");
@@ -191,7 +191,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["writing", "research", "scheduling"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("drafting something or cleaning up docs");
@@ -201,7 +201,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["research", "personal"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain(
@@ -213,7 +213,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["code-building"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("I'm Pip");
@@ -225,7 +225,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["code-building"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       const paragraphs = greeting.split("\n\n");
@@ -244,7 +244,7 @@ describe("first-greeting", () => {
           "apple-notes",
         ],
         tasks: ["code-building", "project-management"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("You mentioned using GitHub and Linear");
@@ -257,7 +257,7 @@ describe("first-greeting", () => {
         ...base,
         tools: ["notion", "apple-notes"],
         tasks: ["code-building"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("Probably shipping something or debugging");
@@ -269,7 +269,7 @@ describe("first-greeting", () => {
         ...base,
         tools: ["gmail", "google-calendar"],
         tasks: ["personal"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain(
@@ -291,7 +291,7 @@ describe("first-greeting", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["future-task-type"],
-        userName: "Alex",
+        userName: "Bob",
         assistantName: "Pip",
       });
       expect(greeting).toContain("What's on your plate?");

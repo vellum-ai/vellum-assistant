@@ -36,12 +36,6 @@ mock.module("../permissions/checker.js", () => ({
   generateScopeOptions: () => [],
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: async () => {},
-  }),
-}));
-
 const hostAccessByConversation = new Map<string, boolean>();
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -85,10 +79,6 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
 }
 
 const noopEmit = (_event: ToolLifecycleEvent): void => {};
-const noopSanitize = (
-  _name: string,
-  input: Record<string, unknown>,
-): Record<string, unknown> => input;
 const noopDiff = () => undefined;
 const executionTarget: ExecutionTarget = "host";
 
@@ -145,7 +135,6 @@ describe("permission-checker host-access gate (v2)", () => {
             makeContext(),
             executionTarget,
             noopEmit,
-            noopSanitize,
             Date.now(),
             noopDiff,
           );
@@ -179,7 +168,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext(),
           executionTarget,
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -205,7 +193,6 @@ describe("permission-checker host-access gate (v2)", () => {
             makeContext(),
             executionTarget,
             noopEmit,
-            noopSanitize,
             Date.now(),
             noopDiff,
           );
@@ -233,7 +220,6 @@ describe("permission-checker host-access gate (v2)", () => {
             makeContext(),
             "sandbox",
             noopEmit,
-            noopSanitize,
             Date.now(),
             noopDiff,
           );
@@ -264,7 +250,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext({ requireFreshApproval: true }),
           executionTarget,
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -295,7 +280,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext({ requireFreshApproval: true }),
           "sandbox",
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -332,7 +316,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext({ isInteractive: false, trustClass: "guardian" }),
           executionTarget,
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -366,7 +349,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext({ forcePromptSideEffects: true }),
           executionTarget,
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -391,7 +373,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext({ forcePromptSideEffects: true }),
           "sandbox",
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -410,7 +391,6 @@ describe("permission-checker host-access gate (v2)", () => {
           makeContext({ forcePromptSideEffects: true }),
           "sandbox",
           noopEmit,
-          noopSanitize,
           Date.now(),
           noopDiff,
         );
@@ -439,7 +419,6 @@ describe("permission-checker host-access gate (v2)", () => {
         makeContext({ conversationId: "allow-conv" }),
         executionTarget,
         noopEmit,
-        noopSanitize,
         Date.now(),
         noopDiff,
       );
@@ -450,7 +429,6 @@ describe("permission-checker host-access gate (v2)", () => {
         makeContext({ conversationId: "deny-conv" }),
         executionTarget,
         noopEmit,
-        noopSanitize,
         Date.now(),
         noopDiff,
       );
@@ -477,7 +455,6 @@ describe("permission-checker host-access gate (v2)", () => {
         makeContext(),
         executionTarget,
         noopEmit,
-        noopSanitize,
         Date.now(),
         noopDiff,
       );
@@ -499,7 +476,6 @@ describe("permission-checker host-access gate (v2)", () => {
         makeContext(),
         "sandbox",
         noopEmit,
-        noopSanitize,
         Date.now(),
         noopDiff,
       );

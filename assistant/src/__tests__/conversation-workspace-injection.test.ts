@@ -227,6 +227,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getResolvedTools() {
+      return [];
+    }
     getActiveModel() {
       return undefined;
     }

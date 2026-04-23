@@ -1,5 +1,4 @@
 import { getConfig } from "../config/loader.js";
-import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
@@ -46,10 +45,6 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const sdConfig = getConfig().secretDetection;
     if (!sdConfig.enabled || execResult.isError) {
@@ -108,7 +103,6 @@ export class SecretDetectionHandler {
         decision,
         startTime,
         emitLifecycleEvent,
-        sanitizeToolInput,
       );
     }
 
@@ -124,7 +118,6 @@ export class SecretDetectionHandler {
         decision,
         startTime,
         emitLifecycleEvent,
-        sanitizeToolInput,
       );
     }
 
@@ -210,10 +203,6 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
   ): { result: ToolExecutionResult; earlyReturn: boolean } {
     const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
     const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "prompt" to allow output.`;
@@ -237,15 +226,6 @@ export class SecretDetectionHandler {
       result: blockedResult,
     });
 
-    void getHookManager().trigger("post-tool-execute", {
-      toolName: name,
-      input: sanitizeToolInput(name, input),
-      riskLevel,
-      isError: true,
-      durationMs,
-      conversationId: context.conversationId,
-    });
-
     return { result: blockedResult, earlyReturn: true };
   }
 
@@ -263,10 +243,6 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
 
@@ -286,15 +262,6 @@ export class SecretDetectionHandler {
         decision: "deny",
         reason: "Secret output blocked without deterministic prompt under v2",
         durationMs,
-      });
-
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
       });
 
       return {
@@ -320,15 +287,6 @@ export class SecretDetectionHandler {
         decision: "deny",
         reason: "Non-interactive session: auto-blocked secret output",
         durationMs,
-      });
-
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
       });
 
       return {
@@ -387,15 +345,6 @@ export class SecretDetectionHandler {
         decision: response.decision === "always_deny" ? "always_deny" : "deny",
         reason: `User denied output containing secrets: ${types}`,
         durationMs,
-      });
-
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
       });
 
       return {

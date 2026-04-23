@@ -42,14 +42,10 @@ import {
   getDbPath,
   getProtectedDir,
   getWorkspaceDir,
-  getWorkspaceHooksDir,
 } from "../util/platform.js";
 import { ensureBackupKey as realEnsureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
-import {
-  pruneLocalSnapshots,
-  writeLocalSnapshot,
-} from "./local-writer.js";
+import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
 import type { OffsiteWriteResult } from "./offsite-writer.js";
 import {
   pruneOffsiteSnapshotsInAll,
@@ -60,10 +56,7 @@ import {
   getLocalBackupsDir,
   resolveOffsiteDestinations,
 } from "./paths.js";
-import {
-  acquireSnapshotLock,
-  getSnapshotLockPath,
-} from "./snapshot-lock.js";
+import { acquireSnapshotLock, getSnapshotLockPath } from "./snapshot-lock.js";
 
 const log = getLogger("backup-worker");
 
@@ -118,8 +111,6 @@ export interface BackupDeps {
   localDir?: string;
   /** Override for the trust.json path (tests). */
   trustPath?: string;
-  /** Override for the hooks directory (tests). */
-  hooksDir?: string;
   /** Override for the backup key file path (tests). */
   backupKeyPath?: string;
   /**
@@ -187,9 +178,7 @@ async function performBackup(
   const ensureKey = deps.ensureBackupKey ?? realEnsureBackupKey;
   const workspaceDir = deps.workspaceDir ?? getWorkspaceDir();
   const localDir = deps.localDir ?? getLocalBackupsDir(config.localDirectory);
-  const trustPath =
-    deps.trustPath ?? join(getProtectedDir(), "trust.json");
-  const hooksDir = deps.hooksDir ?? getWorkspaceHooksDir();
+  const trustPath = deps.trustPath ?? join(getProtectedDir(), "trust.json");
   const backupKeyPath = deps.backupKeyPath ?? getBackupKeyPath();
 
   const startTimestamp = Date.now();
@@ -207,7 +196,6 @@ async function performBackup(
   const result = await streamExport({
     workspaceDir,
     trustPath,
-    hooksDir,
     source: "backup-worker",
     description: "Automated backup snapshot",
     checkpoint: () => {

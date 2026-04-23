@@ -255,9 +255,6 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     }
 
     const result = await streamExportVBundle({
-      // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
-      // and are included in the workspace walk. Passing hooksDir separately would
-      // export them twice (once as workspace/hooks/... and again as hooks/...).
       workspaceDir: getWorkspaceDir(),
       source: "runtime-export",
       description,

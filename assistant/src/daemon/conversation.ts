@@ -43,7 +43,6 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversationOriginChannel,
@@ -542,11 +541,6 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: llmDefault.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
-    });
-
-    void getHookManager().trigger("conversation-start", {
-      conversationId: this.conversationId,
-      workingDir: this.workingDir,
     });
   }
 
@@ -1309,7 +1303,11 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
+      await trackCompactionOutcome(
+        this,
+        result.summaryFailed,
+        this.sendToClient,
+      );
     }
     if (result.compacted) {
       applyCompactionResult(this, result, this.sendToClient, null);
@@ -1462,7 +1460,6 @@ export class Conversation {
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
     options?: {
-      skipPreMessageRollback?: boolean;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;

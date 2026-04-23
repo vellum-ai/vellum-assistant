@@ -233,11 +233,20 @@ mock.module("../memory/conversation-queries.js", () => ({
   buildExcerpt: () => "",
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: () => Promise.resolve(),
-    initialize: () => {},
-  }),
+mock.module("../tools/watch/watch-state.js", () => ({
+  watchSessions: new Map(),
+  registerWatchStartNotifier: () => {},
+  unregisterWatchStartNotifier: () => {},
+  fireWatchStartNotifier: () => {},
+  registerWatchCommentaryNotifier: () => {},
+  unregisterWatchCommentaryNotifier: () => {},
+  fireWatchCommentaryNotifier: () => {},
+  registerWatchCompletionNotifier: () => {},
+  unregisterWatchCompletionNotifier: () => {},
+  fireWatchCompletionNotifier: () => {},
+  getActiveWatchSession: () => undefined,
+  addObservation: () => {},
+  pruneWatchSessions: () => {},
 }));
 
 mock.module("../calls/call-state.js", () => ({
