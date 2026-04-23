@@ -31,10 +31,11 @@ For the full plugin authoring guide, see
 ## Install locally
 
 The assistant scans `~/.vellum/plugins/*` for subdirectories containing a
-`register.{ts,js}` file and dynamic-imports each one during daemon startup.
-Dropping (or symlinking) this directory in place is enough to enable it.
+`register.{ts,js}` file and dynamic-imports each one during assistant
+startup. Dropping (or symlinking) this directory in place is enough to
+enable it.
 
-### Option 1 — symlink from the repo
+### Option 1 — symlink from the repo (recommended)
 
 From the repo root:
 
@@ -43,21 +44,39 @@ mkdir -p ~/.vellum/plugins
 ln -s "$(pwd)/assistant/examples/plugins/echo" ~/.vellum/plugins/echo
 ```
 
-Symlinks let you edit the plugin in-place and restart the daemon to pick
-up changes.
+Symlinks let you edit the plugin in-place and restart the assistant to
+pick up changes. **This is the only zero-edit install path** — the
+`register.ts` in this directory uses relative imports
+(`../../../src/plugins/registry.js`) that resolve into the in-repo
+assistant sources, so the file must stay reachable at that relative
+location.
 
-### Option 2 — copy
+### Option 2 — standalone copy (requires edits)
 
-If you prefer an isolated install that won't move with the repo:
+If you want a fully isolated install that does not depend on a local
+vellum-assistant checkout, a plain `cp -R` of this directory into
+`~/.vellum/plugins/echo/` will **not** work as-is: the relative imports
+in `register.ts` resolve to `~/.vellum/src/plugins/...`, which does not
+exist. The assistant does not currently publish the plugin API as an npm
+package, so to copy-and-adapt this template into a standalone plugin you
+must rewrite the imports in `register.ts` to point at an absolute path
+inside a vellum-assistant checkout, for example:
 
-```bash
-mkdir -p ~/.vellum/plugins
-cp -R assistant/examples/plugins/echo ~/.vellum/plugins/echo
+```ts
+// before (repo-local):
+import { registerPlugin } from "../../../src/plugins/registry.js";
+// after (standalone, edit to your checkout path):
+import { registerPlugin } from "/path/to/vellum-assistant/assistant/src/plugins/registry.js";
 ```
+
+Apply the same rewrite to the `import type` line that pulls from
+`../../../src/plugins/types.js`. Until a published package exists, the
+symlink recipe above is simpler and more portable for day-to-day
+development.
 
 ### Restart the assistant
 
-Plugins register at daemon startup. After installing, restart the
+Plugins register at assistant startup. After installing, restart the
 assistant:
 
 ```bash
@@ -66,9 +85,9 @@ vellum restart
 
 ## Verify it works
 
-With the plugin installed and the daemon restarted, send any message that
-exercises a pipeline — a conversation turn, a tool call, a title generation
-— and tail the daemon's stderr log:
+With the plugin installed and the assistant restarted, send any message
+that exercises a pipeline — a conversation turn, a tool call, a title
+generation — and tail the assistant's stderr log:
 
 ```bash
 tail -f ~/.vellum/daemon.log
@@ -91,7 +110,7 @@ original error still propagates.
 
 ## Uninstall
 
-Remove the symlink (or the copied directory) and restart the daemon:
+Remove the symlink (or the copied directory) and restart the assistant:
 
 ```bash
 rm ~/.vellum/plugins/echo
