@@ -21,10 +21,19 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // Capture the provider passed to Conversation.
 let capturedProvider: unknown = undefined;
+interface CapturedConversationState {
+  trustContext: unknown;
+  authContext: unknown;
+  assistantId: string | undefined;
+}
+
+let capturedConversation: CapturedConversationState | undefined = undefined;
 
 // Stub Conversation so spawn() doesn't try to actually run an agent loop —
 // we only care about what provider it was constructed with.
 class FakeConversation {
+  private readonly capturedState: CapturedConversationState;
+
   constructor(
     _id: string,
     provider: unknown,
@@ -33,11 +42,30 @@ class FakeConversation {
     _sendToClient: (msg: ServerMessage) => void,
   ) {
     capturedProvider = provider;
+    this.capturedState = {
+      trustContext: undefined,
+      authContext: undefined,
+      assistantId: undefined,
+    };
+    capturedConversation = this.capturedState;
   }
   updateClient() {}
   setIsSubagent() {}
+  setTrustContext(ctx: unknown) {
+    this.capturedState.trustContext = ctx ?? undefined;
+  }
+  setAuthContext(ctx: unknown) {
+    this.capturedState.authContext = ctx ?? undefined;
+  }
+  getAuthContext() {
+    return this.capturedState.authContext;
+  }
+  setAssistantId(assistantId: string | null) {
+    this.capturedState.assistantId = assistantId ?? undefined;
+  }
   hasSystemPromptOverride = false;
   setSubagentAllowedTools() {}
+  setPreactivatedSkillIds() {}
   preactivateSkills() {}
   preactivateSkillsAsync() {}
   setSpawnHints() {}
@@ -188,6 +216,55 @@ describe("SubagentManager — provider call-site routing", () => {
     expect(capturedProvider).toBeInstanceOf(CallSiteRoutingProvider);
     // Default provider's name surfaces.
     expect((capturedProvider as { name: string }).name).toBe("anthropic");
+  });
+
+  test("copies parent guardian and auth context into spawned conversation", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-opus-4-7" },
+    });
+
+    const parentTrustContext = {
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+      guardianPrincipalId: "guardian-1",
+      guardianExternalUserId: "guardian-1",
+    };
+    const parentAuthContext = {
+      subject: "local:self:parent-perms",
+      actorPrincipalId: "guardian-1",
+    };
+
+    capturedConversation = undefined;
+    const manager = new SubagentManager();
+    manager.resolveParentConversation = (id) =>
+      id === "parent-perms"
+        ? ({
+            trustContext: parentTrustContext,
+            getAuthContext: () => parentAuthContext,
+            assistantId: "self",
+            getCurrentSystemPrompt: () => "parent system",
+          } as any)
+        : undefined;
+
+    await manager.spawn(
+      {
+        parentConversationId: "parent-perms",
+        label: "permissions",
+        objective: "use web_fetch",
+      },
+      () => {},
+    );
+
+    const createdConversation = capturedConversation;
+    expect(createdConversation).toBeDefined();
+    if (!createdConversation) {
+      throw new Error("Expected subagent conversation to be constructed");
+    }
+    expect(createdConversation.trustContext).toEqual(parentTrustContext);
+    expect(createdConversation.authContext).toEqual(parentAuthContext);
+    expect(createdConversation.assistantId).toBe("self");
+    expect(createdConversation.trustContext).not.toBe(parentTrustContext);
+    expect(createdConversation.authContext).not.toBe(parentAuthContext);
   });
 });
 

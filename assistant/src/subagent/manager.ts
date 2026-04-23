@@ -236,16 +236,17 @@ export class SubagentManager {
       );
     }
 
+    const parentConversation = this.resolveParentConversation?.(
+      config.parentConversationId,
+    );
+
     let systemPrompt: string;
     if (isFork) {
       // Forks use the parent's system prompt directly — no subagent preamble.
       if (config.parentSystemPrompt) {
         systemPrompt = config.parentSystemPrompt;
       } else if (this.resolveParentConversation) {
-        const parentConv = this.resolveParentConversation(
-          config.parentConversationId,
-        );
-        const resolved = parentConv?.getCurrentSystemPrompt();
+        const resolved = parentConversation?.getCurrentSystemPrompt();
         if (!resolved) {
           throw new Error(
             "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
@@ -338,6 +339,21 @@ export class SubagentManager {
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
     conversation.setIsSubagent(true);
+
+    // Subagents execute as background child conversations, but their tool
+    // permissions must still be scoped to the actor that spawned them. Without
+    // this, tool execution falls back to `unknown` trust and guardian-owned
+    // desktop turns get denied as unverified.
+    if (parentConversation?.trustContext) {
+      conversation.setTrustContext({ ...parentConversation.trustContext });
+    }
+    const parentAuthContext = parentConversation?.getAuthContext();
+    if (parentAuthContext) {
+      conversation.setAuthContext({ ...parentAuthContext });
+    }
+    if (parentConversation?.assistantId) {
+      conversation.setAssistantId(parentConversation.assistantId);
+    }
 
     if (isFork) {
       // Force the fork to use the parent's system prompt as-is without dynamic rebuild.
