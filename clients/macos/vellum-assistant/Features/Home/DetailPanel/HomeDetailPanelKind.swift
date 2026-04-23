@@ -32,6 +32,8 @@ enum HomeDetailPanelKind: Equatable {
             case .paymentAuth: return .paymentAuth(item)
             case .toolPermission: return .toolPermission(item)
             case .updatesList: return .updatesList(item)
+            case .scheduled: return .scheduled(item)
+            case .nudge: return .nudge(item)
             }
         }
 

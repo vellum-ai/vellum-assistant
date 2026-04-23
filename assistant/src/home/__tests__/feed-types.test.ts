@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
-import { type FeedItem, feedItemSchema, parseFeedFile } from "../feed-types.js";
+import {
+  type DocumentPreviewPanelData,
+  type EmailDraftPanelData,
+  type FeedItem,
+  feedItemSchema,
+  type NudgePanelData,
+  parseFeedFile,
+  type PaymentAuthPanelData,
+  type PermissionChatPanelData,
+  type ScheduledPanelData,
+  type ToolPermissionPanelData,
+  type UpdatesListPanelData,
+} from "../feed-types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -271,5 +283,227 @@ describe("parseFeedFile", () => {
         updatedAt: NOW_ISO,
       }),
     ).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detailPanel — new kinds and data field
+// ---------------------------------------------------------------------------
+
+describe("feedItemSchema — detailPanel kinds", () => {
+  test("accepts 'scheduled' panel kind", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "scheduled" },
+    });
+    expect(parsed.detailPanel?.kind).toBe("scheduled");
+  });
+
+  test("accepts 'nudge' panel kind", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "nudge" },
+    });
+    expect(parsed.detailPanel?.kind).toBe("nudge");
+  });
+
+  test("accepts all original panel kinds", () => {
+    for (const kind of [
+      "emailDraft",
+      "documentPreview",
+      "permissionChat",
+      "paymentAuth",
+      "toolPermission",
+      "updatesList",
+    ]) {
+      const parsed = feedItemSchema.parse({
+        ...minimalNudge(),
+        detailPanel: { kind },
+      });
+      expect(parsed.detailPanel?.kind).toBe(kind);
+    }
+  });
+
+  test("rejects unknown panel kind", () => {
+    expect(() =>
+      feedItemSchema.parse({
+        ...minimalNudge(),
+        detailPanel: { kind: "unknown" },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("feedItemSchema — detailPanel data field", () => {
+  test("accepts panel without data", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "emailDraft" },
+    });
+    expect(parsed.detailPanel?.data).toBeUndefined();
+  });
+
+  test("accepts panel with empty data object", () => {
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "emailDraft", data: {} },
+    });
+    expect(parsed.detailPanel?.data).toEqual({});
+  });
+
+  test("round-trips EmailDraftPanelData shape", () => {
+    const data: EmailDraftPanelData = {
+      to: "user@example.com",
+      subject: "Follow up",
+      body: "Hi, just checking in.",
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "emailDraft", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as EmailDraftPanelData;
+    expect(d.to).toBe("user@example.com");
+    expect(d.subject).toBe("Follow up");
+    expect(d.body).toBe("Hi, just checking in.");
+  });
+
+  test("round-trips DocumentPreviewPanelData shape", () => {
+    const data: DocumentPreviewPanelData = {
+      imageUrl: "https://example.com/img.png",
+      caption: "Screenshot",
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "documentPreview", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as DocumentPreviewPanelData;
+    expect(d.imageUrl).toBe("https://example.com/img.png");
+    expect(d.caption).toBe("Screenshot");
+  });
+
+  test("round-trips PermissionChatPanelData shape", () => {
+    const data: PermissionChatPanelData = {
+      userMessage: "Can you run this?",
+      assistantResponse: "I need permission to execute.",
+      requestId: "req-123",
+      toolName: "bash",
+      commandPreview: "rm -rf /tmp/test",
+      riskLevel: "high",
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "permissionChat", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as PermissionChatPanelData;
+    expect(d.userMessage).toBe("Can you run this?");
+    expect(d.requestId).toBe("req-123");
+    expect(d.toolName).toBe("bash");
+    expect(d.riskLevel).toBe("high");
+  });
+
+  test("round-trips PaymentAuthPanelData shape", () => {
+    const data: PaymentAuthPanelData = {
+      imageUrl: "https://example.com/receipt.png",
+      caption: "Receipt",
+      amount: "$42.00",
+      recipient: "Example User",
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "paymentAuth", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as PaymentAuthPanelData;
+    expect(d.amount).toBe("$42.00");
+    expect(d.recipient).toBe("Example User");
+  });
+
+  test("round-trips ToolPermissionPanelData shape", () => {
+    const data: ToolPermissionPanelData = {
+      toolName: "file_write",
+      commandPreview: "write to /tmp/output.txt",
+      riskLevel: "medium",
+      decision: "approved",
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "toolPermission", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as ToolPermissionPanelData;
+    expect(d.toolName).toBe("file_write");
+    expect(d.decision).toBe("approved");
+  });
+
+  test("round-trips UpdatesListPanelData shape", () => {
+    const data: UpdatesListPanelData = {
+      items: [
+        { title: "Update 1", description: "First update" },
+        { title: "Update 2", description: "Second update" },
+      ],
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "updatesList", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as UpdatesListPanelData;
+    expect(d.items).toHaveLength(2);
+    expect(d.items[0]?.title).toBe("Update 1");
+  });
+
+  test("round-trips ScheduledPanelData shape", () => {
+    const data: ScheduledPanelData = {
+      description: "Daily standup reminder",
+      jobName: "standup-reminder",
+      syntax: "cron",
+      mode: "recurring",
+      schedule: "0 9 * * 1-5",
+      enabled: true,
+      nextRun: "2026-04-24T09:00:00.000Z",
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "scheduled", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as ScheduledPanelData;
+    expect(d.jobName).toBe("standup-reminder");
+    expect(d.syntax).toBe("cron");
+    expect(d.enabled).toBe(true);
+    expect(d.nextRun).toBe("2026-04-24T09:00:00.000Z");
+  });
+
+  test("round-trips NudgePanelData shape", () => {
+    const data: NudgePanelData = {
+      description: "Things you might want to do",
+      cards: [
+        { id: "card-1", title: "Review PR", description: "PR #123 is waiting" },
+        {
+          id: "card-2",
+          title: "Reply to thread",
+          description: "Alice asked a question",
+        },
+      ],
+    };
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "nudge", data },
+    });
+    const d = parsed.detailPanel?.data as unknown as NudgePanelData;
+    expect(d.description).toBe("Things you might want to do");
+    expect(d.cards).toHaveLength(2);
+    expect(d.cards[0]?.id).toBe("card-1");
+  });
+
+  test("existing items without data field decode without error", () => {
+    // Simulate a legacy item with detailPanel but no data
+    const parsed = feedItemSchema.parse({
+      ...minimalNudge(),
+      detailPanel: { kind: "emailDraft" },
+    });
+    expect(parsed.detailPanel?.kind).toBe("emailDraft");
+    expect(parsed.detailPanel?.data).toBeUndefined();
+  });
+
+  test("items without detailPanel still parse", () => {
+    const parsed = feedItemSchema.parse(minimalNudge());
+    expect(parsed.detailPanel).toBeUndefined();
   });
 });
