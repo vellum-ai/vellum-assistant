@@ -15,11 +15,18 @@
  * is clearer than `if (isContainerized) { ... }` when the behavior depends
  * on the specific deployment shape, and it leaves room for additional
  * runtime modes in the future without renaming every callsite.
+ *
+ * The `DaemonRuntimeMode` type itself is declared in
+ * `@vellumai/skill-host-contracts` so skill-side code can name the same type
+ * without importing assistant internals; it is re-exported here so existing
+ * assistant callers can continue to import it from this module.
  */
+
+import { type DaemonRuntimeMode } from "@vellumai/skill-host-contracts";
 
 import { getIsContainerized } from "../config/env-registry.js";
 
-export type DaemonRuntimeMode = "bare-metal" | "docker";
+export type { DaemonRuntimeMode };
 
 /**
  * Returns the deployment mode the daemon is currently running under.
