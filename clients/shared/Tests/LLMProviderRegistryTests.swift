@@ -3,6 +3,30 @@ import XCTest
 
 final class LLMProviderRegistryTests: XCTestCase {
 
+    func testFallbackProviderAndModelIdentitiesMatchGeneratedCatalog() throws {
+        let generatedCatalog = try loadGeneratedCatalog()
+        let fallbackCatalog = LLMProviderRegistry.fallbackCatalogForTests
+
+        XCTAssertEqual(
+            fallbackCatalog.providers.map(\.id),
+            generatedCatalog.providers.map(\.id),
+            "Fallback provider IDs must match meta/llm-provider-catalog.json"
+        )
+
+        for (fallbackProvider, generatedProvider) in zip(fallbackCatalog.providers, generatedCatalog.providers) {
+            XCTAssertEqual(
+                fallbackProvider.defaultModel,
+                generatedProvider.defaultModel,
+                "Fallback default model for \(fallbackProvider.id) must match meta/llm-provider-catalog.json"
+            )
+            XCTAssertEqual(
+                fallbackProvider.models.map(\.id),
+                generatedProvider.models.map(\.id),
+                "Fallback model IDs for \(fallbackProvider.id) must match meta/llm-provider-catalog.json"
+            )
+        }
+    }
+
     func testFallbackContainsExpectedProvidersInOrder() {
         let ids = LLMProviderRegistry.providers.map(\.id)
         XCTAssertEqual(
@@ -74,5 +98,16 @@ final class LLMProviderRegistryTests: XCTestCase {
                 "api-key provider \(provider.id) is missing envVar"
             )
         }
+    }
+
+    private func loadGeneratedCatalog() throws -> LLMProviderCatalog {
+        let catalogURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("meta/llm-provider-catalog.json")
+        let data = try Data(contentsOf: catalogURL)
+        return try JSONDecoder().decode(LLMProviderCatalog.self, from: data)
     }
 }
