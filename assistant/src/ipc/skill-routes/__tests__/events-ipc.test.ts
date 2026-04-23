@@ -157,7 +157,9 @@ describe("host.events.publish", () => {
       expect(received).toHaveLength(1);
       expect(received[0]?.id).toBe("evt-1");
       expect(received[0]?.assistantId).toBe("test-asst");
-      expect((received[0]?.message as { foo: string }).foo).toBe("bar");
+      expect((received[0]?.message as unknown as { foo: string }).foo).toBe(
+        "bar",
+      );
 
       client.close();
     } finally {
@@ -198,7 +200,7 @@ describe("host.events.buildEvent", () => {
     expect(built.conversationId).toBe(conversationId);
     expect(typeof built.id).toBe("string");
     expect(typeof built.emittedAt).toBe("string");
-    expect(built.message).toEqual(message);
+    expect(built.message).toEqual(message as typeof built.message);
 
     client.close();
   });
