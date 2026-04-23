@@ -1368,7 +1368,12 @@ if [ -d "$XCASSETS" ]; then
     if [ -d "$APP_ICON" ]; then
         ACTOOL_INPUTS+=("$APP_ICON")
     fi
-    # Capture actool output; suppress warnings but surface real failures
+    # Capture actool output; a non-zero exit is only a real failure if
+    # Assets.car was not produced. On GitHub-hosted macOS runners actool's
+    # AssetCatalogAgent-AssetRuntime subprocess occasionally crashes (dyld
+    # symbol mismatches against AVFCore / CoreMedia, IBPlatformToolFailure-
+    # Exception) after successfully writing Assets.car, so fall back to an
+    # output-file existence check before failing the build.
     ACTOOL_OUTPUT=$(xcrun actool "${ACTOOL_INPUTS[@]}" \
         --compile "$RESOURCES_DIR" \
         --platform macosx \
@@ -1376,13 +1381,12 @@ if [ -d "$XCASSETS" ]; then
         --app-icon AppIcon \
         --output-partial-info-plist /dev/null \
         2>&1) || {
-        # Filter out warning lines and check if there are real errors
-        ACTOOL_ERRORS=$(echo "$ACTOOL_OUTPUT" | grep -iv 'warning:' || true)
-        if [ -n "$ACTOOL_ERRORS" ]; then
-            echo "actool failed:"
-            echo "$ACTOOL_ERRORS"
+        if [ ! -f "$RESOURCES_DIR/Assets.car" ]; then
+            echo "actool failed to produce Assets.car:"
+            echo "$ACTOOL_OUTPUT"
             exit 1
         fi
+        echo "actool exited non-zero but Assets.car was produced; continuing."
     }
 fi
 
