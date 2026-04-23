@@ -164,6 +164,16 @@ All LLM calls must go through the provider abstraction — use `getConfiguredPro
 
 Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/config/schemas/llm.ts`). Pick the appropriate call-site ID for the request — the provider layer resolves provider/model/maxTokens/effort/thinking/contextWindow/etc. via `resolveCallSiteConfig` against `llm.callSites.<id>` (with fallback to an optional `llm.profiles.<name>` and finally to `llm.default`). Use provider-agnostic language in comments and logs ('LLM' not 'Haiku'/'Sonnet'). Route text generation through the daemon process — direct provider calls discard user context and preferences.
 
+### LLM Model Catalog Updates
+
+`assistant/src/providers/model-catalog.ts` is the authoring source for assistant-side LLM provider and model metadata. When adding or changing a model, update that catalog with `contextWindowTokens`, `maxOutputTokens`, capability flags, and local/public pricing estimates when known. If the model changes a default or assistant intent, also update `assistant/src/providers/model-intents.ts` and `assistant/src/__tests__/model-intents.test.ts`.
+
+Regenerate the native-client catalog JSON from the repo root with `export PATH="$HOME/.bun/bin:$PATH" && bun run scripts/generate-llm-provider-catalog.ts`. Do not hand-edit `meta/llm-provider-catalog.json`. Keep the native fallback in `clients/shared/Utilities/LLMProviderRegistry.swift` aligned for provider IDs, default models, and model IDs; `clients/shared/Tests/LLMProviderRegistryTests.swift` guards this drift.
+
+Before shipping, run `export PATH="$HOME/.bun/bin:$PATH" && bun run scripts/generate-llm-provider-catalog.ts --check`, `cd assistant && bun test src/__tests__/llm-catalog-parity.test.ts`, and `cd clients && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter LLMProviderRegistryTests`.
+
+Pricing in the assistant catalog is for local cost display and telemetry estimates only. Hosted platform billing rate cards are owned by `vellum-assistant-platform`; when managed-hosted model availability or billable model mapping changes, open a companion platform PR for the billing/rate-card update.
+
 ## Skill Isolation
 
 The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build context only exposes a curated subset of `skills/` — whitelisted by the repo-root `.dockerignore` — so an import reaching into an unlisted skill path breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
