@@ -114,13 +114,18 @@ This removes the custom image. If a native character was previously configured, 
 
 ## Viewing the Avatar
 
-When the user asks to see their current avatar, use the `get_avatar` tool. Do NOT use `file_read` — the `get_avatar` tool returns the image inline and handles regeneration from character traits if needed. Only call it once.
-
-To get the avatar path or base64 data programmatically:
+When the user asks to see their current avatar, get the path and then read it:
 
 ```bash
-assistant avatar get                  # prints the file path
-assistant avatar get --format base64  # prints base64-encoded PNG
+assistant avatar get
+```
+
+This prints the absolute path to the avatar image (regenerating from character traits if needed). Then use `file_read` on the returned path to display the image inline. Only do this once per request.
+
+To get the avatar as base64 data instead:
+
+```bash
+assistant avatar get --format base64
 ```
 
 ## UX Guidelines
@@ -135,4 +140,4 @@ assistant avatar get --format base64  # prints base64-encoded PNG
 - After any avatar change, confirm it was applied and let the user know they can change it again anytime.
 - **After any avatar change**, update the `## Avatar` section in `IDENTITY.md` with a plain-text description of the current avatar appearance. Do NOT use markdown image links — write a human-readable description instead. This ensures you remember what you look like across sessions. Example: `## Avatar\nA friendly purple cat with green eyes wearing a tiny hat`
 - **When the user asks what your avatar looks like**, read the `## Avatar` section in `IDENTITY.md` for your text description.
-- **When the user asks you to show or provide your avatar**, use the `get_avatar` tool. Do NOT use `file_read` — the `get_avatar` tool handles everything. Only call it once.
+- **When the user asks you to show or provide your avatar**, run `assistant avatar get` to get the path, then use `file_read` on that path to display the image. Only do this once.
