@@ -169,7 +169,10 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
     const { toolName, skillSelector, resolvedMetadata } = input;
 
     // Run normal classification first, then check for user overrides at
-    // the end. This ensures security escalations cannot be bypassed.
+    // the end. Note that user overrides are applied unconditionally, so a
+    // user-defined rule CAN lower a security-escalated risk. This is
+    // intentional — user overrides are authoritative for users who
+    // explicitly created them.
     let assessment: RiskAssessment;
 
     switch (toolName) {
@@ -211,10 +214,11 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
         break;
     }
 
-    // Check risk rule cache for user overrides AFTER normal classification.
-    // Use the same key format as buildSkillLoadAllowlistOptions: resolved
-    // skillId from metadata (when available), and skill_load_dynamic as the
-    // tool key for dynamic skills.
+    // User override is applied after normal classification. This means a user-defined
+    // rule CAN lower a security-escalated risk (e.g., scaffold_managed_skill).
+    // This is intentional — user overrides are authoritative for users who explicitly
+    // created them. Uses resolved skillId from metadata (when available), and
+    // skill_load_dynamic as the tool key for dynamic skills.
     try {
       const ruleCache = getTrustRuleV3Cache();
       const isDynamic =

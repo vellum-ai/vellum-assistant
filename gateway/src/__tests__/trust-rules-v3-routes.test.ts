@@ -64,17 +64,66 @@ function jsonRequest(url: string, method: string, body?: unknown): Request {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/trust-rules-v3 — list", () => {
-  test("returns seeded default rules by default (excludes deleted)", async () => {
+  test("default listing returns only user-relevant rules (user_defined + modified defaults)", async () => {
     const handler = createTrustRuleV3sListHandler();
-    const req = jsonRequest("http://localhost/v1/trust-rules-v3", "GET");
+
+    // Without any user-defined or user-modified rules, the default listing
+    // should return 0 results (seeded defaults are unmodified).
+    const reqEmpty = jsonRequest("http://localhost/v1/trust-rules-v3", "GET");
+    const resEmpty = await handler(reqEmpty);
+    expect(resEmpty.status).toBe(200);
+    const bodyEmpty = (await resEmpty.json()) as { rules: unknown[] };
+    expect(bodyEmpty.rules.length).toBe(0);
+
+    // Create a user-defined rule — it should now appear in the default listing
+    store.create({
+      tool: "bash",
+      pattern: "user-cmd",
+      risk: "low",
+      description: "user created",
+    });
+    const reqUser = jsonRequest("http://localhost/v1/trust-rules-v3", "GET");
+    const resUser = await handler(reqUser);
+    const bodyUser = (await resUser.json()) as {
+      rules: Array<{ origin: string; deleted: boolean }>;
+    };
+    expect(bodyUser.rules.length).toBe(1);
+    expect(bodyUser.rules[0].origin).toBe("user_defined");
+    expect(bodyUser.rules[0].deleted).toBe(false);
+
+    // Modify a default rule — it should also appear in the default listing
+    const defaults = store.list({ origin: "default" });
+    expect(defaults.length).toBeGreaterThan(0);
+    store.update(defaults[0].id, { risk: "high" });
+
+    const reqModified = jsonRequest(
+      "http://localhost/v1/trust-rules-v3",
+      "GET",
+    );
+    const resModified = await handler(reqModified);
+    const bodyModified = (await resModified.json()) as {
+      rules: Array<{ origin: string; userModified: boolean }>;
+    };
+    expect(bodyModified.rules.length).toBe(2);
+  });
+
+  test("origin=default returns all defaults including unmodified", async () => {
+    const handler = createTrustRuleV3sListHandler();
+    const req = jsonRequest(
+      "http://localhost/v1/trust-rules-v3?origin=default",
+      "GET",
+    );
     const res = await handler(req);
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as { rules: unknown[] };
     // Should have seeded defaults from the command registry
     expect(body.rules.length).toBeGreaterThan(0);
-    // All returned rules should not be deleted
-    for (const rule of body.rules as Array<{ deleted: boolean }>) {
+    for (const rule of body.rules as Array<{
+      origin: string;
+      deleted: boolean;
+    }>) {
+      expect(rule.origin).toBe("default");
       expect(rule.deleted).toBe(false);
     }
   });
@@ -106,8 +155,9 @@ describe("GET /v1/trust-rules-v3 — list", () => {
 
   test("filters by tool=bash", async () => {
     const handler = createTrustRuleV3sListHandler();
+    // Combine with origin=default to bypass userRelevantOnly filtering
     const req = jsonRequest(
-      "http://localhost/v1/trust-rules-v3?tool=bash",
+      "http://localhost/v1/trust-rules-v3?tool=bash&origin=default",
       "GET",
     );
     const res = await handler(req);
@@ -132,7 +182,11 @@ describe("GET /v1/trust-rules-v3 — list", () => {
     const handler = createTrustRuleV3sListHandler();
 
     // Without include_deleted, the deleted rule should not appear
-    const reqExclude = jsonRequest("http://localhost/v1/trust-rules-v3", "GET");
+    // Use origin=default to bypass userRelevantOnly filtering
+    const reqExclude = jsonRequest(
+      "http://localhost/v1/trust-rules-v3?origin=default",
+      "GET",
+    );
     const resExclude = await handler(reqExclude);
     const bodyExclude = (await resExclude.json()) as {
       rules: Array<{ id: string }>;
@@ -144,7 +198,7 @@ describe("GET /v1/trust-rules-v3 — list", () => {
 
     // With include_deleted=true, the deleted rule should appear
     const reqInclude = jsonRequest(
-      "http://localhost/v1/trust-rules-v3?include_deleted=true",
+      "http://localhost/v1/trust-rules-v3?origin=default&include_deleted=true",
       "GET",
     );
     const resInclude = await handler(reqInclude);

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { trustRulesV3 } from "./schema.js";
 
@@ -23,6 +23,13 @@ export interface ListFilters {
   origin?: string;
   tool?: string;
   includeDeleted?: boolean;
+  /**
+   * When true, only returns rules that are user-relevant: user_defined rules
+   * plus default rules that have been modified by the user. This is the
+   * default behaviour for the GET list endpoint when no `origin` filter is
+   * specified.
+   */
+  userRelevantOnly?: boolean;
 }
 
 export interface CreateInput {
@@ -49,7 +56,7 @@ export interface UpsertDefaultInput {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const VALID_RISK_VALUES: ReadonlySet<string> = new Set([
+export const VALID_RISK_VALUES: ReadonlySet<string> = new Set([
   "low",
   "medium",
   "high",
@@ -116,6 +123,15 @@ export class TrustRuleV3Store {
     }
     if (filters?.origin !== undefined) {
       conditions.push(eq(trustRulesV3.origin, filters.origin));
+    }
+    if (filters?.userRelevantOnly) {
+      // Only user_defined rules OR default rules that have been user-modified
+      conditions.push(
+        or(
+          eq(trustRulesV3.origin, "user_defined"),
+          eq(trustRulesV3.userModified, true),
+        )!,
+      );
     }
     if (filters?.tool !== undefined) {
       conditions.push(eq(trustRulesV3.tool, filters.tool));

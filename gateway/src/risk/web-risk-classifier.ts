@@ -47,7 +47,9 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
     // option generation using the canonical normalization.
 
     // Run normal classification first (including security escalations like
-    // allowPrivateNetwork), then check for user overrides at the end.
+    // allowPrivateNetwork), then check for user overrides at the end. Note
+    // that user overrides are applied unconditionally, so a user-defined rule
+    // CAN lower a security-escalated risk. This is intentional.
     let assessment: RiskAssessment;
 
     switch (toolName) {
@@ -92,9 +94,10 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
         break;
     }
 
-    // Check risk rule cache for user overrides AFTER normal classification.
-    // This preserves security escalations — overrides only apply to the
-    // final result, they cannot bypass high-risk checks like allowPrivateNetwork.
+    // User override is applied after normal classification. This means a user-defined
+    // rule CAN lower a security-escalated risk (e.g., allowPrivateNetwork fetch).
+    // This is intentional — user overrides are authoritative for users who explicitly
+    // created them.
     try {
       const ruleCache = getTrustRuleV3Cache();
       const override = ruleCache.findToolOverride(toolName, url ?? "");

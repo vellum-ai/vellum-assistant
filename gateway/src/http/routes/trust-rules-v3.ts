@@ -9,15 +9,16 @@
  * classifications reflect the change immediately.
  */
 
-import { TrustRuleV3Store } from "../../db/trust-rule-v3-store.js";
+import {
+  TrustRuleV3Store,
+  VALID_RISK_VALUES,
+} from "../../db/trust-rule-v3-store.js";
 import { invalidateTrustRuleV3Cache } from "../../risk/trust-rule-v3-cache.js";
 import { getMergedFeatureFlags } from "../../ipc/feature-flag-handlers.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("trust-rules-v3");
-
-const VALID_RISK_VALUES = new Set(["low", "medium", "high"]);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,7 +49,17 @@ export function createTrustRuleV3sListHandler() {
       const tool = url.searchParams.get("tool") ?? undefined;
       const includeDeleted = url.searchParams.get("include_deleted") === "true";
 
-      const rules = store.list({ origin, tool, includeDeleted });
+      // When no origin filter is specified, default to user-relevant rules
+      // only (user_defined + user-modified defaults). This excludes unmodified
+      // defaults and soft-deleted rules from the default listing.
+      const userRelevantOnly = origin === undefined;
+
+      const rules = store.list({
+        origin,
+        tool,
+        includeDeleted,
+        userRelevantOnly,
+      });
       return Response.json({ rules });
     } catch (err) {
       log.error({ err }, "Failed to list v3 trust rules");
