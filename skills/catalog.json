@@ -338,18 +338,6 @@
       "compatibility": "Requires curl and python3. Works on macOS and Linux."
     },
     {
-      "id": "notion",
-      "name": "notion",
-      "description": "Read and write Notion pages and databases using the Notion API",
-      "metadata": {
-        "emoji": "📝",
-        "vellum": {
-          "display-name": "Notion"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "notifications",
       "name": "notifications",
       "description": "Send notifications through the unified notification router",
@@ -357,6 +345,18 @@
         "emoji": "🔔",
         "vellum": {
           "display-name": "Notifications"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "notion",
+      "name": "notion",
+      "description": "Read and write Notion pages and databases using the Notion API",
+      "metadata": {
+        "emoji": "📝",
+        "vellum": {
+          "display-name": "Notion"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

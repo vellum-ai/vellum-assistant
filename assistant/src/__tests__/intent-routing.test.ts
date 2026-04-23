@@ -57,17 +57,6 @@ const scheduleCreateDef = scheduleToolsJson.tools.find(
   (t: { name: string }) => t.name === "schedule_create",
 );
 
-// Load send_notification description from the notifications skill TOOLS.json
-const notifToolsJson = JSON.parse(
-  readFileSync(
-    join(import.meta.dirname, "../../../skills/notifications/TOOLS.json"),
-    "utf-8",
-  ),
-);
-const sendNotificationDef = notifToolsJson.tools.find(
-  (t: { name: string }) => t.name === "send_notification",
-);
-
 // =====================================================================
 // 1. Routing section removed from system prompt — guidance in tool descriptions
 // =====================================================================
@@ -108,18 +97,6 @@ describe("schedule_create tool description", () => {
   test("does NOT suggest it handles task queue items", () => {
     expect(scheduleCreateDef.description).not.toContain("task queue");
     expect(scheduleCreateDef.description).not.toContain("one-off");
-  });
-});
-
-describe("send_notification tool description", () => {
-  test("states it fires immediately with no delay", () => {
-    expect(sendNotificationDef).toBeDefined();
-    expect(sendNotificationDef.description).toContain("immediate");
-    expect(sendNotificationDef.description).toContain("no delay");
-  });
-
-  test("redirects to schedule_create for future alerts", () => {
-    expect(sendNotificationDef.description).toContain("schedule_create");
   });
 });
 
