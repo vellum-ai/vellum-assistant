@@ -11,12 +11,10 @@ import { execAppleContainer } from "../lib/exec-apple-container";
 import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { sshAppleContainer } from "../lib/ssh-apple-container";
 import {
-  closeTerminalSession,
-  createTerminalSession,
-  sendTerminalInput,
-  subscribeTerminalEvents,
-} from "../lib/terminal-client";
-import { interactiveSession } from "./terminal";
+  interactiveSession,
+  nonInteractiveExec,
+  shellEscapeArgs,
+} from "../lib/terminal-session";
 
 const SERVICE_ALIASES: Record<string, ServiceName> = {
   assistant: "assistant",
@@ -196,106 +194,14 @@ export async function exec(): Promise<void> {
       platformUrl: getPlatformUrl(),
     };
 
-    // Interactive mode: delegate to the full terminal session
     if (interactive) {
-      await interactiveSession(assistant, command.join(" "));
+      // Interactive mode: shell-escape argv and delegate to full terminal
+      await interactiveSession(assistant, shellEscapeArgs(command));
       return;
     }
 
-    // Non-interactive: create session, send command, capture output, close
-    const { session_id: sessionId } = await createTerminalSession(
-      token,
-      entry.assistantId,
-      120,
-      24,
-      assistant.platformUrl,
-    );
-
-    const abortController = new AbortController();
-    const output: Buffer[] = [];
-    let commandSent = false;
-    let exitDetected = false;
-
-    const timeout = setTimeout(() => abortController.abort(), 30_000);
-
-    try {
-      for await (const event of subscribeTerminalEvents(
-        token,
-        entry.assistantId,
-        sessionId,
-        assistant.platformUrl,
-        abortController.signal,
-      )) {
-        const bytes = Buffer.from(event.data, "base64");
-        output.push(bytes);
-
-        // Wait for shell prompt before sending command
-        if (!commandSent) {
-          const joined = Buffer.concat(output).toString("utf-8");
-          if (
-            joined.includes("$") ||
-            joined.includes("#") ||
-            joined.includes("%")
-          ) {
-            commandSent = true;
-            const shellCmd = command
-              .map((c) => c.replace(/'/g, "'\\''"))
-              .map((c) => `'${c}'`)
-              .join(" ");
-            await sendTerminalInput(
-              token,
-              entry.assistantId,
-              sessionId,
-              `${shellCmd}; exit $?\r`,
-              assistant.platformUrl,
-            );
-          }
-        }
-
-        // Detect shell exit
-        if (commandSent && !exitDetected) {
-          const text = bytes.toString("utf-8");
-          if (text.includes("exit") || text.includes("logout")) {
-            exitDetected = true;
-            // Give a moment for final output then close
-            setTimeout(() => abortController.abort(), 500);
-          }
-        }
-      }
-    } catch {
-      // Expected: abort on timeout or exit detection
-    } finally {
-      clearTimeout(timeout);
-      await closeTerminalSession(
-        token,
-        entry.assistantId,
-        sessionId,
-        assistant.platformUrl,
-      ).catch(() => {});
-    }
-
-    // Write captured output to stdout (skip the prompt/command echo)
-    const raw = Buffer.concat(output).toString("utf-8");
-    // Strip ANSI escapes for clean output
-    const clean = raw.replace(
-      // biome-ignore lint/suspicious/noControlCharactersInRegex: needed for ANSI stripping
-      /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][^\n]|\r/g,
-      "",
-    );
-
-    // Output everything after the command echo and before the exit
-    const lines = clean.split("\n");
-    const cmdStr = command.join(" ");
-    const echoIdx = lines.findIndex((l) => l.includes(cmdStr));
-    const exitIdx = lines.findIndex(
-      (l, i) => i > echoIdx && (l.includes("exit") || l.includes("logout")),
-    );
-    const start = echoIdx >= 0 ? echoIdx + 1 : 0;
-    const end = exitIdx >= 0 ? exitIdx : lines.length;
-    const result = lines.slice(start, end).join("\n").trim();
-    if (result) {
-      process.stdout.write(result + "\n");
-    }
+    // Non-interactive: sentinel-based output capture with exit code
+    await nonInteractiveExec(assistant, command);
     return;
   }
 

@@ -8,7 +8,7 @@ import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { sshAppleContainer } from "../lib/ssh-apple-container";
-import { interactiveSession } from "./terminal";
+import { interactiveSession } from "../lib/terminal-session";
 
 const SSH_OPTS = [
   "-o",
