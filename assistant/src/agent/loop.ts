@@ -10,6 +10,7 @@ import {
   calculateMaxToolResultChars,
   truncateToolResultText,
 } from "../context/tool-result-truncation.js";
+import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -1027,11 +1028,15 @@ export class AgentLoop {
         >(
           "toolError",
           getMiddlewaresFor("toolError"),
-          // Terminal fallback: fires only when no plugin contributes a
-          // `toolError` middleware. The default plugin's middleware shadows
-          // this with the full decision logic, so production runs never hit
-          // the fallback.
-          async () => ({ action: "skip" }),
+          // Terminal: the canonical nudge decision. The default plugin's
+          // middleware is a passthrough (so later-registered user plugins
+          // aren't shadowed), so this terminal is what actually produces
+          // the decision when no user plugin overrides it. Wiring the
+          // decision here — rather than inside the default plugin's
+          // middleware — also preserves the legacy nudge for direct
+          // AgentLoop callers (tests, benchmarks) that skip
+          // `bootstrapPlugins()` and therefore never register the default.
+          async (args) => defaultToolErrorTerminal(args),
           toolErrorArgs,
           toolErrorCtx,
           DEFAULT_TIMEOUTS.toolError,
