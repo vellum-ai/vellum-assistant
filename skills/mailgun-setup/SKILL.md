@@ -34,9 +34,18 @@ credential_store:
 
 **Note:** Mailgun uses HTTP Basic Auth with username `api` and the API key as the password. The credential proxy cannot construct Basic Auth headers automatically (it would need to base64-encode `api:<key>`). Instead, use `curl -u "api:$KEY"` in bash commands — retrieve the key from the vault at runtime. See the sending examples below.
 
-### Sending Domain
+### Domain Detection
 
-Ask the user for their Mailgun sending domain (e.g., `mg.example.com`). This is not a secret — collect it conversationally and remember it for future sends.
+After storing the API key, **automatically detect the user's domain** — don't ask them for it. Retrieve the API key from the vault and call the Mailgun Domains API:
+
+```bash
+curl -s --user "api:$MAILGUN_API_KEY" \
+  https://api.mailgun.net/v4/domains?state=active
+```
+
+The response contains an `items` array of domain objects with `name` and `state` fields. Pick the first domain with `"state": "active"` (or the only domain if there's just one). If no active domains are found, try the EU endpoint (`https://api.eu.mailgun.net/v4/domains?state=active`). If still none, tell the user they need to verify a domain in their Mailgun dashboard first.
+
+Use `hi@<domain>` as the default sender address (consistent with Vellum's native email convention). Remember the domain for future sends.
 
 ### Webhook Signing Key (for receiving)
 
@@ -120,6 +129,7 @@ Ask the user which region their account uses if sends fail with 401.
 ## Important Notes
 
 - The `from` address must be from the user's verified Mailgun domain.
+- Default sender address is `hi@<domain>` — use this unless the user specifies otherwise.
 - Always confirm with the user before sending — never send without explicit permission.
 - Use `text` for plain text, `html` for rich formatting. Provide both when possible.
 - Mailgun's free tier allows 100 emails/day. Paid plans have higher limits.

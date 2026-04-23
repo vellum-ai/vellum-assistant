@@ -37,6 +37,19 @@ credential_store:
       valuePrefix: "Bearer "
 ```
 
+### Domain Detection
+
+After storing the API key, **automatically detect the user's domain** — don't ask them for it. Call the Resend Domains API:
+
+```bash
+curl -s https://api.resend.com/domains \
+  -H "Content-Type: application/json"
+```
+
+Run this with `network_mode: "proxied"` and the resend credential so the Authorization header is injected automatically. The response contains a `data` array of domain objects with `name` and `status` fields. Pick the first domain with `"status": "verified"` (or the only domain if there's just one). If no verified domains are found, tell the user they need to verify a domain in their Resend dashboard first.
+
+Use `hi@<domain>` as the default sender address (consistent with Vellum's native email convention). Remember the domain for future sends.
+
 ### Webhook Secret (for receiving)
 
 If the user also wants to **receive** emails via Resend, they need to configure a webhook in their Resend dashboard:
@@ -112,6 +125,7 @@ Errors return `{ "message": "error description" }` with 4xx/5xx status.
 ## Important Notes
 
 - The `from` address must be from a domain verified in the user's Resend account.
+- Default sender address is `hi@<domain>` — use this unless the user specifies otherwise.
 - Always confirm with the user before sending — never send without explicit permission.
 - Use `text` for plain text, `html` for rich formatting. Provide both when possible.
 - Rate limits depend on the user's Resend plan.
