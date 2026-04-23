@@ -52,6 +52,10 @@ mock.module("../../../assistant/src/runtime/skill-route-registry.js", () => ({
     handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
   }) => {
     capturedRoutes.push(route);
+    // Real `registerSkillRoute` returns an opaque handle; mimic that shape
+    // so callers that retain the return value see something handle-like
+    // rather than `undefined`. Tests here don't invoke unregister.
+    return Object.freeze({});
   },
 }));
 

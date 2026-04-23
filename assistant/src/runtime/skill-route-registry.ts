@@ -1,9 +1,16 @@
 /**
  * Registry for skill-provided HTTP route handlers.
  *
- * Skills register route matchers + handlers at initialization time. The
- * runtime HTTP server checks the registry for each inbound request before
- * falling through to its own route table.
+ * Skills and plugins register route matchers + handlers at initialization
+ * time. The runtime HTTP server checks the registry for each inbound request
+ * before falling through to its own route table.
+ *
+ * Registrations are identified by an opaque {@link SkillRouteHandle} returned
+ * from {@link registerSkillRoute}. Callers must pass that exact handle back
+ * to {@link unregisterSkillRoute} to remove the registration — pattern text
+ * is intentionally not a stable key, because two owners can legitimately
+ * register the same regex, and keying on `source + flags` would let one
+ * owner's teardown silently drop another owner's route.
  */
 
 import { getLogger } from "../util/logger.js";
@@ -23,50 +30,61 @@ export type SkillRouteMatch =
   | { kind: "match"; route: SkillRoute; match: RegExpMatchArray }
   | { kind: "methodMismatch"; allow: string[] };
 
-const routes: SkillRoute[] = [];
+/**
+ * Opaque token returned from {@link registerSkillRoute}. The token has no
+ * observable fields — callers must treat it as a black box whose only valid
+ * use is to pass it to {@link unregisterSkillRoute}. Identity comparison on
+ * the token is what the registry keys against, so every call to
+ * `registerSkillRoute` returns a fresh handle even when the route's
+ * `pattern`/`methods`/`handler` are deep-equal to an existing entry.
+ */
+declare const skillRouteHandleBrand: unique symbol;
+export interface SkillRouteHandle {
+  readonly [skillRouteHandleBrand]: true;
+}
+
+interface RegisteredRoute {
+  readonly handle: SkillRouteHandle;
+  readonly route: SkillRoute;
+}
+
+const routes: RegisteredRoute[] = [];
 
 /**
- * Register a skill-provided HTTP route. Called by skills at initialization time.
+ * Register a skill- or plugin-provided HTTP route. Called at initialization
+ * time. Returns an opaque handle the caller must retain and pass back to
+ * {@link unregisterSkillRoute} at teardown time. Do not attempt to derive
+ * the handle from the route's pattern — identity is the only stable key.
  */
-export function registerSkillRoute(route: SkillRoute): void {
-  routes.push(route);
+export function registerSkillRoute(route: SkillRoute): SkillRouteHandle {
+  const handle = Object.freeze({}) as SkillRouteHandle;
+  routes.push({ handle, route });
   log.info(
     { pattern: route.pattern.source, methods: route.methods },
     "Skill route registered",
   );
+  return handle;
 }
 
 /**
- * Unregister a previously-registered skill route.
- *
- * Matches by `RegExp` identity first (the common case — a caller passes back
- * the same `pattern` reference it handed to {@link registerSkillRoute}) and
- * falls back to `pattern.source + flags` equality so callers that rebuild an
- * equivalent regex still succeed. Removes at most one route per call — if two
- * routes were registered with identical patterns, the first match is dropped
- * and subsequent calls remove the rest.
+ * Unregister a previously-registered skill route by handle.
  *
  * Returns `true` if a route was removed, `false` otherwise. Not finding a
  * match is not an error: the plugin-shutdown path calls this best-effort for
- * every route a plugin contributed, and a stale reference (e.g. the registry
- * was cleared externally) should not crash shutdown.
+ * every handle a plugin retained, and a stale handle (e.g. the registry was
+ * cleared externally) should not crash shutdown.
  */
-export function unregisterSkillRoute(pattern: RegExp): boolean {
-  const index = routes.findIndex(
-    (route) =>
-      route.pattern === pattern ||
-      (route.pattern.source === pattern.source &&
-        route.pattern.flags === pattern.flags),
-  );
+export function unregisterSkillRoute(handle: SkillRouteHandle): boolean {
+  const index = routes.findIndex((entry) => entry.handle === handle);
   if (index === -1) {
-    log.warn(
-      { pattern: pattern.source },
-      "unregisterSkillRoute: no matching route found",
-    );
+    log.warn({}, "unregisterSkillRoute: no matching route found for handle");
     return false;
   }
-  routes.splice(index, 1);
-  log.info({ pattern: pattern.source }, "Skill route unregistered");
+  const [removed] = routes.splice(index, 1);
+  log.info(
+    { pattern: removed!.route.pattern.source },
+    "Skill route unregistered",
+  );
   return true;
 }
 
@@ -89,15 +107,25 @@ export function matchSkillRoute(
   method: string,
 ): SkillRouteMatch | null {
   const pathMatches: SkillRoute[] = [];
-  for (const route of routes) {
-    const match = path.match(route.pattern);
+  for (const entry of routes) {
+    const match = path.match(entry.route.pattern);
     if (!match) continue;
-    if (route.methods.includes(method)) {
-      return { kind: "match", route, match };
+    if (entry.route.methods.includes(method)) {
+      return { kind: "match", route: entry.route, match };
     }
-    pathMatches.push(route);
+    pathMatches.push(entry.route);
   }
   if (pathMatches.length === 0) return null;
   const allow = Array.from(new Set(pathMatches.flatMap((r) => r.methods)));
   return { kind: "methodMismatch", allow };
+}
+
+/**
+ * Test-only helper — drops every registered route. Production code has no
+ * legitimate need for this; a real shutdown walks the handles each owner
+ * retained. Exported so tests that bypass the normal shutdown path (e.g.
+ * those that crash mid-bootstrap) can reset registry state between cases.
+ */
+export function resetSkillRoutesForTests(): void {
+  routes.length = 0;
 }
