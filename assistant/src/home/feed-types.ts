@@ -74,11 +74,80 @@ export type FeedItemDetailPanelKind =
   | "permissionChat"
   | "paymentAuth"
   | "toolPermission"
-  | "updatesList";
+  | "updatesList"
+  | "scheduled"
+  | "nudge";
 
-/** Server-driven detail panel descriptor attached to a feed item. */
+// ---------------------------------------------------------------------------
+// Per-kind panel data interfaces
+// ---------------------------------------------------------------------------
+
+export interface EmailDraftPanelData {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+export interface DocumentPreviewPanelData {
+  imageUrl?: string;
+  caption?: string;
+}
+
+export interface PermissionChatPanelData {
+  userMessage: string;
+  assistantResponse: string;
+  requestId: string;
+  toolName: string;
+  commandPreview?: string;
+  riskLevel?: string;
+}
+
+export interface PaymentAuthPanelData {
+  imageUrl?: string;
+  caption?: string;
+  amount?: string;
+  recipient?: string;
+}
+
+export interface ToolPermissionPanelData {
+  toolName: string;
+  commandPreview?: string;
+  riskLevel?: string;
+  decision?: string;
+}
+
+export interface UpdatesListPanelData {
+  items: Array<{ title: string; description: string }>;
+}
+
+export interface ScheduledPanelData {
+  description?: string;
+  jobName: string;
+  syntax: string;
+  mode: string;
+  schedule?: string;
+  enabled: boolean;
+  nextRun?: string;
+}
+
+export interface NudgePanelData {
+  description?: string;
+  cards: Array<{
+    id: string;
+    title: string;
+    description: string;
+  }>;
+}
+
+/**
+ * Server-driven detail panel descriptor attached to a feed item.
+ *
+ * `data` is an untyped dictionary on the wire — kind-specific parsing
+ * happens at the consumer via the per-kind interfaces above.
+ */
 export interface FeedItemDetailPanel {
   kind: FeedItemDetailPanelKind;
+  data?: Record<string, unknown>;
 }
 
 /**
@@ -200,10 +269,13 @@ const feedItemDetailPanelKindSchema = z.enum([
   "paymentAuth",
   "toolPermission",
   "updatesList",
+  "scheduled",
+  "nudge",
 ]);
 
 const feedItemDetailPanelSchema = z.object({
   kind: feedItemDetailPanelKindSchema,
+  data: z.record(z.unknown()).optional(),
 });
 
 /**

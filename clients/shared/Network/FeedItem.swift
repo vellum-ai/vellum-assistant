@@ -93,12 +93,208 @@ public enum FeedItemDetailPanelKind: String, Codable, Sendable, Hashable {
     case paymentAuth
     case toolPermission
     case updatesList
+    case scheduled
+    case nudge
 }
 
 /// Server-driven detail panel descriptor attached to a feed item.
-public struct FeedItemDetailPanel: Codable, Sendable, Hashable {
+///
+/// `data` is an untyped dictionary on the wire — kind-specific parsing
+/// happens at the consumer via the per-kind data structs below.
+public struct FeedItemDetailPanel: Codable, Sendable {
     public let kind: FeedItemDetailPanelKind
-    public init(kind: FeedItemDetailPanelKind) { self.kind = kind }
+    public let data: [String: AnyCodable]?
+
+    public init(kind: FeedItemDetailPanelKind, data: [String: AnyCodable]? = nil) {
+        self.kind = kind
+        self.data = data
+    }
+}
+
+extension FeedItemDetailPanel: Equatable {
+    public static func == (lhs: FeedItemDetailPanel, rhs: FeedItemDetailPanel) -> Bool {
+        lhs.kind == rhs.kind && lhs.data == rhs.data
+    }
+}
+
+extension FeedItemDetailPanel: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
+    }
+}
+
+// MARK: - Per-kind panel data structs
+
+/// Data for the `emailDraft` detail panel kind.
+public struct EmailDraftPanelData: Sendable, Hashable {
+    public let to: String
+    public let subject: String
+    public let body: String
+
+    public static func from(_ data: [String: AnyCodable]?) -> EmailDraftPanelData? {
+        guard let data,
+              let to = data["to"]?.value as? String,
+              let subject = data["subject"]?.value as? String,
+              let body = data["body"]?.value as? String else { return nil }
+        return EmailDraftPanelData(to: to, subject: subject, body: body)
+    }
+}
+
+/// Data for the `documentPreview` detail panel kind.
+public struct DocumentPreviewPanelData: Sendable, Hashable {
+    public let imageUrl: String?
+    public let caption: String?
+
+    public static func from(_ data: [String: AnyCodable]?) -> DocumentPreviewPanelData? {
+        guard let data else { return nil }
+        return DocumentPreviewPanelData(
+            imageUrl: data["imageUrl"]?.value as? String,
+            caption: data["caption"]?.value as? String
+        )
+    }
+}
+
+/// Data for the `permissionChat` detail panel kind.
+public struct PermissionChatPanelData: Sendable, Hashable {
+    public let userMessage: String
+    public let assistantResponse: String
+    public let requestId: String
+    public let toolName: String
+    public let commandPreview: String?
+    public let riskLevel: String?
+
+    public static func from(_ data: [String: AnyCodable]?) -> PermissionChatPanelData? {
+        guard let data,
+              let userMessage = data["userMessage"]?.value as? String,
+              let assistantResponse = data["assistantResponse"]?.value as? String,
+              let requestId = data["requestId"]?.value as? String,
+              let toolName = data["toolName"]?.value as? String else { return nil }
+        return PermissionChatPanelData(
+            userMessage: userMessage,
+            assistantResponse: assistantResponse,
+            requestId: requestId,
+            toolName: toolName,
+            commandPreview: data["commandPreview"]?.value as? String,
+            riskLevel: data["riskLevel"]?.value as? String
+        )
+    }
+}
+
+/// Data for the `paymentAuth` detail panel kind.
+public struct PaymentAuthPanelData: Sendable, Hashable {
+    public let imageUrl: String?
+    public let caption: String?
+    public let amount: String?
+    public let recipient: String?
+
+    public static func from(_ data: [String: AnyCodable]?) -> PaymentAuthPanelData? {
+        guard let data else { return nil }
+        return PaymentAuthPanelData(
+            imageUrl: data["imageUrl"]?.value as? String,
+            caption: data["caption"]?.value as? String,
+            amount: data["amount"]?.value as? String,
+            recipient: data["recipient"]?.value as? String
+        )
+    }
+}
+
+/// Data for the `toolPermission` detail panel kind.
+public struct ToolPermissionPanelData: Sendable, Hashable {
+    public let toolName: String
+    public let commandPreview: String?
+    public let riskLevel: String?
+    public let decision: String?
+
+    public static func from(_ data: [String: AnyCodable]?) -> ToolPermissionPanelData? {
+        guard let data,
+              let toolName = data["toolName"]?.value as? String else { return nil }
+        return ToolPermissionPanelData(
+            toolName: toolName,
+            commandPreview: data["commandPreview"]?.value as? String,
+            riskLevel: data["riskLevel"]?.value as? String,
+            decision: data["decision"]?.value as? String
+        )
+    }
+}
+
+/// Data for the `updatesList` detail panel kind.
+public struct UpdatesListPanelData: Sendable, Hashable {
+    public struct Item: Sendable, Hashable {
+        public let title: String
+        public let description: String
+    }
+
+    public let items: [Item]
+
+    public static func from(_ data: [String: AnyCodable]?) -> UpdatesListPanelData? {
+        guard let data,
+              let rawItems = data["items"]?.value as? [Any] else { return nil }
+        var parsed: [Item] = []
+        for rawItem in rawItems {
+            guard let dict = rawItem as? [String: Any],
+                  let title = dict["title"] as? String,
+                  let description = dict["description"] as? String else { continue }
+            parsed.append(Item(title: title, description: description))
+        }
+        return UpdatesListPanelData(items: parsed)
+    }
+}
+
+/// Data for the `scheduled` detail panel kind.
+public struct ScheduledPanelData: Sendable, Hashable {
+    public let description: String?
+    public let jobName: String
+    public let syntax: String
+    public let mode: String
+    public let schedule: String?
+    public let enabled: Bool
+    public let nextRun: String?
+
+    public static func from(_ data: [String: AnyCodable]?) -> ScheduledPanelData? {
+        guard let data,
+              let jobName = data["jobName"]?.value as? String,
+              let syntax = data["syntax"]?.value as? String,
+              let mode = data["mode"]?.value as? String,
+              let enabled = data["enabled"]?.value as? Bool else { return nil }
+        return ScheduledPanelData(
+            description: data["description"]?.value as? String,
+            jobName: jobName,
+            syntax: syntax,
+            mode: mode,
+            schedule: data["schedule"]?.value as? String,
+            enabled: enabled,
+            nextRun: data["nextRun"]?.value as? String
+        )
+    }
+}
+
+/// Data for the `nudge` detail panel kind.
+public struct NudgePanelData: Sendable, Hashable {
+    public struct Card: Sendable, Hashable {
+        public let id: String
+        public let title: String
+        public let description: String
+    }
+
+    public let description: String?
+    public let cards: [Card]
+
+    public static func from(_ data: [String: AnyCodable]?) -> NudgePanelData? {
+        guard let data,
+              let rawCards = data["cards"]?.value as? [Any] else { return nil }
+        var parsed: [Card] = []
+        for rawCard in rawCards {
+            guard let dict = rawCard as? [String: Any],
+                  let id = dict["id"] as? String,
+                  let title = dict["title"] as? String,
+                  let description = dict["description"] as? String else { continue }
+            parsed.append(Card(id: id, title: title, description: description))
+        }
+        return NudgePanelData(
+            description: data["description"]?.value as? String,
+            cards: parsed
+        )
+    }
 }
 
 // MARK: - FeedItem
