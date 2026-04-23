@@ -295,7 +295,12 @@ public final class AuthService {
             organizationId: organizationId
         )
 
-        if response.statusCode == 401 {
+        if response.statusCode == 401 || response.statusCode == 403 {
+            // Collapsed like the other POSTs on this service (self-hosted
+            // registration, reprovision, retire). The platform's activate
+            // endpoint uses an ownership-filtered queryset — non-owned IDs
+            // come back as 404, so 403 here means session/token/org-access
+            // is bad, not a per-resource permission error.
             throw PlatformAPIError.authenticationRequired
         }
         if response.statusCode == 404 {
