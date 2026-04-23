@@ -181,6 +181,8 @@ export function registerPluginTools(
     ownerPluginId: pluginName,
     ownerSkillId: undefined,
     ownerMcpServerId: undefined,
+    ownerSkillBundled: undefined,
+    ownerSkillVersionHash: undefined,
   }));
 
   const accepted: Tool[] = [];

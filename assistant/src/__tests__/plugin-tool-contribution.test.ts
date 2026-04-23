@@ -241,16 +241,22 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     // pre-tagged with another skill's or plugin's ID. The helper must
     // overwrite it so the bootstrap is always the source of truth for
     // ownership — and it must clear cross-origin fields (ownerSkillId /
-    // ownerMcpServerId) so the stamped tool cannot leak across namespaces.
+    // ownerMcpServerId / ownerSkillBundled / ownerSkillVersionHash) so the
+    // stamped tool cannot leak across namespaces or spoof bundled-skill
+    // auto-allow.
     const spoofed = makeFakeTool("pt_spoof", {
       origin: "skill",
       ownerSkillId: "some-other-skill",
+      ownerSkillBundled: true,
+      ownerSkillVersionHash: "deadbeef",
     });
     registerPluginTools("my-plugin", [spoofed]);
     const retrieved = getTool("pt_spoof");
     expect(retrieved?.origin).toBe("plugin");
     expect(retrieved?.ownerPluginId).toBe("my-plugin");
     expect(retrieved?.ownerSkillId).toBeUndefined();
+    expect(retrieved?.ownerSkillBundled).toBeUndefined();
+    expect(retrieved?.ownerSkillVersionHash).toBeUndefined();
   });
 
   test("unregisterPluginTools removes the plugin's tools", () => {

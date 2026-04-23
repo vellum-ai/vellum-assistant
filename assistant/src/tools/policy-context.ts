@@ -36,7 +36,7 @@ export function buildPolicyContext(
 
   const conversationId = context?.conversationId;
 
-  if (tool.origin === "skill") {
+  if (tool.origin === "skill" || tool.origin === "plugin") {
     return {
       executionTarget: tool.executionTarget,
       ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
