@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Compact single-line notification bar with optional action and dismiss. Positioned inline or pinned above content. See FeedbackGallerySection for variants.
+/// Compact notification bar with optional action and dismiss. Wraps long messages to multiple lines; short messages render as a single-line compact bar. See FeedbackGallerySection for variants.
 public struct VNotification: View {
     public enum Tone { case positive, negative, warning, neutral }
     public enum Style { case weak, strong }
@@ -32,24 +32,23 @@ public struct VNotification: View {
     }
 
     public var body: some View {
-        HStack(alignment: .center, spacing: 0) {
+        HStack(alignment: .top, spacing: 0) {
             if showsLeadingIcon {
-                HStack(spacing: VSpacing.xs) {
+                HStack(alignment: .top, spacing: VSpacing.xs) {
                     VIconView(leadingIcon, size: 12)
                         .foregroundStyle(iconColor)
+                        .padding(.top, 1)
                         .accessibilityHidden(true)
                     Text(message)
                         .font(textFont)
                         .foregroundStyle(textColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 Text(message)
                     .font(textFont)
                     .foregroundStyle(textColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
@@ -83,7 +82,7 @@ public struct VNotification: View {
                 }
             }
         }
-        .frame(height: 32)
+        .padding(.vertical, 7)
         .padding(.horizontal, VSpacing.sm)
         .background(backgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
