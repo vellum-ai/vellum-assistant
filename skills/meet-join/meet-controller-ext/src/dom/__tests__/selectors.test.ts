@@ -242,6 +242,30 @@ describe("chat panel selectors", () => {
     );
   });
 
+  test("INPUT selector resolves the inner editable child of a nested composer", () => {
+    // Late-April-2026 live Meet renders the composer with the aria-label on a
+    // wrapper and the contenteditable on a child. The third clause of INPUT
+    // targets the inner editable so `.focus()` lands on the focusable node.
+    const nestedHtml = `
+      <div>
+        <div aria-label="Send a message to everyone">
+          <div contenteditable="true" role="textbox"></div>
+        </div>
+      </div>
+    `;
+    const nestedDoc = new JSDOM(nestedHtml).window.document;
+    const nodes = nestedDoc.querySelectorAll(chatSelectors.INPUT);
+    expect(nodes.length).toBe(1);
+    const match = nodes[0] as HTMLElement;
+    expect(match.tagName).toBe("DIV");
+    expect(match.getAttribute("contenteditable")).toBe("true");
+    // The inner child — not the aria-labelled wrapper — should be the match.
+    expect(match.hasAttribute("aria-label")).toBe(false);
+    expect(
+      (match.parentElement as HTMLElement).getAttribute("aria-label"),
+    ).toBe("Send a message to everyone");
+  });
+
   test("SEND_BUTTON resolves the send button (decorated aria-label)", () => {
     const nodes = doc.querySelectorAll(chatSelectors.SEND_BUTTON);
     expect(nodes.length).toBe(1);
