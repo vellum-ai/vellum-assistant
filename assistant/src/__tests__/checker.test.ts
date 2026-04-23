@@ -70,6 +70,9 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
+import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
+mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+
 // Mutable guardian persona path so tests can toggle whether
 // getDefaultRuleTemplates emits the dynamic guardian-persona allow rules.
 // Defaults to null so existing tests see no extra rules, matching the
@@ -1558,7 +1561,7 @@ describe("Permission Checker", () => {
       // reason discriminator to verify it's the high-risk fallback path, not
       // the generic skill-tool default-ask policy.
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason.toLowerCase()).toContain("high risk");
     });
   });
 
@@ -1776,8 +1779,8 @@ describe("Permission Checker", () => {
       const input = { command: 'git add . && git commit -m "fix"' };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
-      // buildShellAllowlistOptions: compound commands get "This exact compound command"
-      expect(options[0].description).toBe("This exact compound command");
+      // Gateway classifier: exact command option
+      expect(options[0].description).toBe("This exact command");
       expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -1786,8 +1789,8 @@ describe("Permission Checker", () => {
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
       expect(options.length).toBeGreaterThanOrEqual(2);
-      // buildShellAllowlistOptions: pipelines get "This exact compound command"
-      expect(options[0].description).toBe("This exact compound command");
+      // Gateway classifier: exact command option
+      expect(options[0].description).toBe("This exact command");
       expect(options[0].label).toContain("git log");
       // Action keys from the first segment before the pipe
       expect(options.some((o) => o.pattern.startsWith("action:"))).toBe(true);
@@ -1797,8 +1800,8 @@ describe("Permission Checker", () => {
       const input = { command: "git add . && git push" };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
-      // buildShellAllowlistOptions: compound commands get "This exact compound command"
-      expect(options[0].description).toBe("This exact compound command");
+      // Gateway classifier: exact command option
+      expect(options[0].description).toBe("This exact command");
       expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -5457,8 +5460,8 @@ describe("integration regressions (PR 11)", () => {
       };
       await classifyRisk("host_bash", input);
       const options = await generateAllowlistOptions("host_bash", input);
-      // buildShellAllowlistOptions: compound commands get "This exact compound command"
-      expect(options[0].description).toBe("This exact compound command");
+      // Gateway classifier: exact command option
+      expect(options[0].description).toBe("This exact command");
       expect(options.length).toBeGreaterThanOrEqual(1);
     });
   });

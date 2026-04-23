@@ -175,6 +175,24 @@ function findWasmPath(
 ): string {
   const dir = import.meta.dirname ?? __dirname;
 
+  // In compiled Bun binaries, import.meta.dirname points into the virtual
+  // /$bunfs/ filesystem. Prefer bundled WASM assets shipped alongside the
+  // executable before falling back to process.cwd(), so we never accidentally
+  // pick up a mismatched version from the working directory.
+  if (dir.startsWith("/$bunfs/")) {
+    const execDir = dirname(process.execPath);
+    // macOS .app bundle: binary is in Contents/MacOS/, resources in Contents/Resources/
+    const resourcesPath = join(execDir, "..", "Resources", file);
+    if (existsSync(resourcesPath)) return resourcesPath;
+    // Next to the binary itself (non-app-bundle deployments)
+    const execDirPath = join(execDir, file);
+    if (existsSync(execDirPath)) return execDirPath;
+    // Last resort: resolve from process.cwd()
+    const cwdPath = join(process.cwd(), "node_modules", pkg, file);
+    if (existsSync(cwdPath)) return cwdPath;
+    return execDirPath;
+  }
+
   // Use a pre-resolved package directory when available (callers pass this so
   // that static-analysis tools like knip can see the literal specifier).
   if (resolvedPkgDir) {

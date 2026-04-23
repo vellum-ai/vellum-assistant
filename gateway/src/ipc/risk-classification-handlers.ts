@@ -42,10 +42,12 @@ const ClassifyRiskSchema = z.object({
   allowPrivateNetwork: z.boolean().optional(),
   networkMode: z.string().optional(),
   isContainerized: z.boolean().optional(),
+  workspaceRoot: z.string().optional(),
   // File classifier context (pre-resolved by assistant)
   fileContext: z
     .object({
       protectedDir: z.string(),
+      deprecatedDir: z.string(),
       hooksDir: z.string(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
@@ -62,6 +64,8 @@ const ClassifyRiskSchema = z.object({
       isDynamic: z.boolean(),
     })
     .optional(),
+  /** Tool registry default risk level for unknown tools. */
+  registryDefaultRisk: z.string().optional(),
 });
 
 type ClassifyRiskParams = z.infer<typeof ClassifyRiskSchema>;
@@ -107,6 +111,7 @@ function isPathWithinRoot(filePath: string, root: string): boolean {
 async function computeSandboxAutoApprove(
   command: string,
   workingDir: string,
+  workspaceRoot: string,
   isContainerized: boolean,
 ): Promise<boolean> {
   const parsed = await cachedParse(command);
@@ -114,10 +119,6 @@ async function computeSandboxAutoApprove(
   if (parsed.segments.length === 0) return false;
   if (parsed.hasOpaqueConstructs) return false;
   if (parsed.dangerousPatterns.length > 0) return false;
-
-  // The workspace root for non-containerized: use workingDir as a reasonable
-  // proxy (the assistant sends the actual workspace root via workingDir).
-  const workspaceRoot = workingDir;
 
   return parsed.segments.every((seg) => {
     const name = seg.program.split("/").pop() ?? seg.program;
@@ -156,7 +157,7 @@ async function computeSandboxAutoApprove(
 
 // ── Handler ─────────────────────────────────────────────────────────────────
 
-async function handleClassifyRisk(
+export async function handleClassifyRisk(
   params: ClassifyRiskParams,
 ): Promise<ClassificationResult> {
   const tool = params.tool;
@@ -196,9 +197,11 @@ async function handleClassifyRisk(
       // Compute sandbox auto-approve for "bash" tool only
       let sandboxAutoApprove = false;
       if (tool === "bash") {
+        const wsRoot = params.workspaceRoot ?? workingDir;
         sandboxAutoApprove = await computeSandboxAutoApprove(
           command,
           workingDir,
+          wsRoot,
           isContainerized,
         );
       }
@@ -262,9 +265,7 @@ async function handleClassifyRisk(
       const fileCtx = params.fileContext;
       const context: FileClassificationContext = {
         protectedDir: fileCtx?.protectedDir ?? SENTINEL,
-        deprecatedDir: fileCtx?.actorTokenSigningKeyPath
-          ? resolve(fileCtx.actorTokenSigningKeyPath, "..")
-          : SENTINEL,
+        deprecatedDir: fileCtx?.deprecatedDir ?? SENTINEL,
         hooksDir: fileCtx?.hooksDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
@@ -348,10 +349,10 @@ async function handleClassifyRisk(
       };
     }
 
-    // ── Unknown tool — fall back to registry lookup at base risk ─────────
+    // ── Unknown tool — use registry default risk level if provided ──────
     default: {
       return {
-        risk: "medium",
+        risk: params.registryDefaultRisk ?? "medium",
         reason: `Unknown tool: ${tool}`,
         scopeOptions: [],
         matchType: "unknown",

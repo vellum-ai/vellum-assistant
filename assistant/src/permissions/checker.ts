@@ -17,7 +17,12 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
-import { getProtectedDir, getWorkspaceHooksDir } from "../util/platform.js";
+import {
+  getDeprecatedDir,
+  getProtectedDir,
+  getWorkspaceDir,
+  getWorkspaceHooksDir,
+} from "../util/platform.js";
 import {
   type ApprovalContext,
   DefaultApprovalPolicy,
@@ -259,6 +264,7 @@ function buildFileContext(): FileContext {
   const config = getConfig();
   return {
     protectedDir: getProtectedDir(),
+    deprecatedDir: getDeprecatedDir(),
     hooksDir: getWorkspaceHooksDir(),
     actorTokenSigningKeyPath: join(
       getProtectedDir(),
@@ -303,6 +309,7 @@ function buildClassifyRiskParams(
       tool: toolName,
       command: getStringField(input, "command"),
       workingDir,
+      workspaceRoot: getWorkspaceDir(),
       isContainerized: getIsContainerized(),
       networkMode:
         typeof input.network_mode === "string" ? input.network_mode : undefined,
@@ -362,7 +369,18 @@ function buildClassifyRiskParams(
   }
 
   // ── Unknown tools ──
-  return { tool: toolName };
+  // Forward the tool's registry default risk level so the gateway can use it
+  // instead of hardcoding medium for unknown tools.
+  const tool = getTool(toolName);
+  const registryDefaultRisk =
+    tool?.defaultRiskLevel === RiskLevel.Low
+      ? "low"
+      : tool?.defaultRiskLevel === RiskLevel.High
+        ? "high"
+        : tool?.defaultRiskLevel === RiskLevel.Medium
+          ? "medium"
+          : undefined;
+  return { tool: toolName, registryDefaultRisk };
 }
 
 // ── Risk string → RiskLevel mapping ──────────────────────────────────────────

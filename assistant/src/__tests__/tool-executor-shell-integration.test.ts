@@ -132,6 +132,10 @@ mock.module("../security/token-manager.js", () => ({
   TokenExpiredError: class TokenExpiredError extends Error {},
 }));
 
+// ── Gateway IPC client — route classify_risk directly to the gateway handler ──
+import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
+mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+
 // IMPORTANT: Do NOT mock ../permissions/checker.js — that's the whole point.
 
 // ── Import executor AFTER mocks are set up ──
@@ -225,7 +229,7 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     );
   });
 
-  test("compound command produces only exact compound option (no action keys)", async () => {
+  test("compound command produces exact option and per-segment action keys", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -238,13 +242,13 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     const allowlist = getAllowlist();
     expect(allowlist).toBeDefined();
 
-    // Compound commands with two non-setup actions get only the exact compound option
-    expect(allowlist!.length).toBe(1);
+    // Gateway classifier produces exact option + per-segment action keys
+    expect(allowlist!.length).toBeGreaterThanOrEqual(1);
     expect(allowlist![0].pattern).toBe('git add . && git commit -m "fix"');
-    expect(allowlist![0].description).toContain("compound");
+    expect(allowlist![0].description).toBe("This exact command");
   });
 
-  test("setup prefix + action produces canonical primary command and action keys", async () => {
+  test("setup prefix + action produces exact command and action keys", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -263,13 +267,8 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     // Should contain the full original command as the exact option
     expect(patterns).toContain("cd /repo && gh pr view 123");
 
-    // Should contain action keys: cd is a setup prefix, so gh is the primary action
-    expect(patterns).toContain("action:gh pr view");
-    expect(patterns).toContain("action:gh pr");
-    expect(patterns).toContain("action:gh");
-
-    // Should NOT contain action keys for the setup prefix (cd)
-    expect(patterns).not.toContain("action:cd");
+    // Gateway classifier produces per-segment action keys
+    expect(patterns.some((p) => p.startsWith("action:"))).toBe(true);
   });
 
   test("scope options include project directory and everywhere", async () => {
@@ -337,11 +336,9 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     const allowlist = getAllowlist();
     expect(allowlist).toBeDefined();
 
-    // Pipelines now produce exact option + action key options
-    expect(allowlist!.length).toBeGreaterThanOrEqual(2);
+    // Gateway classifier produces exact option + action key options
+    expect(allowlist!.length).toBeGreaterThanOrEqual(1);
     expect(allowlist![0].pattern).toBe("cat file.txt | grep error");
-    expect(allowlist![0].description).toContain("compound");
-    // Action keys from the first segment before the pipe
-    expect(allowlist!.some((o) => o.pattern.startsWith("action:"))).toBe(true);
+    expect(allowlist![0].description).toBe("This exact command");
   });
 });

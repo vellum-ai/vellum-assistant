@@ -47,6 +47,7 @@ export interface ClassificationResult {
  */
 export interface FileContext {
   protectedDir: string;
+  deprecatedDir: string;
   hooksDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
@@ -80,9 +81,12 @@ export interface ClassifyRiskParams {
   mode?: string;
   script?: string;
   workingDir?: string;
+  workspaceRoot?: string;
   allowPrivateNetwork?: boolean;
   networkMode?: string;
   isContainerized?: boolean;
   fileContext?: FileContext;
   skillMetadata?: SkillMetadata;
+  /** Tool registry default risk level for unknown tools. */
+  registryDefaultRisk?: string;
 }
