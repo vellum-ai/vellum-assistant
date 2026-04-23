@@ -1,6 +1,16 @@
 import type { GatewayConfig } from "../config.js";
-import type { ApprovalPayload } from "../http/routes/whatsapp-deliver.js";
 import { getLogger } from "../logger.js";
+
+export type ApprovalAction = {
+  id: string;
+  label: string;
+};
+
+export type ApprovalPayload = {
+  requestId: string;
+  actions: ApprovalAction[];
+  plainTextFallback: string;
+};
 import {
   downloadAttachment,
   type RuntimeAttachmentMeta,

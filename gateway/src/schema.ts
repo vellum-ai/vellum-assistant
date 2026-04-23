@@ -892,72 +892,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/deliver/whatsapp": {
-        post: {
-          summary: "WhatsApp delivery (internal)",
-          description:
-            "Internal endpoint called by the assistant runtime to deliver outbound WhatsApp messages. Not intended for external use.",
-          operationId: "whatsappDeliver",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/WhatsAppDeliverRequest" },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Message delivered",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/WhatsAppOk" },
-                },
-              },
-            },
-            "400": {
-              description: "Invalid JSON or missing required fields",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to deliver via WhatsApp API",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "503": {
-              description: "WhatsApp integration not configured",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/webhooks/twilio/relay": {
         get: {
           summary: "Twilio ConversationRelay WebSocket",
@@ -4560,38 +4494,6 @@ export function buildSchema(): Record<string, unknown> {
               },
             },
           },
-        },
-        WhatsAppDeliverRequest: {
-          type: "object",
-          description:
-            "Request to deliver a WhatsApp text message. Accepts either `to` or `chatId` (alias).",
-          properties: {
-            to: {
-              type: "string",
-              description: "Recipient WhatsApp phone number in E.164 format",
-            },
-            chatId: {
-              type: "string",
-              description:
-                "Alias for `to` — used by runtime channel callback payloads",
-            },
-            text: {
-              type: "string",
-              description: "Text content to send",
-              minLength: 1,
-            },
-            assistantId: {
-              type: "string",
-              description: "Optional assistant ID",
-            },
-            attachments: {
-              type: "array",
-              items: { type: "object" },
-              description:
-                "Attachments (not yet supported — a fallback text is sent instead)",
-            },
-          },
-          allOf: [{ anyOf: [{ required: ["to"] }, { required: ["chatId"] }] }],
         },
         TelegramDeliverRequest: {
           type: "object",

@@ -45,7 +45,7 @@ import {
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
-import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
+
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
 import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
@@ -316,10 +316,6 @@ async function main() {
       credentials: credentialCache,
       configFile: configFileCache,
     });
-  const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config, {
-    credentials: credentialCache,
-    configFile: configFileCache,
-  });
   const { handler: handleEmailWebhook, dedupCache: emailDedupCache } =
     createEmailWebhookHandler(config, {
       credentials: credentialCache,
@@ -505,12 +501,6 @@ async function main() {
       precondition: requireTelegram,
       auth: "track-failures",
       handler: (req) => handleTelegramDeliver(req),
-    },
-    {
-      path: "/deliver/whatsapp",
-      precondition: requireWhatsApp,
-      auth: "track-failures",
-      handler: (req) => handleWhatsAppDeliver(req),
     },
     {
       path: "/deliver/slack",

@@ -1,20 +1,12 @@
 /**
  * WhatsApp Business messaging provider adapter.
  *
- * Enables proactive outbound WhatsApp messaging via the gateway's /deliver/whatsapp
- * endpoint. Delivery is proxied through the gateway which owns the Meta Cloud API
- * credentials (phone_number_id + access_token).
- *
- * The `connection` parameter in MessagingProvider methods is unused
- * for WhatsApp because delivery is authenticated via the gateway's bearer
- * token, not a per-user OAuth token.
+ * Calls the Meta Cloud API directly — no gateway proxy hop.
  */
 
-import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
@@ -30,16 +22,6 @@ import type {
   SendResult,
 } from "../../provider-types.js";
 import * as whatsapp from "./client.js";
-
-/** Resolve the gateway base URL. */
-function getGatewayUrl(): string {
-  return getGatewayInternalBaseUrl();
-}
-
-/** Mint a short-lived JWT for authenticating with the gateway. */
-function getBearerToken(): string {
-  return mintDaemonDeliveryToken();
-}
 
 /** Check whether WhatsApp credentials are stored. */
 async function hasWhatsAppCredentials(): Promise<boolean> {
@@ -59,9 +41,6 @@ export const whatsappMessagingProvider: MessagingProvider = {
   credentialService: "whatsapp",
   capabilities: new Set(["send"]),
 
-  /**
-   * WhatsApp is connected when Meta Cloud API credentials are stored.
-   */
   async isConnected(): Promise<boolean> {
     return hasWhatsAppCredentials();
   },
@@ -99,17 +78,9 @@ export const whatsappMessagingProvider: MessagingProvider = {
     text: string,
     options?: SendOptions,
   ): Promise<SendResult> {
-    const gatewayUrl = getGatewayUrl();
-    const bearerToken = getBearerToken();
     const assistantId = options?.assistantId;
 
-    await whatsapp.sendMessage(
-      gatewayUrl,
-      bearerToken,
-      conversationId,
-      text,
-      assistantId,
-    );
+    await whatsapp.sendMessage(conversationId, text);
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound WhatsApp message from this number.
@@ -136,7 +107,6 @@ export const whatsappMessagingProvider: MessagingProvider = {
     };
   },
 
-  // WhatsApp does not support listing conversations via this provider.
   async listConversations(
     _connection?: OAuthConnection,
     _options?: ListOptions,
@@ -144,7 +114,6 @@ export const whatsappMessagingProvider: MessagingProvider = {
     return [];
   },
 
-  // WhatsApp does not provide message history retrieval via the gateway.
   async getHistory(
     _connection: OAuthConnection | undefined,
     _conversationId: string,
@@ -153,7 +122,6 @@ export const whatsappMessagingProvider: MessagingProvider = {
     return [];
   },
 
-  // WhatsApp does not support message search.
   async search(
     _connection: OAuthConnection | undefined,
     _query: string,
