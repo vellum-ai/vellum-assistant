@@ -5,6 +5,7 @@ import { cacheRoutes } from "./cache.js";
 import { getContactRoute } from "./get-contact.js";
 import { listClientsRoute } from "./list-clients.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
+import { notificationRoutes } from "./notification.js";
 import { renameConversationRoute } from "./rename-conversation.js";
 import { searchContactsRoute } from "./search-contacts.js";
 import { taskTemplateRoutes } from "./task.js";
@@ -26,6 +27,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   uiRequestRoute,
   upsertContactRoute,
   wakeConversationRoute,
+  ...notificationRoutes,
   ...cacheRoutes,
   ...taskTemplateRoutes,
   ...taskQueueRoutes,
