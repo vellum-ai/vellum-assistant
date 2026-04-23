@@ -355,6 +355,39 @@ console.log("styled");`,
     const r2 = await compileApp(appDir2);
     expect(r2.ok).toBe(true);
   }, 30_000);
+
+  test("concurrent calls for the same appDir share one compile (no rm-rf race)", async () => {
+    const appDir = await scaffold("concurrent-dedup", {
+      "main.tsx": `console.log("hello");`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    // Kick off three concurrent compiles. Without deduplication, each
+    // begins with rm-rf dist/ and can wipe the others' intermediate
+    // output, producing empty or corrupted dist/ files.
+    const [r1, r2, r3] = await Promise.all([
+      compileApp(appDir),
+      compileApp(appDir),
+      compileApp(appDir),
+    ]);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    expect(r3.ok).toBe(true);
+
+    // All three callers observe the same CompileResult object — proving
+    // they shared a single in-flight promise rather than each running
+    // their own compile in parallel.
+    expect(r1).toBe(r2);
+    expect(r2).toBe(r3);
+
+    // Final dist/ output must be intact: main.js non-empty and
+    // index.html contains the injected script tag.
+    const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+    expect(js.length).toBeGreaterThan(0);
+    const html = await readFile(join(appDir, "dist", "index.html"), "utf-8");
+    expect(html).toContain('src="main.js"');
+  });
 });
 
 // ---------------------------------------------------------------------------

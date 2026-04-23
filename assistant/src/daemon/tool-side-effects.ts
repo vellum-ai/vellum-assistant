@@ -108,6 +108,7 @@ registerHook(
         id?: string;
         name?: string;
         description?: string;
+        compile_errors?: unknown;
       };
       if (parsed.id) {
         // The apps directory may have just been created — ensure the
@@ -115,7 +116,29 @@ registerHook(
         // trigger live reload.
         ensureAppSourceWatcher();
 
-        handleAppChange(ctx, parsed.id, broadcastToAllClients);
+        // executeAppCreate already compiles multifile apps inline and
+        // populates dist/ before returning. Skip the redundant recompile
+        // in handleAppChange: the recompile starts by rm -rf dist/, and
+        // if it races with (or fails before) the client's app_open fetch
+        // the user sees the "compilation failed" fallback instead of the
+        // freshly-built widget. Mirror the idempotent pattern added to
+        // the app_refresh hook in #23642.
+        const app = getApp(parsed.id);
+        const executorCompiled =
+          app != null &&
+          isMultifileApp(app) &&
+          parsed.compile_errors === undefined;
+
+        if (executorCompiled) {
+          refreshSurfacesForApp(ctx, parsed.id);
+          broadcastToAllClients?.({
+            type: "app_files_changed",
+            appId: parsed.id,
+          });
+          void updatePublishedAppDeployment(parsed.id);
+        } else {
+          handleAppChange(ctx, parsed.id, broadcastToAllClients);
+        }
 
         // Fire-and-forget: generate an app icon in the background.
         // When complete, broadcast again so clients pick up the new icon.

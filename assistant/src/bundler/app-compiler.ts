@@ -269,13 +269,40 @@ async function resolveAppImports(srcDir: string): Promise<void> {
 }
 
 /**
+ * Per-appDir in-flight compile deduplication.
+ *
+ * compileApp() begins by `rm -rf dist/`, so two concurrent compiles on the
+ * same appDir can wipe each other's intermediate output. Callers across the
+ * tool pipeline (executor, post-execution hook, server-side auto-compile on
+ * app_open, source-watcher rebuilds) can all arrive within the same event
+ * loop tick. Sharing a single in-flight promise per appDir serialises them
+ * into exactly one compile pass whose result every caller observes.
+ */
+const inflightCompiles = new Map<string, Promise<CompileResult>>();
+
+/**
  * Compile a TSX app from appDir/src/ into appDir/dist/.
  *
  * Expects appDir/src/main.tsx as the entry point and appDir/src/index.html
  * as the HTML shell. Produces appDir/dist/main.js and appDir/dist/index.html
  * (with script and optional stylesheet tags injected).
+ *
+ * Concurrent calls for the same appDir share a single compile: the first
+ * caller runs the compile, subsequent callers receive the same pending
+ * promise. This prevents racing rm-rf/writes on the same dist/ directory.
  */
-export async function compileApp(appDir: string): Promise<CompileResult> {
+export function compileApp(appDir: string): Promise<CompileResult> {
+  const existing = inflightCompiles.get(appDir);
+  if (existing) return existing;
+
+  const promise = runCompile(appDir).finally(() => {
+    inflightCompiles.delete(appDir);
+  });
+  inflightCompiles.set(appDir, promise);
+  return promise;
+}
+
+async function runCompile(appDir: string): Promise<CompileResult> {
   const start = performance.now();
   const srcDir = join(appDir, "src");
   const distDir = join(appDir, "dist");
