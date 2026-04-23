@@ -19,6 +19,11 @@
  *   boundary: the offending directory is logged with `"Failed to load user
  *   plugin <dir>: <err>"` and the loader moves on to the next candidate.
  *   One bad user plugin must not crash the daemon.
+ * - Bounds each dynamic import with a timeout
+ *   ({@link USER_PLUGIN_IMPORT_TIMEOUT_MS}) so a plugin whose top-level
+ *   `await` hangs or whose module evaluation never resolves cannot stall
+ *   daemon startup. Timed-out plugins are logged and skipped just like
+ *   thrown-error plugins.
  *
  * Call order relative to the rest of the plugin system:
  *
@@ -39,6 +44,17 @@ import { vellumRoot } from "../util/platform.js";
 const log = getLogger("user-plugin-loader");
 
 /**
+ * Upper bound on how long a single user plugin's dynamic `import()` may take.
+ * A plugin with a hanging top-level `await` (or a never-resolving module
+ * evaluation) would otherwise block daemon startup indefinitely, since a raw
+ * `try/catch` only isolates thrown errors — not hung promises. Ten seconds is
+ * generous relative to a typical side-effect registration (milliseconds) and
+ * matches the per-plugin isolation contract: slow plugins get skipped the
+ * same way thrown-error plugins do.
+ */
+const USER_PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
+
+/**
  * Scan `vellumRoot()/plugins/` for subdirectories containing a
  * `register.{ts,js}` file, and dynamic-import each one so the module's
  * side-effecting {@link registerPlugin} calls populate the registry.
@@ -56,7 +72,11 @@ const log = getLogger("user-plugin-loader");
  * before {@link bootstrapPlugins} — see the module docstring for the ordering
  * contract.
  */
-export async function loadUserPlugins(): Promise<void> {
+export async function loadUserPlugins(
+  options: { importTimeoutMs?: number } = {},
+): Promise<void> {
+  const importTimeoutMs =
+    options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
   const pluginsDir = join(vellumRoot(), "plugins");
   if (!existsSync(pluginsDir)) {
     log.debug(
@@ -116,12 +136,31 @@ export async function loadUserPlugins(): Promise<void> {
     // `import()` with a `file://` URL works identically under Node and bun
     // and sidesteps platform-specific absolute-path quirks on Windows.
     const moduleUrl = pathToFileURL(registerPath).href;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      await import(moduleUrl);
-      log.info(
-        { pluginDir, registerPath },
-        "loaded user plugin (side-effect import completed)",
-      );
+      // Race the import against a timeout so a plugin with a hanging top-level
+      // await or never-resolving module evaluation cannot stall daemon startup.
+      // The per-plugin try/catch already handles thrown errors; this extends
+      // the isolation boundary to cover hung promises as well.
+      const timeoutSentinel = Symbol("user-plugin-import-timeout");
+      const timeoutPromise = new Promise<typeof timeoutSentinel>((resolve) => {
+        timeoutHandle = setTimeout(
+          () => resolve(timeoutSentinel),
+          importTimeoutMs,
+        );
+      });
+      const result = await Promise.race([import(moduleUrl), timeoutPromise]);
+      if (result === timeoutSentinel) {
+        log.warn(
+          { pluginDir, registerPath, timeoutMs: importTimeoutMs },
+          `Timed out loading user plugin ${pluginDir} after ${importTimeoutMs}ms — skipping`,
+        );
+      } else {
+        log.info(
+          { pluginDir, registerPath },
+          "loaded user plugin (side-effect import completed)",
+        );
+      }
     } catch (err) {
       // One plugin's failure must never prevent other plugins from loading
       // or crash the daemon. Log with the directory name so operators can
@@ -131,6 +170,8 @@ export async function loadUserPlugins(): Promise<void> {
         { err, pluginDir },
         `Failed to load user plugin ${pluginDir}: ${message}`,
       );
+    } finally {
+      if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
   }
 }
