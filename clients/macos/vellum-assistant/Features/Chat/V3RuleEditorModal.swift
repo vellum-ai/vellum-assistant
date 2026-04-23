@@ -23,6 +23,8 @@ struct V3SavedRule {
 struct V3RuleEditorModal: View {
     /// Raw tool identifier (e.g. "bash", "host_bash") used for trust rule persistence.
     let toolName: String
+    let commandText: String
+    let commandDescription: String
     let riskLevel: String
     let scopeOptions: [V3ScopeOptionItem]
     let onSave: (V3SavedRule) -> Void
@@ -48,11 +50,11 @@ struct V3RuleEditorModal: View {
     private var riskLevelHint: String {
         switch selectedRiskLevel.lowercased() {
         case "low":
-            return "Will auto-approve in most configurations"
+            return "Auto-approved in Default, Relaxed, and Full Access"
         case "medium":
-            return "May require approval depending on your settings"
+            return "Auto-approved in Relaxed and Full Access"
         case "high":
-            return "Will always require approval"
+            return "Auto-approved only in Full Access"
         default:
             return ""
         }
@@ -78,6 +80,7 @@ struct V3RuleEditorModal: View {
             .padding(EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.md, trailing: VSpacing.lg))
 
             VStack(alignment: .leading, spacing: VSpacing.xl) {
+                contextHeader
                 applyToSection
                 treatAsSection
                 saveSection
@@ -95,6 +98,30 @@ struct V3RuleEditorModal: View {
         }
     }
 
+    // MARK: - Context Header
+
+    @ViewBuilder
+    private var contextHeader: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            // Command text in code-style block
+            Text(commandText)
+                .font(VFont.bodySmallDefault.monospaced())
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .padding(VSpacing.sm)
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+
+            // Description text
+            if !commandDescription.isEmpty {
+                Text(commandDescription)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+    }
+
     // MARK: - Section 1: Apply to
 
     @ViewBuilder
@@ -105,7 +132,18 @@ struct V3RuleEditorModal: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityAddTraits(.isHeader)
 
-            if generalizedOptions.count == 1 {
+            if generalizedOptions.count > 3 {
+                // Collapsed pipeline: show only the first option as static label
+                HStack {
+                    Text(generalizedOptions[0].label)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
+                        .background(VColor.surfaceBase)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    Spacer(minLength: 0)
+                }
+            } else if generalizedOptions.count == 1 {
                 // Single option: show as simple label, no radio buttons
                 HStack {
                     Text(generalizedOptions[0].label)
@@ -117,7 +155,7 @@ struct V3RuleEditorModal: View {
                     Spacer(minLength: 0)
                 }
             } else if !generalizedOptions.isEmpty {
-                // Multiple options: show radio list
+                // 2-3 options: show radio list
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(Array(generalizedOptions.enumerated()), id: \.element.id) { index, option in
                         patternRow(option: option, index: index)
