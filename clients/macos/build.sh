@@ -1341,7 +1341,7 @@ PLIST
 
 # Resolve per-environment icon source. Falls back to production if no
 # environment-specific override exists.
-ICONS_DIR="$SCRIPT_DIR/vellum-assistant/Resources/icons"
+ICONS_DIR="$SCRIPT_DIR/build-resources/icons"
 if [ -d "$ICONS_DIR/$VELLUM_ENVIRONMENT" ]; then
     ICON_SOURCE_DIR="$ICONS_DIR/$VELLUM_ENVIRONMENT"
 elif [ -d "$ICONS_DIR/production" ]; then
@@ -1355,7 +1355,7 @@ fi
 # the xcassets and emits both the layered Liquid Glass iconstack for macOS Tahoe
 # and backward-compatible raster fallbacks for macOS 15 into Assets.car.
 XCASSETS="$SCRIPT_DIR/vellum-assistant/Resources/Assets.xcassets"
-APP_ICON="$SCRIPT_DIR/vellum-assistant/Resources/AppIcon.icon"
+APP_ICON="$SCRIPT_DIR/build-resources/AppIcon.icon"
 
 # Overlay environment-specific icon into the .icon bundle so both actool
 # (Assets.car / Liquid Glass) and the .icns generation use the correct source.
