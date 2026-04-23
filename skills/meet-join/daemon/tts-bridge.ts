@@ -24,25 +24,99 @@
  *      `DELETE /play_audio/${streamId}` so the bot can flush any buffered
  *      audio and play silence in its place.
  *
- * The bridge intentionally does NOT reach into the `assistant/src/tts/`
- * module beyond consuming the {@link TtsProvider} interface — it accepts
- * a provider factory via constructor injection so the existing abstraction
- * stays a black box and tests can swap in a canned provider without
- * touching the registry.
+ * The bridge intentionally keeps the TTS provider contract behind a local
+ * structural interface ({@link TtsProvider}) that mirrors the assistant's
+ * provider shape — production wiring via {@link createTtsBridge} resolves
+ * real providers through `host.providers.tts.*`, and tests inject fakes
+ * that conform to the same local shape.
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import type {
-  TtsAlignmentEvent,
-  TtsProvider,
-  TtsSynthesisRequest,
-} from "../../../assistant/src/tts/types.js";
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
 
-const log = getLogger("meet-tts-bridge");
+import { registerSubModule } from "./modules-registry.js";
+
+// ---------------------------------------------------------------------------
+// Local TTS provider contract
+//
+// Structural mirror of `assistant/src/tts/types.ts` so the bridge has zero
+// `assistant/` imports. The assistant-side `TtsProvider` is structurally
+// assignable to this shape, so a provider resolved via
+// `host.providers.tts.get(...)` can be passed through the bridge's
+// `providerFactory` without any runtime adapter.
+// ---------------------------------------------------------------------------
+
+/** Provider id — free-form string, matches the assistant's opaque-id pattern. */
+export type TtsProviderId = string;
+
+/** Per-phoneme alignment event emitted by alignment-capable providers. */
+export interface TtsAlignmentEvent {
+  /** Phoneme label / character emitted by the provider. */
+  phoneme: string;
+  /** Normalized intensity in the range [0, 1]. */
+  weight: number;
+  /** Milliseconds from the start of the synthesized utterance. */
+  timestamp: number;
+}
+
+/** Synthesis request shape accepted by the provider contract. */
+export interface TtsSynthesisRequest {
+  text: string;
+  useCase: "phone-call" | "message-playback";
+  voiceId?: string;
+  signal?: AbortSignal;
+  outputFormat?: "pcm";
+}
+
+/** Synthesis result shape returned by the provider contract. */
+export interface TtsSynthesisResult {
+  audio: Buffer;
+  contentType: string;
+}
+
+/** Capability advertisement — the bridge reads `alignment` and `supportsStreaming`. */
+export interface TtsProviderCapabilities {
+  supportsStreaming: boolean;
+  supportedFormats: string[];
+  alignment?: boolean;
+}
+
+/**
+ * Minimal TTS provider surface the bridge depends on. A structural subset
+ * of the assistant's `TtsProvider` interface — providers registered in the
+ * daemon's TTS registry satisfy this contract without adaptation.
+ */
+export interface TtsProvider {
+  readonly id: TtsProviderId;
+  readonly capabilities: TtsProviderCapabilities;
+  synthesize(request: TtsSynthesisRequest): Promise<TtsSynthesisResult>;
+  synthesizeStream?(
+    request: TtsSynthesisRequest,
+    onChunk: (chunk: Uint8Array) => void,
+    onAlignment?: (event: TtsAlignmentEvent) => void,
+  ): Promise<TtsSynthesisResult>;
+}
+
+// ---------------------------------------------------------------------------
+// Logger wiring
+//
+// Module-level `log` starts as a no-op so bare `new MeetTtsBridge(...)`
+// constructions (tests, direct callers) continue to work without host
+// injection. `createTtsBridge(host)` swaps in `host.logger.get(...)` so
+// production logs carry the host-scoped logger name.
+// ---------------------------------------------------------------------------
+
+const NOOP_LOGGER: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+let log: Logger = NOOP_LOGGER;
 
 // ---------------------------------------------------------------------------
 // Tuning knobs
@@ -502,31 +576,30 @@ export class MeetTtsBridge {
     ffmpeg.on("error", (err) => {
       const nodeErr = err as NodeJS.ErrnoException;
       if (nodeErr?.code === "ENOENT") {
-        log.warn(
-          { err, meetingId: this.meetingId, streamId },
-          "ffmpeg binary missing — invalidating probe cache",
-        );
+        log.warn("ffmpeg binary missing — invalidating probe cache", {
+          err,
+          meetingId: this.meetingId,
+          streamId,
+        });
         this.ffmpegProbe = Promise.resolve({
           available: false,
           reason: "ffmpeg binary not found on PATH (ENOENT)",
         });
       } else {
-        log.warn(
-          { err, meetingId: this.meetingId, streamId },
-          "ffmpeg transcode spawn/runtime error",
-        );
+        log.warn("ffmpeg transcode spawn/runtime error", {
+          err,
+          meetingId: this.meetingId,
+          streamId,
+        });
       }
       abort.abort(err);
     });
     ffmpeg.stderr?.on("data", (chunk: Buffer) => {
-      log.debug(
-        {
-          meetingId: this.meetingId,
-          streamId,
-          stderr: chunk.toString("utf8").trim(),
-        },
-        "ffmpeg transcode stderr",
-      );
+      log.debug("ffmpeg transcode stderr", {
+        meetingId: this.meetingId,
+        streamId,
+        stderr: chunk.toString("utf8").trim(),
+      });
     });
 
     // --- Decide which lip-sync tap to install ------------------------------
@@ -577,10 +650,11 @@ export class MeetTtsBridge {
           try {
             ffmpeg.stdin.write(Buffer.from(chunk));
           } catch (err) {
-            log.warn(
-              { err, meetingId: this.meetingId, streamId },
-              "ffmpeg stdin write threw — aborting stream",
-            );
+            log.warn("ffmpeg stdin write threw — aborting stream", {
+              err,
+              meetingId: this.meetingId,
+              streamId,
+            });
             abort.abort(err);
           }
         },
@@ -588,10 +662,11 @@ export class MeetTtsBridge {
       )
       .catch((err) => {
         if (!abort.signal.aborted) {
-          log.warn(
-            { err, meetingId: this.meetingId, streamId },
-            "TTS provider synthesizeStream rejected",
-          );
+          log.warn("TTS provider synthesizeStream rejected", {
+            err,
+            meetingId: this.meetingId,
+            streamId,
+          });
           abort.abort(err);
         }
         return null;
@@ -719,10 +794,10 @@ export class MeetTtsBridge {
   async cancel(streamId: string): Promise<void> {
     const active = this.streams.get(streamId);
     if (!active) {
-      log.debug(
-        { meetingId: this.meetingId, streamId },
-        "cancel(): no active stream — no-op",
-      );
+      log.debug("cancel(): no active stream — no-op", {
+        meetingId: this.meetingId,
+        streamId,
+      });
       return;
     }
     active.abort.abort(new MeetTtsCancelledError());
@@ -739,10 +814,11 @@ export class MeetTtsBridge {
         },
       );
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId, streamId },
-        "cancel(): DELETE /play_audio failed — continuing",
-      );
+      log.warn("cancel(): DELETE /play_audio failed — continuing", {
+        err,
+        meetingId: this.meetingId,
+        streamId,
+      });
     }
     await active.settled.catch(() => {});
   }
@@ -798,10 +874,11 @@ export class MeetTtsBridge {
       try {
         listener(event);
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId, phoneme: event.phoneme },
-          "onViseme subscriber threw — dropping event",
-        );
+        log.warn("onViseme subscriber threw — dropping event", {
+          err,
+          meetingId: this.meetingId,
+          phoneme: event.phoneme,
+        });
       }
     }
   }
@@ -882,10 +959,10 @@ export class MeetTtsBridge {
           try {
             flushWindow();
           } catch (err) {
-            log.warn(
-              { err, meetingId },
-              "amplitude tap window flush threw — suppressing",
-            );
+            log.warn("amplitude tap window flush threw — suppressing", {
+              err,
+              meetingId,
+            });
           }
         }
         callback(null, chunk);
@@ -1042,3 +1119,47 @@ export class MeetTtsBridge {
     return this.ffmpegProbe;
   }
 }
+
+// ---------------------------------------------------------------------------
+// SkillHost factory
+// ---------------------------------------------------------------------------
+
+/** Builder returned by {@link createTtsBridge}. */
+export type TtsBridgeBuilder = (args: MeetTtsBridgeArgs) => MeetTtsBridge;
+
+/**
+ * Host-accepting factory for the TTS bridge sub-module.
+ *
+ * The first call wires the module-level logger to `host.logger.get(...)`
+ * so production log output flows through the daemon's configured logger.
+ * The returned builder constructs a {@link MeetTtsBridge} whose
+ * `providerFactory` resolves the configured TTS provider through
+ * `host.providers.tts.*` on every `speak()` invocation, so live config
+ * changes propagate on the next synthesis without the session manager
+ * needing to rebuild the bridge.
+ *
+ * Session-manager integration (PR 17) pulls this factory out of
+ * {@link registerSubModule}'s map rather than importing it directly —
+ * that's what keeps `register.ts` out of the merge-conflict hotspot while
+ * sub-module PRs land in parallel.
+ */
+export function createTtsBridge(host: SkillHost): TtsBridgeBuilder {
+  log = host.logger.get("meet-tts-bridge");
+  return (args) =>
+    new MeetTtsBridge(args, {
+      providerFactory: (): TtsProvider => {
+        // The skill-host-contracts types TTS provider handles as opaque
+        // `unknown`; narrow to the local structural contract at the
+        // boundary. Providers registered in the daemon satisfy this
+        // shape unchanged.
+        const resolved = host.providers.tts.resolveConfig() as {
+          provider: TtsProviderId;
+        };
+        return host.providers.tts.get(resolved.provider) as TtsProvider;
+      },
+    });
+}
+
+// Register with the in-skill module registry so the session manager
+// (PR 17) can retrieve this factory by name via `getSubModule("tts-bridge")`.
+registerSubModule("tts-bridge", createTtsBridge);

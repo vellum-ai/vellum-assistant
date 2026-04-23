@@ -22,8 +22,9 @@
  * those events — graceful degradation.
  */
 
-import { getLogger } from "../../../assistant/src/util/logger.js";
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
 
+import { registerSubModule } from "./modules-registry.js";
 import type { VisemeEvent, VisemeListener } from "./tts-bridge.js";
 
 /**
@@ -38,7 +39,23 @@ export interface TtsLipsyncBridge {
   onViseme(listener: VisemeListener): () => void;
 }
 
-const log = getLogger("meet-tts-lipsync");
+// ---------------------------------------------------------------------------
+// Logger wiring
+//
+// Module-level `log` starts as a no-op so bare `startTtsLipsync(...)` calls
+// (tests, direct callers) continue to work without host injection.
+// `createTtsLipsync(host)` swaps in `host.logger.get(...)` so production
+// logs carry the host-scoped logger name.
+// ---------------------------------------------------------------------------
+
+const NOOP_LOGGER: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+let log: Logger = NOOP_LOGGER;
 
 // ---------------------------------------------------------------------------
 // Public surface
@@ -128,10 +145,10 @@ export function startTtsLipsync(args: StartTtsLipsyncArgs): TtsLipsyncHandle {
     try {
       onEvent?.(event);
     } catch (err) {
-      log.debug(
-        { err, meetingId: bridge.meetingId },
-        "onEvent observer threw — suppressing",
-      );
+      log.debug("onEvent observer threw — suppressing", {
+        err,
+        meetingId: bridge.meetingId,
+      });
     }
 
     // Fire-and-forget POST. We do not await here because the listener is
@@ -151,14 +168,11 @@ export function startTtsLipsync(args: StartTtsLipsyncArgs): TtsLipsyncHandle {
       .then(async (response) => {
         if (stopped) return;
         if (!response.ok) {
-          log.debug(
-            {
-              meetingId: bridge.meetingId,
-              status: response.status,
-              phoneme: event.phoneme,
-            },
-            "POST /avatar/viseme returned non-2xx — dropping event",
-          );
+          log.debug("POST /avatar/viseme returned non-2xx — dropping event", {
+            meetingId: bridge.meetingId,
+            status: response.status,
+            phoneme: event.phoneme,
+          });
           // Drain so the connection can be reused.
           await response.arrayBuffer().catch(() => {});
           return;
@@ -166,10 +180,11 @@ export function startTtsLipsync(args: StartTtsLipsyncArgs): TtsLipsyncHandle {
         await response.arrayBuffer().catch(() => {});
       })
       .catch((err) => {
-        log.debug(
-          { err, meetingId: bridge.meetingId, phoneme: event.phoneme },
-          "POST /avatar/viseme failed — dropping event",
-        );
+        log.debug("POST /avatar/viseme failed — dropping event", {
+          err,
+          meetingId: bridge.meetingId,
+          phoneme: event.phoneme,
+        });
       });
   };
 
@@ -187,3 +202,31 @@ export function startTtsLipsync(args: StartTtsLipsyncArgs): TtsLipsyncHandle {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// SkillHost factory
+// ---------------------------------------------------------------------------
+
+/** Starter returned by {@link createTtsLipsync}. */
+export type TtsLipsyncStarter = (args: StartTtsLipsyncArgs) => TtsLipsyncHandle;
+
+/**
+ * Host-accepting factory for the TTS lip-sync sub-module.
+ *
+ * The first call wires the module-level logger to `host.logger.get(...)`
+ * so production log output flows through the daemon's configured logger.
+ * The returned starter delegates directly to {@link startTtsLipsync} — the
+ * forwarder itself has no host-specific state beyond the logger, so the
+ * factory's job is limited to logger injection and module-registry wiring.
+ *
+ * Session-manager integration (PR 17) pulls this factory out of
+ * {@link registerSubModule}'s map rather than importing it directly.
+ */
+export function createTtsLipsync(host: SkillHost): TtsLipsyncStarter {
+  log = host.logger.get("meet-tts-lipsync");
+  return startTtsLipsync;
+}
+
+// Register with the in-skill module registry so the session manager
+// (PR 17) can retrieve this factory by name via `getSubModule("tts-lipsync")`.
+registerSubModule("tts-lipsync", createTtsLipsync);
