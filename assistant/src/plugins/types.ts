@@ -222,11 +222,21 @@ export type MemoryBlock = unknown;
  * Inputs to the memory-retrieval pipeline. The pipeline takes only
  * identifiers and the trust context — the actual data sources (PKB files,
  * NOW.md, memory graph) are side-effectful and read by the terminal.
+ *
+ * `signal` is the per-turn abort signal forwarded to the memory graph's
+ * `prepareMemory` call. Carrying it on `args` (rather than on the
+ * `DefaultMemoryRetrievalDeps` extra-state bundle) is load-bearing: the
+ * pipeline runner's `linkAbortSignal` swaps any `AbortSignal`-typed
+ * property on top-level args for an internal linked signal, so a plugin
+ * timeout (or external cancel) actually reaches `prepareMemory` and cancels
+ * the underlying retrieval instead of letting it run to completion after
+ * the pipeline has already errored.
  */
 export interface MemoryArgs {
   readonly conversationId: string;
   readonly trustContext: TrustContext | undefined;
   readonly turnIndex: number;
+  readonly signal?: AbortSignal;
 }
 
 /**
