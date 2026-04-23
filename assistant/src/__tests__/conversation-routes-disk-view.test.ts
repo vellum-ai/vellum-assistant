@@ -219,6 +219,12 @@ function createFakeConversation(conversationId: string): Conversation {
     setHostFileProxy(this: { hostFileProxy: unknown }, proxy: unknown) {
       this.hostFileProxy = proxy;
     },
+    setHostTransferProxy(this: { hostTransferProxy: unknown }, proxy: unknown) {
+      this.hostTransferProxy = proxy;
+    },
+    getHostTransferProxy() {
+      return undefined;
+    },
     setHostCuProxy(this: { hostCuProxy: unknown }, proxy: unknown) {
       this.hostCuProxy = proxy;
     },

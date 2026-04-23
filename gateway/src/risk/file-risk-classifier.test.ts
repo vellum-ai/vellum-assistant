@@ -391,6 +391,64 @@ describe("FileRiskClassifier", () => {
     });
   });
 
+  // -- host_file_transfer ------------------------------------------------------
+
+  describe("host_file_transfer", () => {
+    test("default risk is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/output.txt",
+      });
+      expect(result.riskLevel).toBe("medium");
+      expect(result.reason).toBe("Host file transfer (default)");
+      expect(result.matchType).toBe("registry");
+    });
+
+    test("empty filePath is medium", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "",
+      });
+      expect(result.riskLevel).toBe("medium");
+    });
+
+    test("skill source path is high", async () => {
+      const absSkillPath = "/home/user/skills/evil-skill/SKILL.md";
+      const skillDir = "/home/user/skills/evil-skill";
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: absSkillPath,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to skill source code");
+      testSkillSourceDirs = [];
+    });
+
+    test("hooks directory is high", async () => {
+      testSkillSourceDirs = [];
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: MOCK_HOOKS_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to hooks directory");
+    });
+
+    test("file inside hooks directory is high", async () => {
+      testSkillSourceDirs = [];
+      const hookFile = join(MOCK_HOOKS_DIR, "pre-tool-use.sh");
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: hookFile,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Transfers to hooks directory");
+    });
+  });
+
   // -- Singleton export -------------------------------------------------------
 
   describe("singleton", () => {

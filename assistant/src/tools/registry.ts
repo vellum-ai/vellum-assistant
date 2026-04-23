@@ -5,6 +5,7 @@ import { registerAppTools } from "./apps/registry.js";
 import { allComputerUseTools } from "./computer-use/definitions.js";
 import { hostFileEditTool } from "./host-filesystem/edit.js";
 import { hostFileReadTool } from "./host-filesystem/read.js";
+import { hostFileTransferTool } from "./host-filesystem/transfer.js";
 import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { registerSystemTools } from "./system/register.js";
@@ -438,6 +439,7 @@ export async function initializeTools(): Promise<void> {
     hostFileReadTool,
     hostFileWriteTool,
     hostFileEditTool,
+    hostFileTransferTool,
     hostShellTool,
   ];
   for (const tool of hostTools) {

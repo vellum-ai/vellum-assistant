@@ -11,7 +11,7 @@
  * - **Scoped**: tools whose candidates include a filesystem path and obey
  *   directory-boundary scope constraints (`file_read`, `file_write`,
  *   `file_edit`, `host_file_read`, `host_file_write`, `host_file_edit`,
- *   `bash`, `host_bash`).
+ *   `host_file_transfer`, `bash`, `host_bash`).
  * - **URL**: tools whose candidates include a URL (`web_fetch`,
  *   `network_request`).
  * - **Managed skill**: tools that manage first-party skill packages
@@ -44,6 +44,7 @@ export const SCOPED_TOOLS = [
   "host_file_read",
   "host_file_write",
   "host_file_edit",
+  "host_file_transfer",
   "bash",
   "host_bash",
 ] as const;

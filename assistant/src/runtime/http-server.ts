@@ -188,6 +188,7 @@ import {
 } from "./routes/host-browser-routes.js";
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
+import { hostTransferRouteDefinitions } from "./routes/host-transfer-routes.js";
 import {
   handleHealth,
   handleReadyz,
@@ -2075,6 +2076,7 @@ export class RuntimeHttpServer {
       ...hostBrowserRouteDefinitions(),
       ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
+      ...hostTransferRouteDefinitions(),
       ...(this.getSkillContext
         ? skillRouteDefinitions({
             getSkillContext: this.getSkillContext,

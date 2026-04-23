@@ -4860,6 +4860,45 @@ paths:
               required:
                 - requestId
               additionalProperties: false
+  /v1/host-transfer-result:
+    post:
+      operationId: hosttransferresult_post
+      summary: Submit host transfer result
+      description: Resolve a pending to_host transfer after the client has downloaded and written the file.
+      tags:
+        - host-transfer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                  description: Pending transfer request ID
+                isError:
+                  type: boolean
+                bytesWritten:
+                  type: number
+                errorMessage:
+                  type: string
+              required:
+                - requestId
+              additionalProperties: false
   /v1/identity:
     get:
       operationId: identity_get
@@ -8932,6 +8971,37 @@ paths:
           schema:
             type: integer
           description: Return events after this sequence number
+  /v1/transfers/{transferId}/content:
+    get:
+      operationId: transfers_by_transferId_content_get
+      summary: Get transfer content
+      description: "Serve raw file bytes for a to_host transfer. Single-use: returns 404 after first consumption."
+      tags:
+        - host-transfer
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+    put:
+      operationId: transfers_by_transferId_content_put
+      summary: Put transfer content
+      description: Receive raw file bytes for a to_sandbox transfer. Verifies SHA-256 integrity via the X-Transfer-SHA256 header.
+      tags:
+        - host-transfer
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/trust-rules:
     post:
       operationId: trustrules_post

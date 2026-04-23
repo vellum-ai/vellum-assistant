@@ -9,6 +9,9 @@ public protocol HostProxyClientProtocol {
     func postFileResult(_ result: HostFileResultPayload) async -> Bool
     func postCuResult(_ result: HostCuResultPayload) async -> Bool
     func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool
+    func postTransferResult(_ result: HostTransferResultPayload) async -> Bool
+    func pullTransferContent(transferId: String) async throws -> Data
+    func pushTransferContent(transferId: String, data: Data, sha256: String, sourcePath: String) async throws -> Bool
 }
 
 /// Gateway-backed implementation of ``HostProxyClientProtocol``.
@@ -93,6 +96,68 @@ public struct HostProxyClient: HostProxyClientProtocol {
         } catch {
             log.error("postBrowserResult error: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    public func postTransferResult(_ result: HostTransferResultPayload) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(result)
+            // Scale timeout based on payload size for large transfer results.
+            let timeout: TimeInterval = max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/host-transfer-result",
+                body: body,
+                timeout: timeout
+            )
+            guard response.isSuccess else {
+                log.error("postTransferResult failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("postTransferResult error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func pullTransferContent(transferId: String) async throws -> Data {
+        // Use a generous timeout — large files may take a while to download.
+        let response = try await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/transfers/\(transferId)/content",
+            timeout: 300
+        )
+        guard response.isSuccess else {
+            throw TransferError.pullFailed(statusCode: response.statusCode)
+        }
+        return response.data
+    }
+
+    public func pushTransferContent(transferId: String, data: Data, sha256: String, sourcePath: String) async throws -> Bool {
+        // Scale timeout by data size: ~5s per MB with a 30s minimum.
+        let timeout: TimeInterval = max(30, TimeInterval(data.count) / (1024 * 1024) * 5 + 30)
+        let response = try await GatewayHTTPClient.put(
+            path: "assistants/{assistantId}/transfers/\(transferId)/content",
+            body: data,
+            params: ["sourcePath": sourcePath],
+            contentType: "application/octet-stream",
+            extraHeaders: ["X-Transfer-SHA256": sha256],
+            timeout: timeout
+        )
+        guard response.isSuccess else {
+            log.error("pushTransferContent failed (HTTP \(response.statusCode))")
+            return false
+        }
+        return true
+    }
+
+    enum TransferError: LocalizedError {
+        case pullFailed(statusCode: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .pullFailed(let statusCode):
+                return "Failed to pull transfer content (HTTP \(statusCode))"
+            }
         }
     }
 }

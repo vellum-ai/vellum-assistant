@@ -350,12 +350,24 @@ public enum GatewayHTTPClient {
     /// - Parameters:
     ///   - path: Path segment after `/v1/`.
     ///   - body: Optional HTTP body data.
+    ///   - params: Optional query parameters. Keys and values are percent-encoded
+    ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
+    ///   - contentType: Optional Content-Type header value. Overrides the default `application/json`.
+    ///   - extraHeaders: Optional additional headers to include in the request.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func put(path: String, body: Data? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        return try await executeWithRetry(path: path, method: "PUT", timeout: timeout) { request in
+    public static func put(path: String, body: Data? = nil, params: [String: String]? = nil, contentType: String? = nil, extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "PUT", timeout: timeout) { request in
             request.httpBody = body
+            if let contentType {
+                request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+            }
+            if let extraHeaders {
+                for (key, value) in extraHeaders {
+                    request.setValue(value, forHTTPHeaderField: key)
+                }
+            }
         }
     }
 
