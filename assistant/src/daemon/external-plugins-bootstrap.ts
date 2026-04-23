@@ -69,6 +69,7 @@ import {
 } from "../plugins/types.js";
 import {
   registerSkillRoute,
+  type SkillRouteHandle,
   unregisterSkillRoute,
 } from "../runtime/skill-route-registry.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -199,8 +200,13 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // Plugins that passed `requiresFlag` gating and therefore need the full
   // init → contribute → shutdown lifecycle. Plugins skipped by the flag gate
   // are omitted from this list so the shutdown hook below never tears down
-  // capabilities that were never wired up in the first place.
-  const activePlugins: Plugin[] = [];
+  // capabilities that were never wired up in the first place. Each entry
+  // carries the opaque route handles returned by `registerSkillRoute` so
+  // teardown can key on identity rather than regex-pattern text — two plugins
+  // registering the same pattern would otherwise step on each other's routes
+  // during shutdown, violating the "no traffic hits a plugin handler during
+  // onShutdown" invariant.
+  const activePlugins: ActivePlugin[] = [];
 
   // If one plugin's init or contribution phase throws, tear down any plugins
   // that already fully initialized (in reverse registration order) before
@@ -309,10 +315,14 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       // Route contributions (PR 32) — registered after init() succeeds so a
       // plugin that fails to initialize never exposes a half-wired HTTP
       // surface. Mirrors the skill-route registry shape; see
-      // {@link PluginRouteRegistration}.
+      // {@link PluginRouteRegistration}. Retain every returned handle so the
+      // teardown path unregisters by identity rather than pattern text — two
+      // plugins (or a plugin and a skill) that happen to register the same
+      // regex must not evict each other's routes during shutdown.
+      const routeHandles: SkillRouteHandle[] = [];
       if (plugin.routes && plugin.routes.length > 0) {
         for (const route of plugin.routes) {
-          registerSkillRoute(route);
+          routeHandles.push(registerSkillRoute(route));
         }
         log.info(
           { plugin: name, count: plugin.routes.length },
@@ -344,7 +354,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         }
       }
 
-      activePlugins.push(plugin);
+      activePlugins.push({ plugin, routeHandles });
 
       log.info({ plugin: name }, "plugin initialized");
     } catch (err) {
@@ -378,12 +388,23 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   //      This mirrors the symmetry of registerPluginSkills() — every
   //      successful registration must get a matching unregister call,
   //      regardless of whether onShutdown throws.
-  const shutdownSnapshot: Plugin[] = [...activePlugins];
+  const shutdownSnapshot: ActivePlugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
       await teardownPlugin(shutdownSnapshot[i]!, reason);
     }
   });
+}
+
+/**
+ * One plugin that made it through the full init + contribution phase. Holds
+ * every opaque {@link SkillRouteHandle} issued by `registerSkillRoute` so
+ * teardown can revoke exactly the routes this plugin contributed, even when
+ * the regex pattern text collides with another owner's registration.
+ */
+interface ActivePlugin {
+  readonly plugin: Plugin;
+  readonly routeHandles: readonly SkillRouteHandle[];
 }
 
 /**
@@ -395,24 +416,28 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
  * Shared between the normal shutdown hook and the bootstrap error path; both
  * consume plugins that already cleared every contribution step.
  */
-async function teardownPlugin(plugin: Plugin, reason: string): Promise<void> {
+async function teardownPlugin(
+  active: ActivePlugin,
+  reason: string,
+): Promise<void> {
+  const { plugin, routeHandles } = active;
   const name = plugin.manifest.name;
 
   // Unregister model-visible surfaces before invoking `onShutdown()` so the
   // plugin's onShutdown hook observes a registry state where its tools and
   // routes are already gone. `unregisterPluginTools` is a no-op when the
   // plugin never contributed tools, so we don't need to guard on
-  // `plugin.tools` here.
-  if (plugin.routes && plugin.routes.length > 0) {
-    for (const route of plugin.routes) {
-      try {
-        unregisterSkillRoute(route.pattern);
-      } catch (err) {
-        log.warn(
-          { err, plugin: name, pattern: route.pattern.source },
-          "plugin route unregister failed (continuing)",
-        );
-      }
+  // `plugin.tools` here. Route unregistration keys on the opaque handles
+  // retained at registration time — pattern text is not a stable key because
+  // two owners can legitimately register the same regex.
+  for (const handle of routeHandles) {
+    try {
+      unregisterSkillRoute(handle);
+    } catch (err) {
+      log.warn(
+        { err, plugin: name },
+        "plugin route unregister failed (continuing)",
+      );
     }
   }
 

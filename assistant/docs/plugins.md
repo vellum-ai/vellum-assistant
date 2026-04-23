@@ -541,7 +541,12 @@ Tools are unregistered automatically on shutdown. See
 
 An array of `SkillRoute` objects — the same shape the skill-route
 registry consumes. Registered via `registerSkillRoute` after `init()`
-succeeds, unregistered on shutdown.
+succeeds; the runtime retains the opaque handle returned by each call
+and uses those handles to unregister the plugin's routes on shutdown.
+Handle-keyed unregistration is deliberate: two owners (plugin vs.
+skill, or plugin vs. plugin) can legitimately declare the same regex,
+and identity matching ensures one owner's teardown cannot evict
+another owner's live routes.
 
 ```typescript
 const myPlugin: Plugin = {

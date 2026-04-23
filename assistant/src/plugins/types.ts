@@ -1009,9 +1009,12 @@ export type PluginToolRegistration = Tool;
 /**
  * HTTP route registration contributed by a plugin. Plugins express routes as
  * {@link SkillRoute} values — the same shape the skill-route registry
- * consumes — so `registerSkillRoute`/`unregisterSkillRoute` can accept them
- * directly. Bootstrap wires the registrations after `init()` succeeds and
- * tears them down on shutdown.
+ * consumes — so `registerSkillRoute` can accept them directly. Bootstrap
+ * wires the registrations after `init()` succeeds, retains the opaque
+ * handle returned by each `registerSkillRoute` call, and uses those handles
+ * (not the regex patterns themselves) to unregister the plugin's routes on
+ * shutdown. Identity-keyed unregistration is what keeps sibling owners that
+ * happen to register the same regex from evicting each other's routes.
  */
 export type PluginRouteRegistration = SkillRoute;
 
