@@ -107,6 +107,17 @@ export function registerPlugin(plugin: Plugin): void {
       undefined,
     );
   }
+  // Plugin names flow into filesystem paths (e.g. `plugins-data/<name>/` in
+  // the bootstrap's `ensurePluginStorageDir`), so they must not contain path
+  // separators, `..`, or other characters that could escape the parent
+  // directory. Restrict to lowercase-kebab-case, which is the convention used
+  // by every first-party plugin and prevents path-traversal by construction.
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)) {
+    throw new PluginExecutionError(
+      `plugin manifest.name "${name}" must be kebab-case (lowercase letters, digits, and single hyphens)`,
+      name,
+    );
+  }
   if (typeof manifest.version !== "string" || manifest.version.length === 0) {
     throw new PluginExecutionError(
       `plugin ${name} manifest.version is required`,

@@ -711,8 +711,17 @@ export async function runDaemon(): Promise<void> {
     // populated (first-party static side-effect imports + user plugins
     // loaded above) and before the DaemonServer starts handling
     // conversations. Credential resolution + per-plugin storage directory
-    // creation happen here.
-    await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
+    // creation happen here. Wrapped in try/catch so a failing plugin can't
+    // block daemon startup — bootstrapPlugins internally tears down any
+    // partially-initialized plugins before throwing.
+    try {
+      await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
+    } catch (err) {
+      log.warn(
+        { err },
+        "Plugin bootstrap failed — continuing startup with degraded plugin functionality",
+      );
+    }
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
