@@ -84,6 +84,7 @@ export interface SchedulesListResponse {
     status: string;
     routingIntent: string;
     reuseConversation: boolean;
+    wakeConversationId: string | null;
     isOneShot: boolean;
   }>;
 }

@@ -391,3 +391,97 @@ describe("schedule runs list — limit handling", () => {
     expect((body as { runs: unknown[] }).runs).toHaveLength(2);
   });
 });
+
+// ── Wake mode support ─────────────────────────────────────────────────────
+
+function getPatchHandler() {
+  const route = scheduleRouteDefinitions({
+    sendMessageDeps: {} as never,
+  }).find(
+    (candidate) =>
+      candidate.endpoint === "schedules/:id" && candidate.method === "PATCH",
+  );
+  if (!route) throw new Error("PATCH schedule route not found");
+  return route.handler;
+}
+
+function getListHandler() {
+  const route = scheduleRouteDefinitions({
+    sendMessageDeps: {} as never,
+  }).find(
+    (candidate) =>
+      candidate.endpoint === "schedules" && candidate.method === "GET",
+  );
+  if (!route) throw new Error("GET schedules route not found");
+  return route.handler;
+}
+
+describe("wake mode in schedule routes", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("PATCH accepts 'wake' as a valid mode", async () => {
+    const schedule = createSchedule({
+      name: "Wake test",
+      cronExpression: "* * * * *",
+      message: "check deferred",
+      syntax: "cron",
+    });
+
+    const handler = getPatchHandler();
+    const urlStr = `http://localhost/v1/schedules/${schedule.id}`;
+    const response = await handler({
+      req: new Request(urlStr, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "wake", wakeConversationId: "conv-xyz" }),
+      }),
+      url: new URL(urlStr),
+      server: {} as never,
+      authContext: {} as never,
+      params: { id: schedule.id },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      schedules: Array<{
+        id: string;
+        mode: string;
+        wakeConversationId: string | null;
+      }>;
+    };
+    const updated = body.schedules.find((s) => s.id === schedule.id);
+    expect(updated).toBeDefined();
+    expect(updated!.mode).toBe("wake");
+    expect(updated!.wakeConversationId).toBe("conv-xyz");
+  });
+
+  test("list schedules includes wakeConversationId", async () => {
+    createSchedule({
+      name: "Wake schedule",
+      cronExpression: "0 9 * * *",
+      message: "morning wake",
+      syntax: "cron",
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+    });
+
+    const handler = getListHandler();
+    const response = await handler({
+      req: new Request("http://localhost/v1/schedules"),
+      url: new URL("http://localhost/v1/schedules"),
+      server: {} as never,
+      authContext: {} as never,
+      params: {},
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      schedules: Array<{ name: string; wakeConversationId: string | null }>;
+    };
+    const wakeSchedule = body.schedules.find((s) => s.name === "Wake schedule");
+    expect(wakeSchedule).toBeDefined();
+    expect(wakeSchedule!.wakeConversationId).toBe("conv-abc");
+  });
+});
