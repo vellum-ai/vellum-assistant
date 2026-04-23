@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import type {
+  DaemonRuntimeMode,
   SkillHost,
   SkillRoute,
   SkillRouteHandle,
@@ -77,21 +78,14 @@ interface Captured {
 /**
  * Build a fake `SkillHost` that captures every registration call the
  * skill's `register()` makes. Facets the emitter does not expect to be
- * used surface as thrown errors so drift is caught here rather than
- * producing a silently-incomplete manifest.
+ * hit on the registration hot path surface as no-op stubs so the
+ * session manager's constructor (which `register(host)` invokes via
+ * `createMeetSessionManager(host)`) can bind its host-derived closures
+ * without spinning up real infrastructure. The manifest emitter never
+ * exercises the resulting session manager, so these stubs never run —
+ * they only have to exist.
  */
 function buildCollectorHost(captured: Captured): SkillHost {
-  const unreachable = (path: string): never => {
-    throw new Error(
-      `emit-manifest: collector SkillHost facet "${path}" was unexpectedly accessed during register(); the emitter is only supposed to drive registry calls, not runtime logic.`,
-    );
-  };
-  const throwingProxy = (path: string) =>
-    new Proxy(
-      {},
-      { get: (_target, prop) => unreachable(`${path}.${String(prop)}`) },
-    );
-
   // `register.ts` does not read the logger today. Returning a silent
   // no-op logger rather than a thrower keeps the manifest emitter
   // tolerant of an intentional future `host.logger.get("register")`
@@ -103,6 +97,7 @@ function buildCollectorHost(captured: Captured): SkillHost {
     warn: (): void => {},
     error: (): void => {},
   };
+  const noop = (): void => {};
   return {
     logger: {
       get: () => silentLogger,
@@ -119,10 +114,39 @@ function buildCollectorHost(captured: Captured): SkillHost {
       getAssistantName: () => undefined,
       internalAssistantId: "manifest-emitter",
     },
-    platform: throwingProxy("platform") as SkillHost["platform"],
-    providers: throwingProxy("providers") as SkillHost["providers"],
-    memory: throwingProxy("memory") as SkillHost["memory"],
-    events: throwingProxy("events") as SkillHost["events"],
+    platform: {
+      workspaceDir: () => "/manifest-emitter/workspace",
+      vellumRoot: () => "/manifest-emitter/vellum",
+      runtimeMode: () => "bare-metal" as DaemonRuntimeMode,
+    },
+    providers: {
+      llm: {
+        getConfigured: () => undefined,
+        userMessage: () => undefined,
+        extractToolUse: () => null,
+        createTimeout: () => new AbortController(),
+      },
+      stt: {
+        listProviderIds: () => [],
+        supportsBoundary: () => false,
+        resolveStreamingTranscriber: () => undefined,
+      },
+      tts: {
+        get: () => undefined,
+        resolveConfig: () => ({}),
+      },
+      secureKeys: { getProviderKey: async () => null },
+    },
+    memory: {
+      addMessage: (async () => ({ id: "manifest-emitter" })) as SkillHost["memory"]["addMessage"],
+      wakeAgentForOpportunity: async () => {},
+    },
+    events: {
+      publish: async () => {},
+      subscribe: () => ({ dispose: noop, active: false }),
+      buildEvent: () =>
+        ({}) as ReturnType<SkillHost["events"]["buildEvent"]>,
+    },
     registries: {
       registerTools: (provider) => {
         if (typeof provider !== "function") {
@@ -143,7 +167,9 @@ function buildCollectorHost(captured: Captured): SkillHost {
         captured.shutdownHooks.push(name);
       },
     },
-    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+    speakers: {
+      createTracker: () => ({}),
+    },
   };
 }
 

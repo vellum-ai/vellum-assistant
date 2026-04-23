@@ -45,10 +45,14 @@ mock.module("../routes/meet-internal.js", () => ({
   },
 }));
 
-// Stub the session manager — register.ts does not invoke it, but the
-// meet tool modules import it at evaluation time, so the mock keeps
-// module loading cheap and side-effect-free.
+// Stub the session manager — register.ts calls `createMeetSessionManager(host)`
+// once per bootstrap, and the meet tool modules import it at evaluation time.
+// The mock keeps module loading cheap and side-effect-free.
 mock.module("../daemon/session-manager.js", () => ({
+  createMeetSessionManager: () => ({
+    activeSessions: () => [],
+    getSession: () => null,
+  }),
   MeetSessionManager: {
     activeSessions: () => [],
     getSession: () => null,
