@@ -71,7 +71,7 @@ const PKB_HINT_THRESHOLD = 0.5;
 const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
- * Fixed order values for the seven default injectors. Exported so tests —
+ * Fixed order values for the eight default injectors. Exported so tests —
  * and any future integration code — can assert ordering without re-deriving
  * the constants.
  *
