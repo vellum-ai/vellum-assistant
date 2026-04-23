@@ -1030,7 +1030,10 @@ export class ContextWindowManager {
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
-          config: { max_tokens: this.summaryMaxTokens },
+          config: {
+            callSite: "conversationSummarization" as const,
+            max_tokens: this.summaryMaxTokens,
+          },
           signal,
         },
       );
