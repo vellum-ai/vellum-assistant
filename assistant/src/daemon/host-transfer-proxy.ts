@@ -107,7 +107,8 @@ export class HostTransferProxy {
           const sizeBytes = fileBuffer.length;
           const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
           const timeoutMs =
-            HostTransferProxy._testTimeoutOverrideMs ?? computeTimeoutMs(sizeBytes);
+            HostTransferProxy._testTimeoutOverrideMs ??
+            computeTimeoutMs(sizeBytes);
 
           let detachAbort: () => void = () => {};
 
@@ -407,7 +408,7 @@ export class HostTransferProxy {
     const { requestId } = entry;
 
     // Enforce overwrite policy before writing.
-    if (entry.overwrite === false && existsSync(entry.filePath)) {
+    if (entry.overwrite !== true && existsSync(entry.filePath)) {
       const errorMsg = `Destination file already exists: ${entry.filePath}. Set overwrite to true to replace it.`;
       clearTimeout(entry.timer);
       entry.detachAbort();

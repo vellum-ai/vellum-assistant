@@ -90,6 +90,15 @@ export async function handleTransferContentPut(
     data,
     sha256,
   );
+
+  // For to_sandbox transfers there is no subsequent /v1/host-transfer-result
+  // callback — the proxy already resolved its internal Promise inside
+  // receiveTransferContent(). Clean up the runtime-level pending interaction
+  // entry so it doesn't leak.  This must happen regardless of whether the
+  // transfer was accepted (receiveTransferContent always resolves the proxy's
+  // internal Promise, whether success or error).
+  pendingInteractions.resolve(match.interaction.requestId);
+
   if (!result.accepted) {
     return httpError(
       "BAD_REQUEST",
@@ -97,12 +106,6 @@ export async function handleTransferContentPut(
       400,
     );
   }
-
-  // For to_sandbox transfers there is no subsequent /v1/host-transfer-result
-  // callback — the proxy already resolved its internal Promise inside
-  // receiveTransferContent(). Clean up the runtime-level pending interaction
-  // entry so it doesn't leak.
-  pendingInteractions.resolve(match.interaction.requestId);
 
   return Response.json({ accepted: true });
 }
