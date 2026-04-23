@@ -133,6 +133,27 @@ function mapError(err: unknown): MigrationJobError {
  */
 const DEFAULT_COMPLETED_JOB_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * Return a shallow clone of a `MigrationJob` that is decoupled from the
+ * internal registry record. The optional `error` object is spread so
+ * callers cannot mutate the stored error either. `result` is `unknown` by
+ * design — callers that pass mutable values in and then mutate them
+ * externally are already outside the registry's invariants.
+ */
+function cloneJob(job: MigrationJob): MigrationJob {
+  const snapshot: MigrationJob = {
+    id: job.id,
+    type: job.type,
+    status: job.status,
+    createdAt: job.createdAt,
+  };
+  if (job.startedAt !== undefined) snapshot.startedAt = job.startedAt;
+  if (job.completedAt !== undefined) snapshot.completedAt = job.completedAt;
+  if (job.error !== undefined) snapshot.error = { ...job.error };
+  if (job.result !== undefined) snapshot.result = job.result;
+  return snapshot;
+}
+
 export class MigrationJobRegistry {
   private readonly jobs = new Map<string, MigrationJob>();
   /** Tracks the single in-flight (pending or running) job id per type. */
@@ -142,9 +163,14 @@ export class MigrationJobRegistry {
   public completedJobTtlMs: number = DEFAULT_COMPLETED_JOB_TTL_MS;
 
   /**
-   * Start a new migration job. Returns the `MigrationJob` record
-   * synchronously (status `"pending"`); the runner is scheduled via
-   * `queueMicrotask` so the caller can poll immediately.
+   * Start a new migration job. Returns a snapshot of the `MigrationJob`
+   * record synchronously (status `"pending"`); the runner is scheduled via
+   * `queueMicrotask` so the caller can poll via `getJob(id)` immediately.
+   *
+   * The returned object is a shallow clone decoupled from the internal
+   * record so that external mutation cannot violate the single-in-flight
+   * invariant (e.g. flipping a running job's status to `"complete"` must
+   * not unblock a same-type `startJob` while the runner is still active).
    *
    * Throws `JobAlreadyInProgressError` if another job of the same type is
    * already pending or running.
@@ -200,15 +226,16 @@ export class MigrationJobRegistry {
         );
     });
 
-    return job;
+    return cloneJob(job);
   }
 
   public getJob(id: string): MigrationJob | null {
-    return this.jobs.get(id) ?? null;
+    const job = this.jobs.get(id);
+    return job ? cloneJob(job) : null;
   }
 
   public listJobs(): MigrationJob[] {
-    return Array.from(this.jobs.values());
+    return Array.from(this.jobs.values(), cloneJob);
   }
 
   /**

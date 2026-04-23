@@ -200,6 +200,49 @@ describe("MigrationJobRegistry", () => {
     expect(registry.getJob(third.id)!.status).toBe("complete");
   });
 
+  test("returned job snapshots are decoupled from internal registry state", async () => {
+    const registry = new MigrationJobRegistry();
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const first = registry.startJob("export", async () => {
+      await gate;
+    });
+
+    // The synchronous return of startJob must be a snapshot, not the
+    // internal record. Mutating it (e.g. to simulate a caller stomping on
+    // `status`) must not unblock the single-in-flight invariant while the
+    // runner is still active.
+    first.status = "complete";
+    first.completedAt = Date.now();
+
+    await flushMicrotasks();
+    // Internal state is still running — the snapshot mutation did not leak.
+    expect(registry.getJob(first.id)!.status).toBe("running");
+
+    // Attempting a second same-type job must still reject.
+    expect(() => registry.startJob("export", async () => {})).toThrow(
+      JobAlreadyInProgressError,
+    );
+
+    // getJob snapshots are also decoupled: mutating the return value of
+    // getJob does not leak into listJobs or subsequent getJob calls.
+    const polled = registry.getJob(first.id)!;
+    polled.status = "failed";
+    expect(registry.getJob(first.id)!.status).toBe("running");
+    expect(registry.listJobs().find((j) => j.id === first.id)!.status).toBe(
+      "running",
+    );
+
+    // Settle.
+    release();
+    await flushMicrotasks();
+    expect(registry.getJob(first.id)!.status).toBe("complete");
+  });
+
   test("TTL sweep: completed jobs older than TTL are evicted", async () => {
     const registry = new MigrationJobRegistry();
     registry.completedJobTtlMs = 1_000; // 1s for test purposes
