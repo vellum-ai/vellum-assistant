@@ -317,6 +317,7 @@ DM Mono is not used in the SwiftUI-facing palette anymore (removed when the type
 - New `.swift` files are auto-picked up by SPM — no project file edits needed.
 - Panel views: Place in `Features/MainWindow/Panels/` and add a case to `SidePanelType`.
 - **File size target**: ~500-600 lines max. If a file exceeds this, split using extensions or standalone views.
+- **Build-script-only inputs stay out of the SPM target.** Files consumed by `build.sh`/`actool` (Icon Composer `.icon` bundles, per-environment icon sources, etc.) but not loaded at runtime via `Bundle.module`/`Bundle.main` belong in `clients/macos/build-resources/`, not under the SPM target's `Resources/`. Putting them inside the target forces a choice between wrongly bundling them into the library resource bundle (`.process`/`.copy`) or masking the layout with `.exclude`. See [Apple — Bundling resources with a Swift package](https://developer.apple.com/documentation/xcode/bundling-resources-with-a-swift-package).
 
 ---
 
