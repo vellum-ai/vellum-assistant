@@ -227,8 +227,14 @@ export async function handleClassifyRisk(
 
       // Proxied bash risk cap: when running through the credential proxy,
       // cap High → Medium so proxied commands don't trigger unnecessary prompts.
+      // Only applies to sandboxed "bash" — host_bash runs on the host machine
+      // and should not have its risk capped.
       let finalRisk = assessment.riskLevel;
-      if (params.networkMode === "proxied" && finalRisk === "high") {
+      if (
+        tool === "bash" &&
+        params.networkMode === "proxied" &&
+        finalRisk === "high"
+      ) {
         finalRisk = "medium";
       }
 

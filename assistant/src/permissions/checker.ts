@@ -302,6 +302,7 @@ function buildClassifyRiskParams(
   toolName: string,
   input: Record<string, unknown>,
   workingDir?: string,
+  manifestOverride?: ManifestOverride,
 ): ClassifyRiskParams {
   // ── Bash/host_bash ──
   if (toolName === "bash" || toolName === "host_bash") {
@@ -370,16 +371,22 @@ function buildClassifyRiskParams(
 
   // ── Unknown tools ──
   // Forward the tool's registry default risk level so the gateway can use it
-  // instead of hardcoding medium for unknown tools.
+  // instead of hardcoding medium for unknown tools. When the tool is not in the
+  // registry but a manifestOverride provides a risk, use that instead.
   const tool = getTool(toolName);
-  const registryDefaultRisk =
-    tool?.defaultRiskLevel === RiskLevel.Low
-      ? "low"
-      : tool?.defaultRiskLevel === RiskLevel.High
-        ? "high"
-        : tool?.defaultRiskLevel === RiskLevel.Medium
-          ? "medium"
-          : undefined;
+  let registryDefaultRisk: string | undefined;
+  if (tool) {
+    registryDefaultRisk =
+      tool.defaultRiskLevel === RiskLevel.Low
+        ? "low"
+        : tool.defaultRiskLevel === RiskLevel.High
+          ? "high"
+          : tool.defaultRiskLevel === RiskLevel.Medium
+            ? "medium"
+            : undefined;
+  } else if (manifestOverride?.risk) {
+    registryDefaultRisk = manifestOverride.risk;
+  }
   return { tool: toolName, registryDefaultRisk };
 }
 
@@ -561,7 +568,12 @@ export async function classifyRisk(
   }
 
   // ── Delegate to gateway via IPC ────────────────────────────────────────────
-  const ipcParams = buildClassifyRiskParams(toolName, input, workingDir);
+  const ipcParams = buildClassifyRiskParams(
+    toolName,
+    input,
+    workingDir,
+    manifestOverride,
+  );
   const gatewayResult = await ipcClassifyRisk(ipcParams);
 
   if (!gatewayResult) {

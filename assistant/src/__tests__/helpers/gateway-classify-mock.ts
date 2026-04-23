@@ -9,10 +9,22 @@
 
 import { handleClassifyRisk } from "../../../../gateway/src/ipc/risk-classification-handlers.js";
 
-export function createGatewayClientMock() {
+interface GatewayClientMock {
+  ipcClassifyRisk: (
+    params: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  ipcCall: () => Promise<undefined>;
+  ipcCallPersistent: () => Promise<undefined>;
+  ipcGetFeatureFlags: () => Promise<Record<string, boolean>>;
+  resetPersistentClient: () => void;
+}
+
+export function createGatewayClientMock(): GatewayClientMock {
   return {
     ipcClassifyRisk: async (params: Record<string, unknown>) => {
-      return handleClassifyRisk(params as any);
+      return handleClassifyRisk(
+        params as Parameters<typeof handleClassifyRisk>[0],
+      ) as Promise<Record<string, unknown>>;
     },
     ipcCall: async () => undefined,
     ipcCallPersistent: async () => undefined,
