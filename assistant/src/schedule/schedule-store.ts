@@ -250,6 +250,7 @@ export function updateSchedule(
     routingHints?: Record<string, unknown>;
     quiet?: boolean;
     reuseConversation?: boolean;
+    wakeConversationId?: string | null;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -308,6 +309,8 @@ export function updateSchedule(
   if (updates.quiet !== undefined) set.quiet = updates.quiet;
   if (updates.reuseConversation !== undefined)
     set.reuseConversation = updates.reuseConversation;
+  if (updates.wakeConversationId !== undefined)
+    set.wakeConversationId = updates.wakeConversationId;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
