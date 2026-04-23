@@ -36,9 +36,6 @@ RUN set -eu; for pkg in /app/skills/*/package.json; do \
       (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
     done
 
-# Copy source
-COPY assistant ./assistant
-
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
 
@@ -133,8 +130,13 @@ EXPOSE 3001
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
 
-# Copy from builder
+# Copy installed deps + shared packages + bundled skills from builder.
+# Skills stay in the builder copy because they require per-skill `bun install` runs.
 COPY --from=builder /app /app
+
+# Copy source separately to avoid invalidating builder layer.
+COPY assistant ./
+
 RUN chmod +x /app/assistant/docker-entrypoint.sh
 
 # Run the daemon + http server
