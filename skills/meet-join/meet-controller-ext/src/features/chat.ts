@@ -311,7 +311,7 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
     return { fromName, text, timestamp };
   };
 
-  const extract = (node: Element): void => {
+  const extract = (node: Element, isBackfill = false): void => {
     // Probe — don't require membership in the current MESSAGE_NODE set; the
     // structural fallback inside `chatSelectors.MESSAGE_NODE` is a descendant
     // selector, so `matches()` won't return `true` even when a passed-in
@@ -363,6 +363,12 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
         fromId,
         fromName,
         text,
+        // True only for the initial replay of pre-existing DOM messages
+        // during reader attach. Downstream consumers use this to skip
+        // wake-the-agent paths (Tier 2 LLM check) for history entries
+        // that would otherwise burn the debounce slot a real live
+        // message is about to need.
+        ...(isBackfill ? { isBackfill: true as const } : {}),
       };
       emittedCount += 1;
       try {
@@ -374,12 +380,16 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
   };
 
   // Backfill any messages already in the DOM when the reader attaches —
-  // otherwise we'd miss the pre-existing chat history.
+  // otherwise we'd miss the pre-existing chat history. Mark these events
+  // with `isBackfill: true` so the chat-opportunity detector skips Tier 2
+  // on them; a pre-existing history entry consuming the debounce slot
+  // would silently drop the first real live message that lands inside
+  // the debounce window.
   maybeEmitReaderDiagnostic();
   for (const existing of document.querySelectorAll(
     chatSelectors.MESSAGE_NODE,
   )) {
-    extract(existing);
+    extract(existing, true);
   }
 
   const observer = new MutationObserver((mutations) => {

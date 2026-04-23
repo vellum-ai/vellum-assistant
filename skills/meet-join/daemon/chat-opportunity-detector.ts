@@ -442,7 +442,15 @@ export class MeetChatOpportunityDetector {
     });
     while (this.chatBuffer.length > CHAT_BUFFER_SIZE) this.chatBuffer.shift();
 
-    // Every non-empty inbound chat proceeds to Tier 2 unconditionally.
+    // Backfilled replays of pre-existing DOM chat history populate the
+    // Tier 2 prompt context buffer but must NOT drive Tier 2 themselves.
+    // The reader emits one backfill event per already-mounted message on
+    // attach; treating those as live triggers would burn the debounce /
+    // in-flight slot and silently drop the first real live message that
+    // arrives inside the `tier2DebounceMs` window.
+    if (event.isBackfill === true) return;
+
+    // Every non-backfill inbound chat proceeds to Tier 2 unconditionally.
     // Chat volume is low enough (<1/5s typical) that the debounce +
     // escalation cooldown are sufficient throttles on their own, and a
     // keyword gate silently drops natural-but-unkeyworded invitations

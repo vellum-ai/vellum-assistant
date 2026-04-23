@@ -107,6 +107,7 @@ function inboundChat(
   text: string,
   fromName = "Alice",
   fromId = "a",
+  options: { isBackfill?: boolean } = {},
 ): MeetBotEvent {
   return {
     type: "chat.inbound",
@@ -115,6 +116,7 @@ function inboundChat(
     fromId,
     fromName,
     text,
+    ...(options.isBackfill ? { isBackfill: true as const } : {}),
   };
 }
 
@@ -305,6 +307,71 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
     // operators grepping `tier1:*` in logs still see the trigger.
     const [prompt] = llm.mock.calls[0] as unknown as [string];
     expect(prompt).toContain("tier1:chat-always-on");
+
+    detector.dispose();
+  });
+
+  test("backfilled inbound chat does not invoke Tier 2 and preserves the debounce slot for a live message", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "live message should fire",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+    });
+    detector.start();
+
+    // Reader attach: replay a pre-existing history message. With the
+    // isBackfill flag this must not enter Tier 2, so the debounce /
+    // in-flight slot stays free for the real live message next.
+    dispatcher.dispatch(
+      "m1",
+      inboundChat(
+        "m1",
+        "2024-01-01T00:00:00.000Z",
+        "old chat from before bot joined",
+        "Alice",
+        "a",
+        { isBackfill: true },
+      ),
+    );
+
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(0);
+    expect(detector.getStats().tier1Hits).toBe(0);
+    expect(detector.getStats().tier2Calls).toBe(0);
+
+    // A live message arriving well inside tier2DebounceMs (5s) must
+    // still fire Tier 2 because the backfill replay never consumed
+    // the debounce clock.
+    clock.advance(100);
+    dispatcher.dispatch(
+      "m1",
+      inboundChat("m1", "2024-01-01T00:00:00.100Z", "live question"),
+    );
+
+    await flushPromises();
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+
+    const stats = detector.getStats();
+    expect(stats.tier1Hits).toBe(1);
+    expect(stats.tier2Calls).toBe(1);
+    expect(stats.tier2PositiveCount).toBe(1);
+    expect(stats.escalationsFired).toBe(1);
 
     detector.dispose();
   });

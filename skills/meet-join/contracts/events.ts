@@ -114,6 +114,16 @@ export const InboundChatEventSchema = z.object({
   fromName: z.string(),
   /** The chat message text. */
   text: z.string(),
+  /**
+   * True when the event is a replay of a chat message that was already in
+   * the DOM when the reader attached — i.e. part of the meeting's pre-
+   * existing chat history, not a message that arrived live. Consumers that
+   * treat every inbound chat as an opportunity to wake the agent
+   * (`chat-opportunity-detector`) must skip backfilled messages so an old
+   * history entry doesn't consume the Tier 2 debounce slot and silently
+   * drop a live message arriving right after attach.
+   */
+  isBackfill: z.boolean().optional(),
 });
 export type InboundChatEvent = z.infer<typeof InboundChatEventSchema>;
 
