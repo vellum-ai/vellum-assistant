@@ -60,13 +60,20 @@ function printHelp(): void {
   console.log("  vellum terminal --assistant my-assistant");
 }
 
-interface ResolvedAssistant {
+export interface ResolvedManagedAssistant {
   assistantId: string;
   token: string;
   platformUrl: string;
 }
 
-function resolveAssistant(nameArg?: string): ResolvedAssistant {
+/**
+ * Resolve a managed (cloud-hosted) assistant from the lockfile. Exits with
+ * an error if the assistant is not found, not managed, or the user isn't
+ * logged in. Exported so `ssh` and `exec` can reuse it.
+ */
+export function resolveManagedAssistant(
+  nameArg?: string,
+): ResolvedManagedAssistant {
   const entry = nameArg ? findAssistantByName(nameArg) : loadLatestAssistant();
 
   if (!entry) {
@@ -115,8 +122,12 @@ function resolveAssistant(nameArg?: string): ResolvedAssistant {
 // Interactive session
 // ---------------------------------------------------------------------------
 
-async function interactiveSession(
-  assistant: ResolvedAssistant,
+/**
+ * Open an interactive raw-tty terminal session to a managed assistant.
+ * Exported so `ssh` and `exec` can delegate `cloud === "vellum"` here.
+ */
+export async function interactiveSession(
+  assistant: ResolvedManagedAssistant,
   initialCommand?: string,
 ): Promise<void> {
   const cols = process.stdout.columns || 80;
@@ -276,7 +287,9 @@ async function interactiveSession(
 // List tmux sessions
 // ---------------------------------------------------------------------------
 
-async function listTmuxSessions(assistant: ResolvedAssistant): Promise<void> {
+async function listTmuxSessions(
+  assistant: ResolvedManagedAssistant,
+): Promise<void> {
   const cols = 120;
   const rows = 24;
 
@@ -411,7 +424,7 @@ export async function terminal(): Promise<void> {
     }
   }
 
-  const assistant = resolveAssistant(assistantName);
+  const assistant = resolveManagedAssistant(assistantName);
 
   if (subcommand === "list") {
     await listTmuxSessions(assistant);
