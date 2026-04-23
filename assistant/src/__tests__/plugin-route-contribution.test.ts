@@ -5,11 +5,11 @@
  * `init()` succeeds, bootstrap wires each entry into the skill-route registry
  * via {@link registerSkillRoute}, retains the opaque {@link SkillRouteHandle}
  * it receives back, and on shutdown calls {@link unregisterSkillRoute} with
- * that exact handle. Pattern-text matching was removed deliberately: two
- * owners (e.g. a plugin and a skill) can legitimately register the same
- * regex, and keying on `source + flags` would let one owner's teardown
- * silently evict another owner's route, violating the "no traffic hits a
- * plugin handler during onShutdown" invariant.
+ * that exact handle. Handle-keyed unregistration ensures that two
+ * owners (e.g. a plugin and a skill) that legitimately register the same
+ * regex cannot have one owner's teardown silently evict another owner's
+ * route, preserving the "no traffic hits a plugin handler during
+ * onShutdown" invariant.
  *
  * The registry doesn't own HTTP itself — the tests here exercise:
  *
@@ -58,6 +58,7 @@ import {
   matchSkillRoute,
   resetSkillRoutesForTests,
   type SkillRoute,
+  type SkillRouteMatch,
 } from "../runtime/skill-route-registry.js";
 
 // Redirect plugin storage creation into a per-process temp tree so the test
@@ -227,6 +228,11 @@ describe("plugin route contributions", () => {
     // runs.
     let pluginAShutdown = false;
     let pluginBShutdown = false;
+    // Capture the match result from inside plugin-B's onShutdown so assertions
+    // run after runShutdownHooks returns. teardownPlugin wraps onShutdown in a
+    // try/catch that swallows thrown assertion errors, so asserting inline
+    // would let a failing match silently pass the test.
+    let pluginBOnShutdownMatch: SkillRouteMatch | null = null;
 
     registerPlugin(
       buildPlugin("plugin-a", {
@@ -263,9 +269,7 @@ describe("plugin route contributions", () => {
           // torn down after this hook returns and the loop moves on to
           // plugin-A. Confirm the registry still has a matching route.
           pluginBShutdown = true;
-          const matched = matchSkillRoute("/_plugin/echo", "GET");
-          expect(matched).not.toBeNull();
-          expect(matched!.kind).toBe("match");
+          pluginBOnShutdownMatch = matchSkillRoute("/_plugin/echo", "GET");
         },
       }),
     );
@@ -281,6 +285,8 @@ describe("plugin route contributions", () => {
 
     expect(pluginBShutdown).toBe(true);
     expect(pluginAShutdown).toBe(true);
+    expect(pluginBOnShutdownMatch).not.toBeNull();
+    expect(pluginBOnShutdownMatch!.kind).toBe("match");
 
     // After both plugins shut down, no routes remain.
     expect(matchSkillRoute("/_plugin/echo", "GET")).toBeNull();
