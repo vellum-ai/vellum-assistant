@@ -72,6 +72,16 @@ function cbOnSuccess(): void {
   cbConsecutiveFailures = 0;
 }
 
+/**
+ * Reset the circuit breaker to its initial closed state.
+ * Exported for use in tests to prevent state leaking between test cases.
+ */
+export function resetCircuitBreaker(): void {
+  cbState = CircuitState.CLOSED;
+  cbConsecutiveFailures = 0;
+  cbOpenedAt = 0;
+}
+
 function cbOnFailure(): void {
   cbConsecutiveFailures++;
 

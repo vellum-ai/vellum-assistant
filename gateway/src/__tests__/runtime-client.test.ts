@@ -28,6 +28,7 @@ const {
   forwardTwilioStatusWebhook,
   forwardTwilioConnectActionWebhook,
   CircuitBreakerOpenError,
+  resetCircuitBreaker,
 } = await import("../runtime/client.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -93,6 +94,7 @@ const successBody = {
 describe("forwardToRuntime", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("successful forward returns runtime response", async () => {
@@ -216,6 +218,7 @@ describe("forwardToRuntime", () => {
 describe("circuit breaker state transitions", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("4xx errors do not trip the circuit breaker", async () => {
@@ -285,6 +288,7 @@ describe("circuit breaker state transitions", () => {
 describe("downloadAttachment", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("downloads attachment payload with base64 data", async () => {
@@ -367,6 +371,7 @@ describe("downloadAttachment", () => {
 describe("forwardTwilioVoiceWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("sends params and originalUrl to runtime internal endpoint", async () => {
@@ -407,6 +412,7 @@ describe("forwardTwilioVoiceWebhook", () => {
 describe("forwardTwilioStatusWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("sends params to runtime internal status endpoint", async () => {
@@ -430,6 +436,7 @@ describe("forwardTwilioStatusWebhook", () => {
 describe("forwardTwilioConnectActionWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("sends params to runtime internal connect-action endpoint", async () => {

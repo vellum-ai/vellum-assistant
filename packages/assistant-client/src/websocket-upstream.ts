@@ -59,7 +59,7 @@ export function buildWsUpstreamUrl(opts: WsUpstreamOptions): WsUpstreamResult {
     ? opts.path
     : `/${opts.path}`;
 
-  const query = new URLSearchParams({ token: opts.serviceToken });
+  const query = new URLSearchParams();
   if (opts.extraParams) {
     for (const [key, value] of Object.entries(opts.extraParams)) {
       if (key !== "token") {
@@ -67,6 +67,7 @@ export function buildWsUpstreamUrl(opts: WsUpstreamOptions): WsUpstreamResult {
       }
     }
   }
+  query.set("token", opts.serviceToken);
 
   const url = `${wsBase}${normalizedPath}?${query.toString()}`;
 
