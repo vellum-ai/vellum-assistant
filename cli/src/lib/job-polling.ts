@@ -14,7 +14,7 @@ export interface PollJobUntilDoneOptions {
   poll: () => Promise<UnifiedJobStatus>;
   /** Sleep between successive polls. Defaults to 2_000 ms. */
   intervalMs?: number;
-  /** Maximum wall-clock time to wait. Defaults to 30 minutes. */
+  /** Maximum wall-clock time to wait. Defaults to 60 minutes. */
   timeoutMs?: number;
   /** Human-readable label used in the timeout error message (e.g. "export job"). */
   label: string;
@@ -46,7 +46,11 @@ export interface PollJobUntilDoneOptions {
 }
 
 const DEFAULT_INTERVAL_MS = 2_000;
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+// Matches the server-side runtime migration window: the GCS upload PUT and
+// the import-URL fetch in assistant/src/runtime/routes/migration-routes.ts
+// use AbortSignal.timeout(60 * 60 * 1000), so a shorter CLI poll cap would
+// abort a job that's still legitimately in progress on the server.
+const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_TRANSIENT_ERRORS = 5;
 const DEFAULT_MAX_AUTH_REFRESHES = 3;
 
