@@ -112,6 +112,7 @@ import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
+import { HostTransferProxy } from "./host-transfer-proxy.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
@@ -1366,8 +1367,22 @@ export class DaemonServer {
           }),
         );
       }
+      if (
+        !conversation.isProcessing() ||
+        !conversation.getHostTransferProxy()
+      ) {
+        conversation.setHostTransferProxy(
+          new HostTransferProxy(
+            conversation.getCurrentSender(),
+            (requestId) => {
+              pendingInteractions.resolve(requestId);
+            },
+          ),
+        );
+      }
     } else if (!conversation.isProcessing()) {
       conversation.setHostFileProxy(undefined);
+      conversation.setHostTransferProxy(undefined);
     }
     if (supportsHostProxy(resolvedInterface, "host_cu")) {
       if (!conversation.isProcessing() || !conversation.hostCuProxy) {
