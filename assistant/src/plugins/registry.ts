@@ -43,15 +43,22 @@ import {
  * top-level context APIs plugins most commonly consume.
  */
 export const ASSISTANT_API_VERSIONS: Record<string, string[]> = {
-  // Runtime APIs every plugin interacts with at some level.
+  // Runtime APIs every plugin interacts with at some level. `memoryApi` is the
+  // broader memory-subsystem capability (distinct from the `memoryRetrieval`
+  // pipeline, which gets its own `memoryRetrievalApi` entry below).
   pluginRuntime: ["v1"],
   memoryApi: ["v1"],
   compactionApi: ["v1"],
   persistenceApi: ["v1"],
 
-  // Per-pipeline APIs. One entry per pipeline slot in {@link PipelineName}.
+  // Per-pipeline APIs. One entry for every slot in {@link PipelineName} that
+  // isn't already covered by the runtime-APIs block above (`compaction` and
+  // `persistence` live there because plugins commonly interact with them
+  // outside a pipeline middleware context).
+  turnApi: ["v1"],
   llmCallApi: ["v1"],
   toolExecuteApi: ["v1"],
+  memoryRetrievalApi: ["v1"],
   historyRepairApi: ["v1"],
   tokenEstimateApi: ["v1"],
   overflowReduceApi: ["v1"],
