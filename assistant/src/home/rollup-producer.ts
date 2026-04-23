@@ -263,8 +263,8 @@ async function runRollupProducerInner(
 
   const capped = rawItems.slice(0, MAX_ITEMS_PER_ROLLUP);
   const accepted: WriteAssistantFeedItemParams[] = [];
-  for (const raw of capped) {
-    const params = coerceRollupItem(raw, validSources);
+  for (let i = 0; i < capped.length; i++) {
+    const params = coerceRollupItem(capped[i], validSources, i);
     if (params) accepted.push(params);
   }
 
@@ -376,6 +376,7 @@ function buildUserPrompt(
 function coerceRollupItem(
   raw: unknown,
   validSources: Set<string | undefined>,
+  index: number,
 ): WriteAssistantFeedItemParams | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
@@ -411,7 +412,7 @@ function coerceRollupItem(
       ? Math.max(0, obj.minTimeAway)
       : undefined;
 
-  const id = `rollup:${type}:${coercedSource ?? "none"}`;
+  const id = `rollup:${type}:${coercedSource ?? "none"}:${index}`;
 
   return {
     id,

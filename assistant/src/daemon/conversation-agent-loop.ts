@@ -2549,24 +2549,26 @@ export async function runAgentLoopImpl(
               );
             });
 
-            void rewriteFeedTitle(feedTitle)
-              .then((prose) => {
-                if (prose && prose !== feedTitle) {
-                  return emitFeedEvent({
-                    source: "assistant",
-                    title: prose,
-                    summary,
-                    dedupKey,
-                    conversationId: ctx.conversationId,
-                  });
-                }
-              })
-              .catch((err) => {
-                log.warn(
-                  { err, conversationId: ctx.conversationId },
-                  "Failed to update feed event with prose title rewrite",
-                );
-              });
+            if (isReplaceableTitle(conv.title ?? null)) {
+              void rewriteFeedTitle(feedTitle)
+                .then((prose) => {
+                  if (prose && prose !== feedTitle) {
+                    return emitFeedEvent({
+                      source: "assistant",
+                      title: prose,
+                      summary,
+                      dedupKey,
+                      conversationId: ctx.conversationId,
+                    });
+                  }
+                })
+                .catch((err) => {
+                  log.warn(
+                    { err, conversationId: ctx.conversationId },
+                    "Failed to update feed event with prose title rewrite",
+                  );
+                });
+            }
           }
         } catch (feedErr) {
           log.warn(

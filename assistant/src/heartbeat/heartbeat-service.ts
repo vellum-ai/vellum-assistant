@@ -416,6 +416,7 @@ export class HeartbeatService {
         title,
         summary: "Periodic check completed. Tap to see details.",
         dedupKey: `heartbeat:ok:${today}`,
+        priority: 30,
       }).catch((err) => {
         log.warn(
           { err, conversationId: conversation.id },
