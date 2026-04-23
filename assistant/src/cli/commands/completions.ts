@@ -40,7 +40,6 @@ Examples:
         keys: ["list", "set", "delete"],
         trust: ["list", "remove", "clear"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
-        hooks: ["list", "enable", "disable", "install", "remove"],
         contacts: ["list", "invites", "get", "merge"],
         autonomy: ["get", "set"],
       };
@@ -50,7 +49,6 @@ Examples:
         "keys",
         "trust",
         "memory",
-        "hooks",
         "contacts",
         "autonomy",
         "audit",
@@ -63,7 +61,7 @@ Examples:
           process.stdout.write(generateBashCompletion(topLevel, subcommands));
           break;
         case "zsh":
-          process.stdout.write(generateZshCompletion(topLevel, subcommands));
+          process.stdout.write(generateZshCompletion(subcommands));
           break;
         case "fish":
           process.stdout.write(generateFishCompletion(topLevel, subcommands));
@@ -113,10 +111,7 @@ complete -F _assistant_completions assistant
 `;
 }
 
-function generateZshCompletion(
-  topLevel: string[],
-  subcommands: Record<string, string[]>,
-): string {
+function generateZshCompletion(subcommands: Record<string, string[]>): string {
   const subcmdCases = Object.entries(subcommands)
     .map(([cmd, subs]) => `        ${cmd}) compadd ${subs.join(" ")} ;;`)
     .join("\n");
@@ -132,7 +127,6 @@ _assistant() {
         'keys:Manage API keys in secure storage'
         'trust:Manage trust rules'
         'memory:Manage long-term memory'
-        'hooks:Manage hooks'
         'contacts:Manage the contact graph'
         'autonomy:View and configure autonomy tiers'
         'audit:Show recent tool invocations'
@@ -172,7 +166,6 @@ function generateFishCompletion(
     keys: "Manage API keys in secure storage",
     trust: "Manage trust rules",
     memory: "Manage long-term memory",
-    hooks: "Manage hooks",
     contacts: "Manage the contact graph",
     autonomy: "View and configure autonomy tiers",
     audit: "Show recent tool invocations",
