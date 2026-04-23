@@ -12,18 +12,16 @@
  */
 
 import {
-  findAssistantByName,
-  loadLatestAssistant,
-  resolveCloud,
-} from "../lib/assistant-config.js";
-import { getPlatformUrl, readPlatformToken } from "../lib/platform-client.js";
-import {
   closeTerminalSession,
   createTerminalSession,
-  resizeTerminalSession,
   sendTerminalInput,
   subscribeTerminalEvents,
 } from "../lib/terminal-client.js";
+import {
+  interactiveSession,
+  resolveManagedAssistant,
+} from "../lib/terminal-session.js";
+import type { ResolvedManagedAssistant } from "../lib/terminal-session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,223 +58,13 @@ function printHelp(): void {
   console.log("  vellum terminal --assistant my-assistant");
 }
 
-interface ResolvedAssistant {
-  assistantId: string;
-  token: string;
-  platformUrl: string;
-}
-
-function resolveAssistant(nameArg?: string): ResolvedAssistant {
-  const entry = nameArg ? findAssistantByName(nameArg) : loadLatestAssistant();
-
-  if (!entry) {
-    if (nameArg) {
-      console.error(`No assistant instance found with name '${nameArg}'.`);
-    } else {
-      console.error("No assistant instance found. Run `vellum hatch` first.");
-    }
-    process.exit(1);
-  }
-
-  const cloud = resolveCloud(entry);
-  if (cloud !== "vellum") {
-    if (cloud === "local") {
-      console.error(
-        "This assistant runs locally on your machine. You can access it directly.",
-      );
-    } else if (cloud === "docker") {
-      console.error(
-        `Use 'vellum exec -it -- /bin/bash' or 'vellum ssh' for ${cloud} instances.`,
-      );
-    } else {
-      console.error(
-        `'vellum terminal' is for managed (cloud-hosted) assistants. This assistant uses '${cloud}'.`,
-      );
-    }
-    process.exit(1);
-  }
-
-  const token = readPlatformToken();
-  if (!token) {
-    console.error(
-      "Not logged in. Run `vellum login` first to authenticate with the platform.",
-    );
-    process.exit(1);
-  }
-
-  return {
-    assistantId: entry.assistantId,
-    token,
-    platformUrl: getPlatformUrl(),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Interactive session
-// ---------------------------------------------------------------------------
-
-async function interactiveSession(
-  assistant: ResolvedAssistant,
-  initialCommand?: string,
-): Promise<void> {
-  const cols = process.stdout.columns || 80;
-  const rows = process.stdout.rows || 24;
-
-  console.error(`\x1b[2m🔗 Connecting to ${assistant.assistantId}...\x1b[0m`);
-
-  const { session_id: sessionId } = await createTerminalSession(
-    assistant.token,
-    assistant.assistantId,
-    cols,
-    rows,
-    assistant.platformUrl,
-  );
-
-  // --- TTY raw mode setup ---
-  const wasRaw = process.stdin.isRaw;
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-  }
-  process.stdin.resume();
-  process.stdin.setEncoding("utf-8");
-
-  // Abort controller for the SSE stream
-  const abortController = new AbortController();
-  let exiting = false;
-
-  // --- Cleanup function (idempotent) ---
-  async function cleanup(): Promise<void> {
-    if (exiting) return;
-    exiting = true;
-
-    // Restore tty
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(wasRaw ?? false);
-    }
-    process.stdin.pause();
-
-    // Abort SSE stream
-    abortController.abort();
-
-    // Close remote session (best-effort)
-    try {
-      await closeTerminalSession(
-        assistant.token,
-        assistant.assistantId,
-        sessionId,
-        assistant.platformUrl,
-      );
-    } catch {
-      // Best-effort cleanup
-    }
-  }
-
-  // --- Signal handlers ---
-  const onSigInt = () => {
-    cleanup().then(() => process.exit(0));
-  };
-  const onSigTerm = () => {
-    cleanup().then(() => process.exit(0));
-  };
-  process.on("SIGINT", onSigInt);
-  process.on("SIGTERM", onSigTerm);
-
-  // --- SIGWINCH (terminal resize) ---
-  const onResize = () => {
-    const newCols = process.stdout.columns || 80;
-    const newRows = process.stdout.rows || 24;
-    resizeTerminalSession(
-      assistant.token,
-      assistant.assistantId,
-      sessionId,
-      newCols,
-      newRows,
-      assistant.platformUrl,
-    ).catch(() => {
-      // Resize failures are non-fatal
-    });
-  };
-  process.stdout.on("resize", onResize);
-
-  // --- Input: stdin → remote ---
-  let inputBuffer = "";
-  let inputTimer: ReturnType<typeof setTimeout> | null = null;
-  const INPUT_DEBOUNCE_MS = 30;
-
-  function flushInput(): void {
-    if (inputBuffer.length === 0) return;
-    const data = inputBuffer;
-    inputBuffer = "";
-    sendTerminalInput(
-      assistant.token,
-      assistant.assistantId,
-      sessionId,
-      data,
-      assistant.platformUrl,
-    ).catch((err) => {
-      if (!exiting) {
-        console.error(`\r\nInput error: ${err.message}\r\n`);
-      }
-    });
-  }
-
-  process.stdin.on("data", (chunk: string) => {
-    if (exiting) return;
-    inputBuffer += chunk;
-    if (inputTimer) clearTimeout(inputTimer);
-    inputTimer = setTimeout(flushInput, INPUT_DEBOUNCE_MS);
-  });
-
-  // --- Send initial command (for `attach` subcommand) ---
-  if (initialCommand) {
-    // Brief delay to let the shell initialize
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    await sendTerminalInput(
-      assistant.token,
-      assistant.assistantId,
-      sessionId,
-      initialCommand + "\r",
-      assistant.platformUrl,
-    );
-  }
-
-  // --- Output: remote SSE → stdout ---
-  try {
-    for await (const event of subscribeTerminalEvents(
-      assistant.token,
-      assistant.assistantId,
-      sessionId,
-      assistant.platformUrl,
-      abortController.signal,
-    )) {
-      if (exiting) break;
-      // Decode base64 output and write raw bytes to stdout
-      const bytes = Buffer.from(event.data, "base64");
-      process.stdout.write(bytes);
-    }
-  } catch (err) {
-    if (!exiting) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // AbortError is expected on cleanup
-      if (!msg.includes("abort")) {
-        console.error(`\r\nConnection lost: ${msg}\r\n`);
-      }
-    }
-  } finally {
-    await cleanup();
-
-    // Remove listeners
-    process.off("SIGINT", onSigInt);
-    process.off("SIGTERM", onSigTerm);
-    process.stdout.off("resize", onResize);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // List tmux sessions
 // ---------------------------------------------------------------------------
 
-async function listTmuxSessions(assistant: ResolvedAssistant): Promise<void> {
+async function listTmuxSessions(
+  assistant: ResolvedManagedAssistant,
+): Promise<void> {
   const cols = 120;
   const rows = 24;
 
@@ -411,7 +199,7 @@ export async function terminal(): Promise<void> {
     }
   }
 
-  const assistant = resolveAssistant(assistantName);
+  const assistant = resolveManagedAssistant(assistantName);
 
   if (subcommand === "list") {
     await listTmuxSessions(assistant);

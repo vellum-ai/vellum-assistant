@@ -8,7 +8,13 @@ import {
 import { dockerResourceNames } from "../lib/docker";
 import type { ServiceName } from "../lib/docker";
 import { execAppleContainer } from "../lib/exec-apple-container";
+import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { sshAppleContainer } from "../lib/ssh-apple-container";
+import {
+  interactiveSession,
+  nonInteractiveExec,
+  shellEscapeArgs,
+} from "../lib/terminal-session";
 
 const SERVICE_ALIASES: Record<string, ServiceName> = {
   assistant: "assistant",
@@ -74,9 +80,7 @@ export async function exec(): Promise<void> {
     );
     console.log("");
     console.log("Options:");
-    console.log(
-      "  --service <svc>     Target service (default: assistant)",
-    );
+    console.log("  --service <svc>     Target service (default: assistant)");
     console.log(
       "  -it                 Interactive mode with TTY (like docker exec -it)",
     );
@@ -90,9 +94,7 @@ export async function exec(): Promise<void> {
     console.log("  vellum exec -- ls -la /workspace");
     console.log("  vellum exec -- cat /workspace/NOW.md");
     console.log("  vellum exec -it -- /bin/bash");
-    console.log(
-      "  vellum exec --service gateway -- cat /tmp/gateway.log",
-    );
+    console.log("  vellum exec --service gateway -- cat /tmp/gateway.log");
     process.exit(0);
   }
 
@@ -127,9 +129,7 @@ export async function exec(): Promise<void> {
 
   const service = normalizeService(serviceRaw);
 
-  const entry = nameArg
-    ? findAssistantByName(nameArg)
-    : loadLatestAssistant();
+  const entry = nameArg ? findAssistantByName(nameArg) : loadLatestAssistant();
 
   if (!entry) {
     if (nameArg) {
@@ -176,6 +176,32 @@ export async function exec(): Promise<void> {
       });
       child.on("error", reject);
     });
+    return;
+  }
+
+  if (cloud === "vellum") {
+    const token = readPlatformToken();
+    if (!token) {
+      console.error(
+        "Not logged in. Run `vellum login` first to authenticate with the platform.",
+      );
+      process.exit(1);
+    }
+
+    const assistant = {
+      assistantId: entry.assistantId,
+      token,
+      platformUrl: getPlatformUrl(),
+    };
+
+    if (interactive) {
+      // Interactive mode: shell-escape argv and delegate to full terminal
+      await interactiveSession(assistant, shellEscapeArgs(command));
+      return;
+    }
+
+    // Non-interactive: sentinel-based output capture with exit code
+    await nonInteractiveExec(assistant, command);
     return;
   }
 
