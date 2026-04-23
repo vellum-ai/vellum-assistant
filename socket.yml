@@ -1,0 +1,41 @@
+# Socket.dev supply-chain policy.
+# Gates the `socket-security` GitHub App checks that run on every PR.
+# Free tier only: no reachability, no priority scoring, no Slack, no org-wide rules.
+# Layering: fail (action: error) > warn (action: warn) > allow (action: ignore).
+# Alert names below verified against https://docs.socket.dev/docs/socket-yml
+# and https://socket.dev/alerts in 2026-04; re-verify on next edit.
+# Runbook: docs/socket.md.
+
+version: 2
+
+projectIgnorePaths:
+  - "**/node_modules/**"
+  - "**/.build/**"
+  - "clients/.build/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.build-ios/**"
+  - "**/*.tsbuildinfo"
+  - "**/*.bun-build"
+
+issueRules:
+  # --- FAIL (blocks the check) ---
+  malware: { action: error }
+  gptMalware: { action: error }
+  didYouMean: { action: error }
+  installScripts: { action: error }
+  hasNativeCode: { action: error }
+  shellAccess: { action: error }
+
+  # --- WARN (surfaces but does not fail) ---
+  unpublishedLicense: { action: warn }
+  deprecated: { action: warn }
+  unmaintained: { action: warn }
+  dynamicRequire: { action: warn }
+  criticalCVE: { action: warn }
+  highCVE: { action: warn }
+
+  # Allow medium/low CVEs by default. Package-specific allow entries added
+  # here MUST carry a rationale comment (why, who, date, expiry).
+  mediumCVE: { action: ignore }
+  lowCVE: { action: ignore }
