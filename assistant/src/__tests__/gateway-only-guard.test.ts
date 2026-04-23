@@ -46,7 +46,8 @@ const ALLOWLIST = new Set([
   // --- Code generation tooling (documents the default server URL, not API consumption) ---
   "assistant/scripts/generate-openapi.ts", // OpenAPI spec generator embeds default server URL
 
-  // --- Client packages (websocket upstream helper documents the runtime URL in JSDoc) ---
+  // --- Shared client packages (transport helpers that proxy to the runtime by design) ---
+  "packages/assistant-client/src/proxy-forward.ts",
   "packages/assistant-client/src/websocket-upstream.ts",
 ]);
 

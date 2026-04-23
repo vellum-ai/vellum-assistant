@@ -25,6 +25,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
+import { fetchCesLogExport } from "@vellumai/ces-client/http-log-export";
+
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
@@ -413,54 +415,18 @@ async function collectCesExport(
   const destDir = join(stagingDir, "ces-exports");
   mkdirSync(destDir, { recursive: true });
 
-  // Build query params
-  const params = new URLSearchParams();
-  if (startTime !== undefined) params.set("startTime", String(startTime));
-  if (endTime !== undefined) params.set("endTime", String(endTime));
-  const queryString = params.toString();
-  const url = `${cesBaseUrl}/v1/logs/export${queryString ? `?${queryString}` : ""}`;
+  const result = await fetchCesLogExport(
+    { baseUrl: cesBaseUrl, serviceToken: cesServiceToken },
+    { startTime, endTime, timeoutMs: EXPORT_TIMEOUT_MS },
+  );
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(
-      new DOMException(
-        "The operation was aborted due to timeout",
-        "TimeoutError",
-      ),
-    );
-  }, EXPORT_TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetchImpl(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${cesServiceToken}`,
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof DOMException && err.name === "TimeoutError") {
-      throw new Error("CES export request timed out");
-    }
-    throw new Error(
-      `CES export connection failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "(unreadable)");
-    throw new Error(
-      `CES export returned ${response.status}: ${body.slice(0, 256)}`,
-    );
+  if (!result.ok) {
+    throw new Error(result.error);
   }
 
   // Write the CES tar.gz response to a temp file and extract
   const tarGzPath = join(stagingDir, "ces-export.tar.gz");
-  const data = await response.arrayBuffer();
-  await Bun.write(tarGzPath, data);
+  await Bun.write(tarGzPath, result.data);
 
   const extractProc = Bun.spawn(
     ["/usr/bin/tar", "xzf", tarGzPath, "-C", destDir],

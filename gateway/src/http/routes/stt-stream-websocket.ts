@@ -1,3 +1,5 @@
+import { buildWsUpstreamUrl } from "@vellumai/assistant-client";
+
 import {
   validateEdgeToken,
   mintServiceToken,
@@ -176,24 +178,20 @@ export function getSttStreamWebsocketHandlers() {
       // Initialize message buffer for frames arriving before upstream connects
       ws.data.pendingMessages = [];
 
-      const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, "ws");
-      const upstreamToken = mintServiceToken();
-      const query = new URLSearchParams({
-        token: upstreamToken,
-        mimeType,
-      });
+      const extraParams: Record<string, string> = { mimeType };
       if (provider) {
-        query.set("provider", provider);
+        extraParams.provider = provider;
       }
       if (sampleRate !== undefined) {
-        query.set("sampleRate", String(sampleRate));
+        extraParams.sampleRate = String(sampleRate);
       }
-      const upstreamUrl = `${runtimeBase}/v1/stt/stream?${query.toString()}`;
-      const logSafeUpstreamUrl =
-        `${runtimeBase}/v1/stt/stream?token=<redacted>` +
-        (provider ? `&provider=${provider}` : "") +
-        `&mimeType=${encodeURIComponent(mimeType)}` +
-        (sampleRate !== undefined ? `&sampleRate=${sampleRate}` : "");
+      const { url: upstreamUrl, logSafeUrl: logSafeUpstreamUrl } =
+        buildWsUpstreamUrl({
+          baseUrl: config.assistantRuntimeBaseUrl,
+          path: "/v1/stt/stream",
+          serviceToken: mintServiceToken(),
+          extraParams,
+        });
 
       log.info(
         { upstreamUrl: logSafeUpstreamUrl, provider, mimeType, sampleRate },

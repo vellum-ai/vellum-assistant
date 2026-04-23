@@ -6,11 +6,12 @@
  * The gateway simply proxies to the daemon's pairing endpoints.
  */
 
+import { proxyForwardToResponse } from "@vellumai/assistant-client";
+
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
-import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("pairing-proxy");
 
@@ -25,23 +26,12 @@ export function createPairingProxyHandler(config: GatewayConfig) {
     upstreamPath: string,
     upstreamSearch: string,
   ): Promise<Response> {
-    const start = performance.now();
-    const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${upstreamSearch}`;
-
-    const reqHeaders = stripHopByHop(new Headers(req.headers));
-    reqHeaders.delete("host");
-    reqHeaders.delete("authorization");
-
-    // Mint a short-lived service token for gateway->runtime auth
-    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
-
-    const hasBody = req.method !== "GET" && req.method !== "HEAD";
-
     // Payload size guard — primary defense: reject via Content-Length before
     // reading the body into memory. This is the main protection against
     // oversized requests because Bun's Request.arrayBuffer() buffers the
     // entire body with no streaming-limit API, so once we call it the
     // memory is already allocated.
+    const hasBody = req.method !== "GET" && req.method !== "HEAD";
     if (hasBody) {
       const contentLength = req.headers.get("content-length");
       if (contentLength) {
@@ -56,10 +46,12 @@ export function createPairingProxyHandler(config: GatewayConfig) {
       }
     }
 
-    const bodyBuffer = hasBody ? await req.arrayBuffer() : null;
-    // Belt-and-suspenders: verify actual size after read in case
-    // Content-Length was absent (chunked) or spoofed.
-    if (bodyBuffer !== null) {
+    // Belt-and-suspenders: peek at the actual body size before forwarding.
+    // We need to buffer it here anyway for the size check, then wrap it in
+    // a new Request so proxyForwardToResponse can re-buffer it without a
+    // double-consume error.
+    if (hasBody) {
+      const bodyBuffer = await req.arrayBuffer();
       if (bodyBuffer.byteLength > MAX_PAIRING_PAYLOAD_BYTES) {
         log.warn(
           { bodyLength: bodyBuffer.byteLength },
@@ -67,68 +59,45 @@ export function createPairingProxyHandler(config: GatewayConfig) {
         );
         return Response.json({ error: "Payload too large" }, { status: 413 });
       }
-      reqHeaders.set("content-length", String(bodyBuffer.byteLength));
-    }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort(
-        new DOMException(
-          "The operation was aborted due to timeout",
-          "TimeoutError",
-        ),
-      );
-    }, TIMEOUT_MS);
-
-    let response: Response;
-    try {
-      response = await fetchImpl(upstream, {
+      // Rebuild the request with the buffered body so the shared helper
+      // can consume it without hitting a "body already used" error.
+      req = new Request(req.url, {
         method: req.method,
-        headers: reqHeaders,
+        headers: req.headers,
         body: bodyBuffer,
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const duration = Math.round(performance.now() - start);
-      if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error(
-          { path: upstreamPath, duration },
-          "Pairing proxy upstream timed out",
-        );
-        return Response.json({ error: "Gateway Timeout" }, { status: 504 });
-      }
-      log.error(
-        { err, path: upstreamPath, duration },
-        "Pairing proxy upstream connection failed",
-      );
-      return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
 
-    const resHeaders = stripHopByHop(new Headers(response.headers));
+    const start = performance.now();
+    const response = await proxyForwardToResponse(req, {
+      baseUrl: config.assistantRuntimeBaseUrl,
+      path: upstreamPath,
+      search: upstreamSearch || undefined,
+      serviceToken: mintServiceToken(),
+      timeoutMs: TIMEOUT_MS,
+      fetchImpl,
+    });
     const duration = Math.round(performance.now() - start);
 
-    if (response.status >= 400) {
-      const body = await response.text();
+    if (response.status >= 500) {
+      log.error(
+        { path: upstreamPath, status: response.status, duration },
+        "Pairing proxy upstream error",
+      );
+    } else if (response.status >= 400) {
       log.warn(
         { path: upstreamPath, status: response.status, duration },
         "Pairing proxy upstream error",
       );
-      return new Response(body, {
-        status: response.status,
-        headers: resHeaders,
-      });
+    } else {
+      log.info(
+        { path: upstreamPath, status: response.status, duration },
+        "Pairing proxy completed",
+      );
     }
 
-    log.info(
-      { path: upstreamPath, status: response.status, duration },
-      "Pairing proxy completed",
-    );
-    return new Response(response.body, {
-      status: response.status,
-      headers: resHeaders,
-    });
+    return response;
   }
 
   return {

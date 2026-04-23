@@ -17,6 +17,7 @@ import {
   type FSWatcher,
 } from "node:fs";
 import { dirname } from "node:path";
+import { createCesHttpCredentialClient } from "@vellumai/ces-client/http-credentials";
 import { getLogger } from "./logger.js";
 import {
   readServiceCredentials,
@@ -29,7 +30,6 @@ const log = getLogger("credential-watcher");
 
 const DEBOUNCE_MS = 500;
 const MANAGED_BOOTSTRAP_POLL_MS = 1_000;
-const MANAGED_BOOTSTRAP_TIMEOUT_MS = 1_000;
 const MANAGED_BOOTSTRAP_STEADY_POLL_MS = 30_000;
 
 export type CredentialChangeEvent = {
@@ -161,26 +161,14 @@ export class CredentialWatcher {
     if (this.managedBootstrapPollInFlight) return;
     this.managedBootstrapPollInFlight = true;
     try {
-      const resp = await fetch(`${baseUrl}/v1/credentials`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${serviceToken}`,
-          Accept: "application/json",
-        },
-        signal: AbortSignal.timeout(MANAGED_BOOTSTRAP_TIMEOUT_MS),
-      });
-      if (resp.status === 401 || resp.status === 403 || resp.status === 404) {
-        if (this.managedBootstrapTimer) {
-          clearInterval(this.managedBootstrapTimer);
-          this.managedBootstrapTimer = null;
-        }
-        log.warn(
-          { status: resp.status },
-          "Stopping managed credential bootstrap retry due to non-retryable CES response",
-        );
-        return;
-      }
-      if (!resp.ok) {
+      const client = createCesHttpCredentialClient(
+        { baseUrl, serviceToken },
+        log,
+      );
+      const listResult = await client.list();
+
+      if (listResult.unreachable) {
+        // CES isn't reachable yet. Keep retrying.
         return;
       }
 
