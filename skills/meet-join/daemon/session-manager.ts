@@ -54,92 +54,138 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getConfig } from "../../../assistant/src/config/loader.js";
-import { getAssistantName } from "../../../assistant/src/daemon/identity-helpers.js";
-import { addMessage } from "../../../assistant/src/memory/conversation-crud.js";
-import {
-  createTimeout,
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../assistant/src/providers/provider-send-message.js";
 import type {
-  Provider,
-  ToolDefinition,
-} from "../../../assistant/src/providers/types.js";
-import { wakeAgentForOpportunity } from "../../../assistant/src/runtime/agent-wake.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
-import type { DaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
-import { getDaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
-import { getProviderKeyAsync } from "../../../assistant/src/security/secure-keys.js";
-import { getTtsProvider } from "../../../assistant/src/tts/provider-registry.js";
-import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver.js";
-import type { TtsProvider } from "../../../assistant/src/tts/types.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
+  DaemonRuntimeMode,
+  Logger,
+  SkillHost,
+} from "@vellumai/skill-host-contracts";
+
+// Side-effect imports: every sub-module file calls `registerSubModule` at
+// module-load time so its factory is reachable via `getSubModule` below.
+// The session manager pulls those factories dynamically (rather than taking
+// a static dependency on each class), so we need explicit side-effect
+// imports here to guarantee the registrations fire before the constructor
+// runs. Adding a sub-module in the future? Add its import here.
+import "./audio-ingest.js";
+import "./barge-in-watcher.js";
+import "./chat-opportunity-detector.js";
+import "./consent-monitor.js";
+import "./conversation-bridge.js";
+import "./docker-runner.js";
+import "./event-publisher.js";
+import "./session-event-router.js";
+import "./speaker-resolver.js";
+import "./storage-writer.js";
+import "./tts-bridge.js";
+import "./tts-lipsync.js";
+
 import {
   MEET_CHAT_MAX_LENGTH,
   trustedTypeHttpTimeoutMs,
 } from "../contracts/native-messaging.js";
 import { getMeetConfig } from "../meet-config.js";
-import { MeetAudioIngest } from "./audio-ingest.js";
-import {
-  type BargeInCanceller,
+import type { MeetAudioIngest } from "./audio-ingest.js";
+import { AUDIO_INGEST_SUB_MODULE } from "./audio-ingest.js";
+import type {
+  BargeInCanceller,
   MeetBargeInWatcher,
+  MeetBargeInWatcherDeps,
 } from "./barge-in-watcher.js";
-import {
-  type ChatOpportunityCallback,
-  type ChatOpportunityDecision,
-  type ChatOpportunityDetectorStats,
-  type ChatOpportunityLLMAsk,
+import type {
+  ChatOpportunityCallback,
+  ChatOpportunityDecision,
+  ChatOpportunityDetectorStats,
+  ChatOpportunityLLMAsk,
   MeetChatOpportunityDetector,
-  type ProactiveChatConfig,
-  type VoiceModeConfig,
+  MeetChatOpportunityDetectorDeps,
+  ProactiveChatConfig,
+  VoiceModeConfig,
 } from "./chat-opportunity-detector.js";
-import {
+import type {
   MeetConsentMonitor,
-  type MeetSessionLeaver,
+  MeetConsentMonitorDeps,
+  MeetSessionLeaver,
 } from "./consent-monitor.js";
-import {
-  type InsertMessageFn,
+import type {
+  BuildConversationBridgeArgs,
+  InsertMessageFn,
   MeetConversationBridge,
 } from "./conversation-bridge.js";
 import {
-  DockerRunner,
+  DOCKER_RUNNER_MODULE,
   getMeetBotInstanceHash,
   MEET_BOT_INSTANCE_LABEL,
   MEET_BOT_LABEL,
   MEET_BOT_MEETING_ID_LABEL,
   reapOrphanedMeetBots,
-  type DockerRunResult,
-  type DockerWaitResult,
+} from "./docker-runner.js";
+import type {
+  DockerRunner,
+  DockerRunResult,
+  DockerWaitResult,
+  ReaperLogger,
 } from "./docker-runner.js";
 import {
   meetEventDispatcher,
-  type MeetEventUnsubscribe,
   publishMeetEvent,
   registerMeetingDispatcher,
   subscribeEventHubPublisher,
   subscribeToMeetingEvents,
   unregisterMeetingDispatcher,
 } from "./event-publisher.js";
+import type { MeetEventUnsubscribe } from "./event-publisher.js";
+import { getSubModule, type SubModuleFactory } from "./modules-registry.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
-import { MeetStorageWriter, type PcmSource } from "./storage-writer.js";
-import {
+import type { MeetStorageWriter, PcmSource } from "./storage-writer.js";
+import { MeetTtsCancelledError } from "./tts-bridge.js";
+import type {
   MeetTtsBridge,
-  type MeetTtsBridgeArgs,
-  type MeetTtsBridgeDeps,
-  MeetTtsCancelledError,
-  type SpeakInput,
-  type VisemeListener,
+  MeetTtsBridgeArgs,
+  SpeakInput,
+  VisemeListener,
 } from "./tts-bridge.js";
-import {
-  startTtsLipsync,
-  type StartTtsLipsyncArgs,
-  type TtsLipsyncHandle,
+import type {
+  StartTtsLipsyncArgs,
+  TtsLipsyncHandle,
 } from "./tts-lipsync.js";
 
-const log = getLogger("meet-session-manager");
+/**
+ * Minimal structural overlay of the daemon's `ToolDefinition` used to
+ * force the Tier 2 LLM into a strict-JSON response. The host's
+ * `providers.llm` facet types its request arguments as `unknown`, so we
+ * declare the local shape we actually need — keeping the concrete
+ * daemon type out of this file.
+ */
+interface ToolDefinitionShape {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required: readonly string[];
+  };
+}
+
+/**
+ * Narrow provider surface for the default Tier 2 LLM binding. The host's
+ * `providers.llm.getConfigured()` returns an opaque `Provider`, which we
+ * narrow here to the one `sendMessage` method this module calls.
+ */
+interface LlmProviderLike {
+  sendMessage(
+    messages: unknown[],
+    tools: ToolDefinitionShape[],
+    system: string,
+    opts: {
+      config: {
+        callSite: string;
+        max_tokens: number;
+        tool_choice: { type: "tool"; name: string };
+      };
+      signal: AbortSignal;
+    },
+  ): Promise<unknown>;
+}
 
 /** Default internal port the bot's control API listens on inside the container. */
 export const MEET_BOT_INTERNAL_PORT = 3000;
@@ -783,50 +829,147 @@ class MeetSessionManagerImpl {
    */
   private avatarPreflightPassedPaths = new Set<string>();
   private deps: Required<MeetSessionManagerDeps>;
+  private host: SkillHost;
+  private log: Logger;
+  private internalAssistantId: string;
 
-  constructor(deps: MeetSessionManagerDeps = {}) {
-    const insertMessage = deps.insertMessage ?? addMessage;
-    const resolveWorkspaceDir = deps.getWorkspaceDir ?? getWorkspaceDir;
+  constructor(host: SkillHost, deps: MeetSessionManagerDeps = {}) {
+    this.host = host;
+    this.log = host.logger.get("meet-session-manager");
+    this.internalAssistantId = host.identity.internalAssistantId;
+    // The contract's `addMessage` returns `Promise<unknown>`; the bridge's
+    // `InsertMessageFn` expects the narrower `{ id: string }` shape.
+    // `DaemonSkillHost` wires the concrete `addMessage` (which returns the
+    // narrower shape) as-is, so the runtime values match — the narrowing
+    // cast just patches the contract's opaque return type back to the
+    // daemon shape at this boundary.
+    const insertMessage: InsertMessageFn =
+      deps.insertMessage ?? (host.memory.addMessage as InsertMessageFn);
+    const resolveWorkspaceDir =
+      deps.getWorkspaceDir ?? (() => host.platform.workspaceDir());
+    const dockerRunnerSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => DockerRunner
+    >(DOCKER_RUNNER_MODULE);
+    const audioIngestSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => () => MeetAudioIngest
+    >(AUDIO_INGEST_SUB_MODULE);
+    const consentMonitorSubModule = resolveSubModuleFactory<
+      (
+        host: SkillHost,
+      ) => (
+        deps: Omit<MeetConsentMonitorDeps, "assistantId"> & {
+          assistantId?: string;
+        },
+      ) => MeetConsentMonitor
+    >("consent-monitor");
+    const conversationBridgeSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => (
+        args: BuildConversationBridgeArgs,
+      ) => MeetConversationBridge
+    >("conversation-bridge");
+    const storageWriterSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => (meetingId: string) => MeetStorageWriter
+    >("storage-writer");
+    const chatOpportunityDetectorSubModule = resolveSubModuleFactory<
+      (
+        host: SkillHost,
+      ) => (deps: MeetChatOpportunityDetectorDeps) => MeetChatOpportunityDetector
+    >("chat-opportunity-detector");
+    const ttsBridgeSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => (args: MeetTtsBridgeArgs) => MeetTtsBridge
+    >("tts-bridge");
+    const ttsLipsyncSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => (args: StartTtsLipsyncArgs) => TtsLipsyncHandle
+    >("tts-lipsync");
+    const bargeInWatcherSubModule = resolveSubModuleFactory<
+      (host: SkillHost) => (deps: MeetBargeInWatcherDeps) => MeetBargeInWatcher
+    >("barge-in-watcher");
+
+    const dockerRunnerBuilder = (): DockerRunner =>
+      dockerRunnerSubModule(host);
+    const audioIngestBuilder = audioIngestSubModule(host);
+    const consentMonitorBuilder = consentMonitorSubModule(host);
+    const conversationBridgeBuilder = conversationBridgeSubModule(host);
+    const storageWriterBuilder = storageWriterSubModule(host);
+    const chatOpportunityDetectorBuilder = chatOpportunityDetectorSubModule(host);
+    const ttsBridgeBuilder = ttsBridgeSubModule(host);
+    const ttsLipsyncBuilder = ttsLipsyncSubModule(host);
+    const bargeInWatcherBuilder = bargeInWatcherSubModule(host);
+
     this.deps = {
-      dockerRunnerFactory:
-        deps.dockerRunnerFactory ??
-        (() => new DockerRunner({ workspaceDir: resolveWorkspaceDir() })),
-      getProviderKey: deps.getProviderKey ?? getProviderKeyAsync,
+      dockerRunnerFactory: deps.dockerRunnerFactory ?? dockerRunnerBuilder,
+      getProviderKey:
+        deps.getProviderKey ??
+        (async (id) =>
+          (await host.providers.secureKeys.getProviderKey(id)) ?? undefined),
       botLeaveFetch: deps.botLeaveFetch ?? defaultBotLeaveFetch,
       botSendChatFetch: deps.botSendChatFetch ?? defaultBotSendChatFetch,
       botAvatarFetch: deps.botAvatarFetch ?? defaultBotAvatarFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
-      getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
-      audioIngestFactory:
-        deps.audioIngestFactory ?? (() => new MeetAudioIngest()),
+      getWorkspaceDir: resolveWorkspaceDir,
+      audioIngestFactory: deps.audioIngestFactory ?? audioIngestBuilder,
       consentMonitorFactory:
-        deps.consentMonitorFactory ?? defaultConsentMonitorFactory,
+        deps.consentMonitorFactory ??
+        ((args) =>
+          consentMonitorBuilder({
+            meetingId: args.meetingId,
+            assistantId: args.assistantId,
+            sessionManager: args.sessionManager,
+            config: args.config,
+          })),
       conversationBridgeFactory:
         deps.conversationBridgeFactory ??
         ((args) =>
-          new MeetConversationBridge({
+          conversationBridgeBuilder({
             meetingId: args.meetingId,
             conversationId: args.conversationId,
             insertMessage,
           })),
       storageWriterFactory:
         deps.storageWriterFactory ??
-        ((args) =>
-          new MeetStorageWriter(args.meetingId, {
-            getWorkspaceDir: resolveWorkspaceDir,
-          })),
+        ((args) => storageWriterBuilder(args.meetingId)),
       resolveAssistantDisplayName:
-        deps.resolveAssistantDisplayName ?? getAssistantName,
+        deps.resolveAssistantDisplayName ??
+        (() => host.identity.getAssistantName() ?? null),
       insertMessage,
       chatOpportunityDetectorFactory:
         deps.chatOpportunityDetectorFactory ??
-        defaultChatOpportunityDetectorFactory,
-      ttsBridgeFactory: deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
-      ttsLipsyncFactory: deps.ttsLipsyncFactory ?? defaultTtsLipsyncFactory,
+        ((args) =>
+          chatOpportunityDetectorBuilder({
+            meetingId: args.meetingId,
+            assistantDisplayName: args.assistantDisplayName,
+            config: args.config,
+            voiceConfig: args.voiceConfig,
+            callDetectorLLM: args.callDetectorLLM,
+            onOpportunity: args.onOpportunity,
+          })),
+      ttsBridgeFactory:
+        deps.ttsBridgeFactory ??
+        ((args) =>
+          ttsBridgeBuilder({
+            meetingId: args.meetingId,
+            botBaseUrl: args.botBaseUrl,
+            botApiToken: args.botApiToken,
+          })),
+      ttsLipsyncFactory:
+        deps.ttsLipsyncFactory ??
+        ((args) =>
+          ttsLipsyncBuilder({
+            bridge: args.bridge,
+            botApiToken: args.botApiToken,
+          })),
       bargeInWatcherFactory:
-        deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
-      wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
-      resolveRuntimeMode: deps.resolveRuntimeMode ?? getDaemonRuntimeMode,
+        deps.bargeInWatcherFactory ??
+        ((args) =>
+          bargeInWatcherBuilder({
+            meetingId: args.meetingId,
+            sessionManager: args.sessionManager,
+          })),
+      wakeAgent:
+        deps.wakeAgent ??
+        ((opts) => host.memory.wakeAgentForOpportunity(opts)),
+      resolveRuntimeMode:
+        deps.resolveRuntimeMode ?? (() => host.platform.runtimeMode()),
       avatarDeviceExists: deps.avatarDeviceExists ?? existsSync,
       disableStartupOrphanReaper: deps.disableStartupOrphanReaper ?? false,
     };
@@ -867,6 +1010,7 @@ class MeetSessionManagerImpl {
     if (!this.deps.disableStartupOrphanReaper) {
       const reaperDocker = this.deps.dockerRunnerFactory();
       const daemonStartEpochSeconds = Math.floor(Date.now() / 1000);
+      const reaperLog = this.log;
       void reapOrphanedMeetBots({
         docker: reaperDocker,
         activeMeetingIds: () => {
@@ -876,9 +1020,12 @@ class MeetSessionManagerImpl {
         },
         instanceHash: getMeetBotInstanceHash(),
         createdBefore: daemonStartEpochSeconds,
-        logger: log,
+        logger: adaptContractLoggerToReaperLogger(reaperLog),
       }).catch((err: unknown) => {
-        log.warn({ err }, "Startup orphan-reaper sweep threw — continuing");
+        reaperLog.warn(
+          "Startup orphan-reaper sweep threw — continuing",
+          { err },
+        );
       });
     }
   }
@@ -989,7 +1136,7 @@ class MeetSessionManagerImpl {
     // subscriber errors surface into the log stream before the container
     // spin-up (which takes seconds) begins.
     await publishMeetEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
+      this.internalAssistantId,
       meetingId,
       "meet.joining",
       { url },
@@ -1031,7 +1178,7 @@ class MeetSessionManagerImpl {
       // set() line was never reached (e.g. getMeetConfig/mkdirSync threw).
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1044,7 +1191,7 @@ class MeetSessionManagerImpl {
       ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
     } catch (err) {
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1085,7 +1232,7 @@ class MeetSessionManagerImpl {
     } catch (err) {
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1128,7 +1275,7 @@ class MeetSessionManagerImpl {
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1248,17 +1395,14 @@ class MeetSessionManagerImpl {
           : {}),
       });
     } catch (err) {
-      log.error(
-        { err, meetingId, image: meet.containerImage },
-        "Failed to spawn meet bot container",
-      );
+      this.log.error("Failed to spawn meet bot container", { err, meetingId, image: meet.containerImage });
       // Tear down the concurrently-started audio ingest so we don't leak
       // a listening socket or a streaming STT session on the spawn-failure path.
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1272,14 +1416,14 @@ class MeetSessionManagerImpl {
     if (!boundPort) {
       // Roll back the container so we don't leak a started-but-unreachable
       // bot. Best-effort — surface the original error either way.
-      await captureBotLogs(runner, runResult.containerId, meetingDir);
+      await captureBotLogs(runner, runResult.containerId, meetingDir, this.log);
       await runner.remove(runResult.containerId).catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail },
@@ -1295,18 +1439,15 @@ class MeetSessionManagerImpl {
     try {
       await audioIngestReady;
     } catch (err) {
-      log.error(
-        { err, meetingId, containerId: runResult.containerId },
-        "Meet audio ingest failed to start — rolling back container",
-      );
+      this.log.error("Meet audio ingest failed to start — rolling back container", { err, meetingId, containerId: runResult.containerId });
       await runner.stop(runResult.containerId).catch(() => {});
-      await captureBotLogs(runner, runResult.containerId, meetingDir);
+      await captureBotLogs(runner, runResult.containerId, meetingDir, this.log);
       await runner.remove(runResult.containerId).catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1322,7 +1463,7 @@ class MeetSessionManagerImpl {
     // `start()` below, after the session is in the map.
     const consentMonitor = this.deps.consentMonitorFactory({
       meetingId,
-      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      assistantId: this.internalAssistantId,
       sessionManager: this,
       config: {
         autoLeaveOnObjection: meet.autoLeaveOnObjection,
@@ -1369,7 +1510,7 @@ class MeetSessionManagerImpl {
               enabled: voiceModeConfig.enabled,
               eouDebounceMs: voiceModeConfig.eouDebounceMs,
             },
-            callDetectorLLM: defaultCallDetectorLLM,
+            callDetectorLLM: (prompt) => this.callDetectorLLM(prompt),
             onOpportunity: ({ reason, kind }) => {
               // `kind` distinguishes chat-opportunity wakes (Tier 2
               // positive verdict) from 1:1 voice-turn wakes. Thread it
@@ -1384,10 +1525,7 @@ class MeetSessionManagerImpl {
                   source,
                 })
                 .catch((err) => {
-                  log.warn(
-                    { err, meetingId, conversationId, kind },
-                    "MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity",
-                  );
+                  this.log.warn("MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity", { err, meetingId, conversationId, kind });
                 });
             },
           })
@@ -1458,7 +1596,7 @@ class MeetSessionManagerImpl {
     // Fan `participant.change` / `speaker.change` / final transcript chunks
     // out as `meet.*` events on the assistant event hub.
     session.eventUnsubscribes.push(
-      subscribeEventHubPublisher(DAEMON_INTERNAL_ASSISTANT_ID, meetingId),
+      subscribeEventHubPublisher(this.internalAssistantId, meetingId),
     );
 
     // Watch for the bot's first `lifecycle: joined` so we can emit a
@@ -1470,7 +1608,7 @@ class MeetSessionManagerImpl {
         if (event.state === "joined" && !session.joinedPublished) {
           session.joinedPublished = true;
           void publishMeetEvent(
-            DAEMON_INTERNAL_ASSISTANT_ID,
+            this.internalAssistantId,
             meetingId,
             "meet.joined",
             {},
@@ -1479,7 +1617,7 @@ class MeetSessionManagerImpl {
         }
         if (event.state === "error") {
           void publishMeetEvent(
-            DAEMON_INTERNAL_ASSISTANT_ID,
+            this.internalAssistantId,
             meetingId,
             "meet.error",
             { detail: event.detail ?? "unknown error" },
@@ -1495,10 +1633,7 @@ class MeetSessionManagerImpl {
       conversationBridge.subscribe();
       storageWriter.start();
     } catch (err) {
-      log.error(
-        { err, meetingId, containerId: runResult.containerId },
-        "Bridge/writer subscribe failed — rolling back container and audio ingest",
-      );
+      this.log.error("Bridge/writer subscribe failed — rolling back container and audio ingest", { err, meetingId, containerId: runResult.containerId });
       this.sessions.delete(meetingId);
       for (const unsubscribe of session.eventUnsubscribes) {
         try {
@@ -1515,10 +1650,10 @@ class MeetSessionManagerImpl {
       unregisterMeetingDispatcher(meetingId);
       await audioIngest.stop().catch(() => {});
       await runner.stop(runResult.containerId).catch(() => {});
-      await captureBotLogs(runner, runResult.containerId, meetingDir);
+      await captureBotLogs(runner, runResult.containerId, meetingDir, this.log);
       await runner.remove(runResult.containerId).catch(() => {});
       void publishMeetEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1534,10 +1669,7 @@ class MeetSessionManagerImpl {
       // A failure to spawn ffmpeg is non-fatal: the rest of the session
       // (transcripts, chat, participant events) remains functional. Log
       // and continue so a missing ffmpeg binary doesn't fail the join.
-      log.warn(
-        { err, meetingId },
-        "MeetStorageWriter.startAudio failed — continuing without audio capture",
-      );
+      this.log.warn("MeetStorageWriter.startAudio failed — continuing without audio capture", { err, meetingId });
     }
 
     // Now that the other subscribers and the session record are in place,
@@ -1558,10 +1690,7 @@ class MeetSessionManagerImpl {
     // with Bun's fake-timer harness for tests.
     session.timeoutHandle = setTimeout(() => {
       void this.leave(meetingId, "timeout").catch((err) => {
-        log.error(
-          { err, meetingId },
-          "Error during max-meeting-minutes timeout cleanup",
-        );
+        this.log.error("Error during max-meeting-minutes timeout cleanup", { err, meetingId });
       });
     }, joinTimeoutMs);
 
@@ -1595,22 +1724,16 @@ class MeetSessionManagerImpl {
         );
       })
       .catch((err) => {
-        log.warn(
-          { err, meetingId, containerId: runResult.containerId },
-          "Container-exit watcher errored — cannot observe bot container exit",
-        );
+        this.log.warn("Container-exit watcher errored — cannot observe bot container exit", { err, meetingId, containerId: runResult.containerId });
       });
 
-    log.info(
-      {
+    this.log.info("Meet session joined", {
         meetingId,
         conversationId,
         containerId: runResult.containerId,
         botBaseUrl,
         joinTimeoutMs,
-      },
-      "Meet session joined",
-    );
+      });
 
     return sessionView(session);
   }
@@ -1623,7 +1746,7 @@ class MeetSessionManagerImpl {
   async leave(meetingId: string, reason: string): Promise<void> {
     const session = this.sessions.get(meetingId);
     if (!session) {
-      log.debug({ meetingId, reason }, "leave(): no active session — no-op");
+      this.log.debug("leave(): no active session — no-op", { meetingId, reason });
       return;
     }
 
@@ -1644,10 +1767,7 @@ class MeetSessionManagerImpl {
     try {
       session.consentMonitor.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetConsentMonitor.stop threw during leave — continuing teardown",
-      );
+      this.log.warn("MeetConsentMonitor.stop threw during leave — continuing teardown", { err, meetingId });
     }
 
     // Dispose the chat-opportunity detector alongside the consent monitor
@@ -1656,10 +1776,7 @@ class MeetSessionManagerImpl {
     try {
       session.chatOpportunityDetector?.dispose();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetChatOpportunityDetector.dispose threw during leave — continuing teardown",
-      );
+      this.log.warn("MeetChatOpportunityDetector.dispose threw during leave — continuing teardown", { err, meetingId });
     }
 
     // Stop the barge-in watcher before we cancel any in-flight TTS so the
@@ -1669,10 +1786,7 @@ class MeetSessionManagerImpl {
     try {
       session.bargeInWatcher.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetBargeInWatcher.stop threw during leave — continuing teardown",
-      );
+      this.log.warn("MeetBargeInWatcher.stop threw during leave — continuing teardown", { err, meetingId });
     }
 
     // Stop the TTS lip-sync forwarder BEFORE we cancel in-flight TTS so no
@@ -1683,10 +1797,7 @@ class MeetSessionManagerImpl {
     try {
       session.ttsLipsyncHandle.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "TtsLipsyncHandle.stop threw during leave — continuing teardown",
-      );
+      this.log.warn("TtsLipsyncHandle.stop threw during leave — continuing teardown", { err, meetingId });
     }
 
     // Cancel any in-flight TTS streams so orphan playback doesn't try to
@@ -1696,10 +1807,7 @@ class MeetSessionManagerImpl {
     try {
       await session.ttsBridge.cancelAll();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetTtsBridge.cancelAll threw during leave — continuing teardown",
-      );
+      this.log.warn("MeetTtsBridge.cancelAll threw during leave — continuing teardown", { err, meetingId });
     }
 
     // Immediately clear state so we don't re-enter this path via the timeout
@@ -1726,10 +1834,7 @@ class MeetSessionManagerImpl {
         detail: reason,
       });
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "Meet synthesized lifecycle:left dispatch threw during leave",
-      );
+      this.log.warn("Meet synthesized lifecycle:left dispatch threw during leave", { err, meetingId });
     }
 
     // Stop the conversation bridge + storage writer before dropping the
@@ -1740,15 +1845,12 @@ class MeetSessionManagerImpl {
     try {
       session.conversationBridge.unsubscribe();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetConversationBridge.unsubscribe threw during leave",
-      );
+      this.log.warn("MeetConversationBridge.unsubscribe threw during leave", { err, meetingId });
     }
     try {
       await session.storageWriter.stop();
     } catch (err) {
-      log.warn({ err, meetingId }, "MeetStorageWriter.stop threw during leave");
+      this.log.warn("MeetStorageWriter.stop threw during leave", { err, meetingId });
     }
 
     // Tear down dispatcher subscribers BEFORE unregistering the router so no
@@ -1757,10 +1859,7 @@ class MeetSessionManagerImpl {
       try {
         unsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId },
-          "Meet event subscriber unsubscribe threw during leave",
-        );
+        this.log.warn("Meet event subscriber unsubscribe threw during leave", { err, meetingId });
       }
     }
     session.eventUnsubscribes = [];
@@ -1776,30 +1875,21 @@ class MeetSessionManagerImpl {
       );
       gracefulOk = true;
     } catch (err) {
-      log.warn(
-        { err, meetingId, reason },
-        "Bot /leave failed or timed out — falling back to container stop",
-      );
+      this.log.warn("Bot /leave failed or timed out — falling back to container stop", { err, meetingId, reason });
     }
 
     if (!gracefulOk) {
       try {
         await runner.stop(session.containerId);
       } catch (err) {
-        log.warn(
-          { err, meetingId, containerId: session.containerId },
-          "DockerRunner.stop failed — proceeding to remove",
-        );
+        this.log.warn("DockerRunner.stop failed — proceeding to remove", { err, meetingId, containerId: session.containerId });
       }
     }
 
     try {
       await runner.remove(session.containerId);
     } catch (err) {
-      log.warn(
-        { err, meetingId, containerId: session.containerId },
-        "DockerRunner.remove failed — container may leak",
-      );
+      this.log.warn("DockerRunner.remove failed — container may leak", { err, meetingId, containerId: session.containerId });
     }
 
     // Tear down the audio-ingest after the container is gone — stopping it
@@ -1808,10 +1898,7 @@ class MeetSessionManagerImpl {
     try {
       await session.audioIngest.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetAudioIngest.stop failed — socket or streaming STT session may leak",
-      );
+      this.log.warn("MeetAudioIngest.stop failed — socket or streaming STT session may leak", { err, meetingId });
     }
 
     // Per-meeting proactive-chat summary. Emitted unconditionally on
@@ -1824,22 +1911,19 @@ class MeetSessionManagerImpl {
       session.chatOpportunityDetector?.getStats();
 
     void publishMeetEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
+      this.internalAssistantId,
       meetingId,
       "meet.left",
       { reason },
     );
 
-    log.info(
-      {
+    this.log.info("Meet session left", {
         meetingId,
         containerId: session.containerId,
         reason,
         gracefulOk,
         chatOpportunityStats: chatStats,
-      },
-      "Meet session left",
-    );
+      });
   }
 
   /**
@@ -1895,13 +1979,10 @@ class MeetSessionManagerImpl {
       ? `bot container exited unexpectedly (exitCode=${exitCode}, error=${engineError})`
       : `bot container exited unexpectedly (exitCode=${exitCode})`;
 
-    log.info(
-      { meetingId, containerId, exitCode, engineError },
-      "Meet bot container exited unexpectedly — tearing session down",
-    );
+    this.log.info("Meet bot container exited unexpectedly — tearing session down", { meetingId, containerId, exitCode, engineError });
 
     void publishMeetEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
+      this.internalAssistantId,
       meetingId,
       "meet.error",
       { detail },
@@ -1916,42 +1997,27 @@ class MeetSessionManagerImpl {
     try {
       session.consentMonitor.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetConsentMonitor.stop threw during container-exit teardown",
-      );
+      this.log.warn("MeetConsentMonitor.stop threw during container-exit teardown", { err, meetingId });
     }
     try {
       session.chatOpportunityDetector?.dispose();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetChatOpportunityDetector.dispose threw during container-exit teardown",
-      );
+      this.log.warn("MeetChatOpportunityDetector.dispose threw during container-exit teardown", { err, meetingId });
     }
     try {
       session.bargeInWatcher.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetBargeInWatcher.stop threw during container-exit teardown",
-      );
+      this.log.warn("MeetBargeInWatcher.stop threw during container-exit teardown", { err, meetingId });
     }
     try {
       session.ttsLipsyncHandle.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "TtsLipsyncHandle.stop threw during container-exit teardown",
-      );
+      this.log.warn("TtsLipsyncHandle.stop threw during container-exit teardown", { err, meetingId });
     }
     try {
       await session.ttsBridge.cancelAll();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetTtsBridge.cancelAll threw during container-exit teardown",
-      );
+      this.log.warn("MeetTtsBridge.cancelAll threw during container-exit teardown", { err, meetingId });
     }
 
     if (session.timeoutHandle) {
@@ -1976,37 +2042,25 @@ class MeetSessionManagerImpl {
         detail: "container-exit",
       });
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "Meet synthesized lifecycle:left dispatch threw during container-exit teardown",
-      );
+      this.log.warn("Meet synthesized lifecycle:left dispatch threw during container-exit teardown", { err, meetingId });
     }
 
     try {
       session.conversationBridge.unsubscribe();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetConversationBridge.unsubscribe threw during container-exit teardown",
-      );
+      this.log.warn("MeetConversationBridge.unsubscribe threw during container-exit teardown", { err, meetingId });
     }
     try {
       await session.storageWriter.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetStorageWriter.stop threw during container-exit teardown",
-      );
+      this.log.warn("MeetStorageWriter.stop threw during container-exit teardown", { err, meetingId });
     }
 
     for (const unsubscribe of session.eventUnsubscribes) {
       try {
         unsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId },
-          "Meet event subscriber unsubscribe threw during container-exit teardown",
-        );
+        this.log.warn("Meet event subscriber unsubscribe threw during container-exit teardown", { err, meetingId });
       }
     }
     session.eventUnsubscribes = [];
@@ -2019,19 +2073,13 @@ class MeetSessionManagerImpl {
     try {
       await runner.remove(containerId);
     } catch (err) {
-      log.warn(
-        { err, meetingId, containerId },
-        "DockerRunner.remove failed during container-exit teardown — container may linger in `docker ps -a`",
-      );
+      this.log.warn("DockerRunner.remove failed during container-exit teardown — container may linger in `docker ps -a`", { err, meetingId, containerId });
     }
 
     try {
       await session.audioIngest.stop();
     } catch (err) {
-      log.warn(
-        { err, meetingId },
-        "MeetAudioIngest.stop failed during container-exit teardown — socket or streaming STT session may leak",
-      );
+      this.log.warn("MeetAudioIngest.stop failed during container-exit teardown — socket or streaming STT session may leak", { err, meetingId });
     }
   }
 
@@ -2076,13 +2124,13 @@ class MeetSessionManagerImpl {
     );
 
     void publishMeetEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
+      this.internalAssistantId,
       meetingId,
       "meet.chat_sent",
       { text },
     );
 
-    log.info({ meetingId, textLength: text.length }, "Meet chat message sent");
+    this.log.info("Meet chat message sent", { meetingId, textLength: text.length });
   }
 
   /**
@@ -2108,7 +2156,7 @@ class MeetSessionManagerImpl {
     const streamId = result.streamId;
 
     void publishMeetEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
+      this.internalAssistantId,
       meetingId,
       "meet.speaking_started",
       { streamId },
@@ -2121,7 +2169,7 @@ class MeetSessionManagerImpl {
     void result.completion
       .then(() => {
         void publishMeetEvent(
-          DAEMON_INTERNAL_ASSISTANT_ID,
+          this.internalAssistantId,
           meetingId,
           "meet.speaking_ended",
           { streamId, reason: "completed" as const },
@@ -2138,28 +2186,19 @@ class MeetSessionManagerImpl {
         // log at debug so they don't spam warn logs; genuine errors stay
         // at warn.
         if (isCancel) {
-          log.debug(
-            { meetingId, streamId, reason },
-            "MeetTtsBridge speak cancelled",
-          );
+          this.log.debug("MeetTtsBridge speak cancelled", { meetingId, streamId, reason });
         } else {
-          log.warn(
-            { err, meetingId, streamId, reason },
-            "MeetTtsBridge speak completion rejected",
-          );
+          this.log.warn("MeetTtsBridge speak completion rejected", { err, meetingId, streamId, reason });
         }
         void publishMeetEvent(
-          DAEMON_INTERNAL_ASSISTANT_ID,
+          this.internalAssistantId,
           meetingId,
           "meet.speaking_ended",
           { streamId, reason },
         );
       });
 
-    log.info(
-      { meetingId, streamId, textLength: input.text.length },
-      "Meet TTS speak started",
-    );
+    this.log.info("Meet TTS speak started", { meetingId, streamId, textLength: input.text.length });
 
     return { streamId };
   }
@@ -2210,7 +2249,7 @@ class MeetSessionManagerImpl {
       meetingId,
     );
 
-    log.info({ meetingId, body }, "Meet avatar enabled");
+    this.log.info("Meet avatar enabled", { meetingId, body });
     return body;
   }
 
@@ -2242,7 +2281,7 @@ class MeetSessionManagerImpl {
       meetingId,
     );
 
-    log.info({ meetingId, body }, "Meet avatar disabled");
+    this.log.info("Meet avatar disabled", { meetingId, body });
     return body;
   }
 
@@ -2287,10 +2326,7 @@ class MeetSessionManagerImpl {
     }));
     if (snapshot.length === 0) return;
 
-    log.info(
-      { count: snapshot.length, reason, totalDeadlineMs },
-      "MeetSessionManager: shutting down active sessions",
-    );
+    this.log.info("MeetSessionManager: shutting down active sessions", { count: snapshot.length, reason, totalDeadlineMs });
 
     // Fire all leaves in parallel. Track which have resolved so we can
     // identify stragglers after the deadline expires. `leave()` catches
@@ -2300,10 +2336,7 @@ class MeetSessionManagerImpl {
     const leaves = snapshot.map((entry) =>
       this.leave(entry.meetingId, reason)
         .catch((err) => {
-          log.warn(
-            { err, meetingId: entry.meetingId, reason },
-            "MeetSessionManager.shutdownAll: leave() rejected — continuing",
-          );
+          this.log.warn("MeetSessionManager.shutdownAll: leave() rejected — continuing", { err, meetingId: entry.meetingId, reason });
         })
         .finally(() => {
           resolved.add(entry.meetingId);
@@ -2321,14 +2354,11 @@ class MeetSessionManagerImpl {
 
     if (outcome === "timeout") {
       const stragglers = snapshot.filter((s) => !resolved.has(s.meetingId));
-      log.warn(
-        {
+      this.log.warn("MeetSessionManager.shutdownAll: deadline exceeded — force-stopping containers", {
           count: stragglers.length,
           reason,
           totalDeadlineMs,
-        },
-        "MeetSessionManager.shutdownAll: deadline exceeded — force-stopping containers",
-      );
+        });
       const runner = this.deps.dockerRunnerFactory();
       const forced = stragglers.map(async (entry) => {
         // The active session may or may not still be in the map — `leave()`
@@ -2392,58 +2422,257 @@ class MeetSessionManagerImpl {
         try {
           await runner.stop(entry.containerId);
         } catch (err) {
-          log.warn(
-            { err, meetingId: entry.meetingId, containerId: entry.containerId },
-            "MeetSessionManager.shutdownAll: runner.stop threw",
-          );
+          this.log.warn("MeetSessionManager.shutdownAll: runner.stop threw", { err, meetingId: entry.meetingId, containerId: entry.containerId });
         }
         try {
           await runner.remove(entry.containerId);
         } catch (err) {
-          log.warn(
-            { err, meetingId: entry.meetingId, containerId: entry.containerId },
-            "MeetSessionManager.shutdownAll: runner.remove threw",
-          );
+          this.log.warn("MeetSessionManager.shutdownAll: runner.remove threw", { err, meetingId: entry.meetingId, containerId: entry.containerId });
         }
         try {
           await entry.audioIngest.stop();
         } catch (err) {
-          log.warn(
-            { err, meetingId: entry.meetingId },
-            "MeetSessionManager.shutdownAll: audioIngest.stop threw",
-          );
+          this.log.warn("MeetSessionManager.shutdownAll: audioIngest.stop threw", { err, meetingId: entry.meetingId });
         }
       });
       await Promise.allSettled(forced);
     }
 
-    log.info(
-      { outcome, reason },
-      "MeetSessionManager: active-session shutdown complete",
+    this.log.info("MeetSessionManager: active-session shutdown complete", { outcome, reason });
+  }
+
+  /**
+   * Tier 2 chat-opportunity LLM callback. Routes through the host's
+   * provider facet under the `meetChatOpportunity` call site, keeping
+   * the proactive-chat path on its own configurable lane alongside the
+   * consent monitor. Times out at {@link CHAT_OPPORTUNITY_LLM_TIMEOUT_MS}
+   * and extracts the tool-use input as the structured verdict.
+   *
+   * On missing provider or malformed output we fall back to a
+   * conservative `shouldRespond: false` verdict — never interrupt a
+   * meeting because of missing infrastructure.
+   */
+  private async callDetectorLLM(
+    prompt: string,
+  ): Promise<ChatOpportunityDecision> {
+    const llm = this.host.providers.llm;
+    const provider = (await llm.getConfigured(
+      "meetChatOpportunity",
+    )) as LlmProviderLike | null;
+    if (!provider) {
+      return { shouldRespond: false, reason: "" };
+    }
+
+    const controller = llm.createTimeout(CHAT_OPPORTUNITY_LLM_TIMEOUT_MS);
+    const response = await provider.sendMessage(
+      [llm.userMessage(prompt)],
+      [CHAT_OPPORTUNITY_TOOL],
+      "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
+      {
+        config: {
+          callSite: "meetChatOpportunity",
+          max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
+          tool_choice: {
+            type: "tool" as const,
+            name: CHAT_OPPORTUNITY_TOOL.name,
+          },
+        },
+        signal: controller.signal,
+      },
     );
+    const tool = llm.extractToolUse(response) as {
+      input?: { shouldRespond?: unknown; reason?: unknown };
+    } | null;
+    if (!tool) return { shouldRespond: false, reason: "" };
+    const input = tool.input ?? {};
+    return {
+      shouldRespond: input.shouldRespond === true,
+      reason: typeof input.reason === "string" ? input.reason : "",
+    };
   }
 }
 
 // ---------------------------------------------------------------------------
-// Singleton export
+// Factory + singleton export
 // ---------------------------------------------------------------------------
 
-/** Process-wide session manager. */
-export const MeetSessionManager = new MeetSessionManagerImpl();
+/**
+ * Installed session-manager instance — populated by
+ * {@link createMeetSessionManager} (called from `register(host)`) and
+ * read by {@link MeetSessionManager} below.
+ *
+ * The tool modules currently import the singleton directly so they can
+ * call `MeetSessionManager.join(...)` without threading the session
+ * manager through every call site. Until that pattern is replaced with
+ * an explicit dependency injection path (out of scope for PR 17), the
+ * installed instance stands in via a Proxy that delegates to whichever
+ * manager the skill's `register(host)` entry point created.
+ */
+let installedSessionManager: MeetSessionManagerImpl | null = null;
+
+/**
+ * Build a session manager bound to the supplied {@link SkillHost} and
+ * install it as the module-level singleton. Called once by
+ * `register(host)`; tests that want a throwaway instance use
+ * {@link _createMeetSessionManagerForTests} instead.
+ */
+export function createMeetSessionManager(
+  host: SkillHost,
+  deps: MeetSessionManagerDeps = {},
+): MeetSessionManagerImpl {
+  const manager = new MeetSessionManagerImpl(host, deps);
+  installedSessionManager = manager;
+  return manager;
+}
+
+function requireInstalledSessionManager(): MeetSessionManagerImpl {
+  if (!installedSessionManager) {
+    throw new Error(
+      "MeetSessionManager accessed before createMeetSessionManager(host) installed an instance. " +
+        "Ensure register(host) ran during skill bootstrap.",
+    );
+  }
+  return installedSessionManager;
+}
+
+/**
+ * Process-wide session manager singleton. The proxy lazily resolves to
+ * whichever instance `register(host)` installed. Tools that historically
+ * did `MeetSessionManager.join(...)` keep working unchanged.
+ */
+export const MeetSessionManager: MeetSessionManagerImpl = new Proxy(
+  {} as MeetSessionManagerImpl,
+  {
+    get(_target, prop, receiver) {
+      const manager = requireInstalledSessionManager();
+      const value = Reflect.get(
+        manager as unknown as Record<PropertyKey, unknown>,
+        prop,
+        receiver,
+      );
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(manager)
+        : value;
+    },
+  },
+);
+
+/** Test helper: drop the installed singleton so the next test case starts clean. */
+export function _resetMeetSessionManagerForTests(): void {
+  installedSessionManager = null;
+}
 
 /** Exposed for integration tests that need a clean instance. */
 export function _createMeetSessionManagerForTests(
+  hostOrDeps?: SkillHost | MeetSessionManagerDeps,
   deps?: MeetSessionManagerDeps,
 ): MeetSessionManagerImpl {
+  // Two-signature overload to preserve compatibility with the legacy
+  // `_createMeetSessionManagerForTests(deps)` callsite pattern. When the
+  // first argument looks like a `SkillHost` (has the `logger` facet),
+  // treat it as the host; otherwise treat it as `deps` and build a
+  // minimal stand-in host. Most session-manager tests inject every code
+  // path they exercise via `deps.*` overrides, so the defaults on the
+  // stand-in host are rarely consulted.
+  let host: SkillHost;
+  let resolvedDeps: MeetSessionManagerDeps | undefined;
+  if (hostOrDeps && "logger" in hostOrDeps && "registries" in hostOrDeps) {
+    host = hostOrDeps;
+    resolvedDeps = deps;
+  } else {
+    host = buildSessionManagerTestHost();
+    resolvedDeps = hostOrDeps;
+  }
+
   // Default to disabling the startup orphan-reaper sweep in tests — most
   // tests supply a narrow mock runner that only implements the
   // `run`/`stop`/`remove`/`inspect`/`logs` surface used by the
   // join/leave path. Tests that want to exercise the reaper can override
   // by passing `disableStartupOrphanReaper: false`.
-  return new MeetSessionManagerImpl({
+  return new MeetSessionManagerImpl(host, {
     disableStartupOrphanReaper: true,
-    ...deps,
+    ...resolvedDeps,
   });
+}
+
+/**
+ * Minimal in-file `SkillHost` stand-in used when legacy session-manager
+ * tests call `_createMeetSessionManagerForTests(deps)` without an
+ * explicit host. Every facet is a no-op that throws on accidental
+ * access; session-manager tests drive behavior through `deps.*`
+ * overrides, so the host is rarely consulted on the hot path.
+ */
+function buildSessionManagerTestHost(): SkillHost {
+  const noopLogger: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
+  const unsupported = (facet: string) => () => {
+    throw new Error(
+      `session-manager test stand-in host: ${facet} is not supported in legacy no-host test calls. ` +
+        "Pass an explicit SkillHost as the first argument to _createMeetSessionManagerForTests().",
+    );
+  };
+  return {
+    logger: { get: () => noopLogger },
+    config: {
+      isFeatureFlagEnabled: () => false,
+      getSection: () => undefined,
+    },
+    identity: {
+      getAssistantName: () => undefined,
+      internalAssistantId: "self",
+    },
+    platform: {
+      workspaceDir: () => "/tmp/session-manager-test-workspace",
+      vellumRoot: () => "/tmp/session-manager-test-vellum",
+      runtimeMode: () => "bare-metal" as DaemonRuntimeMode,
+    },
+    providers: {
+      llm: {
+        getConfigured: unsupported("providers.llm.getConfigured"),
+        userMessage: unsupported("providers.llm.userMessage"),
+        extractToolUse: () => null,
+        createTimeout: (ms: number) => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), ms);
+          controller.signal.addEventListener("abort", () =>
+            clearTimeout(timer),
+          );
+          return controller;
+        },
+      },
+      stt: {
+        listProviderIds: () => [],
+        supportsBoundary: () => false,
+        resolveStreamingTranscriber: unsupported(
+          "providers.stt.resolveStreamingTranscriber",
+        ),
+      },
+      tts: {
+        get: unsupported("providers.tts.get"),
+        resolveConfig: () => ({}),
+      },
+      secureKeys: { getProviderKey: async () => null },
+    },
+    memory: {
+      addMessage: (async () => ({ id: "msg-test" })) as InsertMessageFn,
+      wakeAgentForOpportunity: async () => {},
+    },
+    events: {
+      publish: async () => {},
+      subscribe: () => ({ dispose: () => {}, active: true }),
+      buildEvent: unsupported("events.buildEvent"),
+    },
+    registries: {
+      registerTools: () => {},
+      registerSkillRoute: () => ({}) as never,
+      registerShutdownHook: () => {},
+    },
+    speakers: { createTracker: () => ({}) },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2451,48 +2680,12 @@ export function _createMeetSessionManagerForTests(
 // ---------------------------------------------------------------------------
 
 /**
- * Default {@link MeetConsentMonitor} factory — constructs a monitor wired
- * to the production LLM path. Swapped out in tests via
- * {@link MeetSessionManagerDeps.consentMonitorFactory}.
- */
-function defaultConsentMonitorFactory(
-  args: MeetConsentMonitorFactoryArgs,
-): MeetConsentMonitorLike {
-  return new MeetConsentMonitor({
-    meetingId: args.meetingId,
-    assistantId: args.assistantId,
-    sessionManager: args.sessionManager,
-    config: args.config,
-  });
-}
-
-/**
- * Default {@link MeetChatOpportunityDetector} factory. The Tier 2 LLM
- * callback is injected from module scope (see
- * {@link defaultCallDetectorLLM}) rather than baked into the detector
- * itself so tests can swap the whole factory when they want to avoid
- * the provider stack entirely.
- */
-function defaultChatOpportunityDetectorFactory(
-  args: MeetChatOpportunityDetectorFactoryArgs,
-): MeetChatOpportunityDetectorLike {
-  return new MeetChatOpportunityDetector({
-    meetingId: args.meetingId,
-    assistantDisplayName: args.assistantDisplayName,
-    config: args.config,
-    voiceConfig: args.voiceConfig,
-    callDetectorLLM: args.callDetectorLLM,
-    onOpportunity: args.onOpportunity,
-  });
-}
-
-/**
  * Tool schema used to force structured JSON output from the Tier 2 LLM.
  * Mirrors the consent-monitor's `report_objection` tool pattern — the
  * same provider abstraction works for both, we just differ on the
  * schema.
  */
-const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
+const CHAT_OPPORTUNITY_TOOL: ToolDefinitionShape = {
   name: "report_chat_opportunity",
   description:
     "Report whether the AI assistant chiming in via meeting chat would be appropriate and helpful here.",
@@ -2515,134 +2708,35 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
 };
 
 /**
- * Default Tier 2 chat-opportunity LLM callback. Routes through the
- * repo-wide provider abstraction under the `meetChatOpportunity` call
- * site, keeping the proactive-chat path on its own configurable lane
- * alongside the consent monitor. Times out at
- * {@link CHAT_OPPORTUNITY_LLM_TIMEOUT_MS} and extracts the tool-use
- * input as the structured verdict.
- *
- * On missing provider or malformed output we fall back to a conservative
- * `shouldRespond: false` verdict — never interrupt a meeting because of
- * missing infrastructure.
+ * Resolve a sub-module factory by name, throwing a clear error when the
+ * registry entry is missing. The session manager depends on every
+ * sub-module converted in Wave 6 — a missing slot is a hard wiring bug,
+ * not a recoverable condition.
  */
-async function defaultCallDetectorLLM(
-  prompt: string,
-): Promise<ChatOpportunityDecision> {
-  const provider: Provider | null = await getConfiguredProvider(
-    "meetChatOpportunity",
-  );
-  if (!provider) {
-    return { shouldRespond: false, reason: "" };
-  }
-
-  const { signal, cleanup } = createTimeout(CHAT_OPPORTUNITY_LLM_TIMEOUT_MS);
-  try {
-    const response = await provider.sendMessage(
-      [userMessage(prompt)],
-      [CHAT_OPPORTUNITY_TOOL],
-      "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
-      {
-        config: {
-          callSite: "meetChatOpportunity",
-          max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
-          tool_choice: {
-            type: "tool" as const,
-            name: CHAT_OPPORTUNITY_TOOL.name,
-          },
-        },
-        signal,
-      },
+function resolveSubModuleFactory<F extends SubModuleFactory>(name: string): F {
+  const factory = getSubModule<unknown>(name);
+  if (!factory) {
+    throw new Error(
+      `meet-join/session-manager: sub-module "${name}" is not registered in modules-registry. ` +
+        "Ensure the sub-module's file has been imported so its `registerSubModule(...)` ran at import time.",
     );
-    const tool = extractToolUse(response);
-    if (!tool) return { shouldRespond: false, reason: "" };
-    const input = tool.input as { shouldRespond?: unknown; reason?: unknown };
-    return {
-      shouldRespond: input.shouldRespond === true,
-      reason: typeof input.reason === "string" ? input.reason : "",
-    };
-  } finally {
-    cleanup();
   }
+  return factory as F;
 }
 
 /**
- * Default {@link MeetTtsBridge} factory — resolves the TTS provider from
- * the registry using `services.tts.provider` on each `speak` call so
- * config-live provider changes propagate without needing to rebuild the
- * bridge. Tests can inject a fake via
- * {@link MeetSessionManagerDeps.ttsBridgeFactory}.
+ * Adapter: wrap a skill-host-contracts {@link Logger} (contract shape
+ * `(msg, meta)`) so it satisfies the pino-style {@link ReaperLogger}
+ * shape (`(obj, msg)`) consumed by {@link reapOrphanedMeetBots}. Keeping
+ * the reaper's pino shape avoids churn in the docker-runner module.
  */
-function defaultTtsBridgeFactory(
-  args: MeetTtsBridgeFactoryArgs,
-): MeetTtsBridgeLike {
-  const bridgeArgs: MeetTtsBridgeArgs = {
-    meetingId: args.meetingId,
-    botBaseUrl: args.botBaseUrl,
-    botApiToken: args.botApiToken,
+function adaptContractLoggerToReaperLogger(log: Logger): ReaperLogger {
+  return {
+    info: (obj, msg) => log.info(msg ?? "", obj),
+    warn: (obj, msg) => log.warn(msg ?? "", obj),
+    error: (obj, msg) => log.error(msg ?? "", obj),
+    debug: (obj, msg) => log.debug(msg ?? "", obj),
   };
-  const bridgeDeps: MeetTtsBridgeDeps = {
-    providerFactory: (): TtsProvider => {
-      const resolved = resolveTtsConfig(getConfig());
-      return getTtsProvider(resolved.provider);
-    },
-  };
-  return new MeetTtsBridge(bridgeArgs, bridgeDeps);
-}
-
-/**
- * Default {@link startTtsLipsync} factory — subscribes to the bridge's
- * viseme channel and forwards every event to the bot's `/avatar/viseme`
- * endpoint. The forwarder tolerates bot-side HTTP errors (404 before
- * PR 5's route is deployed, 5xx during transient failures) internally, so
- * the session manager never observes a rejection from this path. Tests
- * can inject a fake via {@link MeetSessionManagerDeps.ttsLipsyncFactory}
- * to observe start/stop without touching the bridge's emit path or the
- * bot HTTP surface. {@link MeetTtsBridgeLike} declares the `onViseme`,
- * `botBaseUrl`, and `meetingId` surface {@link startTtsLipsync} reads, so
- * a Like-only fake works without an unsafe cast.
- */
-function defaultTtsLipsyncFactory(
-  args: MeetTtsLipsyncFactoryArgs,
-): TtsLipsyncHandle {
-  const lipsyncArgs: StartTtsLipsyncArgs = {
-    bridge: args.bridge,
-    botApiToken: args.botApiToken,
-  };
-  return startTtsLipsync(lipsyncArgs);
-}
-
-/**
- * Default {@link MeetBargeInWatcher} factory — wires the watcher to the
- * production dispatcher + assistant-event-hub. Tests can inject a fake
- * via {@link MeetSessionManagerDeps.bargeInWatcherFactory}.
- */
-function defaultBargeInWatcherFactory(
-  args: MeetBargeInWatcherFactoryArgs,
-): MeetBargeInWatcherLike {
-  return new MeetBargeInWatcher({
-    meetingId: args.meetingId,
-    sessionManager: args.sessionManager,
-  });
-}
-
-/**
- * Default wake-agent invocation used by the chat-opportunity detector's
- * `onOpportunity` callback. Delegates to the runtime-level
- * {@link wakeAgentForOpportunity}, which resolves the target
- * conversation via the process-wide default resolver installed at
- * daemon startup (see `server.ts`).
- *
- * Accepts and discards the wake result so the detector's callback
- * signature stays `void`. Errors bubble to the detector's own
- * `onOpportunity` error-handling path, which logs and drops.
- */
-async function defaultWakeAgent(opts: {
-  conversationId: string;
-  hint: string;
-  source: string;
-}): Promise<void> {
-  await wakeAgentForOpportunity(opts);
 }
 
 /**
@@ -2672,20 +2766,23 @@ async function captureBotLogs(
   runner: { logs: (id: string) => Promise<string> },
   containerId: string,
   meetingDir: string,
+  log: Logger,
 ): Promise<void> {
   try {
     const body = await runner.logs(containerId);
     const dest = join(meetingDir, "bot.log");
     writeFileSync(dest, body);
-    log.info(
-      { containerId, dest, bytes: body.length },
-      "Captured bot container logs before rollback",
-    );
+    log.info("Captured bot container logs before rollback", {
+      containerId,
+      dest,
+      bytes: body.length,
+    });
   } catch (err) {
-    log.warn(
-      { err, containerId, meetingDir },
-      "Failed to capture bot container logs (continuing rollback)",
-    );
+    log.warn("Failed to capture bot container logs (continuing rollback)", {
+      err,
+      containerId,
+      meetingDir,
+    });
   }
 }
 

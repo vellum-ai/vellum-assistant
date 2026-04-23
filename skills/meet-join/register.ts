@@ -48,6 +48,7 @@
 
 import type { SkillHost } from "@vellumai/skill-host-contracts";
 
+import { createMeetSessionManager } from "./daemon/session-manager.js";
 import {
   handleMeetInternalEvents,
   MEET_INTERNAL_EVENTS_PATH_RE,
@@ -68,6 +69,14 @@ import {
 } from "./tools/meet-speak-tool.js";
 
 export function register(host: SkillHost): void {
+  // Construct the session manager eagerly so the tool modules that import
+  // the module-level `MeetSessionManager` singleton resolve against a live
+  // instance. Sub-module factories are resolved from the in-skill
+  // registry inside the constructor — the session-manager module's
+  // side-effect imports trigger the required `registerSubModule(...)`
+  // registrations at import time.
+  createMeetSessionManager(host);
+
   host.registries.registerSkillRoute({
     pattern: MEET_INTERNAL_EVENTS_PATH_RE,
     methods: ["POST"],
