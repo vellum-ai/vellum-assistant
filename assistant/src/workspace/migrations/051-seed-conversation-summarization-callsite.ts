@@ -35,7 +35,7 @@ import type { WorkspaceMigration } from "./types.js";
  */
 export const seedConversationSummarizationCallsiteMigration: WorkspaceMigration =
   {
-    id: "049-seed-conversation-summarization-callsite",
+    id: "051-seed-conversation-summarization-callsite",
     description:
       "Seed conversationSummarization LLM call-site defaults so summary runs stay inside the agent-loop budget",
     run(workspaceDir: string): void {

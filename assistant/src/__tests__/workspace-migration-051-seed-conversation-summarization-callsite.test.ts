@@ -11,14 +11,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { LLMSchema } from "../config/schemas/llm.js";
-import { seedConversationSummarizationCallsiteMigration } from "../workspace/migrations/049-seed-conversation-summarization-callsite.js";
+import { seedConversationSummarizationCallsiteMigration } from "../workspace/migrations/051-seed-conversation-summarization-callsite.js";
 
 let workspaceDir: string;
 
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-049-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-051-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 }
@@ -50,10 +50,10 @@ afterEach(() => {
   }
 });
 
-describe("049-seed-conversation-summarization-callsite migration", () => {
+describe("051-seed-conversation-summarization-callsite migration", () => {
   test("has correct migration id", () => {
     expect(seedConversationSummarizationCallsiteMigration.id).toBe(
-      "049-seed-conversation-summarization-callsite",
+      "051-seed-conversation-summarization-callsite",
     );
   });
 
