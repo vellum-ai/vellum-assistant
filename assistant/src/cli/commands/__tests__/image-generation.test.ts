@@ -36,9 +36,6 @@ let mockConfig = {
   },
 };
 
-/** Result returned by buildManagedBaseUrl() */
-let mockManagedBaseUrl: string | undefined = undefined;
-
 /** Context returned by resolveManagedProxyContext() */
 let mockManagedProxyContext = {
   enabled: false,
@@ -84,7 +81,6 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 mock.module("../../../providers/managed-proxy/context.js", () => ({
-  buildManagedBaseUrl: async () => mockManagedBaseUrl,
   resolveManagedProxyContext: async () => mockManagedProxyContext,
 }));
 
@@ -202,7 +198,6 @@ beforeEach(() => {
       },
     },
   };
-  mockManagedBaseUrl = undefined;
   mockManagedProxyContext = {
     enabled: false,
     platformBaseUrl: "",
@@ -289,7 +284,6 @@ describe("credential errors", () => {
 
   test("exits with code 1 when no credentials in managed mode", async () => {
     mockConfig.services["image-generation"].mode = "managed";
-    mockManagedBaseUrl = undefined;
 
     const { exitCode } = await runCommand([
       "image-generation",
@@ -344,7 +338,6 @@ describe("credential errors", () => {
 
   test("--json outputs error when no credentials in managed mode", async () => {
     mockConfig.services["image-generation"].mode = "managed";
-    mockManagedBaseUrl = undefined;
 
     const { exitCode, stdout } = await runCommand([
       "image-generation",
@@ -419,9 +412,8 @@ describe("credential resolution", () => {
     expect(creds.apiKey).toBe("test-gemini-key");
   });
 
-  test("managed mode uses buildManagedBaseUrl + resolveManagedProxyContext", async () => {
+  test("managed mode uses resolveManagedProxyContext", async () => {
     mockConfig.services["image-generation"].mode = "managed";
-    mockManagedBaseUrl = "https://platform.example.com/proxy/gemini";
     mockManagedProxyContext = {
       enabled: true,
       platformBaseUrl: "https://platform.example.com",
@@ -445,7 +437,9 @@ describe("credential resolution", () => {
     };
     expect(creds.type).toBe("managed-proxy");
     expect(creds.assistantApiKey).toBe("managed-api-key");
-    expect(creds.baseUrl).toBe("https://platform.example.com/proxy/gemini");
+    expect(creds.baseUrl).toBe(
+      "https://platform.example.com/v1/runtime-proxy/gemini",
+    );
   });
 });
 
