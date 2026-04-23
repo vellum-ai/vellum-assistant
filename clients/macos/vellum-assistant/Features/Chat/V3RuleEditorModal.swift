@@ -50,11 +50,11 @@ struct V3RuleEditorModal: View {
     private var riskLevelHint: String {
         switch selectedRiskLevel.lowercased() {
         case "low":
-            return "Auto-approved in Default, Relaxed, and Full Access"
+            return "Auto-approved under most permission settings"
         case "medium":
-            return "Auto-approved in Relaxed and Full Access"
+            return "Auto-approved under permissive settings"
         case "high":
-            return "Auto-approved only in Full Access"
+            return "Requires explicit approval in most configurations"
         default:
             return ""
         }
@@ -132,18 +132,7 @@ struct V3RuleEditorModal: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityAddTraits(.isHeader)
 
-            if generalizedOptions.count > 3 {
-                // Collapsed pipeline: show only the first option as static label
-                HStack {
-                    Text(generalizedOptions[0].label)
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
-                        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
-                        .background(VColor.surfaceBase)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    Spacer(minLength: 0)
-                }
-            } else if generalizedOptions.count == 1 {
+            if generalizedOptions.count == 1 {
                 // Single option: show as simple label, no radio buttons
                 HStack {
                     Text(generalizedOptions[0].label)
@@ -155,7 +144,7 @@ struct V3RuleEditorModal: View {
                     Spacer(minLength: 0)
                 }
             } else if !generalizedOptions.isEmpty {
-                // 2-3 options: show radio list
+                // Multiple options: show radio list
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(Array(generalizedOptions.enumerated()), id: \.element.id) { index, option in
                         patternRow(option: option, index: index)
