@@ -1,7 +1,0 @@
-{
-  "name": "debug-prompt-logger",
-  "description": "Logs system prompt and conversation history to stderr before each LLM call",
-  "version": "1.0.0",
-  "events": ["pre-llm-call"],
-  "script": "run.sh"
-}

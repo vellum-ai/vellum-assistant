@@ -1837,8 +1837,6 @@ jobs:
           cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
           rm -rf daemon-bin/templates
           cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" daemon-bin/templates
-          rm -rf daemon-bin/hook-templates
-          cp -R "$ASSISTANT_SRC_DIR/hook-templates" daemon-bin/hook-templates
           rm -rf daemon-bin/brain-graph
           mkdir -p daemon-bin/brain-graph
           cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" daemon-bin/brain-graph/
