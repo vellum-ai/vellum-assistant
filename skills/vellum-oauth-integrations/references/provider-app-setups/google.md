@@ -1,6 +1,8 @@
-You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.
+You are helping your user set up Google Cloud OAuth credentials for Google in `your-own` mode so Gmail and Google Calendar integrations can connect.
 
 The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Google-specific steps.
+
+**Important:** This file is for `your-own` Google setup only. If `assistant oauth mode google` returns `managed`, stop here and use `references/CONNECTING_ACCOUNTS.md` instead. Do not send the user into Google Cloud Console in managed mode.
 
 ## Provider Details
 
@@ -35,7 +37,7 @@ host_bash:
 
 Replace `TARGET_URL` with the actual URL for that step. The point of Path A is to keep the flow in the user's real Chrome profile and avoid automated-browser rejections.
 
-## Google-Specific Flow
+## Google-Specific Flow for Your-Own Mode
 
 The flow has 9 steps total, takes about 3-5 minutes.
 
@@ -190,12 +192,13 @@ Follow the `vellum-oauth-integrations` workflow to collect credentials, register
 
 Google-specific override for macOS desktop app:
 
-1. Before app registration, check the provider mode and set it to `your-own` if needed with `assistant oauth mode google --set your-own`.
-2. Register the OAuth app normally via `assistant oauth apps upsert`.
-3. For authorization, do **not** use the default browser behavior.
-4. Instead, run `assistant oauth connect google --no-browser` so the command returns the authorization URL.
-5. Open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill.
-6. Never use browser automation or computer-use for the Google consent screen.
+1. This file assumes the user has already chosen `your-own` mode. If Google is still set to `managed`, only switch it after the user explicitly asks for `your-own` or managed mode is unavailable.
+2. If needed, set the mode with `assistant oauth mode google --set your-own`.
+3. Register the OAuth app normally via `assistant oauth apps upsert`.
+4. For authorization, do **not** use the default browser behavior.
+5. Instead, run `assistant oauth connect google --no-browser` so the command returns the authorization URL.
+6. Open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill.
+7. Never use browser automation or computer-use for the Google consent screen.
 
 > I'll start the Google authorization flow now.
 >

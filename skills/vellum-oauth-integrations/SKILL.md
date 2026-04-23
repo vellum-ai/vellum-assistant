@@ -84,6 +84,18 @@ You can update which mode a given provider should use with:
 assistant oauth mode <provider-key> --set "managed"|"your-own"
 ```
 
+## Choosing the Right Flow
+
+Always determine the provider's supported modes and current mode before reading deeper references.
+
+1. Run `assistant oauth providers get <provider-key>` and `assistant oauth mode <provider-key>`.
+2. If the provider is already set to `managed`, stay on the managed path:
+   - use `references/CONNECTING_ACCOUNTS.md` to connect the account
+   - do **not** send the user into app-registration or credential-setup docs
+   - do **not** switch to `your-own` unless the user explicitly asks for that tradeoff or managed mode is unavailable
+3. If the provider is set to `your-own`, use `references/CONFIGURING_APPLICATIONS.md`, then any relevant `references/provider-app-setups/<provider>.md` guide.
+4. Treat `references/provider-app-setups/<provider>.md` as bring-your-own setup guides unless the file explicitly says otherwise.
+
 # Reference
 
 For detailed information on the following topics, see the reference files:
