@@ -38,6 +38,7 @@
     "@resvg/resvg-js-darwin-arm64": "2.6.2",
     "@resvg/resvg-js-darwin-x64": "2.6.2",
     "@sentry/node": "10.43.0",
+    "@vellumai/ces-client": "file:../packages/ces-client",
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
     "@vellumai/egress-proxy": "file:../packages/egress-proxy",
