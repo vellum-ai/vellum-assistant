@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { pollJobUntilDone } from "../job-polling.js";
 import type { UnifiedJobStatus } from "../platform-client.js";
@@ -74,5 +74,129 @@ describe("pollJobUntilDone", () => {
       label: "defaults test",
     });
     expect(result.status).toBe("complete");
+  });
+
+  describe("transient-error retry", () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warnSpy.mockRestore();
+    });
+
+    test("retries N-1 transient errors then returns terminal status", async () => {
+      const maxTransientErrors = 3;
+      let calls = 0;
+      const result = await pollJobUntilDone({
+        label: "flaky export",
+        intervalMs: 1,
+        timeoutMs: 1_000,
+        maxTransientErrors,
+        poll: async () => {
+          calls += 1;
+          if (calls < maxTransientErrors) {
+            throw new Error(
+              `Local job status check failed: 503 Service Unavailable`,
+            );
+          }
+          return {
+            jobId: "j5",
+            type: "export",
+            status: "complete",
+          } as UnifiedJobStatus;
+        },
+      });
+      expect(result.status).toBe("complete");
+      expect(calls).toBe(maxTransientErrors);
+      // One warning per retried transient error (first two attempts).
+      expect(warnSpy).toHaveBeenCalledTimes(maxTransientErrors - 1);
+    });
+
+    test("propagates the last error once maxTransientErrors is exceeded", async () => {
+      const maxTransientErrors = 2;
+      let calls = 0;
+      await expect(
+        pollJobUntilDone({
+          label: "always broken",
+          intervalMs: 1,
+          timeoutMs: 1_000,
+          maxTransientErrors,
+          poll: async () => {
+            calls += 1;
+            throw new Error(`Local job status check failed: 502 Bad Gateway`);
+          },
+        }),
+      ).rejects.toThrow(/502 Bad Gateway/);
+      // Helper makes `maxTransientErrors + 1` attempts before giving up: the
+      // first attempt plus N retries, counted against the budget.
+      expect(calls).toBe(maxTransientErrors + 1);
+    });
+
+    test("permanent 4xx errors (except 429) propagate immediately", async () => {
+      let calls = 0;
+      await expect(
+        pollJobUntilDone({
+          label: "auth broken",
+          intervalMs: 1,
+          timeoutMs: 1_000,
+          maxTransientErrors: 5,
+          poll: async () => {
+            calls += 1;
+            throw new Error(`Local job status check failed: 403 Forbidden`);
+          },
+        }),
+      ).rejects.toThrow(/403 Forbidden/);
+      expect(calls).toBe(1);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    test("429 rate-limit is retried as transient", async () => {
+      let calls = 0;
+      const result = await pollJobUntilDone({
+        label: "rate limited",
+        intervalMs: 1,
+        timeoutMs: 1_000,
+        maxTransientErrors: 3,
+        poll: async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error(`Local job status check failed: 429 Too Many`);
+          }
+          return {
+            jobId: "j6",
+            type: "export",
+            status: "complete",
+          } as UnifiedJobStatus;
+        },
+      });
+      expect(result.status).toBe("complete");
+      expect(calls).toBe(2);
+    });
+
+    test("unclassified network-style errors are treated as transient", async () => {
+      let calls = 0;
+      const result = await pollJobUntilDone({
+        label: "network blip",
+        intervalMs: 1,
+        timeoutMs: 1_000,
+        maxTransientErrors: 3,
+        poll: async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error("fetch failed");
+          }
+          return {
+            jobId: "j7",
+            type: "export",
+            status: "complete",
+          } as UnifiedJobStatus;
+        },
+      });
+      expect(result.status).toBe("complete");
+      expect(calls).toBe(2);
+    });
   });
 });
