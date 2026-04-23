@@ -7,11 +7,14 @@
  *
  * POST /v1/internal/oauth/chrome-extension/token
  *   Body: { assistantId: string, actorPrincipalId: string }
- *   Auth: Authorization: Bearer <PLATFORM_INTERNAL_API_KEY>
+ *   Auth: none at gateway router layer — this endpoint is only reachable
+ *         via platform-owned vembda gateway-query plumbing. Auth is
+ *         handled upstream: Django validates user identity (WorkOS session)
+ *         and assistant ownership, vembda authenticates via VEMBDA_API_TOKEN,
+ *         and the K8s network boundary prevents external access to port 7830.
  *   Returns: { token: string, expiresIn: number, guardianId: string }
  */
 
-import { timingSafeEqual } from "node:crypto";
 import { getLogger } from "../../logger.js";
 import { mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
@@ -77,22 +80,6 @@ export function createCloudOAuthTokenHandler() {
         );
       }
 
-      const expectedInternalKey = process.env.PLATFORM_INTERNAL_API_KEY?.trim();
-      if (!expectedInternalKey) {
-        log.error(
-          "PLATFORM_INTERNAL_API_KEY is not configured; refusing cloud OAuth token mint request",
-        );
-        return Response.json(
-          { error: "Internal auth is not configured" },
-          { status: 503 },
-        );
-      }
-
-      const bearerToken = extractBearerToken(req);
-      if (!matchesInternalKey(bearerToken, expectedInternalKey)) {
-        return Response.json({ error: "Forbidden" }, { status: 403 });
-      }
-
       const sub = `actor:${assistantId}:${actorPrincipalId}`;
 
       try {
@@ -123,23 +110,4 @@ export function createCloudOAuthTokenHandler() {
       }
     },
   };
-}
-
-function extractBearerToken(req: Request): string | null {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-    return null;
-  }
-  return authHeader.slice(7).trim();
-}
-
-function matchesInternalKey(
-  providedKey: string | null,
-  expectedKey: string,
-): boolean {
-  if (!providedKey) return false;
-  const provided = Buffer.from(providedKey);
-  const expected = Buffer.from(expectedKey);
-  if (provided.length !== expected.length) return false;
-  return timingSafeEqual(provided, expected);
 }

@@ -902,8 +902,11 @@ async function main() {
     {
       path: "/v1/admin/upgrade-broadcast",
       method: "POST",
-      auth: "edge-scoped",
-      scope: "admin.write",
+      // Internal route: called by the platform (Django → vembda) during
+      // upgrades, where no JWT is available. Also called by the CLI with
+      // a JWT (loopback). Using "none" here matches the chrome-extension
+      // token mint pattern — the runtime handles its own auth downstream.
+      auth: "none",
       handler: (req) => upgradeBroadcastProxy(req),
     },
 
@@ -951,8 +954,7 @@ async function main() {
     {
       path: "/v1/admin/workspace-commit",
       method: "POST",
-      auth: "edge-scoped",
-      scope: "admin.write",
+      auth: "none",
       handler: (req) => workspaceCommitProxy(req),
     },
 
@@ -960,8 +962,7 @@ async function main() {
     {
       path: "/v1/admin/rollback-migrations",
       method: "POST",
-      auth: "edge-scoped",
-      scope: "admin.write",
+      auth: "none",
       handler: (req) => migrationRollbackProxy(req),
     },
 
