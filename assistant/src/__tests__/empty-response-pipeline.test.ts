@@ -19,7 +19,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
+import {
+  defaultEmptyResponsePlugin,
+  defaultEmptyResponseTerminal,
+} from "../plugins/defaults/empty-response.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
@@ -29,6 +32,7 @@ import {
 import type {
   EmptyResponseArgs,
   EmptyResponseDecision,
+  Middleware,
   Plugin,
   TurnContext,
 } from "../plugins/types.js";
@@ -79,7 +83,7 @@ async function runEmpty(
   return runPipeline(
     "emptyResponse",
     getMiddlewaresFor("emptyResponse"),
-    async () => ({ action: "accept" }),
+    async (a) => defaultEmptyResponseTerminal(a),
     args,
     makeCtx(),
     DEFAULT_TIMEOUTS.emptyResponse,
@@ -260,5 +264,42 @@ describe("emptyResponse pipeline — custom middleware overrides", () => {
     );
     expect(decision.action).toBe("nudge");
     expect(decision.nudgeText).toBe("ALTERED_NUDGE");
+  });
+
+  test("user plugin registered AFTER the default still runs (no shadowing)", async () => {
+    // Production registration order: defaults load first via the side-effect
+    // imports in `defaults/index.ts`, then user plugins register on top via
+    // `bootstrapPlugins()`. The user's middleware ends up at a deeper onion
+    // layer than the default. If the default's middleware were to bypass
+    // `next` and decide directly, the user middleware would never run — this
+    // test guards against that regression.
+    registerPlugin(defaultEmptyResponsePlugin);
+
+    let userMiddlewareRan = false;
+    const userMiddleware: Middleware<
+      EmptyResponseArgs,
+      EmptyResponseDecision
+    > = async (args, next) => {
+      userMiddlewareRan = true;
+      return next(args);
+    };
+    registerPlugin({
+      manifest: {
+        name: "late-user-empty-response",
+        version: "0.0.1",
+        requires: { pluginRuntime: "v1", emptyResponseApi: "v1" },
+      },
+      middleware: { emptyResponse: userMiddleware },
+    });
+
+    await runEmpty(
+      makeArgs({
+        responseContent: [],
+        toolUseTurns: 2,
+        priorAssistantHadVisibleText: false,
+      }),
+    );
+
+    expect(userMiddlewareRan).toBe(true);
   });
 });
