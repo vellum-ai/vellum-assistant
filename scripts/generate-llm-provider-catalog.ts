@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, join } from "node:path";
 
 import { PROVIDER_CATALOG } from "../assistant/src/providers/model-catalog.js";
 
 const CATALOG_VERSION = 1;
-const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const repoRoot =
+  basename(process.cwd()) === "scripts" ? dirname(process.cwd()) : process.cwd();
 const catalogPath = join(repoRoot, "meta", "llm-provider-catalog.json");
 
 export function serializeLlmProviderCatalog(): string {
@@ -49,6 +49,6 @@ function main(): void {
   writeFileSync(catalogPath, expected, "utf-8");
 }
 
-if (import.meta.main) {
+if (basename(process.argv[1] ?? "") === "generate-llm-provider-catalog.ts") {
   main();
 }
