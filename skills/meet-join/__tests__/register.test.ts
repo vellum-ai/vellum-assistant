@@ -8,17 +8,24 @@
  * meet tool is added / renamed / removed, this test catches the drift
  * before the tool silently disappears from production.
  *
- * Test strategy: build a fake `SkillHost` that captures every
- * registration call and pass it to `register(host)`. Module-level
- * side-effect imports of the tools and the meet-internal route are
- * mocked so that the tool objects and the path regex resolve without
- * pulling in the real assistant tool-registry / session-router module
- * graphs (which would force us to stand up SQLite, credential
- * storage, etc. just to assert a tool list).
+ * Test strategy: build a `SkillHost` via `buildTestHost()` and pass it
+ * to `register(host)`. The helper's defaults stub every facet with
+ * no-op implementations, and overriding `config.isFeatureFlagEnabled`
+ * + `registries.*` lets the test capture what `register()` registers.
+ *
+ * Skill-internal modules (the meet-internal route handler, the session
+ * manager, the meet-config reader) are still stubbed with
+ * `mock.module()` to keep the test focused on `register()`'s behavior
+ * and avoid the transitive graphs that each of those brings in.
+ * `mock.module()` targets remain strictly within `skills/meet-join/`
+ * — no `assistant/...` paths — so the PR 19 guard (forbidding
+ * `assistant/` references from `skills/` test files) stays green.
  */
 
 import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, describe, expect, mock, test } from "bun:test";
+
+import { buildTestHost } from "./build-test-host.js";
 
 // Stub the meet-internal route module so we can (a) assert the exact
 // meetingId passed to the handler after URL decoding, and (b) avoid
@@ -32,25 +39,6 @@ mock.module("../routes/meet-internal.js", () => ({
     lastHandlerMeetingId = meetingId;
     return new Response(null, { status: 204 });
   },
-}));
-
-// The tool modules still import from `assistant/` until Wave 6 lands
-// (PR 14). Mock the transitive imports they evaluate at load time so
-// this test does not force the full daemon bootstrap.
-mock.module("../../../assistant/src/tools/registry.js", () => ({
-  registerExternalTools: () => {},
-}));
-
-mock.module("../../../assistant/src/runtime/skill-route-registry.js", () => ({
-  registerSkillRoute: () => Object.freeze({}),
-}));
-
-mock.module("../../../assistant/src/config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => true,
-}));
-
-mock.module("../../../assistant/src/config/loader.js", () => ({
-  getConfig: () => ({}),
 }));
 
 // Stub the session manager — register.ts does not invoke it, but the
@@ -90,17 +78,6 @@ mock.module("../meet-config.js", () => ({
   }),
 }));
 
-mock.module("../../../assistant/src/daemon/identity-helpers.js", () => ({
-  getAssistantName: () => "TestAssistant",
-}));
-
-mock.module("../../../assistant/src/util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 type FakeRoute = {
   pattern: RegExp;
   methods: string[];
@@ -108,11 +85,12 @@ type FakeRoute = {
 };
 
 /**
- * Build a fake `SkillHost` that captures the two registration calls
- * `register()` makes. Every other facet is a throwing proxy so that
- * if `register.ts` ever reached outside its documented contract the
- * test would fail loudly instead of silently succeeding against a
- * half-stubbed host.
+ * Build a `SkillHost` via the shared `buildTestHost()` helper with the
+ * two registry facets overridden to capture what `register()` registers.
+ * Every other facet keeps its default no-op stub — `register.ts` does
+ * not touch them today, but if a future change does, the default
+ * facet's mock spy makes the access visible rather than silently
+ * successful.
  */
 function buildCaptureHost(flagEnabled: boolean): {
   host: SkillHost;
@@ -122,32 +100,12 @@ function buildCaptureHost(flagEnabled: boolean): {
   const routes: FakeRoute[] = [];
   const toolProviders: Array<() => Tool[]> = [];
 
-  const unreachable = (path: string): never => {
-    throw new Error(
-      `register.test: fake SkillHost facet ${path} was unexpectedly accessed`,
-    );
-  };
-  const throwingProxy = (path: string) =>
-    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
-
-  const host: SkillHost = {
-    logger: {
-      get: () =>
-        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-    } as SkillHost["logger"],
+  const host = buildTestHost({
     config: {
       isFeatureFlagEnabled: (key: string) =>
         key === "meet" ? flagEnabled : true,
       getSection: () => undefined,
     },
-    identity: {
-      getAssistantName: () => "TestAssistant",
-      internalAssistantId: "self",
-    },
-    platform: throwingProxy("platform") as SkillHost["platform"],
-    providers: throwingProxy("providers") as SkillHost["providers"],
-    memory: throwingProxy("memory") as SkillHost["memory"],
-    events: throwingProxy("events") as SkillHost["events"],
     registries: {
       registerTools: (provider) => {
         if (typeof provider !== "function") {
@@ -162,11 +120,13 @@ function buildCaptureHost(flagEnabled: boolean): {
         routes.push(route as FakeRoute);
         return Object.freeze({}) as never;
       },
-      registerShutdownHook: () =>
-        unreachable("registries.registerShutdownHook"),
+      registerShutdownHook: () => {
+        throw new Error(
+          "register.test: registries.registerShutdownHook unexpectedly called",
+        );
+      },
     },
-    speakers: throwingProxy("speakers") as SkillHost["speakers"],
-  };
+  });
 
   return { host, toolProviders, routes };
 }
