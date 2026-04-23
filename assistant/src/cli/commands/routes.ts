@@ -170,10 +170,7 @@ files into /workspace/routes/. Each file exports named HTTP method functions
 
 These routes require edge authentication — they are intended for
 assistant-internal or user-facing endpoints, not for unauthenticated provider
-webhooks (e.g. Resend, Mailgun, Twilio, Telegram). Provider webhooks are
-registered via 'assistant platform callback-routes register' which returns a
-stable callback URL that the platform's gateway proxy forwards to the
-assistant's built-in webhook handlers.
+webhooks.
 
 Routes are managed by creating and deleting files — no add/remove commands
 needed.

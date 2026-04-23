@@ -52,30 +52,40 @@ Use `hi@<domain>` as the default sender address (consistent with Vellum's native
 
 ### Webhook Setup (for receiving)
 
-If the user also wants to **receive** emails via Resend, you need to:
+If the user also wants to **receive** emails via Resend, you need to get a webhook URL and register it with Resend.
 
-1. **Register a platform callback route** to get a stable webhook URL:
+#### Getting the webhook URL
 
-```bash
-assistant platform callback-routes register --path webhooks/resend --type resend --json
-```
+Check the `IS_PLATFORM` environment variable to determine the approach:
 
-This returns JSON with a `callbackUrl` field — that's the URL Resend should send webhooks to.
+- **If `IS_PLATFORM=true`** (managed assistant): Register a platform callback route:
 
-2. **Create the webhook in Resend via their API** using the callback URL from step 1:
+  ```bash
+  assistant platform callback-routes register --path webhooks/resend --type resend --json
+  ```
+
+  This returns JSON with a `callbackUrl` field — use that as the webhook URL.
+
+- **If `IS_PLATFORM` is not set** (self-hosted): Use a tunnel like ngrok to expose the gateway's `/webhooks/resend` endpoint. The public URL from the tunnel is the webhook URL.
+
+#### Registering the webhook with Resend
+
+Create the webhook in Resend via their API using the webhook URL from above:
 
 ```bash
 curl -X POST https://api.resend.com/webhooks \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "<callbackUrl from step 1>",
+    "url": "<webhook URL>",
     "events": ["email.received"]
   }'
 ```
 
 Use `network_mode: "proxied"` with the resend credential so the Authorization header is injected automatically.
 
-3. **Store the webhook signing secret** so the gateway can verify inbound webhooks:
+#### Storing the webhook signing secret
+
+Store the signing secret so the gateway can verify inbound webhooks:
 
 ```
 credential_store:
@@ -86,8 +96,6 @@ credential_store:
   placeholder: "whsec_xxxxxxxxx"
   description: "Signing secret from your Resend webhook settings (for verifying inbound emails)"
 ```
-
-**Do NOT use `assistant routes`** for webhooks — those are authenticated routes under `/x/*` and cannot receive unauthenticated provider callbacks. Always use `assistant platform callback-routes register`.
 
 ## Sending Email
 
