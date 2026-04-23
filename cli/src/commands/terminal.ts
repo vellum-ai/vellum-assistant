@@ -15,15 +15,15 @@ import {
   findAssistantByName,
   loadLatestAssistant,
   resolveCloud,
-} from "../lib/assistant-config";
-import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
+} from "../lib/assistant-config.js";
+import { getPlatformUrl, readPlatformToken } from "../lib/platform-client.js";
 import {
   closeTerminalSession,
   createTerminalSession,
   resizeTerminalSession,
   sendTerminalInput,
   subscribeTerminalEvents,
-} from "../lib/terminal-client";
+} from "../lib/terminal-client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -380,6 +380,11 @@ export async function terminal(): Promise<void> {
   }
 
   // Parse arguments
+  //
+  // Accepted forms:
+  //   vellum terminal [--assistant <name>]
+  //   vellum terminal list [--assistant <name>]
+  //   vellum terminal attach <session> [--assistant <name>]
   let subcommand: string | undefined;
   let assistantName: string | undefined;
   let tmuxSessionName: string | undefined;
@@ -387,22 +392,22 @@ export async function terminal(): Promise<void> {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--assistant" && args[i + 1]) {
       assistantName = args[++i];
-    } else if (!subcommand && !args[i].startsWith("-")) {
-      // First non-flag arg could be a subcommand or assistant name
+    } else if (args[i].startsWith("-")) {
+      // Skip unknown flags
+      continue;
+    } else if (!subcommand) {
+      // First positional — subcommand or assistant name
       if (args[i] === "list" || args[i] === "attach") {
         subcommand = args[i];
-        // For attach, the next arg is the tmux session name
-        if (
-          subcommand === "attach" &&
-          args[i + 1] &&
-          !args[i + 1].startsWith("-")
-        ) {
-          tmuxSessionName = args[++i];
-        }
       } else {
-        // Treat as assistant name
         assistantName = args[i];
       }
+    } else if (subcommand === "attach" && !tmuxSessionName) {
+      // Second positional after "attach" — tmux session name
+      tmuxSessionName = args[i];
+    } else if (!assistantName) {
+      // Trailing positional after subcommand args — assistant name
+      assistantName = args[i];
     }
   }
 
@@ -421,7 +426,9 @@ export async function terminal(): Promise<void> {
       );
       process.exit(1);
     }
-    await interactiveSession(assistant, `tmux attach -t ${tmuxSessionName}`);
+    // Shell-escape the session name to handle spaces/metacharacters
+    const escaped = tmuxSessionName.replace(/'/g, "'\\''");
+    await interactiveSession(assistant, `tmux attach -t '${escaped}'`);
     return;
   }
 
