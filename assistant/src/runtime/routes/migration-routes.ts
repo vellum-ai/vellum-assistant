@@ -935,12 +935,14 @@ export function _setUrlImportValidatorOptionsForTests(
 }
 
 /**
- * Successful outcome of `runGcsImport`. Mirrors the inputs that
- * `importCommitSuccessResponse` expects so callers can feed it straight
- * into a Response builder OR return it as an async-job `result`.
+ * Successful outcome of `runGcsImport`. Mirrors the wire shape produced by
+ * `importCommitSuccessResponse` (report fields spread at the top level, with
+ * an optional `credentialsImported` summary alongside) so the same value can
+ * be serialized directly as a Response body OR stashed as an async-job
+ * `result` — both the sync endpoint and the async job-status endpoint then
+ * hand the CLI a single, identical `ImportResponse`-compatible shape.
  */
-export interface ImportSummary {
-  report: ImportCommitReport;
+export interface ImportSummary extends ImportCommitReport {
   credentialsImported?: CredentialImportSummary;
 }
 
@@ -1312,8 +1314,8 @@ export async function runGcsImport(
   );
 
   return credentialsImported
-    ? { report: result.report, credentialsImported }
-    : { report: result.report };
+    ? { ...result.report, credentialsImported }
+    : { ...result.report };
 }
 
 /**
@@ -1347,10 +1349,8 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
 
   try {
     const summary = await runGcsImport(parsed.data.url);
-    return importCommitSuccessResponse(
-      summary.report,
-      summary.credentialsImported,
-    );
+    const { credentialsImported, ...report } = summary;
+    return importCommitSuccessResponse(report, credentialsImported);
   } catch (err) {
     return gcsImportErrorToUrlBodyResponse(err);
   }

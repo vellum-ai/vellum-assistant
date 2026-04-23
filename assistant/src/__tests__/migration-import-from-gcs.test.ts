@@ -294,7 +294,7 @@ interface InvalidBundleUrlResponse {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/migrations/import-from-gcs", () => {
-  test("happy path: 202 → job completes with result.report.summary", async () => {
+  test("happy path: 202 → job completes with flat result.summary", async () => {
     const bundlePath = makeSmallValidBundlePath(testParent);
 
     const fixture = await startFixtureServer((_req, res) => {
@@ -323,18 +323,23 @@ describe("POST /v1/migrations/import-from-gcs", () => {
       const finalJob = await pollJobUntilDone(body.job_id);
       expect(finalJob.status).toBe("complete");
 
-      const summary = finalJob.result as {
-        report: {
-          summary: {
-            total_files: number;
-            files_created: number;
-          };
+      // The job result must match the wire shape the CLI expects when it
+      // casts `terminal.result` to `ImportResponse`: `success` and `summary`
+      // live at the top level, NOT under a nested `report` field. Asserting
+      // here is what locks in the fix for the async-vs-sync shape drift
+      // that was misreporting successful imports as failed.
+      const result = finalJob.result as {
+        success: boolean;
+        summary: {
+          total_files: number;
+          files_created: number;
         };
       };
-      expect(summary).toBeDefined();
-      expect(summary.report).toBeDefined();
-      expect(summary.report.summary.total_files).toBeGreaterThan(0);
-      expect(summary.report.summary.files_created).toBeGreaterThan(0);
+      expect(result).toBeDefined();
+      expect(result.success).toBe(true);
+      expect(result.summary).toBeDefined();
+      expect(result.summary.total_files).toBeGreaterThan(0);
+      expect(result.summary.files_created).toBeGreaterThan(0);
 
       // Workspace was swapped into place.
       expect(
