@@ -155,6 +155,14 @@ export async function run(
             title: "Email Draft Created",
             summary: `Drafted reply to ${recipientSummary}.`,
             dedupKey: `email-draft:${draft.id}`,
+            detailPanel: {
+              kind: "emailDraft",
+              data: {
+                to: toList.join(", "),
+                subject: replySubject ?? "",
+                body: text,
+              },
+            },
           }).catch((err) => {
             log.warn({ err }, "Failed to emit email draft feed event");
           });
@@ -183,6 +191,14 @@ export async function run(
           title: "Email Draft Created",
           summary: `Drafted reply to ${recipientSummary}.`,
           dedupKey: `email-draft:${draft.id}`,
+          detailPanel: {
+            kind: "emailDraft",
+            data: {
+              to: toList.join(", "),
+              subject: replySubject ?? "",
+              body: text,
+            },
+          },
         }).catch((err) => {
           log.warn({ err }, "Failed to emit email draft feed event");
         });
@@ -217,6 +233,14 @@ export async function run(
           title: "Email Draft Created",
           summary: "Created an email draft.",
           dedupKey: `email-draft:${draft.id}`,
+          detailPanel: {
+            kind: "emailDraft",
+            data: {
+              to: conversationId,
+              subject: subject ?? "",
+              body: text,
+            },
+          },
         }).catch((err) => {
           log.warn({ err }, "Failed to emit email draft feed event");
         });
@@ -241,6 +265,14 @@ export async function run(
         title: "Email Draft Created",
         summary: "Created an email draft.",
         dedupKey: `email-draft:${draft.id}`,
+        detailPanel: {
+          kind: "emailDraft",
+          data: {
+            to: conversationId,
+            subject: subject ?? "",
+            body: text,
+          },
+        },
       }).catch((err) => {
         log.warn({ err }, "Failed to emit email draft feed event");
       });
