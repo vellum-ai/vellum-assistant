@@ -1,5 +1,7 @@
 import type { IpcRoute } from "../cli-server.js";
+import type { SkillIpcStreamingRoute } from "../skill-server.js";
 import { configRoutes } from "./config.js";
+import { eventsRoutes, eventsStreamingRoutes } from "./events.js";
 import { identityRoutes } from "./identity.js";
 import { logRoutes } from "./log.js";
 import { memorySkillRoutes } from "./memory.js";
@@ -23,4 +25,13 @@ export const skillIpcRoutes: IpcRoute[] = [
   ...memorySkillRoutes,
   ...providerSkillRoutes,
   ...registriesRoutes,
+  ...eventsRoutes,
+];
+
+/**
+ * Long-lived streaming skill IPC routes. Handlers return a dispose callback
+ * invoked on client disconnect, explicit close, or daemon shutdown.
+ */
+export const skillIpcStreamingRoutes: SkillIpcStreamingRoute[] = [
+  ...eventsStreamingRoutes,
 ];
