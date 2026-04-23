@@ -115,7 +115,13 @@ public struct VCollapsibleStepRow<LeadingAccessory: View, TrailingAccessory: Vie
             }
             .buttonStyle(.plain)
             .environment(\.isEnabled, true)
-            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.sm))
+            // Leading is `VSpacing.sm + VSpacing.sm` (16pt) rather than `VSpacing.lg`
+            // to mirror the sibling `ThinkingStepRow` call site in
+            // `AssistantProgressView.swift` and match the pre-refactor
+            // `StepDetailRow` layout, which chained two `VSpacing.sm` paddings
+            // (8 + 8 = 16pt) on the leading edge and (4 + 4 = 8pt) on the
+            // trailing edge.
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
 
             if isExpanded {
                 detailContent()
