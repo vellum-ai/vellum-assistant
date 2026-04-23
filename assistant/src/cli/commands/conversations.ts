@@ -4,7 +4,7 @@ import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
-import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
+import { ensureDaemonRunning } from "../../daemon/daemon-control.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import {
