@@ -244,7 +244,7 @@ struct FeedbackGallerySection: View {
                 // MARK: - VNotification
                 GallerySectionHeader(
                     title: "VNotification",
-                    description: "Compact single-line feedback bar. Supports 4 tones × 2 styles, with optional leading icon, action label, and dismiss button."
+                    description: "Compact feedback bar that wraps long messages to multiple lines. Supports 4 tones × 2 styles, with optional leading icon, action label, and dismiss button."
                 )
 
                 VCard {
