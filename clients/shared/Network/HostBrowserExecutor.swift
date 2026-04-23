@@ -80,6 +80,10 @@ public final class HostBrowserExecutor {
 
     /// Cancel an in-flight host browser request: mark it cancelled and cancel
     /// the Swift Task so in-flight network calls are interrupted.
+    ///
+    /// Cancellation is cooperative — the in-flight `sendCDPCommand` WebSocket
+    /// connection is torn down immediately when the Task is cancelled, so
+    /// the result is available (and suppressed) without waiting for timeout.
     public func cancel(_ requestId: String) {
         markCancelled(requestId)
         if let task = inFlightTasks.removeValue(forKey: requestId) {
@@ -208,6 +212,12 @@ public final class HostBrowserExecutor {
                 content: result,
                 isError: false
             )
+        } catch is CancellationError {
+            return Self.transportError(
+                requestId: request.requestId,
+                code: "cancelled",
+                message: "CDP command cancelled"
+            )
         } catch let error as CDPError {
             switch error {
             case .timeout:
@@ -271,9 +281,56 @@ public final class HostBrowserExecutor {
         return json
     }
 
+    /// Thread-safe mutable state shared between the continuation body and
+    /// the `onCancel` closure of `withTaskCancellationHandler`. The cancel
+    /// handler runs concurrently (or even before the body starts if the
+    /// task is already cancelled), so every field is guarded by `lock`.
+    private final class CancelState: @unchecked Sendable {
+        let lock = NSLock()
+        var resumed = false
+        var wsTask: URLSessionWebSocketTask?
+        var session: URLSession?
+        var timeoutWork: Task<Void, Never>?
+        var continuation: CheckedContinuation<String, Error>?
+
+        /// Resume the continuation exactly once with a normal result,
+        /// closing the WebSocket cleanly.
+        func resumeOnce(with result: Result<String, Error>) {
+            lock.lock()
+            let alreadyResumed = resumed
+            if !alreadyResumed { resumed = true }
+            lock.unlock()
+            guard !alreadyResumed else { return }
+            wsTask?.cancel(with: .normalClosure, reason: nil)
+            session?.invalidateAndCancel()
+            timeoutWork?.cancel()
+            continuation?.resume(with: result)
+        }
+
+        /// Tear down the WebSocket immediately for cooperative cancellation,
+        /// resuming the continuation with `CancellationError`.
+        func teardown() {
+            lock.lock()
+            let alreadyResumed = resumed
+            if !alreadyResumed { resumed = true }
+            lock.unlock()
+            guard !alreadyResumed else { return }
+            wsTask?.cancel(with: .goingAway, reason: nil)
+            session?.invalidateAndCancel()
+            timeoutWork?.cancel()
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
     /// Send a single CDP command over WebSocket and return the JSON result
     /// string. Opens the connection, sends the command, waits for the
     /// matching response (by `id`), and closes the connection.
+    ///
+    /// Cancellation is cooperative: when the enclosing Task is cancelled,
+    /// the WebSocket and URLSession are torn down immediately and the
+    /// continuation resumes with `CancellationError()`. This ensures that
+    /// `cancel(requestId:)` takes effect promptly instead of waiting for
+    /// the full timeout or a WebSocket receive to complete.
     private func sendCDPCommand(
         endpoint: URL,
         method: String,
@@ -299,97 +356,103 @@ public final class HostBrowserExecutor {
             throw CDPError.connectionFailed("Failed to serialize CDP command")
         }
 
-        // Open WebSocket, send, and wait for response
-        return try await withCheckedThrowingContinuation { continuation in
-            let session = URLSession(configuration: .default)
-            let wsTask = session.webSocketTask(with: endpoint)
+        // CancelState is created before withTaskCancellationHandler so the
+        // onCancel closure can reference it even if the task is already
+        // cancelled when the handler is entered.
+        let state = CancelState()
 
-            // Guard against double-resuming the continuation. The timeout
-            // fires on a detached Task while WebSocket callbacks run on
-            // URLSession's delegate queue, so `resumed` is accessed from
-            // multiple threads and must be synchronized.
-            let lock = NSLock()
-            var resumed = false
-            let resumeOnce: (Result<String, Error>) -> Void = { result in
-                lock.lock()
-                let alreadyResumed = resumed
-                if !alreadyResumed { resumed = true }
-                lock.unlock()
-                guard !alreadyResumed else { return }
-                wsTask.cancel(with: .normalClosure, reason: nil)
-                session.invalidateAndCancel()
-                continuation.resume(with: result)
-            }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                state.lock.lock()
+                state.continuation = continuation
+                let alreadyResumed = state.resumed
+                state.lock.unlock()
 
-            // Timeout. Task is Sendable; DispatchWorkItem is not, so
-            // capturing it in @Sendable URLSession callbacks warns.
-            let timeoutTask = Task {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                resumeOnce(.failure(CDPError.timeout))
-            }
-
-            wsTask.resume()
-
-            // Send the command
-            wsTask.send(.string(messageString)) { error in
-                if let error {
-                    timeoutTask.cancel()
-                    resumeOnce(.failure(CDPError.connectionFailed("WebSocket send failed: \(error.localizedDescription)")))
+                // If teardown() already fired (task was cancelled before we
+                // got here), it set `resumed = true` but `continuation` was
+                // still nil so it could not resume. Resume here instead.
+                if alreadyResumed {
+                    continuation.resume(throwing: CancellationError())
                     return
                 }
 
-                // Listen for the response
-                func receiveNext() {
-                    wsTask.receive { result in
-                        switch result {
-                        case .success(let wsMessage):
-                            switch wsMessage {
-                            case .string(let text):
-                                // Parse to check if this is our response (matching id)
-                                if let data = text.data(using: .utf8),
-                                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                                   let responseId = json["id"] as? Int,
-                                   responseId == commandId {
-                                    timeoutTask.cancel()
+                let session = URLSession(configuration: .default)
+                let wsTask = session.webSocketTask(with: endpoint)
+                let timeoutTask = Task {
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    state.resumeOnce(with: .failure(CDPError.timeout))
+                }
 
-                                    // Check for CDP protocol error
-                                    if let errorObj = json["error"] as? [String: Any] {
-                                        let code = errorObj["code"] as? Int ?? -1
-                                        let message = errorObj["message"] as? String ?? "Unknown CDP error"
-                                        resumeOnce(.failure(CDPError.protocolError(code: code, message: message)))
-                                        return
-                                    }
+                state.lock.lock()
+                state.session = session
+                state.wsTask = wsTask
+                state.timeoutWork = timeoutTask
+                state.lock.unlock()
 
-                                    // Return the result portion as JSON string
-                                    if let resultObj = json["result"] {
-                                        if let resultData = try? JSONSerialization.data(withJSONObject: resultObj),
-                                           let resultString = String(data: resultData, encoding: .utf8) {
-                                            resumeOnce(.success(resultString))
+                wsTask.resume()
+
+                // Send the command
+                wsTask.send(.string(messageString)) { error in
+                    if let error {
+                        state.resumeOnce(with: .failure(CDPError.connectionFailed("WebSocket send failed: \(error.localizedDescription)")))
+                        return
+                    }
+
+                    // Listen for the response
+                    func receiveNext() {
+                        wsTask.receive { result in
+                            switch result {
+                            case .success(let wsMessage):
+                                switch wsMessage {
+                                case .string(let text):
+                                    // Parse to check if this is our response (matching id)
+                                    if let data = text.data(using: .utf8),
+                                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                                       let responseId = json["id"] as? Int,
+                                       responseId == commandId {
+                                        // Check for CDP protocol error
+                                        if let errorObj = json["error"] as? [String: Any] {
+                                            let code = errorObj["code"] as? Int ?? -1
+                                            let message = errorObj["message"] as? String ?? "Unknown CDP error"
+                                            state.resumeOnce(with: .failure(CDPError.protocolError(code: code, message: message)))
+                                            return
+                                        }
+
+                                        // Return the result portion as JSON string
+                                        if let resultObj = json["result"] {
+                                            if let resultData = try? JSONSerialization.data(withJSONObject: resultObj),
+                                               let resultString = String(data: resultData, encoding: .utf8) {
+                                                state.resumeOnce(with: .success(resultString))
+                                            } else {
+                                                state.resumeOnce(with: .success("{}"))
+                                            }
                                         } else {
-                                            resumeOnce(.success("{}"))
+                                            state.resumeOnce(with: .success("{}"))
                                         }
                                     } else {
-                                        resumeOnce(.success("{}"))
+                                        // Not our response — keep listening (events, other messages)
+                                        receiveNext()
                                     }
-                                } else {
-                                    // Not our response — keep listening (events, other messages)
+                                case .data:
+                                    // Binary frames are not expected from CDP
+                                    receiveNext()
+                                @unknown default:
                                     receiveNext()
                                 }
-                            case .data:
-                                // Binary frames are not expected from CDP
-                                receiveNext()
-                            @unknown default:
-                                receiveNext()
+                            case .failure(let error):
+                                state.resumeOnce(with: .failure(CDPError.connectionFailed("WebSocket receive failed: \(error.localizedDescription)")))
                             }
-                        case .failure(let error):
-                            timeoutTask.cancel()
-                            resumeOnce(.failure(CDPError.connectionFailed("WebSocket receive failed: \(error.localizedDescription)")))
                         }
                     }
+                    receiveNext()
                 }
-                receiveNext()
             }
+        } onCancel: {
+            // Cooperative cancellation: immediately tear down the WS and
+            // resume the continuation so the caller doesn't wait for
+            // timeout/receive completion.
+            state.teardown()
         }
     }
 

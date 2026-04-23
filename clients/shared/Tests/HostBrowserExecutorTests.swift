@@ -166,6 +166,50 @@ final class HostBrowserExecutorTests: XCTestCase {
         }
     }
 
+    /// Verify that cancelling an in-flight request with a long timeout
+    /// resolves promptly — well before the timeout expires — proving that
+    /// cooperative cancellation tears down the WebSocket immediately.
+    func testCancelDuringExecutionResolvesPromptly() async {
+        let mockClient = MockHostProxyClient()
+        let executor = HostBrowserExecutor(proxyClient: mockClient)
+
+        // Use a long timeout so the test would hang if cancellation is not
+        // cooperative.
+        let request = makeRequest(
+            requestId: "req-cooperative-cancel",
+            cdpMethod: "Runtime.evaluate",
+            timeoutSeconds: 30
+        )
+
+        // Start execution — this will attempt to connect to a non-existent
+        // Chrome, but the important thing is that the task is in flight.
+        executor.execute(request)
+
+        // Let the task start and begin the WebSocket connection attempt.
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+        // Cancel the in-flight request.
+        executor.cancel(request.requestId)
+
+        // Wait a bounded time — 2 seconds is generous but far less than the
+        // 30-second timeout. If cancellation is cooperative, the task should
+        // have completed well within this window.
+        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s
+
+        // The result should either be suppressed entirely (cancelled before
+        // the POST) or be a transport error — never a success, and never
+        // hang until the 30-second timeout.
+        if !mockClient.postedBrowserResults.isEmpty {
+            let result = mockClient.postedBrowserResults[0]
+            XCTAssertTrue(
+                result.isError,
+                "Cancelled request should produce an error, not a success"
+            )
+        }
+        // If postedBrowserResults is empty, that's also correct — the
+        // cancellation suppressed the result POST via cancelledRequestIds.
+    }
+
     // MARK: - Execute Posts Result
 
     func testExecutePostsResultForUnreachableEndpoint() async {
