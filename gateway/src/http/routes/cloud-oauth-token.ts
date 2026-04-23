@@ -13,6 +13,8 @@
  */
 
 import { getLogger } from "../../logger.js";
+import { validateEdgeToken } from "../../auth/token-exchange.js";
+import { parseSub } from "../../auth/subject.js";
 import { mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 
@@ -20,6 +22,10 @@ const log = getLogger("cloud-oauth-token");
 
 /** TTL for minted guardian tokens — 1 hour. */
 const GUARDIAN_TOKEN_TTL_SECONDS = 3600;
+
+function isAuthEnforced(): boolean {
+  return process.env.CHROME_OAUTH_TOKEN_REQUIRE_AUTH === "true";
+}
 
 export function createCloudOAuthTokenHandler() {
   return {
@@ -75,6 +81,46 @@ export function createCloudOAuthTokenHandler() {
           { error: "actorPrincipalId must not contain colon characters" },
           { status: 400 },
         );
+      }
+
+      const authHeader = req.headers.get("authorization");
+      const bearerToken = authHeader?.replace(/^Bearer\s+/i, "");
+      if (!bearerToken) {
+        if (isAuthEnforced()) {
+          return Response.json(
+            { error: "Authorization token is required" },
+            { status: 403 },
+          );
+        }
+        log.warn(
+          { assistantId, actorPrincipalId },
+          "Cloud OAuth token mint request missing bearer token; allowing legacy unauthenticated path",
+        );
+      } else {
+        const tokenResult = validateEdgeToken(bearerToken);
+        if (!tokenResult.ok) {
+          return Response.json({ error: "Forbidden" }, { status: 403 });
+        }
+
+        const callerSub = parseSub(tokenResult.claims.sub);
+        if (!callerSub.ok || callerSub.principalType !== "actor") {
+          return Response.json({ error: "Forbidden" }, { status: 403 });
+        }
+        if (
+          callerSub.assistantId !== assistantId ||
+          callerSub.actorPrincipalId !== actorPrincipalId
+        ) {
+          log.warn(
+            {
+              requestedAssistantId: assistantId,
+              requestedActorPrincipalId: actorPrincipalId,
+              callerAssistantId: callerSub.assistantId,
+              callerActorPrincipalId: callerSub.actorPrincipalId,
+            },
+            "Cloud OAuth token mint request token claims do not match requested principal",
+          );
+          return Response.json({ error: "Forbidden" }, { status: 403 });
+        }
       }
 
       const sub = `actor:${assistantId}:${actorPrincipalId}`;
