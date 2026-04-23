@@ -740,15 +740,20 @@ describe("bootstrap private-network guard", () => {
   });
 
   test("accepts LAN peer in containerized mode", async () => {
-    const prev = process.env.IS_CONTAINERIZED;
+    const prevContainerized = process.env.IS_CONTAINERIZED;
+    const prevSecret = process.env.GUARDIAN_BOOTSTRAP_SECRET;
     process.env.IS_CONTAINERIZED = "true";
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-bootstrap-secret";
     try {
       const { handleGuardianBootstrap } =
         await import("../runtime/routes/guardian-bootstrap-routes.js");
 
       const req = new Request("http://localhost/v1/guardian/init", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-bootstrap-secret": "test-bootstrap-secret",
+        },
         body: JSON.stringify({
           platform: "macos",
           deviceId: "test-device-docker",
@@ -758,10 +763,15 @@ describe("bootstrap private-network guard", () => {
       const res = await handleGuardianBootstrap(req, lanPeerServer);
       expect(res.status).toBe(200);
     } finally {
-      if (prev === undefined) {
+      if (prevContainerized === undefined) {
         delete process.env.IS_CONTAINERIZED;
       } else {
-        process.env.IS_CONTAINERIZED = prev;
+        process.env.IS_CONTAINERIZED = prevContainerized;
+      }
+      if (prevSecret === undefined) {
+        delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+      } else {
+        process.env.GUARDIAN_BOOTSTRAP_SECRET = prevSecret;
       }
     }
   });
