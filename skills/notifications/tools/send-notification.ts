@@ -8,7 +8,7 @@
 
 export async function run(
   input: Record<string, unknown>,
-  _context: { workingDir: string; conversationId: string },
+  context: { workingDir: string; conversationId: string },
 ): Promise<{ content: string; isError: boolean }> {
   const args: string[] = [
     "notifications",
@@ -37,11 +37,18 @@ export async function run(
   if (typeof input.dedupe_key === "string" && input.dedupe_key) {
     args.push("--dedupe-key", input.dedupe_key);
   }
-  if (typeof input.conversation_id === "string" && input.conversation_id) {
-    args.push("--session-id", input.conversation_id);
+  const sessionId =
+    typeof input.conversation_id === "string" && input.conversation_id
+      ? input.conversation_id
+      : context.conversationId || undefined;
+  if (sessionId) {
+    args.push("--session-id", sessionId);
   }
   if (Array.isArray(input.preferred_channels) && input.preferred_channels.length > 0) {
     args.push("--preferred-channels", input.preferred_channels.join(","));
+  }
+  if (input.deep_link_metadata != null && typeof input.deep_link_metadata === "object") {
+    args.push("--deep-link-metadata", JSON.stringify(input.deep_link_metadata));
   }
 
   // Boolean flags
