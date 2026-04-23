@@ -15,14 +15,16 @@ import * as pendingInteractions from "../pending-interactions.js";
 
 /**
  * Find the HostTransferProxy that owns a given transferId by scanning
- * all pending host_transfer interactions.
+ * all pending host_transfer interactions. Returns the proxy and the
+ * interaction entry (with its requestId) so callers can resolve the
+ * pending interaction when appropriate.
  */
 function findProxyByTransferId(transferId: string) {
   const interactions = pendingInteractions.getByKind("host_transfer");
   for (const interaction of interactions) {
     const proxy = interaction.conversation?.getHostTransferProxy();
     if (proxy?.hasPendingTransfer(transferId)) {
-      return proxy;
+      return { proxy, interaction };
     }
   }
   return null;
@@ -40,17 +42,17 @@ export function handleTransferContentGet(
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
-  const proxy = findProxyByTransferId(transferId);
-  if (!proxy) {
+  const match = findProxyByTransferId(transferId);
+  if (!match) {
     return httpError("NOT_FOUND", "Unknown or consumed transfer", 404);
   }
 
-  const content = proxy.getTransferContent(transferId);
+  const content = match.proxy.getTransferContent(transferId);
   if (!content) {
     return httpError("NOT_FOUND", "Unknown or consumed transfer", 404);
   }
 
-  return new Response(new Uint8Array(content.buffer), {
+  return new Response(content.buffer, {
     status: 200,
     headers: {
       "Content-Type": "application/octet-stream",
@@ -73,15 +75,19 @@ export async function handleTransferContentPut(
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
 
-  const proxy = findProxyByTransferId(transferId);
-  if (!proxy) {
+  const match = findProxyByTransferId(transferId);
+  if (!match) {
     return httpError("NOT_FOUND", "Unknown or consumed transfer", 404);
   }
 
   const data = Buffer.from(await req.arrayBuffer());
   const sha256 = req.headers.get("X-Transfer-SHA256") ?? "";
 
-  const result = await proxy.receiveTransferContent(transferId, data, sha256);
+  const result = await match.proxy.receiveTransferContent(
+    transferId,
+    data,
+    sha256,
+  );
   if (!result.accepted) {
     return httpError(
       "BAD_REQUEST",
@@ -89,6 +95,12 @@ export async function handleTransferContentPut(
       400,
     );
   }
+
+  // For to_sandbox transfers there is no subsequent /v1/host-transfer-result
+  // callback — the proxy already resolved its internal Promise inside
+  // receiveTransferContent(). Clean up the runtime-level pending interaction
+  // entry so it doesn't leak.
+  pendingInteractions.resolve(match.interaction.requestId);
 
   return Response.json({ accepted: true });
 }
