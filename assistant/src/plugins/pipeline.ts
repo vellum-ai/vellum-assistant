@@ -112,6 +112,61 @@ export function composeMiddleware<A, R>(
   };
 }
 
+// ─── Abort-signal linking ───────────────────────────────────────────────────
+
+/**
+ * Return a shallow-cloned `args` object where every `AbortSignal`-typed
+ * top-level property is swapped for a signal linked to `internalController`.
+ *
+ * "Linked" here means: the returned signal aborts when either the caller's
+ * original signal aborts OR `internalController` aborts (e.g. the pipeline
+ * timer fires). The caller's args are never mutated.
+ *
+ * When `args` carries no `AbortSignal` property, the original object is
+ * returned unchanged — pipelines whose terminals don't consume a signal
+ * (e.g. `persistence`, `tokenEstimate`) see identical behavior to before.
+ * The return value's `cleanup()` tears down any `addEventListener("abort",
+ * ...)` handlers attached to the caller's signal so a pipeline that
+ * completes successfully doesn't leak listeners on the caller's controller.
+ */
+function linkAbortSignal<A>(
+  args: A,
+  internalController: AbortController,
+): { args: A; cleanup: () => void } {
+  if (args === null || typeof args !== "object") {
+    return { args, cleanup: () => {} };
+  }
+  const abortListeners: Array<{
+    signal: AbortSignal;
+    listener: () => void;
+  }> = [];
+  const record = args as Record<string, unknown>;
+  const patched: Record<string, unknown> = { ...record };
+  let swappedAny = false;
+  for (const key of Object.keys(record)) {
+    const value = record[key];
+    if (value instanceof AbortSignal) {
+      swappedAny = true;
+      if (value.aborted) {
+        // Caller already aborted — propagate immediately so the inner call
+        // sees the abort without waiting for the listener to fire.
+        internalController.abort();
+      } else {
+        const listener = () => internalController.abort();
+        value.addEventListener("abort", listener, { once: true });
+        abortListeners.push({ signal: value, listener });
+      }
+      patched[key] = internalController.signal;
+    }
+  }
+  const cleanup = () => {
+    for (const { signal, listener } of abortListeners) {
+      signal.removeEventListener("abort", listener);
+    }
+  };
+  return { args: (swappedAny ? patched : args) as A, cleanup };
+}
+
 // ─── Runner ─────────────────────────────────────────────────────────────────
 
 type PipelineLogRecord = {
@@ -190,8 +245,22 @@ export async function runPipeline<A, R>(
   try {
     if (typeof timeoutMs === "number" && Number.isFinite(timeoutMs)) {
       const budget = timeoutMs;
+      // Internal controller: fires on either (a) the timer, so the inner call
+      // actually observes the budget breach instead of running forever after
+      // `Promise.race` rejects; or (b) the caller's own signal, so external
+      // cancellation still reaches the inner call transparently. Any
+      // `AbortSignal`-typed property on `args` (e.g. `signal` on
+      // `CompactionArgs`, `abortSignal` on `OverflowReduceArgs`) is swapped
+      // for this linked signal on a shallow-cloned args object — we never
+      // mutate the caller's args.
+      const internalController = new AbortController();
+      const { args: effectiveArgs, cleanup } = linkAbortSignal(
+        args,
+        internalController,
+      );
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
+          internalController.abort();
           reject(
             new PluginTimeoutError(
               name,
@@ -201,7 +270,14 @@ export async function runPipeline<A, R>(
           );
         }, budget);
       });
-      return await Promise.race([composed(args, ctx), timeoutPromise]);
+      try {
+        return await Promise.race([
+          composed(effectiveArgs, ctx),
+          timeoutPromise,
+        ]);
+      } finally {
+        cleanup();
+      }
     }
     return await composed(args, ctx);
   } catch (err) {
