@@ -37,7 +37,10 @@ export type ProxyForwardOptions = {
    * Custom fetch implementation. Defaults to the global `fetch`. Useful
    * for testing or when the gateway wraps fetch with instrumentation.
    */
-  fetchImpl?: typeof fetch;
+  fetchImpl?: (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => Promise<Response>;
 };
 
 export type ProxyForwardResult = {
