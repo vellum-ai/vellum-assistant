@@ -14,7 +14,7 @@ import type { ScheduleSyntax } from "./recurrence-types.js";
 
 const logger = getLogger("schedule-store");
 
-export type ScheduleMode = "notify" | "execute" | "script";
+export type ScheduleMode = "notify" | "execute" | "script" | "wake";
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 
@@ -28,6 +28,7 @@ export interface ScheduleJob {
   timezone: string | null;
   message: string;
   script: string | null;
+  wakeConversationId: string | null;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -87,6 +88,7 @@ export function createSchedule(params: {
   timezone?: string | null;
   message: string;
   script?: string | null;
+  wakeConversationId?: string | null;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -114,6 +116,10 @@ export function createSchedule(params: {
     if (!isValidScheduleExpression(spec)) {
       throw new Error(`Invalid ${syntax} expression: "${expression}"`);
     }
+  }
+
+  if (params.mode === "wake" && !params.wakeConversationId) {
+    throw new Error("Wake schedules require wakeConversationId");
   }
 
   const db = getDb();
@@ -145,7 +151,7 @@ export function createSchedule(params: {
     timezone,
     message: params.message,
     script: params.script ?? null,
-    wakeConversationId: null as string | null,
+    wakeConversationId: params.wakeConversationId ?? null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -192,6 +198,9 @@ export function listSchedules(options?: {
   enabledOnly?: boolean;
   oneShotOnly?: boolean;
   recurringOnly?: boolean;
+  mode?: ScheduleMode;
+  createdBy?: string;
+  conversationId?: string;
 }): ScheduleJob[] {
   const db = getDb();
   const conditions = [];
@@ -203,6 +212,17 @@ export function listSchedules(options?: {
   }
   if (options?.recurringOnly) {
     conditions.push(sql`${scheduleJobs.cronExpression} IS NOT NULL`);
+  }
+  if (options?.mode) {
+    conditions.push(eq(scheduleJobs.mode, options.mode));
+  }
+  if (options?.createdBy) {
+    conditions.push(eq(scheduleJobs.createdBy, options.createdBy));
+  }
+  if (options?.conversationId) {
+    conditions.push(
+      eq(scheduleJobs.wakeConversationId, options.conversationId),
+    );
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const rows = db
@@ -784,6 +804,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     timezone: row.timezone,
     message: row.message,
     script: row.script ?? null,
+    wakeConversationId: row.wakeConversationId ?? null,
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
