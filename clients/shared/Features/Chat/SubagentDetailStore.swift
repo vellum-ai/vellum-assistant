@@ -62,7 +62,29 @@ public final class SubagentState {
     public var objective: String?
     public var usageStats: SubagentUsageStats?
 
+    /// Per-event expansion state for collapsible tool-call rows in the detail
+    /// panel. Keyed by `SubagentEventItem.id`. Lives on the observable state so
+    /// expansion survives `LazyVStack` view recycling.
+    public var expandedEventIds: Set<UUID> = []
+
+    /// Whether the "Completed N events" group is expanded. Only consulted once
+    /// the subagent reaches a terminal status; defaults to collapsed so long
+    /// runs do not wall off the panel.
+    public var completedGroupExpanded: Bool = false
+
     public init() {}
+
+    public func isEventExpanded(_ id: UUID) -> Bool {
+        expandedEventIds.contains(id)
+    }
+
+    public func setEventExpanded(_ id: UUID, expanded: Bool) {
+        if expanded {
+            expandedEventIds.insert(id)
+        } else {
+            expandedEventIds.remove(id)
+        }
+    }
 }
 
 /// Stores subagent detail data (events, objectives, usage) for display in the side panel.
