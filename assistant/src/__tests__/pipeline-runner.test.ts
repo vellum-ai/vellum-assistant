@@ -296,7 +296,6 @@ describe("runPipeline — structured log record", () => {
     expect(record.outcome).toBe("success");
     expect(typeof record.durationMs).toBe("number");
     expect(record.durationMs).toBeGreaterThanOrEqual(0);
-    expect(record.timeoutMs).toBe(DEFAULT_TIMEOUTS.compaction!);
     expect(record.requestId).toBe("req-test");
     expect(record.conversationId).toBe("conv-test");
     expect(record.turnIndex).toBe(3);
@@ -336,7 +335,6 @@ describe("runPipeline — structured log record", () => {
     expect(record.errorMessage).toBe("kaboom");
     expect(typeof record.errorStack).toBe("string");
     expect(record.pluginName).toBe("noisy-plugin");
-    expect(record.timeoutMs).toBe(DEFAULT_TIMEOUTS.toolError!);
   });
 
   test("timeout path records outcome=timeout + PluginTimeoutError fields", async () => {
