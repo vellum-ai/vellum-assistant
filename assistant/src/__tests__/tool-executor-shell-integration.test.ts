@@ -1,5 +1,5 @@
 /**
- * Integration tests: ToolExecutor → real checker.js → real shell-identity → real tree-sitter parser.
+ * Integration tests: ToolExecutor → real checker.js → gateway IPC risk classification.
  *
  * Unlike tool-executor.test.ts, this file does NOT mock ../permissions/checker.js,
  * so generateAllowlistOptions and generateScopeOptions run through the actual
@@ -7,7 +7,7 @@
  * the legacy shellAllowlistStrategy (buildShellAllowlistOptions → action: key
  * patterns). With the flag ON, they use classifier-produced scope ladder options.
  */
-import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import type { AllowlistOption, ScopeOption } from "../permissions/types.js";
@@ -133,11 +133,9 @@ mock.module("../security/token-manager.js", () => ({
 }));
 
 // IMPORTANT: Do NOT mock ../permissions/checker.js — that's the whole point.
-// Also do NOT mock ../permissions/shell-identity.js or ../tools/terminal/parser.js.
 
 // ── Import executor AFTER mocks are set up ──
 import { ToolExecutor } from "../tools/executor.js";
-import { parse } from "../tools/terminal/parser.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
@@ -179,11 +177,6 @@ function makeCapturingPrompter() {
     getScopes: () => capturedScopes,
   };
 }
-
-// ── Warm up WASM parser before tests ─────────────────────────────────
-beforeAll(async () => {
-  await parse("echo warmup");
-});
 
 describe("ToolExecutor → real shell allowlist integration", () => {
   // These tests run with permission-controls-v3 OFF (default), so
