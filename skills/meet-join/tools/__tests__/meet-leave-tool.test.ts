@@ -5,8 +5,13 @@
  * `meetingId` (0 / 1 / many active sessions), explicit-id pass-through,
  * and reason-default behavior. Mirrors the mocking style used in the
  * sibling `meet-join-tool.test.ts`.
+ *
+ * The tool is now constructed via `createMeetLeaveTool(host)`, so the
+ * test builds a minimal fake host (feature-flag reads, no-op logger) to
+ * drive it.
  */
 
+import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let flagEnabled = true;
@@ -49,41 +54,50 @@ mock.module("../../daemon/session-manager.js", () => ({
   },
 }));
 
-mock.module(
-  "../../../../assistant/src/config/assistant-feature-flags.js",
-  () => ({
-    isAssistantFeatureFlagEnabled: (key: string) => {
-      if (key === "meet") return flagEnabled;
-      return true;
-    },
-  }),
-);
-
-mock.module("../../../../assistant/src/config/loader.js", () => ({
-  getConfig: () => ({
-    services: { meet: { consentMessage: "unused-in-leave-tests" } },
-  }),
-}));
-
-mock.module("../../../../assistant/src/util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const { meetLeaveTool, DEFAULT_LEAVE_REASON } =
+const { createMeetLeaveTool, DEFAULT_LEAVE_REASON } =
   await import("../meet-leave-tool.js");
 
-import type { ToolContext } from "../../../../assistant/src/tools/types.js";
+function makeHost(): SkillHost {
+  const unreachable = (path: string): never => {
+    throw new Error(
+      `meet-leave-tool.test: fake SkillHost facet ${path} was unexpectedly accessed`,
+    );
+  };
+  const throwingProxy = (path: string) =>
+    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+  return {
+    logger: {
+      get: () =>
+        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+    } as SkillHost["logger"],
+    config: {
+      isFeatureFlagEnabled: (key: string) =>
+        key === "meet" ? flagEnabled : true,
+      getSection: () => undefined,
+    },
+    identity: throwingProxy("identity") as SkillHost["identity"],
+    platform: throwingProxy("platform") as SkillHost["platform"],
+    providers: throwingProxy("providers") as SkillHost["providers"],
+    memory: throwingProxy("memory") as SkillHost["memory"],
+    events: throwingProxy("events") as SkillHost["events"],
+    registries: throwingProxy("registries") as SkillHost["registries"],
+    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+  };
+}
+
+let meetLeaveTool: Tool;
+
+function makeContext(): {
+  workingDir: string;
+  conversationId: string;
+  trustClass: string;
+} {
   return {
     workingDir: "/tmp",
     conversationId: "conv-test",
     trustClass: "guardian",
-    ...overrides,
-  } as ToolContext;
+  };
 }
 
 function fakeSession(meetingId: string) {
@@ -103,6 +117,7 @@ beforeEach(() => {
   activeSessionsValue = [];
   leaveMock.mockClear();
   getSessionMock.mockClear();
+  meetLeaveTool = createMeetLeaveTool(makeHost());
 });
 
 afterAll(() => {
@@ -116,8 +131,9 @@ afterAll(() => {
 describe("meet_leave feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetLeaveTool = createMeetLeaveTool(makeHost());
     activeSessionsValue = [fakeSession("m1")];
-    const result = await meetLeaveTool.execute({}, makeContext());
+    const result = await meetLeaveTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
     expect(leaveMock).not.toHaveBeenCalled();
@@ -131,7 +147,7 @@ describe("meet_leave feature-flag gating", () => {
 describe("meet_leave disambiguation", () => {
   test("errors when no active sessions exist", async () => {
     activeSessionsValue = [];
-    const result = await meetLeaveTool.execute({}, makeContext());
+    const result = await meetLeaveTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("no active meet session");
     expect(leaveMock).not.toHaveBeenCalled();
@@ -141,7 +157,7 @@ describe("meet_leave disambiguation", () => {
     activeSessionsValue = [fakeSession("solo")];
     const result = await meetLeaveTool.execute(
       { reason: "user-requested" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(leaveMock).toHaveBeenCalledTimes(1);
@@ -157,7 +173,7 @@ describe("meet_leave disambiguation", () => {
 
   test("errors when multiple active sessions and meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
-    const result = await meetLeaveTool.execute({}, makeContext());
+    const result = await meetLeaveTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
     expect(result.content).toContain("m1");
@@ -169,7 +185,7 @@ describe("meet_leave disambiguation", () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
     const result = await meetLeaveTool.execute(
       { meetingId: "m2" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(leaveMock).toHaveBeenCalledTimes(1);
@@ -178,13 +194,13 @@ describe("meet_leave disambiguation", () => {
 
   test("defaults the reason to DEFAULT_LEAVE_REASON when none provided", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    await meetLeaveTool.execute({}, makeContext());
+    await meetLeaveTool.execute({}, makeContext() as never);
     expect(leaveMock.mock.calls[0][1]).toBe(DEFAULT_LEAVE_REASON);
   });
 
   test("trims whitespace-only reasons and falls back to the default", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    await meetLeaveTool.execute({ reason: "   " }, makeContext());
+    await meetLeaveTool.execute({ reason: "   " }, makeContext() as never);
     expect(leaveMock.mock.calls[0][1]).toBe(DEFAULT_LEAVE_REASON);
   });
 
@@ -195,7 +211,7 @@ describe("meet_leave disambiguation", () => {
     activeSessionsValue = [];
     const result = await meetLeaveTool.execute(
       { meetingId: "unknown" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content) as {
@@ -218,7 +234,7 @@ describe("meet_leave error surfacing", () => {
     leaveMock.mockImplementationOnce(async () => {
       throw new Error("container stop timed out");
     });
-    const result = await meetLeaveTool.execute({}, makeContext());
+    const result = await meetLeaveTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("container stop timed out");
   });

@@ -5,8 +5,13 @@
  * caller omits `meetingId` (0 / 1 / many active sessions), explicit-id
  * pass-through, and error propagation from the session manager. Mirrors
  * the mocking style used in the sibling `meet-leave-tool.test.ts`.
+ *
+ * The tool is now constructed via `createMeetSendChatTool(host)`, so the
+ * test builds a minimal fake host (feature-flag reads, no-op logger) to
+ * drive it.
  */
 
+import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let flagEnabled = true;
@@ -53,40 +58,49 @@ mock.module("../../daemon/session-manager.js", () => ({
   MeetBotChatError: FakeMeetBotChatError,
 }));
 
-mock.module(
-  "../../../../assistant/src/config/assistant-feature-flags.js",
-  () => ({
-    isAssistantFeatureFlagEnabled: (key: string) => {
-      if (key === "meet") return flagEnabled;
-      return true;
+const { createMeetSendChatTool } = await import("../meet-send-chat-tool.js");
+
+function makeHost(): SkillHost {
+  const unreachable = (path: string): never => {
+    throw new Error(
+      `meet-send-chat-tool.test: fake SkillHost facet ${path} was unexpectedly accessed`,
+    );
+  };
+  const throwingProxy = (path: string) =>
+    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
+
+  return {
+    logger: {
+      get: () =>
+        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+    } as SkillHost["logger"],
+    config: {
+      isFeatureFlagEnabled: (key: string) =>
+        key === "meet" ? flagEnabled : true,
+      getSection: () => undefined,
     },
-  }),
-);
+    identity: throwingProxy("identity") as SkillHost["identity"],
+    platform: throwingProxy("platform") as SkillHost["platform"],
+    providers: throwingProxy("providers") as SkillHost["providers"],
+    memory: throwingProxy("memory") as SkillHost["memory"],
+    events: throwingProxy("events") as SkillHost["events"],
+    registries: throwingProxy("registries") as SkillHost["registries"],
+    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+  };
+}
 
-mock.module("../../../../assistant/src/config/loader.js", () => ({
-  getConfig: () => ({
-    services: { meet: { consentMessage: "unused-in-send-chat-tests" } },
-  }),
-}));
+let meetSendChatTool: Tool;
 
-mock.module("../../../../assistant/src/util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const { meetSendChatTool } = await import("../meet-send-chat-tool.js");
-
-import type { ToolContext } from "../../../../assistant/src/tools/types.js";
-
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+function makeContext(): {
+  workingDir: string;
+  conversationId: string;
+  trustClass: string;
+} {
   return {
     workingDir: "/tmp",
     conversationId: "conv-test",
     trustClass: "guardian",
-    ...overrides,
-  } as ToolContext;
+  };
 }
 
 function fakeSession(meetingId: string) {
@@ -106,6 +120,7 @@ beforeEach(() => {
   activeSessionsValue = [];
   sendChatMock.mockClear();
   sendChatMock.mockImplementation(async () => {});
+  meetSendChatTool = createMeetSendChatTool(makeHost());
 });
 
 afterAll(() => {
@@ -119,10 +134,11 @@ afterAll(() => {
 describe("meet_send_chat feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetSendChatTool = createMeetSendChatTool(makeHost());
     activeSessionsValue = [fakeSession("m1")];
     const result = await meetSendChatTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
@@ -137,7 +153,7 @@ describe("meet_send_chat feature-flag gating", () => {
 describe("meet_send_chat input validation", () => {
   test("rejects missing text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSendChatTool.execute({}, makeContext());
+    const result = await meetSendChatTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/^Error:/);
     expect(sendChatMock).not.toHaveBeenCalled();
@@ -145,7 +161,10 @@ describe("meet_send_chat input validation", () => {
 
   test("rejects empty text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSendChatTool.execute({ text: "" }, makeContext());
+    const result = await meetSendChatTool.execute(
+      { text: "" },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("text");
     expect(sendChatMock).not.toHaveBeenCalled();
@@ -153,7 +172,10 @@ describe("meet_send_chat input validation", () => {
 
   test("rejects non-string text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSendChatTool.execute({ text: 123 }, makeContext());
+    const result = await meetSendChatTool.execute(
+      { text: 123 },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(sendChatMock).not.toHaveBeenCalled();
   });
@@ -168,7 +190,7 @@ describe("meet_send_chat disambiguation", () => {
     activeSessionsValue = [];
     const result = await meetSendChatTool.execute(
       { text: "hi there" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("no active meet session");
@@ -179,7 +201,7 @@ describe("meet_send_chat disambiguation", () => {
     activeSessionsValue = [fakeSession("solo")];
     const result = await meetSendChatTool.execute(
       { text: "hello team" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(sendChatMock).toHaveBeenCalledTimes(1);
@@ -197,7 +219,7 @@ describe("meet_send_chat disambiguation", () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
     const result = await meetSendChatTool.execute(
       { text: "hi" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
@@ -210,7 +232,7 @@ describe("meet_send_chat disambiguation", () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
     const result = await meetSendChatTool.execute(
       { meetingId: "m2", text: "hi m2" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(sendChatMock).toHaveBeenCalledTimes(1);
@@ -231,7 +253,7 @@ describe("meet_send_chat error propagation", () => {
     });
     const result = await meetSendChatTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("no active Meet session");
@@ -245,7 +267,7 @@ describe("meet_send_chat error propagation", () => {
     });
     const result = await meetSendChatTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet bot unreachable");
@@ -259,7 +281,7 @@ describe("meet_send_chat error propagation", () => {
     });
     const result = await meetSendChatTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("status 502");
@@ -273,7 +295,7 @@ describe("meet_send_chat error propagation", () => {
     });
     const result = await meetSendChatTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("failed to send Meet chat");

@@ -19,10 +19,12 @@
  * single sanctioned named import in
  * `assistant/src/daemon/external-skills-bootstrap.ts`.
  *
- * Later PRs (Waves 6+) migrate the individual tool and route modules
- * onto the same host contract. Until those land, the tool / route
- * implementations retain their current relative imports into
- * `assistant/`; only this entry point's signature changes in this PR.
+ * Tool modules under `./tools/` now expose `create<Name>Tool(host)`
+ * factories that take the same `SkillHost` and return a neutral-typed
+ * `Tool`. Route modules follow once PR 15 migrates `meet-internal.ts`.
+ * The remaining `assistant/` imports under this skill will disappear
+ * as the later Wave-6 PRs migrate the daemon-side sub-modules onto
+ * the same contract.
  *
  * ## Feature-flag semantics
  *
@@ -44,20 +46,26 @@
  * would reject the bot's opaque bearer token as a malformed JWT).
  */
 
-import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
+import type { SkillHost } from "@vellumai/skill-host-contracts";
 
 import {
   handleMeetInternalEvents,
   MEET_INTERNAL_EVENTS_PATH_RE,
 } from "./routes/meet-internal.js";
 import {
-  meetDisableAvatarTool,
-  meetEnableAvatarTool,
+  createMeetDisableAvatarTool,
+  createMeetEnableAvatarTool,
 } from "./tools/meet-avatar-tool.js";
-import { MEET_FLAG_KEY, meetJoinTool } from "./tools/meet-join-tool.js";
-import { meetLeaveTool } from "./tools/meet-leave-tool.js";
-import { meetSendChatTool } from "./tools/meet-send-chat-tool.js";
-import { meetCancelSpeakTool, meetSpeakTool } from "./tools/meet-speak-tool.js";
+import {
+  MEET_FLAG_KEY,
+  createMeetJoinTool,
+} from "./tools/meet-join-tool.js";
+import { createMeetLeaveTool } from "./tools/meet-leave-tool.js";
+import { createMeetSendChatTool } from "./tools/meet-send-chat-tool.js";
+import {
+  createMeetCancelSpeakTool,
+  createMeetSpeakTool,
+} from "./tools/meet-speak-tool.js";
 
 export function register(host: SkillHost): void {
   host.registries.registerSkillRoute({
@@ -95,22 +103,14 @@ export function register(host: SkillHost): void {
       return [];
     }
 
-    // The concrete tool objects are still typed via `assistant/src/tools/types`
-    // (migration lands in Wave 6 / PR 14). The host contract's `Tool` is a
-    // structurally-leaner overlay of the same shape; the daemon-side
-    // `DaemonSkillHost.registerTools` narrows back to the assistant flavor
-    // at its boundary (see `daemon-skill-host.ts`). Cast here so the
-    // contract-typed signature accepts the assistant-typed values until
-    // each tool is individually migrated to import its types from the
-    // neutral package.
     return [
-      meetJoinTool,
-      meetLeaveTool,
-      meetSendChatTool,
-      meetSpeakTool,
-      meetCancelSpeakTool,
-      meetEnableAvatarTool,
-      meetDisableAvatarTool,
-    ] as unknown as Tool[];
+      createMeetJoinTool(host),
+      createMeetLeaveTool(host),
+      createMeetSendChatTool(host),
+      createMeetSpeakTool(host),
+      createMeetCancelSpeakTool(host),
+      createMeetEnableAvatarTool(host),
+      createMeetDisableAvatarTool(host),
+    ];
   });
 }

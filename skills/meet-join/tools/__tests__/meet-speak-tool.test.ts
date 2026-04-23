@@ -6,8 +6,13 @@
  * `meetingId` (0 / 1 / many active sessions), explicit-id pass-through,
  * and error propagation from the session manager. Mirrors the mocking
  * style used in the sibling `meet-send-chat-tool.test.ts`.
+ *
+ * The tools are now constructed via factories (`createMeetSpeakTool`,
+ * `createMeetCancelSpeakTool`) taking a `SkillHost`; the test builds a
+ * minimal fake host (feature-flag reads, no-op logger) to drive them.
  */
 
+import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let flagEnabled = true;
@@ -64,41 +69,54 @@ mock.module("../../daemon/session-manager.js", () => ({
   MeetBotChatError: FakeMeetBotChatError,
 }));
 
-mock.module(
-  "../../../../assistant/src/config/assistant-feature-flags.js",
-  () => ({
-    isAssistantFeatureFlagEnabled: (key: string) => {
-      if (key === "meet") return flagEnabled;
-      return true;
+const {
+  createMeetSpeakTool,
+  createMeetCancelSpeakTool,
+  MEET_SPEAK_MAX_TEXT_LENGTH,
+} = await import("../meet-speak-tool.js");
+
+function makeHost(): SkillHost {
+  const unreachable = (path: string): never => {
+    throw new Error(
+      `meet-speak-tool.test: fake SkillHost facet ${path} was unexpectedly accessed`,
+    );
+  };
+  const throwingProxy = (path: string) =>
+    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
+
+  return {
+    logger: {
+      get: () =>
+        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+    } as SkillHost["logger"],
+    config: {
+      isFeatureFlagEnabled: (key: string) =>
+        key === "meet" ? flagEnabled : true,
+      getSection: () => undefined,
     },
-  }),
-);
+    identity: throwingProxy("identity") as SkillHost["identity"],
+    platform: throwingProxy("platform") as SkillHost["platform"],
+    providers: throwingProxy("providers") as SkillHost["providers"],
+    memory: throwingProxy("memory") as SkillHost["memory"],
+    events: throwingProxy("events") as SkillHost["events"],
+    registries: throwingProxy("registries") as SkillHost["registries"],
+    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+  };
+}
 
-mock.module("../../../../assistant/src/config/loader.js", () => ({
-  getConfig: () => ({
-    services: { meet: { consentMessage: "unused-in-speak-tests" } },
-  }),
-}));
+let meetSpeakTool: Tool;
+let meetCancelSpeakTool: Tool;
 
-mock.module("../../../../assistant/src/util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const { meetSpeakTool, meetCancelSpeakTool, MEET_SPEAK_MAX_TEXT_LENGTH } =
-  await import("../meet-speak-tool.js");
-
-import type { ToolContext } from "../../../../assistant/src/tools/types.js";
-
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+function makeContext(): {
+  workingDir: string;
+  conversationId: string;
+  trustClass: string;
+} {
   return {
     workingDir: "/tmp",
     conversationId: "conv-test",
     trustClass: "guardian",
-    ...overrides,
-  } as ToolContext;
+  };
 }
 
 function fakeSession(meetingId: string) {
@@ -120,6 +138,9 @@ beforeEach(() => {
   speakMock.mockImplementation(async () => ({ streamId: "stream-default" }));
   cancelSpeakMock.mockClear();
   cancelSpeakMock.mockImplementation(async () => {});
+  const host = makeHost();
+  meetSpeakTool = createMeetSpeakTool(host);
+  meetCancelSpeakTool = createMeetCancelSpeakTool(host);
 });
 
 afterAll(() => {
@@ -133,10 +154,11 @@ afterAll(() => {
 describe("meet_speak feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetSpeakTool = createMeetSpeakTool(makeHost());
     activeSessionsValue = [fakeSession("m1")];
     const result = await meetSpeakTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
@@ -151,7 +173,7 @@ describe("meet_speak feature-flag gating", () => {
 describe("meet_speak input validation", () => {
   test("rejects missing text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSpeakTool.execute({}, makeContext());
+    const result = await meetSpeakTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/^Error:/);
     expect(speakMock).not.toHaveBeenCalled();
@@ -159,7 +181,10 @@ describe("meet_speak input validation", () => {
 
   test("rejects empty text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSpeakTool.execute({ text: "" }, makeContext());
+    const result = await meetSpeakTool.execute(
+      { text: "" },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("text");
     expect(speakMock).not.toHaveBeenCalled();
@@ -167,7 +192,10 @@ describe("meet_speak input validation", () => {
 
   test("rejects non-string text", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetSpeakTool.execute({ text: 123 }, makeContext());
+    const result = await meetSpeakTool.execute(
+      { text: 123 },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(speakMock).not.toHaveBeenCalled();
   });
@@ -175,7 +203,10 @@ describe("meet_speak input validation", () => {
   test("accepts text exactly at the soft length cap", async () => {
     activeSessionsValue = [fakeSession("solo")];
     const text = "a".repeat(MEET_SPEAK_MAX_TEXT_LENGTH);
-    const result = await meetSpeakTool.execute({ text }, makeContext());
+    const result = await meetSpeakTool.execute(
+      { text },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(false);
     expect(speakMock).toHaveBeenCalledTimes(1);
     expect(speakMock.mock.calls[0][1].text.length).toBe(
@@ -186,7 +217,10 @@ describe("meet_speak input validation", () => {
   test("rejects text exceeding the soft length cap", async () => {
     activeSessionsValue = [fakeSession("solo")];
     const text = "a".repeat(MEET_SPEAK_MAX_TEXT_LENGTH + 1);
-    const result = await meetSpeakTool.execute({ text }, makeContext());
+    const result = await meetSpeakTool.execute(
+      { text },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain(`${MEET_SPEAK_MAX_TEXT_LENGTH}`);
     expect(result.content.toLowerCase()).toContain("meet_send_chat");
@@ -197,7 +231,7 @@ describe("meet_speak input validation", () => {
     activeSessionsValue = [fakeSession("solo")];
     const result = await meetSpeakTool.execute(
       { text: "hi", voice: "  " },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(speakMock).not.toHaveBeenCalled();
@@ -210,7 +244,7 @@ describe("meet_speak input validation", () => {
     }));
     const result = await meetSpeakTool.execute(
       { text: "hi there", voice: "alloy" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(speakMock).toHaveBeenCalledTimes(1);
@@ -230,7 +264,7 @@ describe("meet_speak disambiguation", () => {
     activeSessionsValue = [];
     const result = await meetSpeakTool.execute(
       { text: "anyone there?" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("no active meet session");
@@ -244,7 +278,7 @@ describe("meet_speak disambiguation", () => {
     }));
     const result = await meetSpeakTool.execute(
       { text: "hello team" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(speakMock).toHaveBeenCalledTimes(1);
@@ -260,7 +294,10 @@ describe("meet_speak disambiguation", () => {
 
   test("errors when multiple active sessions and meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
-    const result = await meetSpeakTool.execute({ text: "hi" }, makeContext());
+    const result = await meetSpeakTool.execute(
+      { text: "hi" },
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
     expect(result.content).toContain("m1");
@@ -275,7 +312,7 @@ describe("meet_speak disambiguation", () => {
     }));
     const result = await meetSpeakTool.execute(
       { meetingId: "m2", text: "hi m2" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(speakMock).toHaveBeenCalledTimes(1);
@@ -296,7 +333,7 @@ describe("meet_speak error propagation", () => {
     });
     const result = await meetSpeakTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("no active Meet session");
@@ -310,7 +347,7 @@ describe("meet_speak error propagation", () => {
     });
     const result = await meetSpeakTool.execute(
       { text: "hello" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("failed to speak into Meet");
@@ -325,8 +362,12 @@ describe("meet_speak error propagation", () => {
 describe("meet_cancel_speak feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetCancelSpeakTool = createMeetCancelSpeakTool(makeHost());
     activeSessionsValue = [fakeSession("m1")];
-    const result = await meetCancelSpeakTool.execute({}, makeContext());
+    const result = await meetCancelSpeakTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
     expect(cancelSpeakMock).not.toHaveBeenCalled();
@@ -340,7 +381,10 @@ describe("meet_cancel_speak feature-flag gating", () => {
 describe("meet_cancel_speak disambiguation", () => {
   test("errors when no active sessions exist", async () => {
     activeSessionsValue = [];
-    const result = await meetCancelSpeakTool.execute({}, makeContext());
+    const result = await meetCancelSpeakTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("no active meet session");
     expect(cancelSpeakMock).not.toHaveBeenCalled();
@@ -348,7 +392,10 @@ describe("meet_cancel_speak disambiguation", () => {
 
   test("cancels the single active session when meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("solo")];
-    const result = await meetCancelSpeakTool.execute({}, makeContext());
+    const result = await meetCancelSpeakTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(false);
     expect(cancelSpeakMock).toHaveBeenCalledTimes(1);
     expect(cancelSpeakMock.mock.calls[0][0]).toBe("solo");
@@ -361,7 +408,10 @@ describe("meet_cancel_speak disambiguation", () => {
 
   test("errors when multiple active sessions and meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
-    const result = await meetCancelSpeakTool.execute({}, makeContext());
+    const result = await meetCancelSpeakTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
     expect(cancelSpeakMock).not.toHaveBeenCalled();
@@ -371,7 +421,7 @@ describe("meet_cancel_speak disambiguation", () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
     const result = await meetCancelSpeakTool.execute(
       { meetingId: "m1" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(cancelSpeakMock).toHaveBeenCalledTimes(1);
@@ -389,7 +439,10 @@ describe("meet_cancel_speak error propagation", () => {
     cancelSpeakMock.mockImplementationOnce(async () => {
       throw new FakeMeetSessionNotFoundError("no session");
     });
-    const result = await meetCancelSpeakTool.execute({}, makeContext());
+    const result = await meetCancelSpeakTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("no active Meet session");
     expect(result.content).toContain("solo");
@@ -400,7 +453,10 @@ describe("meet_cancel_speak error propagation", () => {
     cancelSpeakMock.mockImplementationOnce(async () => {
       throw new Error("bridge cancel failed");
     });
-    const result = await meetCancelSpeakTool.execute({}, makeContext());
+    const result = await meetCancelSpeakTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("failed to cancel Meet speech");
     expect(result.content).toContain("bridge cancel failed");

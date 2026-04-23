@@ -17,25 +17,21 @@
  * monologue — so we refuse here and let the agent re-plan.
  */
 
-import { z } from "zod";
-
-import { isAssistantFeatureFlagEnabled } from "../../../assistant/src/config/assistant-feature-flags.js";
-import { getConfig } from "../../../assistant/src/config/loader.js";
-import { RiskLevel } from "../../../assistant/src/permissions/types.js";
-import type { ToolDefinition } from "../../../assistant/src/providers/types.js";
 import type {
+  SkillHost,
   Tool,
   ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
-} from "../../../assistant/src/tools/types.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
+} from "@vellumai/skill-host-contracts";
+import { RiskLevel } from "@vellumai/skill-host-contracts";
+import { z } from "zod";
+
 import {
   MeetSessionManager,
   MeetSessionNotFoundError,
 } from "../daemon/session-manager.js";
 import { MEET_FLAG_KEY } from "./meet-join-tool.js";
-
-const log = getLogger("meet-speak-tool");
 
 /**
  * Soft cap on the synthesized text length. Anything longer should be sent
@@ -92,207 +88,215 @@ function resolveTargetMeetingId(
   return { ok: true, meetingId: active[0].meetingId };
 }
 
-class MeetSpeakTool implements Tool {
-  name = "meet_speak";
-  description =
-    "Speak synthesized audio into an active Google Meet call. Use this to reply out loud during a meeting; for long-form answers prefer meet_send_chat. When exactly one Meet session is active, meetingId may be omitted and the active session is targeted automatically; otherwise pass the specific meetingId returned by meet_join.";
-  category = "meet";
-  // Low: consent for audio output is established meeting-wide by `meet_join`
-  // (High) and the join-consent message announcing the bot. Speaking within
-  // that bounded session is within the user's expressed consent envelope,
-  // and proactive-speech wakes run on client-less conversations where a
-  // Medium-risk approval prompt would hang forever. Aligns with `meet_leave`
-  // and `meet_send_chat` (also Low).
-  defaultRiskLevel = RiskLevel.Low;
+/**
+ * Build the `meet_speak` tool, wired to the supplied `SkillHost` for
+ * feature-flag reads and logging.
+ */
+export function createMeetSpeakTool(host: SkillHost): Tool {
+  const log = host.logger.get("meet-speak-tool");
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: "object",
-        properties: {
-          meetingId: {
-            type: "string",
-            description:
-              "The id of the meeting to speak into, as returned by meet_join. Optional when exactly one session is active.",
-          },
-          text: {
-            type: "string",
-            description: `The text to synthesize and play. Keep it conversational and under ${MEET_SPEAK_MAX_TEXT_LENGTH} characters — longer replies should be sent via meet_send_chat.`,
-          },
-          voice: {
-            type: "string",
-            description:
-              "Optional provider-specific voice identifier. Falls back to the configured default voice when omitted.",
-          },
-        },
-        required: ["text"],
-      },
-    };
-  }
+  return {
+    name: "meet_speak",
+    description:
+      "Speak synthesized audio into an active Google Meet call. Use this to reply out loud during a meeting; for long-form answers prefer meet_send_chat. When exactly one Meet session is active, meetingId may be omitted and the active session is targeted automatically; otherwise pass the specific meetingId returned by meet_join.",
+    category: "meet",
+    // Low: consent for audio output is established meeting-wide by `meet_join`
+    // (High) and the join-consent message announcing the bot. Speaking within
+    // that bounded session is within the user's expressed consent envelope,
+    // and proactive-speech wakes run on client-less conversations where a
+    // Medium-risk approval prompt would hang forever. Aligns with `meet_leave`
+    // and `meet_send_chat` (also Low).
+    defaultRiskLevel: RiskLevel.Low,
 
-  async execute(
-    input: Record<string, unknown>,
-    _context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    // 1. Feature-flag gate — symmetric with the other meet_* tools.
-    const config = getConfig();
-    if (!isAssistantFeatureFlagEnabled(MEET_FLAG_KEY, config)) {
+    getDefinition(): ToolDefinition {
       return {
-        content:
-          "Error: the meet feature is disabled. Enable the `meet` feature flag to speak in Google Meet calls.",
-        isError: true,
+        name: this.name,
+        description: this.description,
+        input_schema: {
+          type: "object",
+          properties: {
+            meetingId: {
+              type: "string",
+              description:
+                "The id of the meeting to speak into, as returned by meet_join. Optional when exactly one session is active.",
+            },
+            text: {
+              type: "string",
+              description: `The text to synthesize and play. Keep it conversational and under ${MEET_SPEAK_MAX_TEXT_LENGTH} characters — longer replies should be sent via meet_send_chat.`,
+            },
+            voice: {
+              type: "string",
+              description:
+                "Optional provider-specific voice identifier. Falls back to the configured default voice when omitted.",
+            },
+          },
+          required: ["text"],
+        },
       };
-    }
+    },
 
-    // 2. Input validation.
-    const parsed = MeetSpeakInputSchema.safeParse(input);
-    if (!parsed.success) {
-      const message =
-        parsed.error.issues[0]?.message ?? "invalid meet_speak input";
-      return { content: `Error: ${message}`, isError: true };
-    }
-    const { meetingId: explicitId, text, voice } = parsed.data;
+    async execute(
+      input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      // 1. Feature-flag gate — symmetric with the other meet_* tools.
+      if (!host.config.isFeatureFlagEnabled(MEET_FLAG_KEY)) {
+        return {
+          content:
+            "Error: the meet feature is disabled. Enable the `meet` feature flag to speak in Google Meet calls.",
+          isError: true,
+        };
+      }
 
-    // 3. Disambiguate target session when no id is supplied.
-    const target = resolveTargetMeetingId(explicitId);
-    if (!target.ok) {
-      return { content: target.content, isError: true };
-    }
-    const targetMeetingId = target.meetingId;
+      // 2. Input validation.
+      const parsed = MeetSpeakInputSchema.safeParse(input);
+      if (!parsed.success) {
+        const message =
+          parsed.error.issues[0]?.message ?? "invalid meet_speak input";
+        return { content: `Error: ${message}`, isError: true };
+      }
+      const { meetingId: explicitId, text, voice } = parsed.data;
 
-    // 4. Delegate.
-    try {
-      const result = await MeetSessionManager.speak(targetMeetingId, {
-        text,
-        voice,
-      });
-      log.info(
-        {
+      // 3. Disambiguate target session when no id is supplied.
+      const target = resolveTargetMeetingId(explicitId);
+      if (!target.ok) {
+        return { content: target.content, isError: true };
+      }
+      const targetMeetingId = target.meetingId;
+
+      // 4. Delegate.
+      try {
+        const result = await MeetSessionManager.speak(targetMeetingId, {
+          text,
+          voice,
+        });
+        log.info("meet_speak tool started a TTS stream", {
           meetingId: targetMeetingId,
           streamId: result.streamId,
           textLength: text.length,
           voice: voice ?? "default",
+        });
+        return {
+          content: JSON.stringify({
+            meetingId: targetMeetingId,
+            streamId: result.streamId,
+          }),
+          isError: false,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("meet_speak tool failed", {
+          err,
+          meetingId: targetMeetingId,
+          textLength: text.length,
+        });
+        if (err instanceof MeetSessionNotFoundError) {
+          return {
+            content: `Error: no active Meet session for meetingId=${targetMeetingId}.`,
+            isError: true,
+          };
+        }
+        return {
+          content: `Error: failed to speak into Meet — ${message}`,
+          isError: true,
+        };
+      }
+    },
+  };
+}
+
+/**
+ * Build the `meet_cancel_speak` tool, wired to the supplied `SkillHost`
+ * for feature-flag reads and logging.
+ */
+export function createMeetCancelSpeakTool(host: SkillHost): Tool {
+  const log = host.logger.get("meet-speak-tool");
+
+  return {
+    name: "meet_cancel_speak",
+    description:
+      "Cancel any in-flight synthesized speech in an active Google Meet call so the assistant can voluntarily stop talking (e.g. when interrupted by a participant). When exactly one Meet session is active, meetingId may be omitted and the active session is targeted automatically; otherwise pass the specific meetingId returned by meet_join.",
+    category: "meet",
+    // Low: cancelling the assistant's own audio output is strictly less
+    // invasive than speaking — no new sound is emitted, and idempotent
+    // when nothing is currently playing.
+    defaultRiskLevel: RiskLevel.Low,
+
+    getDefinition(): ToolDefinition {
+      return {
+        name: this.name,
+        description: this.description,
+        input_schema: {
+          type: "object",
+          properties: {
+            meetingId: {
+              type: "string",
+              description:
+                "The id of the meeting whose in-flight speech should be cancelled. Optional when exactly one session is active.",
+            },
+          },
         },
-        "meet_speak tool started a TTS stream",
-      );
+      };
+    },
+
+    async execute(
+      input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      // 1. Feature-flag gate.
+      if (!host.config.isFeatureFlagEnabled(MEET_FLAG_KEY)) {
+        return {
+          content:
+            "Error: the meet feature is disabled. Enable the `meet` feature flag to manage Google Meet calls.",
+          isError: true,
+        };
+      }
+
+      // 2. Input validation. All fields are optional so a bare `{}` is valid;
+      //    Zod still catches wrong-type submissions.
+      const parsed = MeetCancelSpeakInputSchema.safeParse(input);
+      if (!parsed.success) {
+        const message =
+          parsed.error.issues[0]?.message ?? "invalid meet_cancel_speak input";
+        return { content: `Error: ${message}`, isError: true };
+      }
+      const { meetingId: explicitId } = parsed.data;
+
+      // 3. Disambiguate target session.
+      const target = resolveTargetMeetingId(explicitId);
+      if (!target.ok) {
+        return { content: target.content, isError: true };
+      }
+      const targetMeetingId = target.meetingId;
+
+      // 4. Delegate. `cancelSpeak` is idempotent when nothing is in flight.
+      try {
+        await MeetSessionManager.cancelSpeak(targetMeetingId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("meet_cancel_speak tool failed", {
+          err,
+          meetingId: targetMeetingId,
+        });
+        if (err instanceof MeetSessionNotFoundError) {
+          return {
+            content: `Error: no active Meet session for meetingId=${targetMeetingId}.`,
+            isError: true,
+          };
+        }
+        return {
+          content: `Error: failed to cancel Meet speech — ${message}`,
+          isError: true,
+        };
+      }
+
       return {
         content: JSON.stringify({
+          cancelled: true,
           meetingId: targetMeetingId,
-          streamId: result.streamId,
         }),
         isError: false,
       };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err, meetingId: targetMeetingId, textLength: text.length },
-        "meet_speak tool failed",
-      );
-      if (err instanceof MeetSessionNotFoundError) {
-        return {
-          content: `Error: no active Meet session for meetingId=${targetMeetingId}.`,
-          isError: true,
-        };
-      }
-      return {
-        content: `Error: failed to speak into Meet — ${message}`,
-        isError: true,
-      };
-    }
-  }
+    },
+  };
 }
-
-class MeetCancelSpeakTool implements Tool {
-  name = "meet_cancel_speak";
-  description =
-    "Cancel any in-flight synthesized speech in an active Google Meet call so the assistant can voluntarily stop talking (e.g. when interrupted by a participant). When exactly one Meet session is active, meetingId may be omitted and the active session is targeted automatically; otherwise pass the specific meetingId returned by meet_join.";
-  category = "meet";
-  // Low: cancelling the assistant's own audio output is strictly less
-  // invasive than speaking — no new sound is emitted, and idempotent
-  // when nothing is currently playing.
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: "object",
-        properties: {
-          meetingId: {
-            type: "string",
-            description:
-              "The id of the meeting whose in-flight speech should be cancelled. Optional when exactly one session is active.",
-          },
-        },
-      },
-    };
-  }
-
-  async execute(
-    input: Record<string, unknown>,
-    _context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    // 1. Feature-flag gate.
-    const config = getConfig();
-    if (!isAssistantFeatureFlagEnabled(MEET_FLAG_KEY, config)) {
-      return {
-        content:
-          "Error: the meet feature is disabled. Enable the `meet` feature flag to manage Google Meet calls.",
-        isError: true,
-      };
-    }
-
-    // 2. Input validation. All fields are optional so a bare `{}` is valid;
-    //    Zod still catches wrong-type submissions.
-    const parsed = MeetCancelSpeakInputSchema.safeParse(input);
-    if (!parsed.success) {
-      const message =
-        parsed.error.issues[0]?.message ?? "invalid meet_cancel_speak input";
-      return { content: `Error: ${message}`, isError: true };
-    }
-    const { meetingId: explicitId } = parsed.data;
-
-    // 3. Disambiguate target session.
-    const target = resolveTargetMeetingId(explicitId);
-    if (!target.ok) {
-      return { content: target.content, isError: true };
-    }
-    const targetMeetingId = target.meetingId;
-
-    // 4. Delegate. `cancelSpeak` is idempotent when nothing is in flight.
-    try {
-      await MeetSessionManager.cancelSpeak(targetMeetingId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err, meetingId: targetMeetingId },
-        "meet_cancel_speak tool failed",
-      );
-      if (err instanceof MeetSessionNotFoundError) {
-        return {
-          content: `Error: no active Meet session for meetingId=${targetMeetingId}.`,
-          isError: true,
-        };
-      }
-      return {
-        content: `Error: failed to cancel Meet speech — ${message}`,
-        isError: true,
-      };
-    }
-
-    return {
-      content: JSON.stringify({
-        cancelled: true,
-        meetingId: targetMeetingId,
-      }),
-      isError: false,
-    };
-  }
-}
-
-/** Exported singletons so the tool registry can re-register after test resets. */
-export const meetSpeakTool = new MeetSpeakTool();
-export const meetCancelSpeakTool = new MeetCancelSpeakTool();
