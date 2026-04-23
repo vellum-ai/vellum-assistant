@@ -1342,8 +1342,13 @@ PLIST
 # Resolve per-environment icon source. Falls back to production if no
 # environment-specific override exists.
 ICONS_DIR="$SCRIPT_DIR/vellum-assistant/Resources/icons"
+ICON_ENV_OVERRIDE=false
 if [ -d "$ICONS_DIR/$VELLUM_ENVIRONMENT" ]; then
     ICON_SOURCE_DIR="$ICONS_DIR/$VELLUM_ENVIRONMENT"
+    # Only force icns regeneration for non-production environments
+    if [ "$VELLUM_ENVIRONMENT" != "production" ]; then
+        ICON_ENV_OVERRIDE=true
+    fi
 elif [ -d "$ICONS_DIR/production" ]; then
     ICON_SOURCE_DIR="$ICONS_DIR/production"
 else
@@ -1390,9 +1395,9 @@ fi
 # actool with .icon bundles only emits into Assets.car — it does not produce a
 # standalone .icns.  Finder and create-dmg rely on CFBundleIconFile → .icns,
 # so we render one from the same SVG source that Icon Composer uses.
-# Always regenerate when an environment icon source is set (to pick up
+# Force regeneration for non-production environment overrides (to pick up
 # environment-specific colors), otherwise generate only if missing.
-if [ -d "$APP_ICON" ] && { [ -n "$ICON_SOURCE_DIR" ] || [ ! -f "$RESOURCES_DIR/AppIcon.icns" ]; }; then
+if [ -d "$APP_ICON" ] && { [ "$ICON_ENV_OVERRIDE" = true ] || [ ! -f "$RESOURCES_DIR/AppIcon.icns" ]; }; then
     echo "Generating AppIcon.icns from SVG..."
 
     ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
