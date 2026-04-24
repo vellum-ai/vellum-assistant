@@ -3279,6 +3279,32 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/trust-rules-v3/suggest": {
+        post: {
+          summary: "Suggest a v3 trust rule",
+          description:
+            "Authenticated gateway endpoint that calls the assistant daemon to generate an LLM-powered trust rule suggestion for a given command invocation. Gated behind the `permission-controls-v3` feature flag.",
+          operationId: "trustRulesV3Suggest",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Trust rule suggestion returned" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Feature not enabled" },
+            "503": { description: "Assistant daemon unavailable or LLM failure" },
+          },
+        },
+      },
       "/v1/trust-rules-v3/{ruleId}": {
         patch: {
           summary: "Update a v3 trust rule",
