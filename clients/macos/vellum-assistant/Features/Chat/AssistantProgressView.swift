@@ -853,7 +853,8 @@ private struct ToolCallStepDetailRow: View {
                                 description: {
                                     let desc = tc.reasonDescription ?? ""
                                     return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                                }()
+                                }(),
+                                scope: "everywhere"
                             )
                         }
                     },
