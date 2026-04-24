@@ -17,9 +17,11 @@ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy shared packages needed by assistant's repo-local dependencies
+COPY packages/ces-client ./packages/ces-client
 COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
+COPY packages/gateway-client ./packages/gateway-client
 COPY packages/skill-host-contracts ./packages/skill-host-contracts
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/

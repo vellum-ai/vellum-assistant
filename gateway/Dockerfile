@@ -10,6 +10,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
 # Copy shared packages needed by gateway's repo-local dependencies
 COPY packages/assistant-client ./packages/assistant-client
+COPY packages/ces-client ./packages/ces-client
 COPY packages/ces-contracts ./packages/ces-contracts
 
 # Install gateway dependencies first for cache reuse
