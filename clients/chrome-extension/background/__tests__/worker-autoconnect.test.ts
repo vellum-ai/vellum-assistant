@@ -381,7 +381,7 @@ describe('failed auto-connect — no reconnect loop', () => {
 
     const errorResult = await state.storage.get(RELAY_AUTH_ERROR_KEY);
     const persisted = errorResult[RELAY_AUTH_ERROR_KEY] as RelayAuthError;
-    expect(persisted.mode).toBe('cloud');
+    expect(persisted.mode).toBe('vellum-cloud');
     expect(persisted.message).toBe(errorMessage);
   });
 
