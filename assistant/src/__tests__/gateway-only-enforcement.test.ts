@@ -524,7 +524,7 @@ describe("gateway-only ingress enforcement", () => {
       expect(res.status).not.toBe(403);
     });
 
-    test("returns 400 when callSessionId is missing", async () => {
+    test("returns 401 when service token is missing", async () => {
       const res = await fetch(
         `http://127.0.0.1:${port}/v1/calls/media-stream`,
         {
@@ -536,7 +536,7 @@ describe("gateway-only ingress enforcement", () => {
           },
         },
       );
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(401);
     });
   });
 
