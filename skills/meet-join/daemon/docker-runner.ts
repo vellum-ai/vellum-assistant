@@ -1252,11 +1252,21 @@ export const DOCKER_RUNNER_MODULE = "docker-runner";
  * `host.platform.*` / `host.logger.get(...)` so the runner stays free of
  * any `assistant/` imports. Tests that want to override the socket path
  * or inject fakes continue to construct {@link DockerRunner} directly.
+ *
+ * `resolveWorkspaceDir`, when supplied, overrides the default
+ * `host.platform.workspaceDir()` lookup — the session manager passes its
+ * own resolver so test callers that override `deps.getWorkspaceDir` have
+ * one consistent path for both session-manager state and Docker mounts.
  */
-export function createDockerRunner(host: SkillHost): DockerRunner {
+export function createDockerRunner(
+  host: SkillHost,
+  resolveWorkspaceDir?: () => string,
+): DockerRunner {
   return new DockerRunner({
     resolveMode: () => host.platform.runtimeMode(),
-    workspaceDir: host.platform.workspaceDir(),
+    workspaceDir: resolveWorkspaceDir
+      ? resolveWorkspaceDir()
+      : host.platform.workspaceDir(),
     logger: host.logger.get("meet-docker-runner"),
   });
 }

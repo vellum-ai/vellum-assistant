@@ -847,7 +847,7 @@ class MeetSessionManagerImpl {
     const resolveWorkspaceDir =
       deps.getWorkspaceDir ?? (() => host.platform.workspaceDir());
     const dockerRunnerSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => DockerRunner
+      (host: SkillHost, resolveWorkspaceDir?: () => string) => DockerRunner
     >(DOCKER_RUNNER_MODULE);
     const audioIngestSubModule = resolveSubModuleFactory<
       (host: SkillHost) => () => MeetAudioIngest
@@ -867,7 +867,10 @@ class MeetSessionManagerImpl {
       ) => MeetConversationBridge
     >("conversation-bridge");
     const storageWriterSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => (meetingId: string) => MeetStorageWriter
+      (
+        host: SkillHost,
+        resolveWorkspaceDir?: () => string,
+      ) => (meetingId: string) => MeetStorageWriter
     >("storage-writer");
     const chatOpportunityDetectorSubModule = resolveSubModuleFactory<
       (
@@ -885,11 +888,11 @@ class MeetSessionManagerImpl {
     >("barge-in-watcher");
 
     const dockerRunnerBuilder = (): DockerRunner =>
-      dockerRunnerSubModule(host);
+      dockerRunnerSubModule(host, resolveWorkspaceDir);
     const audioIngestBuilder = audioIngestSubModule(host);
     const consentMonitorBuilder = consentMonitorSubModule(host);
     const conversationBridgeBuilder = conversationBridgeSubModule(host);
-    const storageWriterBuilder = storageWriterSubModule(host);
+    const storageWriterBuilder = storageWriterSubModule(host, resolveWorkspaceDir);
     const chatOpportunityDetectorBuilder = chatOpportunityDetectorSubModule(host);
     const ttsBridgeBuilder = ttsBridgeSubModule(host);
     const ttsLipsyncBuilder = ttsLipsyncSubModule(host);

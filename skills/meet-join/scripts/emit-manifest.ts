@@ -310,7 +310,11 @@ async function main(): Promise<void> {
   const host = buildCollectorHost(captured);
 
   const registerMod = await import("../register.js");
-  registerMod.register(host);
+  // Suppress the session manager's one-shot startup orphan-reaper sweep:
+  // the emitter's collector host would otherwise wire a real DockerRunner
+  // against `/var/run/docker.sock` and, with zero active sessions, SIGTERM
+  // every same-instance meet-bot container on the developer's machine.
+  registerMod.register(host, { disableStartupOrphanReaper: true });
 
   // Sort by name / pattern so the manifest is independent of
   // registration order — reshuffling entries inside register.ts must
