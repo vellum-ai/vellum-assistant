@@ -49,6 +49,10 @@ beforeEach(async () => {
   clearFeatureFlagStoreCache();
   await initGatewayDb();
 
+  // Clear persisted threshold rows so each test starts from a clean state.
+  // resetGatewayDb() closes the connection but the SQLite file retains data.
+  getGatewayDb().delete(autoApproveThresholds).run();
+
   // Enable the feature flag for all tests by default
   writeFeatureFlag("permission-controls-v3", true);
 
