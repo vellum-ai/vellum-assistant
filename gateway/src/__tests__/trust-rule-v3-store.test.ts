@@ -1,7 +1,9 @@
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 import { TrustRuleV3Store } from "../db/trust-rule-v3-store.js";
-import "./test-preload.js";
+import { testSecurityDir } from "./test-preload.js";
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
@@ -25,6 +27,13 @@ let seededTotalWithDeleted: number;
 
 beforeEach(async () => {
   resetGatewayDb();
+  // Delete the on-disk SQLite file so each test starts with a fresh DB.
+  // Without this, data from the previous test persists across reset/init cycles.
+  const dbPath = join(testSecurityDir, "gateway.sqlite");
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const p = dbPath + suffix;
+    if (existsSync(p)) rmSync(p);
+  }
   await initGatewayDb();
   store = new TrustRuleV3Store();
 

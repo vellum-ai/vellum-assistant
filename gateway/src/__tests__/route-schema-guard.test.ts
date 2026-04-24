@@ -133,6 +133,11 @@ const EXCLUDED_FROM_SCHEMA = new Set([
 
   // Internal-only endpoint called by the platform via vembda — not public API
   "/v1/internal/oauth/chrome-extension/token",
+
+  // V3 trust rules CRUD — behind permission-controls-v3 feature flag, internal-only
+  "/v1/trust-rules-v3",
+  "/v1/trust-rules-v3/{param1}",
+  "/v1/trust-rules-v3/{param1}/reset",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──
