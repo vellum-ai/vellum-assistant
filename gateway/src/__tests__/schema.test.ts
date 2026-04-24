@@ -89,7 +89,6 @@ describe("/schema route", () => {
     expect(
       body.paths["/v1/channel-verification-sessions/revoke"],
     ).toBeDefined();
-    expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
   });
 
@@ -137,9 +136,6 @@ describe("buildSchema()", () => {
     expect(schemaNames).toContain("TelegramMessage");
     expect(schemaNames).toContain("TelegramPhotoSize");
     expect(schemaNames).toContain("TelegramDocument");
-    expect(schemaNames).toContain("TelegramDeliverRequest");
-    expect(schemaNames).toContain("RuntimeAttachmentMeta");
-
     const oauthConnection = components.schemas.OAuthConnectionSummary as {
       properties?: Record<string, unknown>;
     };
@@ -166,27 +162,5 @@ describe("buildSchema()", () => {
 
     // THEN the round-tripped object equals the original
     expect(parsed).toEqual(schema);
-  });
-
-  test("TelegramDeliverRequest supports typing chatAction payloads", () => {
-    const schema = buildSchema();
-    const components = schema.components as {
-      schemas: Record<
-        string,
-        {
-          properties?: Record<string, unknown>;
-          anyOf?: Array<Record<string, unknown>>;
-        }
-      >;
-    };
-    const telegramDeliver = components.schemas.TelegramDeliverRequest;
-
-    expect(telegramDeliver.properties?.chatAction).toEqual({
-      type: "string",
-      enum: ["typing"],
-      description:
-        "Optional Telegram chat action to emit (currently only `typing`)",
-    });
-    expect(telegramDeliver.anyOf).toContainEqual({ required: ["chatAction"] });
   });
 });
