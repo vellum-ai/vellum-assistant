@@ -64,8 +64,6 @@ describe("route policy coverage", () => {
     // into buildRouteTable().
     const PRE_AUTH_ROUTE_MODULES = new Set([
       "browser-extension-pair-routes.ts",
-      "guardian-bootstrap-routes.ts",
-      "guardian-refresh-routes.ts",
     ]);
     const allSources = [httpServerSrc];
     try {
