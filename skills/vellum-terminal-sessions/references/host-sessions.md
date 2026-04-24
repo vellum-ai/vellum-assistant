@@ -94,7 +94,7 @@ tt -k deploy         # Kill a session
 
 This is the recommended way for users to start sessions they want the assistant to see. For example, before starting a Claude Code session: `tt frontend-refactor` then `claude`.
 
-**Install it** by copying to somewhere on the user's PATH. Replace `<skill-dir>` with the actual path to this skill directory (e.g. the workspace `skills/terminal-sessions` path):
+**Install it** by copying to somewhere on the user's PATH. Replace `<skill-dir>` with the actual path to this skill directory (e.g. the workspace `skills/vellum-terminal-sessions` path):
 
 ```bash
 cp <skill-dir>/scripts/tt ~/.local/bin/tt && chmod +x ~/.local/bin/tt

@@ -18,6 +18,8 @@ This is the **default mode** for Claude Code orchestration tasks and any work th
    vellum terminal attach <session-name>
    ```
 
+   > **Note:** `vellum terminal attach` requires a managed (cloud-hosted) assistant. For local/Docker setups, use `tmux attach -t <session-name>` directly.
+
    This opens a live, read-write terminal view of that session in the Vellum UI.
 
 ## Benefits
