@@ -1,7 +1,7 @@
 /**
  * Integration tests for the `ui_request` IPC route.
  *
- * Exercises the full IPC round-trip: CliIpcServer + cliIpcCall over
+ * Exercises the full IPC round-trip: AssistantIpcServer + cliIpcCall over
  * the Unix domain socket, with mock interactive UI resolvers to verify
  * submit / cancel / timeout, unknown-conversation, and non-interactive
  * failure scenarios.
@@ -18,14 +18,14 @@ import {
   resetInteractiveUiResolverForTests,
   resetSurfaceIdCounterForTests,
 } from "../../runtime/interactive-ui.js";
+import { AssistantIpcServer } from "../assistant-server.js";
 import { cliIpcCall } from "../cli-client.js";
-import { CliIpcServer } from "../cli-server.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-let server: CliIpcServer | null = null;
+let server: AssistantIpcServer | null = null;
 
 function baseParams(
   overrides?: Partial<Record<string, unknown>>,
@@ -41,7 +41,7 @@ function baseParams(
 beforeEach(async () => {
   resetInteractiveUiResolverForTests();
   resetSurfaceIdCounterForTests();
-  server = new CliIpcServer();
+  server = new AssistantIpcServer();
   await server.start();
   // Allow the server socket to bind.
   await new Promise((resolve) => setTimeout(resolve, 50));

@@ -4,7 +4,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // ---------------------------------------------------------------------------
 // Request / response interfaces

@@ -28,7 +28,7 @@ mock.module("../../ipc/assistant-client.js", () => ({
 }));
 
 // Import after mocks are registered
-const { createTrustRuleV3sSuggestHandler } = await import(
+const { createTrustRuleV3SuggestHandler } = await import(
   "./trust-rules-v3.js"
 );
 
@@ -108,7 +108,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
   test("returns 403 when permission-controls-v3 flag is off", async () => {
     writeFeatureFlag("permission-controls-v3", false);
 
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const res = await handler(jsonRequest(VALID_BODY));
 
     expect(res.status).toBe(403);
@@ -117,7 +117,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
   });
 
   test("returns 400 when body is not valid JSON", async () => {
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const req = new Request("http://localhost/v1/trust-rules-v3/suggest", {
       method: "POST",
       body: "not json {{{{",
@@ -130,7 +130,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
   });
 
   test("returns 400 when intent field is missing", async () => {
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const { intent: _omitted, ...bodyWithoutIntent } = VALID_BODY;
     const res = await handler(jsonRequest(bodyWithoutIntent));
 
@@ -141,7 +141,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
   });
 
   test("returns 400 when intent value is invalid", async () => {
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const res = await handler(
       jsonRequest({ ...VALID_BODY, intent: "approve_forever" }),
     );
@@ -152,7 +152,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
   });
 
   test("returns 400 when required string fields are missing", async () => {
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
 
     // Missing tool
     const res1 = await handler(
@@ -172,7 +172,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
       throw new Error("assistant is unreachable");
     });
 
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const res = await handler(jsonRequest(VALID_BODY));
 
     expect(res.status).toBe(503);
@@ -194,7 +194,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
       Promise.resolve(mockSuggestion),
     );
 
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const res = await handler(jsonRequest(VALID_BODY));
 
     expect(res.status).toBe(200);
@@ -213,7 +213,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
       })
       .run();
 
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     await handler(jsonRequest(VALID_BODY));
 
     expect(ipcSuggestTrustRuleMock).toHaveBeenCalledTimes(1);
@@ -225,7 +225,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
 
   test("currentThreshold defaults to 'low' when no threshold row in DB", async () => {
     // No row inserted — DB is fresh from beforeEach
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     await handler(jsonRequest(VALID_BODY));
 
     expect(ipcSuggestTrustRuleMock).toHaveBeenCalledTimes(1);
@@ -243,7 +243,7 @@ describe("POST /v1/trust-rules-v3/suggest", () => {
       ],
     };
 
-    const handler = createTrustRuleV3sSuggestHandler();
+    const handler = createTrustRuleV3SuggestHandler();
     const res = await handler(jsonRequest(bodyWithDirScope));
 
     expect(res.status).toBe(200);

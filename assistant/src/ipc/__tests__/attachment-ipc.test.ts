@@ -1,7 +1,7 @@
 /**
  * Integration tests for the attachment IPC routes.
  *
- * Exercises the full IPC round-trip: CliIpcServer + cliIpcCall over
+ * Exercises the full IPC round-trip: AssistantIpcServer + cliIpcCall over
  * the Unix domain socket, with the real SQLite attachment store backing
  * the route handlers.
  */
@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../../memory/db.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { AssistantIpcServer } from "../assistant-server.js";
 import { cliIpcCall } from "../cli-client.js";
-import { CliIpcServer } from "../cli-server.js";
 
 // ---------------------------------------------------------------------------
 // DB setup (attachment store needs SQLite)
@@ -26,7 +26,7 @@ initializeDb();
 // Helpers
 // ---------------------------------------------------------------------------
 
-let server: CliIpcServer | null = null;
+let server: AssistantIpcServer | null = null;
 const tempFiles: string[] = [];
 
 /** Create a temp file inside the workspace directory. */
@@ -50,7 +50,7 @@ function createOutsideFile(content: string, filename?: string): string {
 }
 
 beforeEach(async () => {
-  server = new CliIpcServer();
+  server = new AssistantIpcServer();
   await server.start();
   // Allow the server socket to bind.
   await new Promise((resolve) => setTimeout(resolve, 50));

@@ -9,7 +9,7 @@
 
 import { getDaemonRuntimeMode } from "../../runtime/runtime-mode.js";
 import { getWorkspaceDir, vellumRoot } from "../../util/platform.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 export const hostPlatformWorkspaceDirRoute: IpcRoute = {
   method: "host.platform.workspaceDir",

@@ -33,7 +33,7 @@ import type {
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getTtsProvider } from "../../tts/provider-registry.js";
 import { resolveTtsConfig } from "../../tts/tts-config-resolver.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // -- Param schemas --------------------------------------------------------
 

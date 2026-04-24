@@ -12,7 +12,7 @@
 
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 export const hostIdentityGetAssistantNameRoute: IpcRoute = {
   method: "host.identity.getAssistantName",

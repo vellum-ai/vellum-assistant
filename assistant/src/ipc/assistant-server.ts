@@ -1,5 +1,5 @@
 /**
- * CLI IPC server — exposes daemon capabilities to CLI commands and external
+ * Assistant IPC server — exposes daemon capabilities to CLI commands and external
  * processes over a Unix domain socket.
  *
  * This is the preferred method of inter-process communication between the
@@ -24,7 +24,7 @@ import { cliIpcRoutes } from "./routes/index.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
-const log = getLogger("cli-ipc-server");
+const log = getLogger("assistant-ipc-server");
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,7 +57,7 @@ export type IpcRoute = {
 // Server
 // ---------------------------------------------------------------------------
 
-export class CliIpcServer {
+export class AssistantIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
   private methods = new Map<string, IpcMethodHandler>();
@@ -130,11 +130,11 @@ export class CliIpcServer {
     });
 
     this.server.on("error", (err) => {
-      log.error({ err }, "CLI IPC server error");
+      log.error({ err }, "Assistant IPC server error");
     });
 
     this.server.listen(this.socketPath, () => {
-      log.info({ path: this.socketPath }, "CLI IPC server listening");
+      log.info({ path: this.socketPath }, "Assistant IPC server listening");
     });
   }
 

@@ -1,4 +1,4 @@
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 import { attachmentRoutes } from "./attachment.js";
 import { avatarNotifyRoute } from "./avatar-notify.js";
 import { browserExecuteRoute } from "./browser.js";

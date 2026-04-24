@@ -13,7 +13,7 @@ import {
   requestInteractiveUi,
   RESERVED_ACTION_IDS,
 } from "../../runtime/interactive-ui.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // ── Param schema ──────────────────────────────────────────────────────
 

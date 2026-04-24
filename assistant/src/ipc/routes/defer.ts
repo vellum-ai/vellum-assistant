@@ -6,7 +6,7 @@ import {
   getSchedule,
   listSchedules,
 } from "../../schedule/schedule-store.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // ---------------------------------------------------------------------------
 // defer_create

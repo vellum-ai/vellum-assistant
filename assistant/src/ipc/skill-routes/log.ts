@@ -11,7 +11,7 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const LogParams = z.object({
   level: z.enum(["debug", "info", "warn", "error"]),

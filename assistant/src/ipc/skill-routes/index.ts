@@ -1,4 +1,4 @@
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 import type { SkillIpcStreamingRoute } from "../skill-server.js";
 import { configRoutes } from "./config.js";
 import { eventsRoutes, eventsStreamingRoutes } from "./events.js";

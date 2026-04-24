@@ -2,14 +2,14 @@
  * Tests for the `assistant conversations wake` CLI command.
  *
  * Mocks wakeAgentForOpportunity at the module boundary so the real
- * CliIpcServer (with auto-registered routes) can be exercised end-to-end
+ * AssistantIpcServer (with auto-registered routes) can be exercised end-to-end
  * without spinning up the full daemon.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-command.js";
-import { CliIpcServer } from "../cli-server.js";
+import { AssistantIpcServer } from "../assistant-server.js";
 
 // ---------------------------------------------------------------------------
 // Mock state
@@ -38,7 +38,7 @@ mock.module("../../runtime/agent-wake.js", () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-let server: CliIpcServer | null = null;
+let server: AssistantIpcServer | null = null;
 
 afterEach(() => {
   server?.stop();
@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 async function startServer(): Promise<void> {
-  server = new CliIpcServer();
+  server = new AssistantIpcServer();
   await server.start();
   await new Promise((resolve) => setTimeout(resolve, 50));
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { upsertContact } from "../../contacts/contact-store.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const ChannelSchema = z.object({
   type: z.string(),

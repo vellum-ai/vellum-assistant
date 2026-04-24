@@ -15,7 +15,7 @@ import {
   getCacheEntry,
   setCacheEntry,
 } from "../../skills/skill-cache-store.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // ── Param schemas ─────────────────────────────────────────────────────
 

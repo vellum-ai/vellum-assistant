@@ -94,7 +94,7 @@ export async function ipcCallAssistant(
     socket.unref();
 
     let buffer = "";
-    const reqId = "1";
+    const reqId = crypto.randomUUID();
 
     socket.on("connect", () => {
       clearTimeout(connectTimer);

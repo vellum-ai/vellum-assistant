@@ -1,7 +1,7 @@
 /**
  * Integration tests for the cache IPC routes.
  *
- * Exercises the full IPC round-trip: CliIpcServer + cliIpcCall over
+ * Exercises the full IPC round-trip: AssistantIpcServer + cliIpcCall over
  * the Unix domain socket, with the real in-memory cache store backing
  * the route handlers.
  */
@@ -9,18 +9,18 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { clearCacheForTests } from "../../skills/skill-cache-store.js";
+import { AssistantIpcServer } from "../assistant-server.js";
 import { cliIpcCall } from "../cli-client.js";
-import { CliIpcServer } from "../cli-server.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-let server: CliIpcServer | null = null;
+let server: AssistantIpcServer | null = null;
 
 beforeEach(async () => {
   clearCacheForTests();
-  server = new CliIpcServer();
+  server = new AssistantIpcServer();
   await server.start();
   // Allow the server socket to bind.
   await new Promise((resolve) => setTimeout(resolve, 50));

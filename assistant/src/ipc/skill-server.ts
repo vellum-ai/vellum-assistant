@@ -51,7 +51,7 @@ import type {
   IpcMethodHandler,
   IpcRequest,
   IpcResponse,
-} from "./cli-server.js";
+} from "./assistant-server.js";
 import {
   skillIpcRoutes,
   skillIpcStreamingRoutes,

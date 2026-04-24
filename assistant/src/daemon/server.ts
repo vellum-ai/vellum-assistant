@@ -26,7 +26,7 @@ import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import { CliIpcServer } from "../ipc/cli-server.js";
+import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -315,7 +315,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
-  private cliIpc = new CliIpcServer();
+  private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
 
   // CES (Credential Execution Service) — process-level singleton.

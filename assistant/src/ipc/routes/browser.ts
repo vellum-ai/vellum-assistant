@@ -17,7 +17,7 @@ import {
   type BrowserOperation,
 } from "../../browser/types.js";
 import type { ContentBlock } from "../../providers/types.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 import { resolveBrowserIpcContext } from "./browser-context.js";
 
 // ── Param validation ─────────────────────────────────────────────────

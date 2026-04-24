@@ -13,7 +13,7 @@ import { z } from "zod";
 import { broadcastToAllClients } from "../../acp/index.js";
 import type { ToolContext } from "../../tools/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // ── Minimal tool context ──────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { getContact } from "../../contacts/contact-store.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const GetContactParams = z.object({
   id: z.string().min(1),

@@ -1,4 +1,4 @@
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 export const avatarNotifyRoute: IpcRoute = {
   method: "notify_avatar_updated",

@@ -109,7 +109,7 @@ import {
   createTrustRuleV3sUpdateHandler,
   createTrustRuleV3sDeleteHandler,
   createTrustRuleV3sResetHandler,
-  createTrustRuleV3sSuggestHandler,
+  createTrustRuleV3SuggestHandler,
 } from "./http/routes/trust-rules-v3.js";
 import { initTrustRuleV3Cache } from "./risk/trust-rule-v3-cache.js";
 import { getLogger, initLogger } from "./logger.js";
@@ -386,7 +386,7 @@ async function main() {
   const handleTrustRuleV3sUpdate = createTrustRuleV3sUpdateHandler();
   const handleTrustRuleV3sDelete = createTrustRuleV3sDeleteHandler();
   const handleTrustRuleV3sReset = createTrustRuleV3sResetHandler();
-  const handleTrustRuleV3sSuggest = createTrustRuleV3sSuggestHandler();
+  const handleTrustRuleV3sSuggest = createTrustRuleV3SuggestHandler();
 
   const audioProxy = createAudioProxyHandler(config);
 

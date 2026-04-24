@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { addMessage } from "../../memory/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // -- Param schemas --------------------------------------------------------
 

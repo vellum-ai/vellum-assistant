@@ -20,7 +20,7 @@ import {
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // -- Param schemas --------------------------------------------------------
 

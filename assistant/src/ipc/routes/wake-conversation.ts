@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const WakeConversationParams = z.object({
   conversationId: z.string().min(1),

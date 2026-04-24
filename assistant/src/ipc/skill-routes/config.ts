@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig, getNestedValue } from "../../config/loader.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const GetSectionParams = z.object({
   path: z.string().min(1),

@@ -91,7 +91,7 @@ function readInteractiveThreshold(): string {
 // POST /v1/trust-rules-v3/suggest — LLM-generated trust rule suggestion
 // ---------------------------------------------------------------------------
 
-export function createTrustRuleV3sSuggestHandler() {
+export function createTrustRuleV3SuggestHandler() {
   return async (req: Request): Promise<Response> => {
     const flagResponse = requireV3Flag();
     if (flagResponse) return flagResponse;

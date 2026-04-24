@@ -4,7 +4,7 @@ import {
   ClientRegistry,
   getClientRegistry,
 } from "../../runtime/client-registry.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const ListClientsParams = z
   .object({

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { mergeContacts } from "../../contacts/contact-store.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 const MergeContactsParams = z.object({
   keepId: z.string().min(1),

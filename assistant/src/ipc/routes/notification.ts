@@ -11,7 +11,7 @@ import { z } from "zod";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { listEvents } from "../../notifications/events-store.js";
 import type { AttentionHints } from "../../notifications/signal.js";
-import type { IpcRoute } from "../cli-server.js";
+import type { IpcRoute } from "../assistant-server.js";
 
 // ── Param schemas ─────────────────────────────────────────────────────
 
