@@ -4,10 +4,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import { getLogger } from "../../util/logger.js";
 import type { IpcRoute } from "../cli-server.js";
-
-const log = getLogger("suggest-trust-rule");
 
 // ---------------------------------------------------------------------------
 // Request / response interfaces
