@@ -10,6 +10,7 @@ import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
 import { renameConversationRoute } from "./rename-conversation.js";
 import { searchContactsRoute } from "./search-contacts.js";
+import { suggestTrustRuleRoute } from "./suggest-trust-rule.js";
 import { taskTemplateRoutes } from "./task.js";
 import { taskQueueRoutes } from "./task-queue.js";
 import { uiRequestRoute } from "./ui-request.js";
@@ -28,6 +29,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   mergeContactsRoute,
   renameConversationRoute,
   searchContactsRoute,
+  suggestTrustRuleRoute,
   uiRequestRoute,
   upsertContactRoute,
   wakeConversationRoute,
