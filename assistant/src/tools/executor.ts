@@ -172,6 +172,7 @@ export class ToolExecutor {
             riskLevel: string;
             riskReason: string;
             riskScopeOptions: Array<{ pattern: string; label: string }>;
+            riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
             isContainerized?: boolean;
           }
         | undefined;
@@ -199,6 +200,7 @@ export class ToolExecutor {
             riskLevel: permRiskMeta?.riskLevel,
             riskReason: permRiskMeta?.riskReason,
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
+            riskDirectoryScopeOptions: permRiskMeta?.riskDirectoryScopeOptions,
             isContainerized: permRiskMeta?.isContainerized,
           };
         }
@@ -418,6 +420,7 @@ export class ToolExecutor {
           riskLevel: permRiskMeta.riskLevel,
           riskReason: permRiskMeta.riskReason,
           riskScopeOptions: permRiskMeta.riskScopeOptions,
+          riskDirectoryScopeOptions: permRiskMeta.riskDirectoryScopeOptions,
           isContainerized: permRiskMeta.isContainerized,
         };
       }

@@ -42,6 +42,7 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
       };
     }
@@ -55,6 +56,7 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
         isContainerized?: boolean;
       };
     };
@@ -137,6 +139,7 @@ export class PermissionChecker {
           riskLevel: cachedAssessment.riskLevel,
           riskReason: cachedAssessment.reason,
           riskScopeOptions: cachedAssessment.scopeOptions,
+          riskDirectoryScopeOptions: cachedAssessment.directoryScopeOptions,
           isContainerized: getIsContainerized(),
         }
       : undefined;
@@ -422,6 +425,7 @@ export class PermissionChecker {
           v2ForcePrompt,
           riskReason,
           getIsContainerized(),
+          cachedAssessment?.directoryScopeOptions,
         );
 
         const decision =
