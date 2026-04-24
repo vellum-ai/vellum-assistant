@@ -21,6 +21,12 @@ private final class MockHostProxyClient: HostProxyClientProtocol {
         postedBrowserResults.append(result)
         return true
     }
+
+    func postTransferResult(_ result: HostTransferResultPayload) async -> Bool { true }
+
+    func pullTransferContent(transferId: String) async throws -> Data { Data() }
+
+    func pushTransferContent(transferId: String, data: Data, sha256: String, sourcePath: String) async throws -> Bool { true }
 }
 
 // MARK: - Tests
