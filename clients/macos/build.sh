@@ -2294,7 +2294,11 @@ if [ "$RELEASE_APP_MODE" = true ]; then
     echo "═══════════════════════════════════════════"
 
     DMG_BUILD_DIR="$SCRIPT_DIR/build"
-    DMG_PATH="$DMG_BUILD_DIR/vellum-assistant.dmg"
+    case "$VELLUM_ENVIRONMENT" in
+        production) DMG_FILENAME="vellum-assistant.dmg" ;;
+        *)          DMG_FILENAME="vellum-assistant-${VELLUM_ENVIRONMENT}.dmg" ;;
+    esac
+    DMG_PATH="$DMG_BUILD_DIR/$DMG_FILENAME"
     DMG_STAGING="$DMG_BUILD_DIR/dmg-staging"
 
     mkdir -p "$DMG_BUILD_DIR"

@@ -852,7 +852,7 @@ jobs:
         run: |
           set -o pipefail
           SKIP_BUN_REBUILD=1 \
-          BUNDLE_DISPLAY_NAME="Vellum" \
+          BUNDLE_DISPLAY_NAME="Vellum Dev" \
           DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           VELLUM_ENVIRONMENT=dev \
@@ -890,36 +890,36 @@ jobs:
         run: |
           DMG_STAGING="build/dmg-staging"
           mkdir -p "$DMG_STAGING" build
-          cp -R "dist/Vellum.app" "$DMG_STAGING/"
+          cp -R "dist/Vellum Dev.app" "$DMG_STAGING/"
           ln -s /Applications "$DMG_STAGING/Applications"
 
           create-dmg \
-            --volname "Vellum" \
+            --volname "Vellum Dev" \
             --background "dmg/dmg-background@2x.png" \
             --window-pos 200 120 \
             --window-size 660 400 \
             --icon-size 128 \
             --text-size 10 \
-            --icon "Vellum.app" 175 190 \
+            --icon "Vellum Dev.app" 175 190 \
             --icon "Applications" 530 190 \
-            --hide-extension "Vellum.app" \
+            --hide-extension "Vellum Dev.app" \
             --no-internet-enable \
-            "build/vellum-assistant.dmg" \
+            "build/vellum-assistant-dev.dmg" \
             "$DMG_STAGING/" \
           || {
             EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 2 ] && [ -f "build/vellum-assistant.dmg" ]; then
+            if [ $EXIT_CODE -eq 2 ] && [ -f "build/vellum-assistant-dev.dmg" ]; then
               echo "create-dmg exited with warning (code 2), but DMG was created"
             else
               exit $EXIT_CODE
             fi
           }
-          ls -lh "build/vellum-assistant.dmg"
+          ls -lh "build/vellum-assistant-dev.dmg"
 
       - name: Sign DMG
         run: |
-          codesign --sign "Developer ID Application" --timestamp "build/vellum-assistant.dmg"
-          codesign --verify --verbose "build/vellum-assistant.dmg"
+          codesign --sign "Developer ID Application" --timestamp "build/vellum-assistant-dev.dmg"
+          codesign --verify --verbose "build/vellum-assistant-dev.dmg"
 
       - name: Notarize DMG
         env:
@@ -931,7 +931,7 @@ jobs:
           echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
 
           echo "Submitting DMG for notarization..."
-          NOTARIZE_OUTPUT=$(xcrun notarytool submit "build/vellum-assistant.dmg" \
+          NOTARIZE_OUTPUT=$(xcrun notarytool submit "build/vellum-assistant-dev.dmg" \
             --key ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8 \
             --key-id "$ASC_KEY_ID" \
             --issuer "$ASC_ISSUER_ID" \
@@ -960,7 +960,7 @@ jobs:
           MAX_ATTEMPTS=10
           WAIT_SECS=30
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            STAPLE_OUTPUT=$(xcrun stapler staple "build/vellum-assistant.dmg" 2>&1)
+            STAPLE_OUTPUT=$(xcrun stapler staple "build/vellum-assistant-dev.dmg" 2>&1)
             STAPLE_EXIT=$?
             if [ $STAPLE_EXIT -eq 0 ]; then
               echo "Stapling succeeded on attempt $i"
@@ -974,13 +974,13 @@ jobs:
             sleep $WAIT_SECS
             WAIT_SECS=$((WAIT_SECS + 15))
           done
-          xcrun stapler validate "build/vellum-assistant.dmg"
+          xcrun stapler validate "build/vellum-assistant-dev.dmg"
 
       - name: Upload DMG
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dev-dmg
-          path: clients/macos/build/vellum-assistant.dmg
+          path: clients/macos/build/vellum-assistant-dev.dmg
           retention-days: 30
 
       - name: Cleanup keychain
