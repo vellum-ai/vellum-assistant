@@ -15,6 +15,7 @@ import type { Command } from "commander";
 import { getConfig } from "../../config/loader.js";
 import {
   registerCallbackRoute,
+  resolvePlatformCallbackRegistrationContext,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
@@ -142,6 +143,99 @@ Examples:
         } else {
           // Plain mode: emit only the URL so callers can capture it with $()
           process.stdout.write(callbackUrl + "\n");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: false, error: message });
+        } else {
+          log.error(message);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // webhooks list
+  // ---------------------------------------------------------------------------
+
+  webhooks
+    .command("list")
+    .description("List registered webhook callback routes")
+    .addHelpText(
+      "after",
+      `
+Lists all webhook callback routes registered with the platform for this
+assistant. Only available when platform credentials are configured (either
+via IS_PLATFORM or 'assistant platform connect').
+
+Self-hosted assistants without platform credentials do not have a persistent
+webhook registry — use 'assistant webhooks register <type>' to resolve URLs
+on demand.
+
+Examples:
+  $ assistant webhooks list
+  $ assistant webhooks list --json`,
+    )
+    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      try {
+        const context = await resolvePlatformCallbackRegistrationContext();
+        if (!context.platformBaseUrl || !context.authHeader) {
+          const errorMsg =
+            "Self-hosted webhook listing coming soon. Use 'assistant webhooks register <type>' to resolve URLs on demand.";
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: false, error: errorMsg });
+          } else {
+            log.error(errorMsg);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        const url = `${context.platformBaseUrl}/v1/internal/gateway/callback-routes/`;
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: context.authHeader,
+            Accept: "application/json",
+          },
+          signal: AbortSignal.timeout(10_000),
+        });
+
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          const errorMsg = `Failed to list webhook routes (HTTP ${response.status}): ${detail}`;
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: false, error: errorMsg });
+          } else {
+            log.error(errorMsg);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        const routes = (await response.json()) as Array<{
+          id: string;
+          assistant_id: string;
+          type: string;
+          callback_path: string;
+          callback_url: string;
+        }>;
+
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, routes });
+        } else {
+          if (routes.length === 0) {
+            log.info("No webhook routes registered.");
+          } else {
+            log.info(`${routes.length} webhook route(s) registered:\n`);
+            for (const route of routes) {
+              log.info(`  Type: ${route.type}`);
+              log.info(`  URL:  ${route.callback_url}`);
+              log.info(`  Path: ${route.callback_path}`);
+              log.info("");
+            }
+          }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
