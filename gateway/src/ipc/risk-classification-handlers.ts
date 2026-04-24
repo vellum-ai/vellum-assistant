@@ -13,11 +13,15 @@ import { z } from "zod";
 import { parseArgs } from "../risk/arg-parser.js";
 import { bashRiskClassifier } from "../risk/bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry.js";
+import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
   fileRiskClassifier,
   type FileClassificationContext,
 } from "../risk/file-risk-classifier.js";
-import type { CommandRiskSpec } from "../risk/risk-types.js";
+import type {
+  CommandRiskSpec,
+  DirectoryScopeOption,
+} from "../risk/risk-types.js";
 import { scheduleRiskClassifier } from "../risk/schedule-risk-classifier.js";
 import {
   analyzeShellCommand,
@@ -91,6 +95,7 @@ interface ClassificationResult {
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
+  directoryScopeOptions?: DirectoryScopeOption[];
   matchType: string;
 }
 
@@ -206,9 +211,13 @@ export async function handleClassifyRisk(
         );
       }
 
-      // Detect complex syntax
+      // Detect complex syntax and collect filesystem-op path args for the
+      // directory scope ladder. Walks every segment once; a segment may
+      // contribute to both checks independently.
       const parsed = await cachedParse(command);
       let isComplexSyntax = false;
+      let hasFilesystemOp = false;
+      const fsPathArgs = new Set<string>();
       for (const seg of parsed.segments) {
         const name = seg.program.split("/").pop() ?? seg.program;
         const spec: CommandRiskSpec | undefined = Object.hasOwn(
@@ -221,8 +230,26 @@ export async function handleClassifyRisk(
           : undefined;
         if (spec?.complexSyntax) {
           isComplexSyntax = true;
-          break;
         }
+        if (spec?.filesystemOp === true) {
+          hasFilesystemOp = true;
+          const parsedArgs = parseArgs(seg.args, spec.argSchema ?? {});
+          for (const p of parsedArgs.pathArgs) {
+            fsPathArgs.add(p);
+          }
+        }
+      }
+
+      // Emit directory scope ladder only when at least one segment is a
+      // filesystem op. Empty pathArgs is still valid — PR 5 falls back to
+      // workingDir as the ancestor.
+      let directoryScopeOptions: DirectoryScopeOption[] | undefined;
+      if (hasFilesystemOp) {
+        directoryScopeOptions = generateDirectoryScopeOptions({
+          pathArgs: [...fsPathArgs],
+          workingDir,
+          workspaceRoot: params.workspaceRoot,
+        });
       }
 
       // Proxied bash risk cap: when running through the credential proxy,
@@ -249,6 +276,7 @@ export async function handleClassifyRisk(
         opaqueConstructs: analysis.hasOpaqueConstructs,
         isComplexSyntax,
         sandboxAutoApprove,
+        directoryScopeOptions,
         matchType: assessment.matchType,
       };
     }
@@ -281,11 +309,20 @@ export async function handleClassifyRisk(
         context,
       );
 
+      // File tools always emit a directory scope ladder: either the filePath's
+      // parent (when provided) or the working directory as the ancestor.
+      const directoryScopeOptions = generateDirectoryScopeOptions({
+        pathArgs: filePath ? [filePath] : [],
+        workingDir,
+        workspaceRoot: params.workspaceRoot,
+      });
+
       return {
         risk: assessment.riskLevel,
         reason: assessment.reason,
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,
+        directoryScopeOptions,
         matchType: assessment.matchType,
       };
     }

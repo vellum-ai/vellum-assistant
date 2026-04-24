@@ -362,6 +362,68 @@ describe("unknown tool fallback", () => {
   });
 });
 
+// ── Directory scope options ─────────────────────────────────────────────────
+
+describe("directoryScopeOptions", () => {
+  test("bash rm -rf foo emits directoryScopeOptions with 'everywhere'", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "rm -rf foo",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash curl has no directoryScopeOptions (curl lacks filesystemOp)", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "curl https://example.com",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("bash echo has no directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "echo hi",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("file_write with path emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/ws/scratch/output.txt",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("web_fetch has no directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "web_fetch",
+      url: "https://example.com",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+});
+
 // ── Route registration ──────────────────────────────────────────────────────
 
 describe("route registration", () => {
