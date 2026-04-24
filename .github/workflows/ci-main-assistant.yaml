@@ -42,7 +42,6 @@ jobs:
 
       - name: Install linked package dependencies
         run: |
-          cd ../packages/service-contracts && bun install --frozen-lockfile
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../ces-client && bun install --frozen-lockfile
           cd ../gateway-client && bun install --frozen-lockfile
@@ -84,7 +83,6 @@ jobs:
 
       - name: Install linked package dependencies
         run: |
-          cd ../packages/service-contracts && bun install --frozen-lockfile
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../ces-client && bun install --frozen-lockfile
           cd ../gateway-client && bun install --frozen-lockfile
@@ -126,7 +124,6 @@ jobs:
 
       - name: Install linked package dependencies
         run: |
-          cd ../packages/service-contracts && bun install --frozen-lockfile
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../ces-client && bun install --frozen-lockfile
           cd ../gateway-client && bun install --frozen-lockfile
@@ -194,7 +191,6 @@ jobs:
 
       - name: Install linked package dependencies
         run: |
-          cd ../packages/service-contracts && bun install --frozen-lockfile
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../ces-client && bun install --frozen-lockfile
           cd ../gateway-client && bun install --frozen-lockfile

@@ -13,7 +13,18 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "baseUrl": ".",
+    "paths": {
+      "@vellumai/service-contracts": ["../service-contracts/src/index.ts"],
+      "@vellumai/service-contracts/credential-rpc": ["../service-contracts/src/credential-rpc.ts"],
+      "@vellumai/service-contracts/trust-rules": ["../service-contracts/src/trust-rules.ts"],
+      "@vellumai/service-contracts/handles": ["../service-contracts/src/handles.ts"],
+      "@vellumai/service-contracts/grants": ["../service-contracts/src/grants.ts"],
+      "@vellumai/service-contracts/rpc": ["../service-contracts/src/rpc.ts"],
+      "@vellumai/service-contracts/rendering": ["../service-contracts/src/rendering.ts"],
+      "@vellumai/service-contracts/error": ["../service-contracts/src/error.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
