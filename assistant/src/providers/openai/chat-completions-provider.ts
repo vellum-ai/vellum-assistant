@@ -65,8 +65,7 @@ export interface OpenAIChatCompletionsProviderOptions {
 }
 
 /** Map our internal effort values to OpenAI's reasoning_effort parameter.
- *  OpenAI's reasoning_effort caps at "high", so "xhigh" and "max" both
- *  collapse to "high" on this transport. */
+ *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". */
 const EFFORT_TO_REASONING_EFFORT: Record<
   string,
   NonNullable<
@@ -76,8 +75,8 @@ const EFFORT_TO_REASONING_EFFORT: Record<
   low: "low",
   medium: "medium",
   high: "high",
-  xhigh: "high",
-  max: "high",
+  xhigh: "xhigh",
+  max: "xhigh",
 };
 
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
