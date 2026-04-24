@@ -10,7 +10,7 @@
  * - Request:  { "id": string, "method": string, "params"?: Record<string, unknown> }
  * - Response: { "id": string, "result"?: unknown, "error"?: string }
  *
- * The preferred socket path is `{workspaceDir}/assistant-cli.sock`. On
+ * The preferred socket path is `{workspaceDir}/assistant.sock`. On
  * platforms with strict AF_UNIX path limits (notably macOS), the server falls
  * back to a shorter deterministic path so CLI commands can still connect.
  */
@@ -63,7 +63,7 @@ export class CliIpcServer {
   private socketPath: string;
 
   constructor() {
-    const socketResolution = resolveIpcSocketPath("assistant-cli.sock");
+    const socketResolution = resolveIpcSocketPath("assistant.sock");
     this.socketPath = socketResolution.path;
     if (socketResolution.source !== "workspace") {
       log.warn(
@@ -248,6 +248,6 @@ export class CliIpcServer {
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function getCliSocketPath(): string {
-  return resolveIpcSocketPath("assistant-cli.sock").path;
+export function getAssistantSocketPath(): string {
+  return resolveIpcSocketPath("assistant.sock").path;
 }
