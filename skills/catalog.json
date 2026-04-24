@@ -199,7 +199,7 @@
     {
       "id": "headless-claude-code",
       "name": "headless-claude-code",
-      "description": "Reference guide for running Claude Code in headless, container, and CI environments. Covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains.",
+      "description": "Reference guide for running Claude Code in headless, container, and CI environments — covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains",
       "metadata": {
         "emoji": "🖥️",
         "vellum": {

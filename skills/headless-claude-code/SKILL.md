@@ -1,9 +1,6 @@
 ---
 name: headless-claude-code
-description: >
-  Reference guide for running Claude Code in headless, container, and CI environments.
-  Covers auth strategies, interactive mode pitfalls, tmux orchestration, root user
-  workarounds, and git auth without SSH agents or keychains.
+description: Reference guide for running Claude Code in headless, container, and CI environments — covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains
 compatibility: "Any environment running Claude Code headlessly"
 metadata:
   emoji: "🖥️"
@@ -55,13 +52,14 @@ your-vault-cli get anthropic-oauth-token
 ```
 
 The script MUST:
+
 - Print exactly one token to stdout (no trailing newline issues — CC trims)
 - Exit 0 on success
 - Be executable (`chmod +x`)
 
 ### `setup-token` (One-Time OAuth Bootstrap)
 
-If you have a browser *somewhere* (your laptop, a jump host), you can bootstrap OAuth
+If you have a browser _somewhere_ (your laptop, a jump host), you can bootstrap OAuth
 credentials into a headless machine:
 
 ```bash
@@ -279,6 +277,7 @@ done
 ```
 
 Key design decisions:
+
 - **Wrapper script** instead of `send-keys` exports — token never appears in scrollback
 - **Polling loops** instead of fixed `sleep` — adapts to slow/fast startup
 - **Readiness check** — script doesn't return until CC is actually at the prompt
@@ -373,12 +372,7 @@ If you can't switch users, pre-approve tools via settings so CC never prompts:
 ```json
 {
   "permissions": {
-    "allow": [
-      "Bash(*)",
-      "Read(*)",
-      "Write(*)",
-      "Edit(*)"
-    ]
+    "allow": ["Bash(*)", "Read(*)", "Write(*)", "Edit(*)"]
   }
 }
 ```
@@ -419,6 +413,7 @@ git remote set-url origin "https://x-access-token:${TOKEN}@github.com/org/repo.g
 ```
 
 Works with:
+
 - GitHub App installation tokens
 - Personal access tokens (PATs)
 - Fine-grained tokens
@@ -472,17 +467,17 @@ tool configs) and overlay auth-only settings via `--settings` at launch.
 
 ## 7. Common Failure Modes
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| CC hangs on launch | First-run onboarding prompts | Pre-seed `~/.claude.json` with `hasCompletedOnboarding` + `hasTrustDialogAccepted` |
-| CC hangs on launch | No valid auth token | Set `apiKeyHelper`, `CLAUDE_CODE_OAUTH_TOKEN`, or run `setup-token` |
-| "cannot be used as root" | `--dangerously-skip-permissions` as root | `su` to any non-root user, or use `--settings` with `permissions.allow` |
-| Git push fails: 401 | Token expired | Refresh token and update remote URL |
-| Git push fails: 403 | Token lacks permissions | Check token scopes (need `contents:write`) |
-| Prompt text mangled | Using `send-keys` for complex text | Use `load-buffer` + `paste-buffer` |
-| `-p` mode: no output for minutes | Print mode buffers everything | Use interactive mode in tmux instead |
-| CC asks for login mid-session | OAuth token expired | Use `apiKeyHelper` with refresh logic |
-| `tmux: command not found` | Container restarted | Install tmux in your launcher script |
+| Symptom                          | Cause                                    | Fix                                                                                |
+| -------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| CC hangs on launch               | First-run onboarding prompts             | Pre-seed `~/.claude.json` with `hasCompletedOnboarding` + `hasTrustDialogAccepted` |
+| CC hangs on launch               | No valid auth token                      | Set `apiKeyHelper`, `CLAUDE_CODE_OAUTH_TOKEN`, or run `setup-token`                |
+| "cannot be used as root"         | `--dangerously-skip-permissions` as root | `su` to any non-root user, or use `--settings` with `permissions.allow`            |
+| Git push fails: 401              | Token expired                            | Refresh token and update remote URL                                                |
+| Git push fails: 403              | Token lacks permissions                  | Check token scopes (need `contents:write`)                                         |
+| Prompt text mangled              | Using `send-keys` for complex text       | Use `load-buffer` + `paste-buffer`                                                 |
+| `-p` mode: no output for minutes | Print mode buffers everything            | Use interactive mode in tmux instead                                               |
+| CC asks for login mid-session    | OAuth token expired                      | Use `apiKeyHelper` with refresh logic                                              |
+| `tmux: command not found`        | Container restarted                      | Install tmux in your launcher script                                               |
 
 ---
 
