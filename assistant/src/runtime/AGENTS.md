@@ -71,7 +71,7 @@ A single guardian may have multiple parallel extension installs connected at onc
 
 `Conversation.hostBrowserSenderOverride` is the integration point between the turn layer and the registry. When any turn enters the routes layer and the guardian has an active extension connection in the `ChromeExtensionRegistry`, `conversation-routes.ts` resolves the registry entry and sets the override to a sender that writes to that WebSocket. This applies to chrome-extension turns (where the registry is the only transport) and macOS turns (where the extension connection lets browser tools route through the user's real Chrome session instead of cdp-inspect/local). `Conversation.restoreBrowserProxyAvailability()` re-threads the override on queue drain — without this, the drain path would clobber the registry-routed sender with the default `sendToClient` (pointed at the SSE hub) and `host_browser_request` frames would stop reaching the extension mid-queue.
 
-Capability token bootstrap for self-hosted deployments is handled by `routes/browser-extension-pair-routes.ts` (loopback-only; mints a guardian-bound HMAC capability token via `capability-tokens.ts`). Cloud deployments issue guardian-bound JWTs via the gateway's WorkOS-backed flow — `browser-extension-pair-routes.ts` is not involved.
+Capability token bootstrap for self-hosted deployments is handled by the gateway (`gateway/src/http/routes/browser-extension-pair.ts`) which mints a guardian-bound HMAC capability token. The daemon reads the shared secret from `GATEWAY_SECURITY_DIR` for token verification. Cloud deployments issue guardian-bound JWTs via the gateway's WorkOS-backed flow.
 
 See `docs/browser-use-architecture-phase2.md` for the full wire diagram and component inventory.
 

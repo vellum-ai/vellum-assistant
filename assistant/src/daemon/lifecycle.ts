@@ -82,8 +82,7 @@ import {
 } from "../runtime/auth/token-service.js";
 import {
   initCapabilityTokenSecret,
-  loadOrCreateCapabilityTokenSecret,
-  writeDaemonTokenFallback,
+  loadCapabilityTokenSecret,
 } from "../runtime/capability-tokens.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -313,17 +312,20 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Load (or generate + persist) the capability-token HMAC secret used
-    // to mint scoped tokens for the chrome extension pair endpoint.
-    // Wrapped in try/catch so a disk failure here never blocks startup —
-    // tokens can still be minted using a lazy on-demand load inside the
-    // capability-tokens module.
+    // Load the capability-token HMAC secret from GATEWAY_SECURITY_DIR.
+    // The gateway owns the secret; the daemon reads it for token
+    // verification. If the secret isn't available yet (gateway hasn't
+    // started), the verify function handles the missing-secret case
+    // gracefully (returns null).
     try {
-      initCapabilityTokenSecret(loadOrCreateCapabilityTokenSecret());
+      const capSecret = loadCapabilityTokenSecret();
+      if (capSecret) {
+        initCapabilityTokenSecret(capSecret);
+      }
     } catch (err) {
       log.warn(
         { err },
-        "Failed to pre-load capability token secret — continuing startup (lazy load will handle subsequent calls)",
+        "Failed to pre-load capability token secret — verify will lazy-load on demand",
       );
     }
 
@@ -511,11 +513,8 @@ export async function runDaemon(): Promise<void> {
 
       // Ensure a vellum guardian binding exists so the identity system works
       // without requiring a manual bootstrap step.
-      let localGuardianPrincipalId = "local";
       try {
-        localGuardianPrincipalId = ensureVellumGuardianBinding(
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+        ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
       } catch (err) {
         log.warn(
           { err },
@@ -523,18 +522,7 @@ export async function runDaemon(): Promise<void> {
         );
       }
 
-      // Write a dev-only fallback capability token to the per-instance
-      // protected directory so developers can manually pair the chrome
-      // extension without the native messaging helper. Production pairing
-      // goes through `POST /v1/browser-extension-pair` via the native helper.
-      try {
-        writeDaemonTokenFallback(localGuardianPrincipalId);
-      } catch (err) {
-        log.warn(
-          { err },
-          "Failed to write dev daemon-token fallback — continuing startup",
-        );
-      }
+
 
       // Recover orphaned work items that were left in 'running' state when the
       // daemon previously crashed or was killed mid-task.

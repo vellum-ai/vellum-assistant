@@ -249,8 +249,6 @@ const INLINE_ROUTES: RouteEntry[] = [
  */
 const PRE_AUTH_ROUTES: RouteEntry[] = [
   { method: "GET", endpoint: "audio/:id" },
-  { method: "POST", endpoint: "guardian/init" },
-  { method: "POST", endpoint: "guardian/refresh" },
   { method: "POST", endpoint: "pairing/request" },
   { method: "GET", endpoint: "pairing/status" },
 ];

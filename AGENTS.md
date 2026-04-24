@@ -13,6 +13,8 @@ Bun + TypeScript monorepo with multiple packages:
 - `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md` for contribution rules and portability requirements.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant lifecycle.
 
+**Do not create new constant or configuration files in `meta/`.** Static config files (e.g. allowlists, registries) that a service consumes at runtime belong in that service's package directory (`gateway/`, `assistant/`, etc.). Putting them in `meta/` creates cross-package import paths that break module boundaries — a gateway or assistant module importing from `../../meta/` is a layering violation. Existing `meta/` contents (feature flags, test infra) are either shared build/CI metadata or are being migrated out.
+
 ## Intellectual Honesty
 
 Defend your technical positions. If you change your mind, explain what new information changed it — not just that the user questioned it. Do not flip-flop to agree with the user; sycophantic responses erode trust and lead to worse outcomes.
@@ -192,7 +194,7 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 ## Multi-Instance Path Invariant
 
-The assistant daemon's root directory is **per-instance**. `vellumRoot()` in `assistant/src/util/platform.ts` reads `BASE_DATA_DIR` — set by the CLI on every daemon and gateway spawn — and returns `join(BASE_DATA_DIR, ".vellum")`. When `BASE_DATA_DIR` is unset (containerized deployments, manual test invocations outside the CLI-spawn lifecycle), it falls back to `join(homedir(), ".vellum")`. Every root-level path (PID file, `.env`, `runtime-port`, `protected/` — with its `keys.enc`, `trust.json`, `capability-token-secret`, `credentials/`, etc. — daemon stderr log) and the workspace directory itself derive from this helper, so a single fix cascades through every consumer.
+The assistant daemon's root directory is **per-instance**. `vellumRoot()` in `assistant/src/util/platform.ts` reads `BASE_DATA_DIR` — set by the CLI on every daemon and gateway spawn — and returns `join(BASE_DATA_DIR, ".vellum")`. When `BASE_DATA_DIR` is unset (containerized deployments, manual test invocations outside the CLI-spawn lifecycle), it falls back to `join(homedir(), ".vellum")`. Every root-level path (PID file, `.env`, `runtime-port`, daemon stderr log) and the workspace directory itself derive from this helper, so a single fix cascades through every consumer.
 
 New local hatches allocate `instanceDir` under `$XDG_DATA_HOME/vellum/assistants/<name>/` (or `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/` in non-production environments), and the daemon for that instance writes everything under `<instanceDir>/.vellum/`. Existing production lockfile entries that were created before this change may have `instanceDir = homedir()`; the read path honors whatever is stored in `resources.instanceDir`, so those assistants continue to live at `~/.vellum/` with no on-disk migration.
 
@@ -244,8 +246,8 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 **Never store secrets, API keys, or sensitive credentials in the workspace directory.**
 
-- **Local mode**: Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
-- **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`) live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
+- **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
+- **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
 
 ## Release Update Hygiene
 

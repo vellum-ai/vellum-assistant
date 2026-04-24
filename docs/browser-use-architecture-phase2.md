@@ -232,7 +232,7 @@ The new modules that implement Phase 2:
   `(guardianId, clientInstanceId)`. Reconnects from the same instance
   supersede only that instance's prior entry, leaving sibling installs
   under the same guardian intact.
-- **`assistant/src/runtime/routes/browser-extension-pair-routes.ts`** —
+- **`gateway/src/http/routes/browser-extension-pair.ts`** —
   `POST /v1/browser-extension-pair` endpoint. Loopback-only. Mints a
   capability token bound to the caller's guardian id and the
   `host_browser_command` capability.

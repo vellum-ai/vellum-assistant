@@ -48,7 +48,7 @@ import {
 import {
   getAllowedExtensionOrigins,
   handleBrowserExtensionPair,
-} from "../runtime/routes/browser-extension-pair-routes.js";
+} from "../../../gateway/src/http/routes/browser-extension-pair.js";
 
 // ---------------------------------------------------------------------------
 // Native helper binary discovery + skip guard

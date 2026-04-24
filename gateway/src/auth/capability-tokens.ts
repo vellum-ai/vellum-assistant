@@ -1,21 +1,32 @@
 /**
- * Capability token verification for scoped, short-lived tokens issued to the
- * chrome extension (and other thin clients).
+ * Capability token minting and verification for scoped, short-lived tokens
+ * issued to the chrome extension (and other thin clients) so they can submit
+ * results back to the runtime without a full guardian-bound JWT.
  *
- * Minting is handled by the gateway (`gateway/src/auth/capability-tokens.ts`).
- * The daemon reads the shared secret from GATEWAY_SECURITY_DIR (or the legacy
- * protected dir fallback) so it can verify tokens presented on the
- * `/v1/browser-relay` WebSocket handshake and `/v1/host-browser-result` route.
+ * Design:
+ *   - Tokens are HMAC-SHA256 signed over a JSON claims payload.
+ *   - Claims include a bound capability, guardian id, nonce, and expiry.
+ *   - Signing uses a long-lived random secret persisted to
+ *     GATEWAY_SECURITY_DIR with 0600 permissions.
+ *   - The secret is generated once on first launch and reused across
+ *     subsequent restarts so previously-minted tokens still verify.
  *
  * The encoded token format is `<base64url(payload)>.<base64url(sig)>`.
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
+import { getLogger } from "../logger.js";
+import { getGatewaySecurityDir } from "../paths.js";
 
 const log = getLogger("capability-tokens");
 
@@ -50,56 +61,64 @@ let _secret: Buffer | undefined;
 
 const CAPABILITY_TOKEN_SECRET_FILENAME = "capability-token-secret";
 
-/**
- * Resolve the path to the capability-token secret. The gateway owns the
- * secret and writes it to GATEWAY_SECURITY_DIR. The daemon reads the
- * same file for token verification.
- */
 function getSecretPath(): string {
-  const secDir = process.env.GATEWAY_SECURITY_DIR?.trim();
-  if (secDir) return join(secDir, CAPABILITY_TOKEN_SECRET_FILENAME);
-  // Non-containerized fallback: same location the gateway resolves to.
-  const home = process.env.HOME || homedir();
-  return join(home, ".vellum", "protected", CAPABILITY_TOKEN_SECRET_FILENAME);
+  return join(getGatewaySecurityDir(), CAPABILITY_TOKEN_SECRET_FILENAME);
 }
 
 /**
- * Read the capability-token secret from GATEWAY_SECURITY_DIR. The gateway
- * is responsible for creating it — the daemon only reads.
- *
- * Returns `undefined` if the secret file does not exist yet (gateway
- * hasn't started or hasn't created it).
+ * Write `secret` to `keyPath` atomically with mode 0o600.
  */
-export function loadCapabilityTokenSecret(): Buffer | undefined {
-  const keyPath = getSecretPath();
-  if (!existsSync(keyPath)) {
-    log.warn(
-      { keyPath },
-      "Capability token secret not found — gateway may not have started yet",
-    );
-    return undefined;
+function writeSecretAtomic(keyPath: string, secret: Buffer): void {
+  const dir = dirname(keyPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
+  const tmpPath = `${keyPath}.tmp.${process.pid}`;
+  writeFileSync(tmpPath, secret, { mode: 0o600 });
+  renameSync(tmpPath, keyPath);
   try {
-    const raw = readFileSync(keyPath);
-    if (raw.length === 32) {
-      return raw;
-    }
-    log.warn(
-      { keyPath, length: raw.length },
-      "capability token secret has unexpected length",
-    );
-    return undefined;
+    chmodSync(keyPath, 0o600);
   } catch (err) {
     log.warn(
       { err, keyPath },
-      "Failed to read capability token secret",
+      "Failed to chmod capability token secret after write",
     );
-    return undefined;
   }
 }
 
 /**
- * Initialize the module-level secret. Called once at daemon startup.
+ * Load the capability-token secret from disk or generate and persist a new
+ * one. Atomically writes with mode 0o600 so the secret is not readable by
+ * other users on the same host.
+ */
+export function loadOrCreateCapabilityTokenSecret(): Buffer {
+  const keyPath = getSecretPath();
+  if (existsSync(keyPath)) {
+    try {
+      const raw = readFileSync(keyPath);
+      if (raw.length === 32) {
+        return raw;
+      }
+      log.warn(
+        { keyPath, length: raw.length },
+        "capability token secret has unexpected length — regenerating",
+      );
+    } catch (err) {
+      log.warn(
+        { err, keyPath },
+        "Failed to read capability token secret — regenerating",
+      );
+    }
+  }
+
+  const fresh = randomBytes(32);
+  writeSecretAtomic(keyPath, fresh);
+  log.info("Capability token secret generated and persisted");
+  return fresh;
+}
+
+/**
+ * Initialize the module-level secret. Called once at gateway startup.
  */
 export function initCapabilityTokenSecret(secret: Buffer): void {
   if (secret.length !== 32) {
@@ -124,22 +143,21 @@ export function resetCapabilityTokenSecretForTests(): void {
   _secret = undefined;
 }
 
-function getSecret(): Buffer | undefined {
+function getSecret(): Buffer {
   if (_secret) return _secret;
   if (process.env.NODE_ENV === "test") {
     _secret = randomBytes(32);
     return _secret;
   }
-  const loaded = loadCapabilityTokenSecret();
-  if (loaded) {
-    _secret = loaded;
-  }
+  _secret = loadOrCreateCapabilityTokenSecret();
   return _secret;
 }
 
 // ---------------------------------------------------------------------------
 // Mint / verify
 // ---------------------------------------------------------------------------
+
+const CAPABILITY_TOKEN_DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function base64urlEncode(buf: Buffer): string {
   return buf
@@ -160,18 +178,13 @@ function sign(payload: string, secret: Buffer): string {
 }
 
 /**
- * Mint a capability token. In production, minting is done by the gateway
- * (`gateway/src/auth/capability-tokens.ts`). This function is retained
- * for test code that needs to create tokens for verification testing.
+ * Mint a capability token bound to the `host_browser_command` capability
+ * for the given guardian id. Default TTL is 30 minutes.
  */
 export function mintHostBrowserCapability(
   guardianId: string,
-  ttlMs: number = 30 * 60 * 1000,
+  ttlMs: number = CAPABILITY_TOKEN_DEFAULT_TTL_MS,
 ): CapabilityToken {
-  const secret = getSecret();
-  if (!secret) {
-    throw new Error("capability token secret not available — cannot mint");
-  }
   const expiresAt = Date.now() + ttlMs;
   const nonce = randomBytes(16).toString("hex");
   const claims: CapabilityClaims = {
@@ -181,32 +194,31 @@ export function mintHostBrowserCapability(
     expiresAt,
   };
   const payload = base64urlEncode(Buffer.from(JSON.stringify(claims), "utf8"));
-  const sig = sign(payload, secret);
+  const sig = sign(payload, getSecret());
   return { token: `${payload}.${sig}`, expiresAt };
 }
 
 /**
- * Verify a capability token minted by the gateway.
+ * Verify a capability token minted by `mintHostBrowserCapability`.
  *
- * Returns the decoded claims on success or null if the secret is
- * unavailable, the signature is invalid, the payload is malformed,
- * the token has expired, or the bound capability is not
- * `host_browser_command`.
+ * Returns the decoded claims on success or null if the signature is
+ * invalid, the payload is malformed, the token has expired, or the bound
+ * capability is not `host_browser_command`.
+ *
+ * Signature comparison uses `timingSafeEqual` to avoid leaking the secret
+ * through timing side channels.
  */
 export function verifyHostBrowserCapability(
   token: string,
 ): CapabilityClaims | null {
   if (typeof token !== "string") return null;
-  const secret = getSecret();
-  if (!secret) return null;
-
   const dot = token.indexOf(".");
   if (dot < 0) return null;
   const payload = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   if (!payload || !sig) return null;
 
-  const expected = sign(payload, secret);
+  const expected = sign(payload, getSecret());
   const a = Buffer.from(sig, "utf8");
   const b = Buffer.from(expected, "utf8");
   if (a.length !== b.length) return null;

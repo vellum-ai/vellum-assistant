@@ -223,8 +223,7 @@ enum ChromeExtensionAllowlist {
     private static func canonicalConfigPathCandidates() -> [URL] {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
         let fromCwd = cwd
-            .appendingPathComponent("meta", isDirectory: true)
-            .appendingPathComponent("browser-extension", isDirectory: true)
+            .appendingPathComponent("gateway", isDirectory: true)
             .appendingPathComponent("chrome-extension-allowlist.json", isDirectory: false)
 
         let sourceFile = URL(fileURLWithPath: #filePath, isDirectory: false)
@@ -237,8 +236,7 @@ enum ChromeExtensionAllowlist {
             .deletingLastPathComponent() // macos
             .deletingLastPathComponent() // clients
             .deletingLastPathComponent() // repo root
-            .appendingPathComponent("meta", isDirectory: true)
-            .appendingPathComponent("browser-extension", isDirectory: true)
+            .appendingPathComponent("gateway", isDirectory: true)
             .appendingPathComponent("chrome-extension-allowlist.json", isDirectory: false)
 
         return [fromCwd, fromSource]

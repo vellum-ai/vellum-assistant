@@ -111,7 +111,7 @@ Chrome assigns each extension a unique 32-character ID. The assistant needs to k
 
 | Source | Purpose |
 |---|---|
-| `meta/browser-extension/chrome-extension-allowlist.json` | Committed canonical config (contains the published CWS extension ID) |
+| `gateway/chrome-extension-allowlist.json` | Committed canonical config (contains the published CWS extension ID) |
 | `~/.vellum/chrome-extension-allowlist.local.json` | Per-machine overrides — add your unpacked dev extension ID here |
 | `VELLUM_CHROME_EXTENSION_IDS` env var | Comma-separated IDs, useful for CI or one-off testing |
 
@@ -159,7 +159,7 @@ bun install
 2. Export your extension ID(s). Include both the CWS ID (from the canonical allowlist) and your dev ID if you want both to work:
 
 ```bash
-export CWS_EXTENSION_ID=$(cat ../../../meta/browser-extension/chrome-extension-allowlist.json | grep -oE '[a-p]{32}')
+export CWS_EXTENSION_ID=$(cat ../../../gateway/chrome-extension-allowlist.json | grep -oE '[a-p]{32}')
 export DEV_EXTENSION_ID=<id from chrome://extensions>
 ```
 
@@ -247,7 +247,7 @@ Then fully quit and relaunch Chrome.
 cat ~/.vellum.lock.json
 cat ~/.vellum/runtime-port
 cat "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.vellum.daemon.json"
-cat meta/browser-extension/chrome-extension-allowlist.json
+cat gateway/chrome-extension-allowlist.json
 ```
 
 ## Tests

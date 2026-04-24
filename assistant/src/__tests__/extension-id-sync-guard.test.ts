@@ -2,7 +2,7 @@
  * Guard tests for Chrome extension allowlist configuration.
  *
  * Single source of truth:
- *   meta/browser-extension/chrome-extension-allowlist.json
+ *   gateway/chrome-extension-allowlist.json
  *
  * This guard ensures:
  *   1) Canonical config has a valid shape and valid extension IDs.
@@ -16,15 +16,19 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { getAllowedExtensionOrigins } from "../runtime/routes/browser-extension-pair-routes.js";
+import { getAllowedExtensionOrigins } from "../../../gateway/src/http/routes/browser-extension-pair.js";
 
 const repoRoot = resolve(__dirname, "..", "..", "..");
 const CANONICAL_CONFIG_REL_PATH =
-  "meta/browser-extension/chrome-extension-allowlist.json";
+  "gateway/chrome-extension-allowlist.json";
 const CANONICAL_CONFIG_ABS_PATH = join(repoRoot, CANONICAL_CONFIG_REL_PATH);
+// The gateway reads the local override from $GATEWAY_SECURITY_DIR (or
+// falls back to ~/.vellum/protected/ when unset).
+const gatewaySecurityDir =
+  process.env.GATEWAY_SECURITY_DIR?.trim() ||
+  join(homedir(), ".vellum", "protected");
 const LOCAL_OVERRIDE_PATH = join(
-  homedir(),
-  ".vellum",
+  gatewaySecurityDir,
   "chrome-extension-allowlist.local.json",
 );
 

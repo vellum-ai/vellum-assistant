@@ -3,7 +3,7 @@
  * `NATIVE_HOST_MARKER_VALUE` constants are referenced from two coupled
  * files that MUST stay in lockstep:
  *
- *   - assistant/src/runtime/routes/browser-extension-pair-routes.ts
+ *   - gateway/src/http/routes/browser-extension-pair.ts
  *     (the runtime side that rejects unmarked pair requests with 403)
  *   - clients/chrome-extension/native-host/src/index.ts
  *     (the native messaging helper that stamps the marker on every
@@ -32,7 +32,7 @@ import { describe, expect, test } from "bun:test";
 const repoRoot = resolve(__dirname, "..", "..", "..");
 
 const ASSISTANT_PAIR_ROUTE_PATH =
-  "assistant/src/runtime/routes/browser-extension-pair-routes.ts";
+  "gateway/src/http/routes/browser-extension-pair.ts";
 const NATIVE_HOST_INDEX_PATH =
   "clients/chrome-extension/native-host/src/index.ts";
 

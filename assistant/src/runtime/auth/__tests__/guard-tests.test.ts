@@ -62,9 +62,7 @@ describe("route policy coverage", () => {
     // plus every route module under routes/. Pre-auth route modules are
     // excluded because they are handled before JWT auth and are not composed
     // into buildRouteTable().
-    const PRE_AUTH_ROUTE_MODULES = new Set([
-      "browser-extension-pair-routes.ts",
-    ]);
+    const PRE_AUTH_ROUTE_MODULES = new Set<string>([]);
     const allSources = [httpServerSrc];
     try {
       const routeFiles = execSync(`ls "${routeModulesDir}"/*.ts`, {

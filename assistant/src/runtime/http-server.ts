@@ -139,7 +139,6 @@ import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { backupRouteDefinitions } from "./routes/backup-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
-import { handleBrowserExtensionPair } from "./routes/browser-extension-pair-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
@@ -1045,13 +1044,6 @@ export class RuntimeHttpServer {
       return handlePairingStatus(url, this.pairingContext);
     }
 
-    // Chrome extension capability-token pair endpoint — unauthenticated but
-    // restricted to loopback peers + an extension-id allowlist. Used by the
-    // native messaging helper to bootstrap a scoped token.
-    if (path === "/v1/browser-extension-pair") {
-      return await handleBrowserExtensionPair(req, server);
-    }
-
     // Skill-registered routes (e.g. meet-bot event ingress). Handled before
     // JWT auth because skills may use their own auth (e.g. per-meeting bearer
     // tokens minted by a session manager).
@@ -1172,8 +1164,8 @@ export class RuntimeHttpServer {
     // `/v1/browser-relay` handshake:
     //
     //   1. **Capability token** — a signed `host_browser_command`
-    //      capability minted by `mintHostBrowserCapability()` and handed
-    //      to the chrome extension by the native-messaging pair flow
+    //      capability minted by the gateway and handed to the chrome
+    //      extension by the native-messaging pair flow
     //      (`/v1/browser-extension-pair`). This is the preferred,
     //      self-hosted default: the extension never has to touch a
     //      gateway JWT.

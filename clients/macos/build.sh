@@ -255,9 +255,9 @@ BUN_VERSION="${BUN_VERSION:-1.3.11}"
 BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
 
 # Chrome extension allowlist IDs injected into compiled binaries as a fallback
-# for packaged runs where repo-relative `meta/browser-extension/...` paths are
+# for packaged runs where repo-relative `gateway/...` paths are
 # unavailable (Bun compiled binaries often resolve import.meta.dir to /$bunfs/root).
-CHROME_EXTENSION_ALLOWLIST_PATH="$_repo_root/meta/browser-extension/chrome-extension-allowlist.json"
+CHROME_EXTENSION_ALLOWLIST_PATH="$_repo_root/gateway/chrome-extension-allowlist.json"
 CHROME_EXTENSION_IDS_CSV=""
 if [ -f "$CHROME_EXTENSION_ALLOWLIST_PATH" ] && command -v bun &>/dev/null; then
     CHROME_EXTENSION_IDS_CSV=$(
