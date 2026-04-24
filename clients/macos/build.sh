@@ -347,34 +347,18 @@ install_shared_packages() {
 }
 
 # ---------------------------------------------------------------------------
-# fetch_bundled_bun — download a standalone `bun` binary at the version
-# pinned in `.tool-versions` and cache it under `.bun-bundle-cache/` for
-# reuse across builds. Echoes the absolute path to the cached binary on
-# success; returns non-zero and logs to stderr on failure.
-#
-# The copy staged here is the one that gets signed and shipped inside
-# `<App>.app/Contents/Resources/bun` so that the daemon (running from the
-# compiled binary, where `process.execPath` is the daemon itself rather
-# than bun) can spawn external skill processes.
+# _fetch_single_bun — download + extract a single-arch bun into
+# $BUN_BUNDLE_CACHE_DIR/bun-<target> (where <target> is darwin-aarch64 or
+# darwin-x64). Idempotent: returns the cached path immediately if present.
+# Echoes the absolute path on success; returns non-zero on failure.
 # ---------------------------------------------------------------------------
-fetch_bundled_bun() {
-    local bun_binary="$BUN_BUNDLE_CACHE_DIR/bun"
+_fetch_single_bun() {
+    local target="$1"
+    local bun_binary="$BUN_BUNDLE_CACHE_DIR/bun-${target}"
     if [ -x "$bun_binary" ]; then
         echo "$bun_binary"
         return 0
     fi
-
-    local host_arch
-    host_arch=$(uname -m)
-    local target
-    case "$host_arch" in
-        arm64|aarch64) target="darwin-aarch64" ;;
-        x86_64)        target="darwin-x64" ;;
-        *)
-            echo "ERROR: unsupported host arch for bundled bun: $host_arch" >&2
-            return 1
-            ;;
-    esac
 
     mkdir -p "$BUN_BUNDLE_CACHE_DIR"
     local zip_path="$BUN_BUNDLE_CACHE_DIR/bun-${target}.zip"
@@ -406,6 +390,65 @@ fetch_bundled_bun() {
     rm -rf "$extract_dir" "$zip_path"
 
     echo "$bun_binary"
+}
+
+# ---------------------------------------------------------------------------
+# fetch_bundled_bun — stage a standalone `bun` binary at the version pinned
+# in `.tool-versions` and cache it under `.bun-bundle-cache/` for reuse
+# across builds. Echoes the absolute path to the cached binary on success;
+# returns non-zero and logs to stderr on failure.
+#
+# Usage: fetch_bundled_bun <aarch64|x64|universal>
+#
+# The target MUST be derived from the app architecture being packaged, not
+# the host — release CI builds x64 artifacts on ARM runners, so picking by
+# `uname -m` would ship ARM-only bun inside an x64 .app and Intel Macs
+# would hit "bad CPU type in executable" at daemon-spawn time.
+#
+# For `universal`, both single-arch binaries are downloaded and combined
+# into a fat Mach-O via `lipo -create`, mirroring `build_bun_binary`'s
+# universal path.
+#
+# The copy staged here is the one that gets signed and shipped inside
+# `<App>.app/Contents/Resources/bun` so that the daemon (running from the
+# compiled binary, where `process.execPath` is the daemon itself rather
+# than bun) can spawn external skill processes.
+# ---------------------------------------------------------------------------
+fetch_bundled_bun() {
+    local target_arch="$1"
+    if [ -z "$target_arch" ]; then
+        echo "ERROR: fetch_bundled_bun requires target arch (aarch64|x64|universal)" >&2
+        return 1
+    fi
+
+    case "$target_arch" in
+        aarch64)
+            _fetch_single_bun "darwin-aarch64"
+            ;;
+        x64)
+            _fetch_single_bun "darwin-x64"
+            ;;
+        universal)
+            local fat_binary="$BUN_BUNDLE_CACHE_DIR/bun-universal"
+            if [ -x "$fat_binary" ]; then
+                echo "$fat_binary"
+                return 0
+            fi
+            local arm_binary x64_binary
+            arm_binary=$(_fetch_single_bun "darwin-aarch64") || return 1
+            x64_binary=$(_fetch_single_bun "darwin-x64") || return 1
+            if ! lipo -create "$arm_binary" "$x64_binary" -output "$fat_binary"; then
+                echo "ERROR: lipo failed to build universal bun binary" >&2
+                return 1
+            fi
+            chmod +x "$fat_binary"
+            echo "$fat_binary"
+            ;;
+        *)
+            echo "ERROR: unsupported bundled-bun target arch: $target_arch" >&2
+            return 1
+            ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
@@ -1157,12 +1200,43 @@ fi
 # MeetHostSupervisor in PR 27) via `bun run <skill>/register.ts`. The
 # version is pinned to `.tool-versions` via BUN_VERSION above. The binary
 # is signed explicitly below (the MacOS-sweep only covers Contents/MacOS).
-if bundled_bun_path=$(fetch_bundled_bun); then
-    if [ ! -f "$RESOURCES_DIR/bun" ] || [ "$bundled_bun_path" -nt "$RESOURCES_DIR/bun" ]; then
-        echo "Bundling standalone bun ${BUN_VERSION}..."
-        cp "$bundled_bun_path" "$RESOURCES_DIR/bun"
-        chmod +x "$RESOURCES_DIR/bun"
-    fi
+#
+# Target arch MUST match the app being packaged, not the host. Release CI
+# builds x64 .app artifacts on ARM runners; picking by `uname -m` would
+# ship ARM-only bun inside an x64 app. Resolution order:
+#   UNIVERSAL_BUILD=true          -> universal (lipo fat binary)
+#   RELEASE_ARCH_FLAGS=--arch arm64   -> aarch64
+#   RELEASE_ARCH_FLAGS=--arch x86_64  -> x64
+#   else (dev build)              -> host arch
+BUNDLED_BUN_TARGET_ARCH=""
+if [ "$UNIVERSAL_BUILD" = true ]; then
+    BUNDLED_BUN_TARGET_ARCH="universal"
+elif [ -n "${RELEASE_ARCH_FLAGS:-}" ]; then
+    _release_arch=$(echo "$RELEASE_ARCH_FLAGS" | sed -n 's/.*--arch \([^ ]*\).*/\1/p')
+    case "$_release_arch" in
+        arm64|aarch64) BUNDLED_BUN_TARGET_ARCH="aarch64" ;;
+        x86_64|x64)    BUNDLED_BUN_TARGET_ARCH="x64" ;;
+    esac
+fi
+if [ -z "$BUNDLED_BUN_TARGET_ARCH" ]; then
+    case "$(uname -m)" in
+        arm64|aarch64) BUNDLED_BUN_TARGET_ARCH="aarch64" ;;
+        x86_64)        BUNDLED_BUN_TARGET_ARCH="x64" ;;
+        *)
+            echo "WARNING: unsupported host arch $(uname -m) for bundled bun; defaulting to aarch64" >&2
+            BUNDLED_BUN_TARGET_ARCH="aarch64"
+            ;;
+    esac
+fi
+
+# Unconditionally overwrite so a `.tool-versions` bump (or an arch change)
+# always propagates. The prior mtime gate could skip the copy when the
+# cached zip's embedded timestamp predated the existing bundled binary,
+# silently shipping an outdated bun.
+if bundled_bun_path=$(fetch_bundled_bun "$BUNDLED_BUN_TARGET_ARCH"); then
+    echo "Bundling standalone bun ${BUN_VERSION} (${BUNDLED_BUN_TARGET_ARCH})..."
+    cp "$bundled_bun_path" "$RESOURCES_DIR/bun"
+    chmod +x "$RESOURCES_DIR/bun"
 else
     echo "WARNING: failed to stage bundled bun binary; external skill spawn will fall back to PATH/bun-runtime" >&2
 fi
