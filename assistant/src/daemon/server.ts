@@ -908,7 +908,7 @@ export class DaemonServer {
     // socket to access host capabilities (host.log, host.config.*,
     // host.events.*, host.registries.*). Route registry is populated by
     // subsequent PRs in the skill-isolation plan.
-    this.skillIpc.start();
+    await this.skillIpc.start();
 
     // Wire the launchConversation helper to daemon-side state so
     // handleSurfaceAction can spawn conversations through it.

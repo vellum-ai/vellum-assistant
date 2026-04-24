@@ -27,7 +27,7 @@
  */
 
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
 import { getLogger } from "../util/logger.js";
@@ -148,21 +148,19 @@ export class SkillIpcServer {
   }
 
   /** Start listening on the Unix domain socket. */
-  start(): void {
+  async start(): Promise<void> {
     // Ensure the parent directory exists before listening.
     const socketDir = dirname(this.socketPath);
     if (!existsSync(socketDir)) {
       mkdirSync(socketDir, { recursive: true, mode: 0o700 });
     }
 
-    // Clean up stale socket file from a previous run
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore — may already be gone
-      }
-    }
+    // Probe-connect before unlinking: Unix sockets can be unlinked while still
+    // bound, so a blind `unlinkSync` on a live path would silently orphan
+    // another daemon's listener. Only unlink when the connect fails with
+    // ECONNREFUSED (stale file from a previous crash) / ENOENT (race with
+    // removal) — fail fast on a successful connect.
+    await ensureSocketPathFree(this.socketPath);
 
     this.server = createServer((socket) => {
       this.clients.add(socket);
@@ -427,4 +425,35 @@ export class SkillIpcServer {
       socket.write(JSON.stringify(response) + "\n");
     }
   }
+}
+
+/**
+ * Probe-connect to `socketPath`. If a live listener answers, reject so the
+ * caller can surface `EADDRINUSE`-style errors instead of silently hijacking
+ * the path. If the connect fails with `ECONNREFUSED`/`ENOENT`, the file is a
+ * stale leftover and we unlink it. Any other error propagates.
+ */
+async function ensureSocketPathFree(socketPath: string): Promise<void> {
+  if (!existsSync(socketPath)) return;
+  await new Promise<void>((resolve, reject) => {
+    const client = connect(socketPath);
+    client.once("connect", () => {
+      client.end();
+      reject(
+        new Error(`EADDRINUSE: another daemon is listening at ${socketPath}`),
+      );
+    });
+    client.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
+        try {
+          unlinkSync(socketPath);
+        } catch {
+          // Ignore — may already be gone
+        }
+        resolve();
+      } else {
+        reject(err);
+      }
+    });
+  });
 }
