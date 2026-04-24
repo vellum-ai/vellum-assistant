@@ -421,7 +421,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
       },
     ];
     if (entry.runtimeUrl) {
-      const token = loadGuardianToken(entry.assistantId);
+      const token = loadGuardianToken(entry.assistantId)?.accessToken;
       const health = await checkHealth(entry.runtimeUrl, token);
       rows.push({
         name: "gateway",
