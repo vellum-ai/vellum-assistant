@@ -93,14 +93,42 @@ struct SettingsSchedulesTab: View {
         }
     }
 
+    private var recurringSchedules: [ScheduleItem] {
+        let recurring = schedules.filter { !$0.isOneShot }
+        return recurring.sorted { a, b in
+            if a.enabled != b.enabled { return a.enabled }
+            return a.nextRunAt < b.nextRunAt
+        }
+    }
+
+    private var oneTimeSchedules: [ScheduleItem] {
+        let oneTime = schedules.filter { $0.isOneShot }
+        return oneTime.sorted { a, b in
+            let aTime = a.lastRunAt ?? a.nextRunAt
+            let bTime = b.lastRunAt ?? b.nextRunAt
+            return aTime > bTime
+        }
+    }
+
     @ViewBuilder
     private var scheduleList: some View {
         VStack(spacing: VSpacing.sm) {
             if let error = loadError {
                 errorView(error)
             } else {
-                ForEach(schedules, id: \.id) { schedule in
+                ForEach(recurringSchedules, id: \.id) { schedule in
                     scheduleRow(schedule)
+                }
+
+                if !oneTimeSchedules.isEmpty {
+                    Text("One-time")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .padding(.top, VSpacing.sm)
+
+                    ForEach(oneTimeSchedules, id: \.id) { schedule in
+                        scheduleRow(schedule)
+                    }
                 }
             }
 
