@@ -6311,46 +6311,6 @@ paths:
                 - service
                 - requestedScopes
               additionalProperties: false
-  /v1/pairing/register:
-    post:
-      operationId: pairing_register_post
-      summary: Register pairing request
-      description: Pre-register a pairing request when the QR code is displayed.
-      tags:
-        - pairing
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                pairingRequestId:
-                  type: string
-                pairingSecret:
-                  type: string
-                gatewayUrl:
-                  type: string
-                localLanUrl:
-                  type: string
-              required:
-                - pairingRequestId
-                - pairingSecret
-                - gatewayUrl
-              additionalProperties: false
   /v1/pairing/request:
     post:
       operationId: pairing_request_post
