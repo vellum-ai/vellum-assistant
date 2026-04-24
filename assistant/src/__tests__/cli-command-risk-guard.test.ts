@@ -143,11 +143,11 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     expect(risk.level).toBe(RiskLevel.Medium);
   });
 
-  test("assistant oauth connect is Medium risk (modifies OAuth connections)", async () => {
+  test("assistant oauth connect is Low risk (initiates OAuth flow)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth connect",
     });
-    expect(risk.level).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Low);
   });
 
   test("assistant oauth disconnect is Medium risk (removes OAuth connections)", async () => {
@@ -191,7 +191,6 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
 
     const mediumRiskWithHelp = [
       "assistant oauth request --help",
-      "assistant oauth connect --help",
       "assistant oauth disconnect -h",
     ];
 
