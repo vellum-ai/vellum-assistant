@@ -27,12 +27,14 @@ struct V3RuleEditorModal: View {
     let commandDescription: String
     let riskLevel: String
     let scopeOptions: [V3ScopeOptionItem]
+    let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
     let onSave: (V3SavedRule) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedPatternIndex: Int = 1 // Start from first generalization (skip exact match at index 0)
     @State private var selectedRiskLevel: String = "medium"
     @State private var isSaving: Bool = false
+    @State private var selectedDirectoryScopeIndex: Int = -1  // -1 = "Everywhere" (default)
 
     /// Generalized pattern options.
     /// If scopeOptions has multiple elements, skip the exact match at index 0.
@@ -91,6 +93,7 @@ struct V3RuleEditorModal: View {
             VStack(alignment: .leading, spacing: VSpacing.xl) {
                 contextHeader
                 applyToSection
+                whereSection
                 treatAsSection
                 saveSection
             }
@@ -201,6 +204,50 @@ struct V3RuleEditorModal: View {
         .accessibilityValue(selectedPatternIndex == targetIndex ? "Selected" : "Not selected")
     }
 
+    // MARK: - Where Section
+
+    @ViewBuilder
+    private var whereSection: some View {
+        if !directoryScopeOptions.isEmpty {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Text("Where")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .accessibilityAddTraits(.isHeader)
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    ForEach(Array(directoryScopeOptions.filter { $0.scope != "everywhere" }.enumerated()), id: \.offset) { index, option in
+                        directoryScopeRow(label: option.label, index: index)
+                    }
+                    directoryScopeRow(label: "Everywhere", index: -1)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func directoryScopeRow(label: String, index: Int) -> some View {
+        Button {
+            selectedDirectoryScopeIndex = index
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(selectedDirectoryScopeIndex == index ? .circleDot : .circle, size: 14)
+                    .foregroundStyle(selectedDirectoryScopeIndex == index ? VColor.primaryBase : VColor.contentTertiary)
+                    .accessibilityHidden(true)
+                Text(label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer(minLength: 0)
+            }
+            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
+            .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selectedDirectoryScopeIndex == index ? [.isSelected] : [])
+        .accessibilityValue(selectedDirectoryScopeIndex == index ? "Selected" : "Not selected")
+    }
+
     // MARK: - Section 2: Treat as
 
     @ViewBuilder
@@ -273,12 +320,18 @@ struct V3RuleEditorModal: View {
                 guard !isSaving, !scopeOptions.isEmpty, selectedPatternIndex < scopeOptions.count else { return }
                 isSaving = true
                 let selectedOption = scopeOptions[selectedPatternIndex]
-                // Always use "everywhere" scope (directory scoping removed in v1)
+                let scope: String = {
+                    let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+                    if selectedDirectoryScopeIndex >= 0, selectedDirectoryScopeIndex < filtered.count {
+                        return filtered[selectedDirectoryScopeIndex].scope
+                    }
+                    return "everywhere"
+                }()
                 let rule = V3SavedRule(
                     toolName: toolName,
                     pattern: selectedOption.pattern,
                     riskLevel: selectedRiskLevel,
-                    scope: "everywhere"
+                    scope: scope
                 )
                 onSave(rule)
                 onDismiss()
