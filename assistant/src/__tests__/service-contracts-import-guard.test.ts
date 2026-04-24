@@ -76,14 +76,14 @@ describe("service-contracts import discipline", () => {
 
     let grepOutput = "";
     try {
-      // Scan all tracked TypeScript files, excluding the ces-contracts shim
-      // (which is the only place ces-contracts imports are allowed).
+      // Scan all tracked TypeScript files for actual import/require statements
+      // referencing ces-contracts, excluding the ces-contracts shim itself.
       grepOutput = execFileSync(
         "git",
         [
           "grep",
           "-lE",
-          '@vellumai/ces-contracts',
+          'from\\s+["\']@vellumai/ces-contracts|require\\s*\\(\\s*["\']@vellumai/ces-contracts',
           "--",
           ":(glob)**/*.ts",
           ":(exclude)packages/ces-contracts/**",
