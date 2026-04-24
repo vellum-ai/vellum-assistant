@@ -308,7 +308,15 @@ final class AvatarAppearanceManager {
 
     // MARK: - Custom Avatar
 
-    func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil) {
+    /// Saves the avatar image locally and (by default) persists it to the
+    /// assistant's workspace via the gateway.
+    ///
+    /// - Parameter skipWorkspaceSync: When `true`, only update the in-memory
+    ///   state and local cache — skip the gateway workspace write. Used during
+    ///   hatch completion where the guardian token hasn't been imported yet;
+    ///   the workspace sync will happen later via `syncOnboardingAvatarIfNeeded`
+    ///   / `syncTraitsToDaemon` once the daemon connection is authenticated.
+    func saveAvatar(_ image: NSImage, bodyShape: AvatarBodyShape? = nil, eyeStyle: AvatarEyeStyle? = nil, color: AvatarColor? = nil, skipWorkspaceSync: Bool = false) {
         let isCharacter = bodyShape != nil
 
         guard let tiffData = image.tiffRepresentation,
@@ -345,6 +353,8 @@ final class AvatarAppearanceManager {
             AvatarCache.saveImage(pngData)
             AvatarCache.clearTraits()
         }
+
+        guard !skipWorkspaceSync else { return }
 
         // Persist to the assistant's workspace via the gateway.
         Task {

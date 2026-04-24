@@ -437,10 +437,13 @@ struct HatchingStepView: View {
         // Save the randomly-generated avatar as the user's avatar, but only for
         // non-pairing flows and only if one hasn't already been uploaded/generated
         // (preserves existing avatars when replaying onboarding during development).
+        // skipWorkspaceSync: the guardian token hasn't been imported yet so gateway
+        // requests would 401. The workspace sync happens later in
+        // syncOnboardingAvatarIfNeeded() after the daemon connection is authenticated.
         if !isCustomHardware,
            AvatarAppearanceManager.shared.customAvatarImage == nil,
            let image = hatchAvatarImage {
-            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor)
+            AvatarAppearanceManager.shared.saveAvatar(image, bodyShape: hatchBody, eyeStyle: hatchEyes, color: hatchColor, skipWorkspaceSync: true)
         }
 
         // Brief delay so the user sees the waking animation before transition.
