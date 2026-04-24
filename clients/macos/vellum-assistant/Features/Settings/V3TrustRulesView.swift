@@ -62,7 +62,8 @@ struct V3TrustRulesView: View {
                 }
             }
         }
-        .frame(width: 600, minHeight: 500)
+        .frame(width: 600)
+        .frame(minHeight: 500)
         .task(id: showAllDefaults) { await loadRules() }
         .sheet(item: $editingRule) { rule in
             V3TrustRuleEditSheet(
@@ -295,7 +296,7 @@ private struct V3TrustRuleEditSheet: View {
                     saveError = nil
                     Task {
                         do {
-                            try await trustRuleV3Client.resetRule(id: rule.id)
+                            _ = try await trustRuleV3Client.resetRule(id: rule.id)
                             await onSave()
                             dismiss()
                         } catch {
@@ -331,7 +332,7 @@ private struct V3TrustRuleEditSheet: View {
                     saveError = nil
                     Task {
                         do {
-                            try await trustRuleV3Client.updateRule(id: rule.id, risk: selectedRisk, description: nil)
+                            _ = try await trustRuleV3Client.updateRule(id: rule.id, risk: selectedRisk, description: nil)
                             await onSave()
                             dismiss()
                         } catch {
