@@ -99,6 +99,7 @@ interface ClassificationResult {
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
   directoryScopeOptions?: DirectoryScopeOption[];
+  resolvedPaths?: string[];
   matchType: string;
 }
 
@@ -308,7 +309,7 @@ export async function handleClassifyRisk(
               // cwd so scope ladder ancestors reflect cd-induced dir changes.
               // Keep `~` / `~/...` as-is — `generateDirectoryScopeOptions`
               // expands them itself and the tracked cwd doesn't affect that.
-              if (p === "~" || p.startsWith("~/") || p.startsWith("~")) {
+              if (p === "~" || p.startsWith("~/")) {
                 fsPathArgs.add(p);
               } else if (isAbsolute(p)) {
                 fsPathArgs.add(p);
@@ -366,6 +367,15 @@ export async function handleClassifyRisk(
         finalRisk = "medium";
       }
 
+      // Collect resolved paths for directory-scoped rule enforcement.
+      // These are the same resolved args used for scope generation — the
+      // assistant threads them into `findHighestPriorityRule` so scoped
+      // rules match against actual target paths, not just cwd.
+      const resolvedPaths =
+        hasFilesystemOp && fsPathArgs.size > 0
+          ? [...fsPathArgs]
+          : undefined;
+
       return {
         risk: finalRisk,
         reason: assessment.reason,
@@ -378,6 +388,7 @@ export async function handleClassifyRisk(
         isComplexSyntax,
         sandboxAutoApprove,
         directoryScopeOptions,
+        resolvedPaths,
         matchType: assessment.matchType,
       };
     }
@@ -424,6 +435,7 @@ export async function handleClassifyRisk(
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,
         directoryScopeOptions,
+        resolvedPaths: filePath ? [filePath] : undefined,
         matchType: assessment.matchType,
       };
     }

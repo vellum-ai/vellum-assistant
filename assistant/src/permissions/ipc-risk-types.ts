@@ -32,6 +32,7 @@ export interface ClassificationResult {
   scopeOptions: ScopeOption[];
   allowlistOptions?: AllowlistOption[];
   directoryScopeOptions?: DirectoryScopeOption[];
+  resolvedPaths?: string[];
   actionKeys?: string[];
   commandCandidates?: string[];
   dangerousPatterns?: DangerousPattern[];

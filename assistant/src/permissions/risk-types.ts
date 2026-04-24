@@ -67,4 +67,10 @@ export interface RiskAssessment {
    * path arguments and generated a directory-scope ladder for them.
    */
   directoryScopeOptions?: DirectoryScopeOption[];
+  /**
+   * Fully resolved filesystem path arguments from the gateway classifier.
+   * Threaded into `findHighestPriorityRule` so directory-scoped trust rules
+   * match against actual target paths, not just the working directory.
+   */
+  resolvedPaths?: string[];
 }
