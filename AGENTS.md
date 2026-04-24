@@ -190,19 +190,7 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 ## User-Facing Terminology: "daemon" vs "assistant"
 
-## Multi-Instance Path Invariant
-
-The assistant daemon's root directory is **per-instance**. `vellumRoot()` in `assistant/src/util/platform.ts` reads `BASE_DATA_DIR` — set by the CLI on every daemon and gateway spawn — and returns `join(BASE_DATA_DIR, ".vellum")`. When `BASE_DATA_DIR` is unset (containerized deployments, manual test invocations outside the CLI-spawn lifecycle), it falls back to `join(homedir(), ".vellum")`. Every root-level path (PID file, `.env`, `runtime-port`, daemon stderr log) and the workspace directory itself derive from this helper, so a single fix cascades through every consumer.
-
-New local hatches allocate `instanceDir` under `$XDG_DATA_HOME/vellum/assistants/<name>/` (or `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/` in non-production environments), and the daemon for that instance writes everything under `<instanceDir>/.vellum/`. Existing production lockfile entries that were created before this change may have `instanceDir = homedir()`; the read path honors whatever is stored in `resources.instanceDir`, so those assistants continue to live at `~/.vellum/` with no on-disk migration.
-
-`BASE_DATA_DIR` is the **canonical per-instance signal** the daemon consumes — it is not legacy and is not slated for removal. The CLI sets it in `cli/src/lib/local.ts` on every local daemon/gateway spawn, sourced from `resources.instanceDir` in the lockfile entry. The gateway (`gateway/src/paths.ts:getRootDir`) reads the same variable, so the daemon and gateway always agree on the root.
-
-Note that the CLI still writes the authoritative `vellum.pid` (and `gateway.pid`, `ngrok.pid`) for each instance externally from its own process at `<instanceDir>/.vellum/vellum.pid` during spawn. The daemon also writes its own `vellumRoot()/vellum.pid` via `getPidPath()`. These paths are identical under `BASE_DATA_DIR`, so there is no divergence in practice — the CLI-written PID is the one consulted for lifecycle commands.
-
-**XDG-shared config files** (platform-token, device-id, guardian tokens) are environment-scoped on both the CLI and daemon sides via `getXdgVellumConfigDirName()` in `assistant/src/util/platform.ts`: production resolves to `$XDG_CONFIG_HOME/vellum/`, non-production to `$XDG_CONFIG_HOME/vellum-<env>/` (for the seed environments `dev`, `staging`, `test`, `local`; unknown values fall back to `vellum` for safety). The Swift client's `VellumPaths.current.configDir` mirrors the same convention so every writer of these files agrees on the location.
-
-In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`) and `GATEWAY_SECURITY_DIR` points at the gateway's security volume. Docker mode does not set `BASE_DATA_DIR`, so the two resolution paths do not conflict — containerized deployments keep using the workspace/security-volume conventions and ignore the per-instance override. Code that needs the workspace path must use `getWorkspaceDir()` rather than assuming it lives under `vellumRoot()`.
+"Daemon" is an internal implementation detail. In all user-facing text — CLI output, error messages, help strings, SKILL.md instructions that would be relayed to users, README documentation, and UI strings — use **"assistant"** instead of "daemon". Internal code (variable names, class names, file paths, log messages, comments explaining architecture) may continue using "daemon" since users don't see those. When in doubt, ask: "Would a user ever read this?" If yes, say "assistant".
 
 ## Qdrant Port Override
 

@@ -492,16 +492,6 @@ function mintRefreshToken(
 // ---------------------------------------------------------------------------
 
 /**
- * Execute the full guardian bootstrap flow:
- *   1. Ensure a guardian principal exists for the vellum channel
- *   2. Revoke existing credentials for this device
- *   3. Mint new JWT access token + opaque refresh token
- *   4. Persist token hashes
- *
- * All operations run against the assistant's SQLite database.
- */
-
-/**
  * Ensure a vellum guardian binding exists. If one already exists, returns
  * its principalId. Otherwise creates a new binding with a fresh principal
  * and dual-writes to both the assistant and gateway DBs.
@@ -524,6 +514,15 @@ export function ensureVellumGuardianBinding(): string {
   return guardianPrincipalId;
 }
 
+/**
+ * Execute the full guardian bootstrap flow:
+ *   1. Ensure a guardian principal exists for the vellum channel
+ *   2. Revoke existing credentials for this device
+ *   3. Mint new JWT access token + opaque refresh token
+ *   4. Persist token hashes
+ *
+ * All operations run against the assistant's SQLite database.
+ */
 export function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
