@@ -323,14 +323,19 @@ export async function handleClassifyRisk(
         }
 
         // Advance tracked cwd for simple `cd <dir>` segments. Bail out
-        // (keep the current tracked cwd) for `cd` with no args, `cd -`,
-        // or `cd ~` forms — those require runtime state we don't have.
+        // (keep the current tracked cwd) for `cd` with no args or `cd -`
+        // (requires runtime state we don't have). Expand `~` and `~/...`
+        // to homedir for consistency with how we resolve path args above.
         if (effectiveProgram === "cd") {
           const positionals = effectiveArgs.filter((a) => !a.startsWith("-"));
           if (positionals.length === 1) {
             const target = positionals[0]!;
-            if (target === "-" || target === "~" || target.startsWith("~")) {
-              // Unsupported form — leave trackedCwd unchanged.
+            if (target === "-") {
+              // Unsupported — requires OLDPWD runtime state.
+            } else if (target === "~") {
+              trackedCwd = homedir();
+            } else if (target.startsWith("~/")) {
+              trackedCwd = join(homedir(), target.slice(2));
             } else if (isAbsolute(target)) {
               trackedCwd = resolve(target);
             } else {
