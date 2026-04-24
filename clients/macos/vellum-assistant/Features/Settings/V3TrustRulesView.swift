@@ -375,5 +375,8 @@ private struct V3TrustRuleEditSheet: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selectedRisk == value ? [.isSelected] : [])
+        .accessibilityValue(selectedRisk == value ? "Selected" : "Not selected")
     }
 }
