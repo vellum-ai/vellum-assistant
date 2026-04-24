@@ -226,7 +226,7 @@ describe('listAssistants', () => {
 
     // Second assistant: cloud without daemon port
     expect(catalog.assistants[1]!.assistantId).toBe('a-2');
-    expect(catalog.assistants[1]!.authProfile).toBe('cloud-oauth');
+    expect(catalog.assistants[1]!.authProfile).toBe('vellum-cloud');
     expect(catalog.assistants[1]!.daemonPort).toBeUndefined();
     expect(catalog.assistants[1]!.isActive).toBe(false);
 

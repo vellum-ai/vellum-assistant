@@ -4,7 +4,7 @@
  * Exercises the pure display-logic functions without a Chrome runtime:
  *   - deriveSelectorDisplay: hidden for 0/1 assistants, visible for 2+
  *   - assistantLabel: readable label derivation
- *   - shouldShowLocalSection / shouldShowCloudSection: auth-profile gating
+ *   - shouldShowLocalSection: auth-profile gating
  *   - deriveCtaState: CTA label/enablement for each connection phase
  *   - deriveStatusDisplay: status dot class and text for each phase
  *   - healthToPhase: mapping from ConnectionHealthState to ConnectionPhase
@@ -19,7 +19,6 @@ import {
   deriveSelectorDisplay,
   assistantLabel,
   shouldShowLocalSection,
-  shouldShowCloudSection,
   deriveCtaState,
   deriveStatusDisplay,
   deriveSetupMessage,
@@ -58,7 +57,7 @@ const cloudAssistant = makeDescriptor({
   assistantId: 'my-cloud-assistant',
   cloud: 'vellum',
   runtimeUrl: 'https://runtime.vellum.ai',
-  authProfile: 'cloud-oauth',
+  authProfile: 'vellum-cloud',
 });
 const secondLocal = makeDescriptor({ assistantId: 'second-local' });
 
@@ -138,15 +137,15 @@ describe('assistantLabel', () => {
   });
 });
 
-// ── shouldShowLocalSection / shouldShowCloudSection ────────────────
+// ── shouldShowLocalSection ─────────────────────────────────────────
 
 describe('shouldShowLocalSection', () => {
   test('returns true for local-pair profile', () => {
     expect(shouldShowLocalSection('local-pair')).toBe(true);
   });
 
-  test('returns false for cloud-oauth profile', () => {
-    expect(shouldShowLocalSection('cloud-oauth')).toBe(false);
+  test('returns false for vellum-cloud profile', () => {
+    expect(shouldShowLocalSection('vellum-cloud')).toBe(false);
   });
 
   test('returns false for unsupported profile', () => {
@@ -155,24 +154,6 @@ describe('shouldShowLocalSection', () => {
 
   test('returns false for null profile', () => {
     expect(shouldShowLocalSection(null)).toBe(false);
-  });
-});
-
-describe('shouldShowCloudSection', () => {
-  test('returns true for cloud-oauth profile', () => {
-    expect(shouldShowCloudSection('cloud-oauth')).toBe(true);
-  });
-
-  test('returns false for local-pair profile', () => {
-    expect(shouldShowCloudSection('local-pair')).toBe(false);
-  });
-
-  test('returns false for unsupported profile', () => {
-    expect(shouldShowCloudSection('unsupported')).toBe(false);
-  });
-
-  test('returns false for null profile', () => {
-    expect(shouldShowCloudSection(null)).toBe(false);
   });
 });
 
@@ -554,8 +535,8 @@ describe('hasTroubleshootingControls', () => {
     expect(hasTroubleshootingControls('local-pair')).toBe(true);
   });
 
-  test('returns true for cloud-oauth', () => {
-    expect(hasTroubleshootingControls('cloud-oauth')).toBe(true);
+  test('returns false for vellum-cloud', () => {
+    expect(hasTroubleshootingControls('vellum-cloud')).toBe(false);
   });
 
   test('returns false for unsupported', () => {

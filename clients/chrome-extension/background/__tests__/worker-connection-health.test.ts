@@ -122,7 +122,7 @@ interface WorkerHealthState {
   connectionHealthDetail: ConnectionHealthDetail;
   shouldConnect: boolean;
   relayConnection: FakeRelayConnection | null;
-  currentAuthProfile: 'local-pair' | 'cloud-oauth' | 'unsupported' | null;
+  currentAuthProfile: 'local-pair' | 'vellum-cloud' | 'unsupported' | null;
   storage: FakeStorage;
 }
 
@@ -393,7 +393,7 @@ describe('connection health: temporary disconnect with reconnect', () => {
 
 describe('connection health: unrecoverable auth/native-host failure', () => {
   test('auth failure during connect sets auth_required with error message', async () => {
-    const state = createWorkerHealthState({ currentAuthProfile: 'cloud-oauth' });
+    const state = createWorkerHealthState({ currentAuthProfile: 'vellum-cloud' });
 
     await simulateAuthFailedConnect(
       state,
@@ -406,7 +406,7 @@ describe('connection health: unrecoverable auth/native-host failure', () => {
   });
 
   test('auth failure during reconnect sets auth_required with disconnect code', async () => {
-    const state = createWorkerHealthState({ currentAuthProfile: 'cloud-oauth' });
+    const state = createWorkerHealthState({ currentAuthProfile: 'vellum-cloud' });
     await simulateSuccessfulConnect(state);
 
     // Simulate reconnect that results in auth failure
@@ -541,7 +541,7 @@ describe('connection health: get_status response', () => {
   });
 
   test('get_status includes health and healthDetail when auth_required', async () => {
-    const state = createWorkerHealthState({ currentAuthProfile: 'cloud-oauth' });
+    const state = createWorkerHealthState({ currentAuthProfile: 'vellum-cloud' });
     await simulateAuthFailedConnect(state, 'Token expired');
 
     const status = getStatus(state);
@@ -602,7 +602,7 @@ describe('connection health: auto-connect bootstrap', () => {
   });
 
   test('bootstrap transitions to auth_required on MissingTokenError', async () => {
-    const state = createWorkerHealthState({ currentAuthProfile: 'cloud-oauth' });
+    const state = createWorkerHealthState({ currentAuthProfile: 'vellum-cloud' });
     await state.storage.set({ [AUTO_CONNECT_KEY]: true });
 
     await simulateBootstrap(state, async () => {
@@ -767,7 +767,7 @@ describe('connection health: full lifecycle scenarios', () => {
   });
 
   test('bootstrap -> auth_required -> manual connect -> connected', async () => {
-    const state = createWorkerHealthState({ currentAuthProfile: 'cloud-oauth' });
+    const state = createWorkerHealthState({ currentAuthProfile: 'vellum-cloud' });
     await state.storage.set({ [AUTO_CONNECT_KEY]: true });
 
     // 1. Bootstrap fails with auth error

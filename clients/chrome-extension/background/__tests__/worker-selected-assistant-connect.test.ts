@@ -9,13 +9,13 @@
  * Coverage:
  *   - Connect routes to `local-pair` (self-hosted) when the selected
  *     assistant has a local topology.
- *   - Connect routes to `cloud-oauth` (cloud) when the selected
+ *   - Connect routes to `vellum-cloud` (cloud) when the selected
  *     assistant has a cloud topology, using the assistant's runtimeUrl
  *     as the base URL.
  *   - Connect produces an actionable error for `unsupported` topology.
  *   - Connect produces an actionable error when no assistant is selected.
  *   - Missing local token error for `local-pair` assistant.
- *   - Missing cloud token error for `cloud-oauth` assistant.
+ *   - Missing token error for `vellum-cloud` assistant.
  *   - Assistant switch disconnects and reconnects to the new assistant.
  *   - `get_status` returns the current auth profile.
  */
@@ -62,7 +62,7 @@ function makeCloudAssistant(
     runtimeUrl: 'https://rt.vellum.cloud',
     daemonPort: undefined,
     isActive: false,
-    authProfile: 'cloud-oauth',
+    authProfile: 'vellum-cloud',
     ...overrides,
   };
 }
@@ -96,16 +96,16 @@ describe('connect routing via auth profile', () => {
     ).toBe('local-pair');
   });
 
-  test('vellum topology resolves to cloud-oauth', () => {
+  test('vellum topology resolves to vellum-cloud', () => {
     expect(
       resolveAuthProfile({ cloud: 'vellum', runtimeUrl: 'https://rt.vellum.cloud' }),
-    ).toBe('cloud-oauth');
+    ).toBe('vellum-cloud');
   });
 
-  test('platform topology resolves to cloud-oauth', () => {
+  test('platform topology resolves to vellum-cloud', () => {
     expect(
       resolveAuthProfile({ cloud: 'platform', runtimeUrl: 'https://rt.vellum.cloud' }),
-    ).toBe('cloud-oauth');
+    ).toBe('vellum-cloud');
   });
 
   test('unknown topology resolves to unsupported', () => {
@@ -124,11 +124,11 @@ describe('missing token error messages', () => {
   // Replicate the missingTokenMessage logic from worker.ts for unit
   // testing without importing the side-effectful module.
   function missingTokenMessage(profile: AssistantAuthProfile | null): string {
-    if (profile === 'cloud-oauth') {
-      return "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Advanced, then turn Connection on again";
-    }
     if (profile === 'local-pair') {
       return "Automatic local pairing failed \u2014 use 'Re-pair' in Advanced, then turn Connection on again";
+    }
+    if (profile === 'vellum-cloud') {
+      return 'Vellum cloud auth is not yet supported by the extension. Please update or use a local assistant.';
     }
     if (profile === 'unsupported') {
       return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
@@ -136,8 +136,8 @@ describe('missing token error messages', () => {
     return 'Select an assistant before connecting';
   }
 
-  test('cloud-oauth produces cloud sign-in prompt', () => {
-    expect(missingTokenMessage('cloud-oauth')).toContain('Re-sign in');
+  test('vellum-cloud produces not-yet-supported message', () => {
+    expect(missingTokenMessage('vellum-cloud')).toContain('not yet supported');
   });
 
   test('local-pair produces pair prompt', () => {
@@ -172,7 +172,7 @@ describe('relay mode derivation from assistant descriptor', () => {
     expect(assistant.daemonPort).toBe(8888);
   });
 
-  test('cloud-oauth assistant uses runtimeUrl as base', () => {
+  test('vellum-cloud assistant uses runtimeUrl as base', () => {
     const assistant = makeCloudAssistant({
       runtimeUrl: 'https://custom-gateway.vellum.cloud',
     });
@@ -180,18 +180,18 @@ describe('relay mode derivation from assistant descriptor', () => {
       cloud: assistant.cloud,
       runtimeUrl: assistant.runtimeUrl,
     });
-    expect(profile).toBe('cloud-oauth');
+    expect(profile).toBe('vellum-cloud');
     // The connect path would use assistant.runtimeUrl as the baseUrl.
     expect(assistant.runtimeUrl).toBe('https://custom-gateway.vellum.cloud');
   });
 
-  test('cloud-oauth assistant without runtimeUrl falls back to environment-resolved gateway', () => {
+  test('vellum-cloud assistant without runtimeUrl falls back to environment-resolved gateway', () => {
     const assistant = makeCloudAssistant({ runtimeUrl: '' });
     const profile = resolveAuthProfile({
       cloud: assistant.cloud,
       runtimeUrl: assistant.runtimeUrl,
     });
-    expect(profile).toBe('cloud-oauth');
+    expect(profile).toBe('vellum-cloud');
     // Empty runtimeUrl triggers the environment-resolved apiBaseUrl fallback
     // in buildRelayModeForAssistant. The gateway URL depends on the effective
     // environment (e.g. dev -> dev-api.vellum.ai, production -> api.vellum.ai).
@@ -222,7 +222,7 @@ describe('assistant switch behavior', () => {
     });
 
     expect(localProfile).toBe('local-pair');
-    expect(cloudProfile).toBe('cloud-oauth');
+    expect(cloudProfile).toBe('vellum-cloud');
     expect(localProfile).not.toBe(cloudProfile);
   });
 

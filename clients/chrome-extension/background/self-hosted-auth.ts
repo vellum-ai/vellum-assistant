@@ -6,11 +6,9 @@
  * for a capability token via the assistant's `/v1/browser-extension-pair`
  * endpoint, and persists the returned token in `chrome.storage.local`.
  *
- * This module is the self-hosted counterpart to `cloud-auth.ts`: cloud
- * sign-in uses chrome.identity.launchWebAuthFlow against the Vellum
- * gateway, while self-hosted pairing uses native messaging to talk to a
- * locally running assistant without needing an external OAuth round-trip.
- * Users with a local assistant can pair their extension entirely offline.
+ * Self-hosted pairing uses native messaging to talk to a locally running
+ * assistant without needing an external OAuth round-trip. Users with a
+ * local assistant can pair their extension entirely offline.
  *
  * This module owns the storage + bootstrap state machine for the
  * self-hosted capability token. The relay connection consumes the
@@ -23,8 +21,7 @@
  * `{ type: "token_response", token, expiresAt }` where `expiresAt` is an
  * ISO 8601 string (per the /v1/browser-extension-pair response shape).
  * We parse it into an epoch-millis number here so the in-memory and
- * on-disk representation matches `StoredCloudToken` and downstream code
- * can rely on a single numeric expiry type across both transports.
+ * on-disk representation uses a single numeric expiry type.
  *
  * Storage is assistant-scoped: each assistant ID gets its own storage key
  * (`vellum.localCapabilityToken:<assistantId>`) so switching between

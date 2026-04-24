@@ -5,15 +5,12 @@
  * `RelayConnection` so we can exercise both transport branches without
  * standing up a real socket or local daemon. Covers:
  *
- *   - open relay socket (cloud + self-hosted): sends a JSON-stringified
- *     `host_browser_result` frame via `connection.send` and never
- *     touches `fetch`.
+ *   - open relay socket: sends a JSON-stringified `host_browser_result`
+ *     frame via `connection.send` and never touches `fetch`.
  *   - self-hosted mode fallback: POSTs to
  *     `${baseUrl}/v1/host-browser-result` with
  *     `Authorization: Bearer <token>` when no open relay socket is
  *     available.
- *   - cloud mode with a closed or null connection: logs a warning,
- *     never touches `fetch`, and never throws.
  *
  * The function lives in `relay-connection.ts` (rather than `worker.ts`)
  * so the test can import it directly without dragging in the chrome
@@ -305,80 +302,6 @@ describe('postHostBrowserResult — self-hosted mode', () => {
   });
 });
 
-// ── Cloud mode ──────────────────────────────────────────────────────
-
-describe('postHostBrowserResult — cloud mode', () => {
-  test('sends a host_browser_result frame over an open connection and skips fetch', async () => {
-    const conn = makeFakeConnection(true);
-    const mode: RelayMode = {
-      kind: 'cloud',
-      baseUrl: 'https://api.vellum.ai',
-      token: 'cloud-token',
-    };
-
-    await postHostBrowserResult(mode, conn, exampleResult);
-
-    expect(fetchHandle.calls).toEqual([]);
-    expect(conn.sent.length).toBe(1);
-    const parsed = JSON.parse(conn.sent[0]) as Record<string, unknown>;
-    expect(parsed.type).toBe('host_browser_result');
-    expect(parsed.requestId).toBe(exampleResult.requestId);
-    expect(parsed.content).toBe(exampleResult.content);
-    expect(parsed.isError).toBe(exampleResult.isError);
-  });
-
-  test('warns and no-ops when the connection is not open', async () => {
-    const conn = makeFakeConnection(false);
-    const mode: RelayMode = {
-      kind: 'cloud',
-      baseUrl: 'https://api.vellum.ai',
-      token: 'cloud-token',
-    };
-
-    const returned = await postHostBrowserResult(mode, conn, exampleResult);
-    expect(returned).toBeUndefined();
-
-    expect(fetchHandle.calls).toEqual([]);
-    expect(conn.sent).toEqual([]);
-    const flat = consoleSpy.warnings.flat().join(' ');
-    expect(flat).toContain('cloud relay not connected');
-  });
-
-  test('warns and no-ops when the connection is null', async () => {
-    const mode: RelayMode = {
-      kind: 'cloud',
-      baseUrl: 'https://api.vellum.ai',
-      token: 'cloud-token',
-    };
-
-    const returned = await postHostBrowserResult(mode, null, exampleResult);
-    expect(returned).toBeUndefined();
-
-    expect(fetchHandle.calls).toEqual([]);
-    const flat = consoleSpy.warnings.flat().join(' ');
-    expect(flat).toContain('cloud relay not connected');
-  });
-
-  test('warns and no-ops when cloud WS send throws', async () => {
-    const conn = makeFakeConnection(true);
-    conn.send = () => {
-      throw new Error('socket send failed');
-    };
-    const mode: RelayMode = {
-      kind: 'cloud',
-      baseUrl: 'https://api.vellum.ai',
-      token: 'cloud-token',
-    };
-
-    const returned = await postHostBrowserResult(mode, conn, exampleResult);
-    expect(returned).toBeUndefined();
-
-    expect(fetchHandle.calls).toEqual([]);
-    const flat = consoleSpy.warnings.flat().join(' ');
-    expect(flat).toContain('cloud relay send failed');
-  });
-});
-
 // ── Live mode read (stale-token regression) ─────────────────────────
 //
 // Pins the call-site contract that worker.ts's
@@ -440,33 +363,33 @@ describe('postHostBrowserResult — live mode read via getCurrentMode()', () => 
     expect(secondHeaders?.authorization).toBe('Bearer tok-new');
   });
 
-  test('self-hosted: mode swap to cloud on the connection routes subsequent dispatches over the WebSocket', async () => {
-    // Extra belt-and-braces: if the mode KIND itself flips (e.g. a
-    // mode switch via setMode), the call-site must still read it
-    // live. A captured snapshot would POST to the now-wrong baseUrl.
+  test('self-hosted: mode swap to new baseUrl routes subsequent dispatches over the WebSocket', async () => {
+    // If the mode is replaced via setMode (e.g. after a reconnect to
+    // a different daemon), the call-site must read it live. A captured
+    // snapshot would POST to the now-wrong baseUrl.
     const conn = makeFakeConnection(true, {
       kind: 'self-hosted',
       baseUrl: 'http://127.0.0.1:9999',
       token: 'tok-old',
     });
 
-    // Start disconnected to force self-hosted HTTP fallback for the
-    // first dispatch, then flip to cloud + open for the second.
+    // Start disconnected to force HTTP fallback for the first
+    // dispatch, then flip to a new baseUrl + open for the second.
     conn.open = false;
     await dispatchViaConnection(conn, exampleResult);
     expect(fetchHandle.calls.length).toBe(1);
     expect(conn.sent.length).toBe(0);
 
     conn.mode = {
-      kind: 'cloud',
-      baseUrl: 'https://api.vellum.ai',
-      token: 'cloud-token',
+      kind: 'self-hosted',
+      baseUrl: 'http://127.0.0.1:8888',
+      token: 'tok-new',
     };
     conn.open = true;
 
     await dispatchViaConnection(conn, exampleResult);
 
-    // Still exactly one fetch — the cloud dispatch must not have
+    // Still exactly one fetch — the WS dispatch must not have
     // fallen through to an HTTP POST.
     expect(fetchHandle.calls.length).toBe(1);
     expect(conn.sent.length).toBe(1);

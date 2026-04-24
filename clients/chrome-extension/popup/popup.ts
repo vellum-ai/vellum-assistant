@@ -10,7 +10,7 @@
  *   - **Action required** — auth or host error requiring manual recovery.
  *
  * Primary control is a single **Connection** toggle. Manual recovery
- * controls (local re-pair and cloud re-sign-in) plus the support port
+ * controls (local re-pair) plus the support port
  * override live in a collapsible **Advanced** section that is hidden
  * by default. The section auto-expands when the health state is
  * `auth_required` or `error`, making recovery accessible without
@@ -23,11 +23,11 @@
  *
  * Switching assistants sends an `assistant-select` message to the
  * worker, which persists the selection and returns the resolved
- * descriptor + auth profile. The popup then refreshes the local/cloud
+ * descriptor + auth profile. The popup then refreshes the local
  * auth status panels to match the newly selected assistant.
  */
 
-import { getStoredToken, type StoredCloudToken } from '../background/cloud-auth.js';
+
 import {
   getStoredLocalToken,
   type StoredLocalToken,
@@ -37,11 +37,10 @@ import type { AssistantAuthProfile } from '../background/assistant-auth-profile.
 import {
   deriveSelectorDisplay,
   shouldShowLocalSection,
-  shouldShowCloudSection,
+
   deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
-  cleanErrorMessage,
   shouldExpandTroubleshooting,
   hasTroubleshootingControls,
   deriveEnvironmentHint,
@@ -72,8 +71,7 @@ const copyDebugDetailsButton = document.getElementById(
   'copy-debug-details',
 ) as HTMLButtonElement;
 const setupMessage = document.getElementById('setup-message') as HTMLParagraphElement;
-const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
-const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
+
 const btnPairLocal = document.getElementById('btn-pair-local') as HTMLButtonElement;
 const localStatus = document.getElementById('local-status') as HTMLParagraphElement;
 
@@ -367,21 +365,16 @@ function renderAssistantSelector(
 }
 
 /**
- * Update the visibility of the Local and Cloud troubleshooting controls
+ * Update the visibility of the Local troubleshooting controls
  * based on the selected assistant's auth profile.
  */
 function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
   currentAuthProfile = authProfile;
   const showLocal = shouldShowLocalSection(authProfile);
-  const showCloud = shouldShowCloudSection(authProfile);
 
   // Toggle Local troubleshooting elements visibility.
   localStatus.style.display = showLocal ? '' : 'none';
   btnPairLocal.style.display = showLocal ? '' : 'none';
-
-  // Toggle Cloud troubleshooting elements visibility.
-  cloudStatus.style.display = showCloud ? '' : 'none';
-  btnCloudSignIn.style.display = showCloud ? '' : 'none';
 
   // Update troubleshoot section with current health state.
   updateTroubleshootSection(currentHealthState);
@@ -438,7 +431,6 @@ function loadAssistantCatalog(): void {
 
     // Refresh status panels for the selected assistant.
     void refreshLocalStatus();
-    void refreshCloudStatus();
   });
 }
 
@@ -472,7 +464,6 @@ assistantSelect.addEventListener('change', () => {
 
       // Refresh both status panels to reflect the new assistant.
       void refreshLocalStatus();
-      void refreshCloudStatus();
     },
   );
 });
@@ -637,7 +628,7 @@ btnPairLocal.addEventListener('click', async () => {
   setLocalStatus('Pairing\u2026', 'neutral');
   // Delegate to the service worker so the native-messaging bootstrap
   // survives the popup teardown race -- see the `self-hosted-pair`
-  // handler in worker.ts, and the matching cloud-auth-sign-in pattern.
+  // handler in worker.ts.
   const response = await requestLocalPair();
   if (response.ok && response.token) {
     setLocalStatus(formatLocalTokenStatus(response.token), 'paired');
@@ -649,110 +640,11 @@ btnPairLocal.addEventListener('click', async () => {
 
 refreshLocalStatus();
 
-// ── Cloud sign-in (troubleshooting) ─────────────────────────────────
-//
-// The token is persisted and consumed by the background worker when
-// opening cloud relay WebSocket connections.
-//
-// This is a manual recovery control -- normal connect handles cloud
-// sign-in automatically via the worker's interactive bootstrap.
-
-function setCloudStatus(text: string, signedIn: boolean): void {
-  cloudStatus.textContent = text;
-  cloudStatus.classList.toggle('signed-in', signedIn);
-}
-
-async function refreshCloudStatus(): Promise<void> {
-  if (!currentAssistantId) {
-    setCloudStatus('Not signed in', false);
-    return;
-  }
-  try {
-    const existing = await getStoredToken(currentAssistantId);
-    if (existing) {
-      setCloudStatus(`Signed in as guardian:${existing.guardianId}`, true);
-    } else {
-      setCloudStatus('Not signed in', false);
-    }
-    // Surface any auth error the service worker persisted during a
-    // reconnect. The worker writes `vellum.relayAuthError` when the
-    // cloud token refresh fails (see cloudReconnectHook in worker.ts)
-    // and clears it on a successful connect.
-    const authErrResult = await chrome.storage.local.get('vellum.relayAuthError');
-    const authErr = authErrResult['vellum.relayAuthError'];
-    if (
-      authErr &&
-      typeof authErr === 'object' &&
-      typeof (authErr as { message?: unknown }).message === 'string'
-    ) {
-      const rawMsg = (authErr as { message: string }).message;
-      const debugDets = typeof (authErr as { debugDetails?: unknown }).debugDetails === 'string'
-        ? (authErr as { debugDetails: string }).debugDetails
-        : undefined;
-      // Fall back to rawMsg only when it contains a trace ID — otherwise
-      // passing it as debugText would duplicate the message in Debug Details.
-      const debugFallback = /\[trace=/.test(rawMsg) ? rawMsg : undefined;
-      showErrorTextWithDebug(cleanErrorMessage(rawMsg, 'Connection error'), debugDets ?? debugFallback);
-    }
-  } catch (err) {
-    setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
-  }
-}
-
-interface CloudSignInResponse {
-  ok: boolean;
-  token?: StoredCloudToken;
-  error?: string;
-  debugDetails?: string;
-}
-
-function requestCloudSignIn(): Promise<CloudSignInResponse> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'cloud-auth-sign-in' }, (response: CloudSignInResponse) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
-        return;
-      }
-      resolve(response ?? { ok: false, error: 'No response from service worker' });
-    });
-  });
-}
-
-btnCloudSignIn.addEventListener('click', async () => {
-  btnCloudSignIn.disabled = true;
-  setCloudStatus('Signing in\u2026', false);
-  errorText.style.display = 'none';
-  hideDebugDetails();
-  // Clear any stale auth-error the worker persisted during a failed
-  // reconnect -- the user is explicitly retrying sign-in now.
-  await chrome.storage.local.remove('vellum.relayAuthError');
-  // Delegate to the service worker -- see header comment for the rationale.
-  const response = await requestCloudSignIn();
-  if (response.ok && response.token) {
-    setCloudStatus(`Signed in as guardian:${response.token.guardianId}`, true);
-    hideDebugDetails();
-  } else {
-    const rawError = response.error ?? 'Unknown error';
-    setCloudStatus('Sign-in failed', false);
-    // Fall back to rawError only when it contains a trace ID — otherwise
-    // passing it as debugText would duplicate the error message in the
-    // Debug Details panel.
-    const debugFallback = /\[trace=/.test(rawError) ? rawError : undefined;
-    showErrorTextWithDebug(
-      `Sign-in failed: ${cleanErrorMessage(rawError, 'Unknown error')}`,
-      response.debugDetails ?? debugFallback,
-    );
-  }
-  btnCloudSignIn.disabled = false;
-});
-
-refreshCloudStatus();
-
 // ── Environment selector ────────────────────────────────────────────
 //
 // The environment dropdown allows developers to override the build-time
 // default environment for the current extension profile. This changes
-// which cloud API and web URLs are used for sign-in, pairing, and relay.
+// which API and web URLs are used for pairing and relay.
 //
 // On popup open we load the effective environment from the worker via
 // `environment-get` and render the selected value. On change we persist
@@ -785,7 +677,7 @@ loadEnvironmentState();
  *
  * Orchestration after environment-set:
  *   1. Refresh assistant catalog (endpoints may have changed).
- *   2. Refresh local/cloud auth status panels.
+ *   2. Refresh local auth status panel.
  *   3. If currently connected, disconnect and reconnect so the new
  *      environment-sensitive endpoints take effect immediately.
  */
@@ -831,7 +723,6 @@ environmentSelect.addEventListener('change', async () => {
 
   // Refresh auth status panels.
   void refreshLocalStatus();
-  void refreshCloudStatus();
 
   // If currently connected, force disconnect then reconnect so the new
   // environment-sensitive endpoints take effect immediately. The worker's

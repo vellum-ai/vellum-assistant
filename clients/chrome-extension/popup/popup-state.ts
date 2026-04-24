@@ -141,23 +141,13 @@ export function deriveSelectorDisplay(
  * Determine which auth status text and style to show for the Local
  * section based on the current auth profile.
  *
- * Returns `null` when the local section is irrelevant (cloud-only
+ * Returns `null` when the local section is irrelevant (unsupported
  * assistant).
  */
 export function shouldShowLocalSection(
   authProfile: AssistantAuthProfile | null,
 ): boolean {
   return authProfile === 'local-pair';
-}
-
-/**
- * Determine whether the Cloud section should be shown based on the
- * current auth profile.
- */
-export function shouldShowCloudSection(
-  authProfile: AssistantAuthProfile | null,
-): boolean {
-  return authProfile === 'cloud-oauth';
 }
 
 // ── Connection phase & CTA helpers ──────────────────────────────────
@@ -353,7 +343,7 @@ export function healthToPhase(health: ConnectionHealthState): ConnectionPhase {
 export function cleanErrorMessage(raw: string, fallback: string): string {
   return raw
     .replace(/\[trace=[^\]]+\]/g, '')
-    .replace(/cloud sign-in failed:\s*/gi, '')
+    .replace(/(?:cloud\s+)?sign-in failed:\s*/gi, '')
     .trim() || fallback;
 }
 
@@ -414,7 +404,7 @@ export function shouldExpandTroubleshooting(health: ConnectionHealthState): bool
 export function hasTroubleshootingControls(
   authProfile: AssistantAuthProfile | null,
 ): boolean {
-  return authProfile === 'local-pair' || authProfile === 'cloud-oauth';
+  return authProfile === 'local-pair';
 }
 
 // ── Environment display helpers ─────────────────────────────────────

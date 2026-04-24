@@ -100,7 +100,7 @@ function createFakeRelayConnection(opts?: { open?: boolean }): FakeRelayConnecti
 interface WorkerState {
   shouldConnect: boolean;
   relayConnection: FakeRelayConnection | null;
-  currentAuthProfile: 'local-pair' | 'cloud-oauth' | 'unsupported' | null;
+  currentAuthProfile: 'local-pair' | 'vellum-cloud' | 'unsupported' | null;
   storage: FakeStorage;
 }
 
@@ -199,7 +199,7 @@ async function simulateBootstrap(
     state.shouldConnect = false;
     const detail = err instanceof Error ? err.message : String(err);
     const mode: 'cloud' | 'self-hosted' =
-      state.currentAuthProfile === 'cloud-oauth' ? 'cloud' : 'self-hosted';
+      state.currentAuthProfile === 'vellum-cloud' ? 'cloud' : 'self-hosted';
 
     // Persist auth error exactly once for popup display.
     await state.storage.set({
@@ -367,7 +367,7 @@ describe('failed auto-connect — no reconnect loop', () => {
   });
 
   test('failed auto-connect for cloud mode persists cloud error', async () => {
-    const state = createWorkerState({ currentAuthProfile: 'cloud-oauth' });
+    const state = createWorkerState({ currentAuthProfile: 'vellum-cloud' });
     await state.storage.set({ [AUTO_CONNECT_KEY]: true });
 
     const errorMessage = "Automatic cloud sign-in failed \u2014 use 'Re-sign in' in Advanced, then turn Connection on again";

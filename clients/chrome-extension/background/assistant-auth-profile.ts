@@ -6,12 +6,9 @@
  *   - `"local"` — a locally running assistant (bare-metal or dev mode).
  *   - `"apple-container"` — a locally running assistant inside an Apple
  *     Virtualization.framework container.
- *   - `"vellum"` — a Vellum-cloud-managed assistant.
+ *   - `"vellum"` — a Vellum-cloud-managed assistant (not yet supported
+ *     by the extension — requires SSE+WorkOS transport, see ATL-239–243).
  *   - `"platform"` — legacy alias for `"vellum"` (older lockfiles).
- *
- * The auth profile simplifies downstream decision-making: rather than
- * checking `cloud` values and `runtimeUrl` presence in multiple places,
- * callers resolve the profile once and branch on the three-case enum.
  */
 
 /**
@@ -21,13 +18,13 @@
  * - `local-pair` — pair via the native messaging helper
  *   (`chrome.runtime.connectNative`). Used for locally running assistants
  *   where the extension can reach the assistant over loopback.
- * - `cloud-oauth` — sign in via `chrome.identity.launchWebAuthFlow`
- *   against the Vellum cloud gateway. Used for cloud-managed assistants.
+ * - `vellum-cloud` — Vellum-cloud-managed assistant. Auth relies on the
+ *   WorkOS session token rather than a separately minted JWT.
  * - `unsupported` — the lockfile topology is not recognised by this
  *   version of the extension. The caller should surface a user-facing
  *   message suggesting an extension update.
  */
-export type AssistantAuthProfile = 'local-pair' | 'cloud-oauth' | 'unsupported';
+export type AssistantAuthProfile = 'local-pair' | 'vellum-cloud' | 'unsupported';
 
 /**
  * The subset of lockfile topology fields needed to derive the auth profile.
@@ -44,23 +41,22 @@ export interface LockfileTopology {
 /** Cloud values that map to local native-messaging pairing. */
 const LOCAL_CLOUD_VALUES = new Set(['local', 'apple-container']);
 
-/** Cloud values that map to cloud OAuth sign-in. */
-const CLOUD_CLOUD_VALUES = new Set(['vellum', 'platform']);
+/** Cloud values that map to Vellum-cloud (WorkOS session auth). */
+const VELLUM_CLOUD_VALUES = new Set(['vellum', 'platform']);
 
 /**
  * Derive the auth profile for a given assistant's lockfile topology.
  *
  * The mapping is intentionally strict — only known `cloud` values produce
- * a usable profile. Unknown values yield `unsupported` so a stale
- * extension doesn't silently try the wrong auth flow against a new
- * topology introduced in a future release.
+ * a usable profile. Unknown values yield `unsupported` so the extension
+ * doesn't silently try the wrong auth flow.
  */
 export function resolveAuthProfile(topology: LockfileTopology): AssistantAuthProfile {
   if (LOCAL_CLOUD_VALUES.has(topology.cloud)) {
     return 'local-pair';
   }
-  if (CLOUD_CLOUD_VALUES.has(topology.cloud)) {
-    return 'cloud-oauth';
+  if (VELLUM_CLOUD_VALUES.has(topology.cloud)) {
+    return 'vellum-cloud';
   }
   return 'unsupported';
 }

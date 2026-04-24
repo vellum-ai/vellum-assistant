@@ -24,14 +24,14 @@ describe('resolveAuthProfile', () => {
     expect(result).toBe('local-pair' satisfies AssistantAuthProfile);
   });
 
-  test('maps "vellum" to cloud-oauth', () => {
+  test('maps "vellum" to vellum-cloud', () => {
     const result = resolveAuthProfile({ cloud: 'vellum' });
-    expect(result).toBe('cloud-oauth' satisfies AssistantAuthProfile);
+    expect(result).toBe('vellum-cloud' satisfies AssistantAuthProfile);
   });
 
-  test('maps legacy "platform" to cloud-oauth', () => {
+  test('maps legacy "platform" to vellum-cloud', () => {
     const result = resolveAuthProfile({ cloud: 'platform' });
-    expect(result).toBe('cloud-oauth' satisfies AssistantAuthProfile);
+    expect(result).toBe('vellum-cloud' satisfies AssistantAuthProfile);
   });
 
   test('unknown cloud value yields unsupported', () => {
@@ -58,8 +58,8 @@ describe('resolveAuthProfile', () => {
       runtimeUrl: 'https://rt.vellum.cloud',
     };
     const cloudWithoutUrl: LockfileTopology = { cloud: 'vellum' };
-    expect(resolveAuthProfile(cloudWithUrl)).toBe('cloud-oauth');
-    expect(resolveAuthProfile(cloudWithoutUrl)).toBe('cloud-oauth');
+    expect(resolveAuthProfile(cloudWithUrl)).toBe('vellum-cloud');
+    expect(resolveAuthProfile(cloudWithoutUrl)).toBe('vellum-cloud');
   });
 
   test('is stable across all known cloud values', () => {
@@ -68,8 +68,8 @@ describe('resolveAuthProfile', () => {
     const expected: Array<[string, AssistantAuthProfile]> = [
       ['local', 'local-pair'],
       ['apple-container', 'local-pair'],
-      ['vellum', 'cloud-oauth'],
-      ['platform', 'cloud-oauth'],
+      ['vellum', 'vellum-cloud'],
+      ['platform', 'vellum-cloud'],
     ];
     for (const [cloud, profile] of expected) {
       expect(resolveAuthProfile({ cloud })).toBe(profile);

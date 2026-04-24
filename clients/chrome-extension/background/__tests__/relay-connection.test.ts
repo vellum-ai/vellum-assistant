@@ -3,7 +3,7 @@
  *
  * Drives the class against a fake global WebSocket so we can exercise
  * the open/message/close/reconnect lifecycle without touching a real
- * socket. Covers both self-hosted and cloud modes and the caller-close
+ * socket. Covers self-hosted mode and the caller-close
  * vs unexpected-close branches.
  */
 
@@ -170,11 +170,11 @@ describe('RelayConnection', () => {
       expect(conn.isOpen()).toBe(true);
     });
 
-    test('opens a cloud WebSocket to the expected wss URL', () => {
+    test('opens a wss WebSocket when baseUrl uses https', () => {
       const cbs = makeCallbacks();
       const conn = makeConn(
         {
-          kind: 'cloud',
+          kind: 'self-hosted',
           baseUrl: 'https://api.vellum.ai',
           token: 'cloud-jwt-xyz',
         },
@@ -193,7 +193,7 @@ describe('RelayConnection', () => {
       const cbs = makeCallbacks();
       const conn = makeConn(
         {
-          kind: 'cloud',
+          kind: 'self-hosted',
           baseUrl: 'https://api.vellum.ai/',
           token: 'a b+c/d=',
         },
@@ -212,7 +212,7 @@ describe('RelayConnection', () => {
       const cbs = makeCallbacks();
       const conn = makeConn(
         {
-          kind: 'cloud',
+          kind: 'self-hosted',
           baseUrl: 'https://api.vellum.ai/',
           token: 'tok',
         },
@@ -498,7 +498,7 @@ describe('RelayConnection', () => {
     });
 
     test('close during pending deferred reconnect still fires onClose exactly once (Gap 2)', async () => {
-      // Regression guard for Gap 2 of the round-2 cloud-cap review:
+      // Regression guard for Gap 2 of the round-2 reconnect-cap review:
       // the ws 'close' listener defers onClose into
       // scheduleReconnectWithRefresh for non-normal closes so the
       // caller sees exactly one notification per lifecycle. Before
@@ -539,16 +539,16 @@ describe('RelayConnection', () => {
       expect(instances.length).toBe(1);
     });
 
-    test('cloud reconnect: token refresh replaces URL token on next connect', async () => {
+    test('reconnect: token refresh replaces URL token on next connect', async () => {
       const cbs = makeCallbacks();
       let seenCtx: RelayReconnectContext | null = null;
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
         cbs,
         async (ctx) => {
           seenCtx = ctx;
           // New-style return: explicit refreshed decision. Mimics
-          // the cloudReconnectHook in worker.ts.
+          // the reconnect hook in worker.ts.
           return { kind: 'refreshed', token: 'fresh-jwt' } satisfies RelayReconnectDecision;
         },
       );
@@ -575,7 +575,7 @@ describe('RelayConnection', () => {
       conn.close();
     });
 
-    test('cloud reconnect: getCurrentMode reflects the refreshed token after reconnect', async () => {
+    test('reconnect: getCurrentMode reflects the refreshed token after reconnect', async () => {
       // The worker relies on getCurrentMode() to pick up the freshly
       // minted token for subsequent host_browser_result POSTs. This
       // pins the invariant that a reconnect-with-refresh cycle swaps
@@ -583,7 +583,7 @@ describe('RelayConnection', () => {
       // snapshots themselves.
       const cbs = makeCallbacks();
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
         cbs,
         async () => ({ kind: 'refreshed', token: 'fresh-jwt' }),
       );
@@ -597,16 +597,16 @@ describe('RelayConnection', () => {
 
       // Mode accessor returns the refreshed token for any future
       // dispatch reading through it.
-      expect(conn.getCurrentMode().kind).toBe('cloud');
+      expect(conn.getCurrentMode().kind).toBe('self-hosted');
       expect(conn.getCurrentMode().token).toBe('fresh-jwt');
 
       conn.close();
     });
 
-    test('cloud reconnect: abort decision halts reconnect and propagates auth error', async () => {
+    test('reconnect: abort decision halts reconnect and propagates auth error', async () => {
       const cbs = makeCallbacks();
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
         cbs,
         async () => ({
           kind: 'abort',
@@ -647,7 +647,7 @@ describe('RelayConnection', () => {
       expect(instances.length).toBe(1);
     });
 
-    test('cloud reconnect: onClose fires once per lifecycle on non-abort reconnect', async () => {
+    test('reconnect: onClose fires once per lifecycle on non-abort reconnect', async () => {
       // Sibling of the abort test above: this pins the invariant
       // that a reconnect-with-refresh cycle produces exactly ONE
       // onClose notification (with authError undefined), not two.
@@ -657,7 +657,7 @@ describe('RelayConnection', () => {
       // two entries in closeCalls after a 4001 → refreshed cycle.
       const cbs = makeCallbacks();
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
         cbs,
         async () => ({ kind: 'refreshed', token: 'fresh-jwt' }),
       );
@@ -687,10 +687,10 @@ describe('RelayConnection', () => {
       // decision so the worker surfaces a sign-in prompt.
       const cbs = makeCallbacks();
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'old-jwt' },
         cbs,
         async () => {
-          throw new Error('cloud sign-in returned incomplete payload');
+          throw new Error('reconnect hook returned incomplete payload');
         },
       );
 
@@ -708,17 +708,17 @@ describe('RelayConnection', () => {
       const authError = cbs.closeCalls[0].authError;
       expect(typeof authError).toBe('string');
       expect(authError ?? '').toContain(
-        'cloud sign-in returned incomplete payload',
+        'reconnect hook returned incomplete payload',
       );
 
       expect(conn.isOpen()).toBe(false);
     });
 
-    test('cloud reconnect: keep decision reuses the existing token', async () => {
+    test('reconnect: keep decision reuses the existing token', async () => {
       const cbs = makeCallbacks();
       let refreshCalls = 0;
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'still-good' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'still-good' },
         cbs,
         async () => {
           refreshCalls += 1;
@@ -743,7 +743,7 @@ describe('RelayConnection', () => {
       const cbs = makeCallbacks();
       const seen: RelayReconnectContext[] = [];
       const conn = makeConn(
-        { kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 't' },
+        { kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 't' },
         cbs,
         async (ctx) => {
           seen.push(ctx);
@@ -777,10 +777,10 @@ describe('RelayConnection', () => {
       expect(instances.length).toBe(1);
       expect(instances[0].url).toContain('ws://127.0.0.1');
 
-      conn.setMode({ kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'cloud-jwt' });
+      conn.setMode({ kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'cloud-jwt' });
 
       // Old socket was closed by the caller; new one was constructed
-      // against the cloud URL.
+      // against the new URL.
       expect(instances[0].closeCallsByCaller.length).toBe(1);
       expect(instances.length).toBe(2);
       expect(instances[1].url).toBe(
@@ -799,8 +799,8 @@ describe('RelayConnection', () => {
       conn.start();
       expect(conn.getCurrentMode().kind).toBe('self-hosted');
 
-      conn.setMode({ kind: 'cloud', baseUrl: 'https://api.vellum.ai', token: 'c' });
-      expect(conn.getCurrentMode().kind).toBe('cloud');
+      conn.setMode({ kind: 'self-hosted', baseUrl: 'https://api.vellum.ai', token: 'c' });
+      expect(conn.getCurrentMode().kind).toBe('self-hosted');
 
       conn.close();
     });
@@ -818,11 +818,11 @@ describe('RelayConnection', () => {
       const oldSocket = instances[0];
 
       // Switch modes mid-flight: the helper closes socket A (oldSocket)
-      // and constructs socket B (newSocket) for the cloud gateway. We
+      // and constructs socket B (newSocket) for the new mode. We
       // keep newSocket in CONNECTING so we can observe the state that
       // would be disturbed by a stale close event.
       conn.setMode({
-        kind: 'cloud',
+        kind: 'self-hosted',
         baseUrl: 'https://api.vellum.ai',
         token: 'cloud-jwt',
       });
@@ -831,7 +831,7 @@ describe('RelayConnection', () => {
       expect(newSocket.url).toBe(
         'wss://api.vellum.ai/v1/browser-relay?token=cloud-jwt',
       );
-      expect(conn.getCurrentMode().kind).toBe('cloud');
+      expect(conn.getCurrentMode().kind).toBe('self-hosted');
 
       // Now simulate the asynchronous close event that socket A fires
       // after setMode already re-pointed this.ws at socket B. The
@@ -890,9 +890,9 @@ describe('RelayConnection', () => {
       // Switch modes before the reconnect timer fires. setMode must
       // flush the single pending onClose with the ORIGINAL 1006
       // code/reason (not 1000 / 'mode switched'), then tear down
-      // the old socket and construct a new one for the cloud mode.
+      // the old socket and construct a new one for the new mode.
       conn.setMode({
-        kind: 'cloud',
+        kind: 'self-hosted',
         baseUrl: 'https://api.vellum.ai',
         token: 'cloud-jwt',
       });
@@ -902,7 +902,7 @@ describe('RelayConnection', () => {
       expect(cbs.closeCalls[0].reason).toBe('abnormal');
       expect(cbs.closeCalls[0].authError).toBeUndefined();
 
-      // New socket was constructed for the cloud mode.
+      // New socket was constructed for the new mode.
       expect(instances.length).toBe(2);
       expect(instances[1].url).toBe(
         'wss://api.vellum.ai/v1/browser-relay?token=cloud-jwt',
@@ -1123,7 +1123,7 @@ describe('RelayConnection', () => {
 
         // Switch modes — keepalive for the old socket should stop.
         conn.setMode({
-          kind: 'cloud',
+          kind: 'self-hosted',
           baseUrl: 'https://api.vellum.ai',
           token: 'cloud-jwt',
         });

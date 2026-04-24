@@ -130,9 +130,6 @@ const EXCLUDED_FROM_SCHEMA = new Set([
 
   // Runtime proxy catch-all — documented as /{path} in the schema
   "catch-all",
-
-  // Internal-only endpoint called by the platform via vembda — not public API
-  "/v1/internal/oauth/chrome-extension/token",
 ]);
 
 // ── Schema paths that don't map to a discrete route definition ──

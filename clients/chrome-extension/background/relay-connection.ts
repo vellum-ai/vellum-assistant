@@ -1,13 +1,9 @@
 /**
  * Relay WebSocket connection helper.
  *
- * Shares the open/close/reconnect lifecycle between the two relay
- * transports:
- *
- *   - `self-hosted` — ws://127.0.0.1:<port>/v1/browser-relay, token minted
- *     by the local daemon.
- *   - `cloud`       — wss://<cloud-gateway>/v1/browser-relay, token from
- *     the cloud OAuth flow (see cloud-auth.ts).
+ * Manages the open/close/reconnect lifecycle for the self-hosted relay
+ * transport: ws://127.0.0.1:<port>/v1/browser-relay, token minted by
+ * the local daemon.
  *
  * The class only knows how to open the socket, forward incoming messages
  * to the caller, and reconnect after unexpected closes. It does NOT parse
@@ -17,9 +13,9 @@
  * This module also exports {@link postHostBrowserResult}, the relay-aware
  * helper used by the host-browser dispatcher to ship CDP result envelopes
  * back to the daemon. It prefers sending result envelopes over the live
- * `/v1/browser-relay` WebSocket for both self-hosted and cloud sessions,
- * with a self-hosted-only HTTP fallback to `/v1/host-browser-result` when
- * no open socket is available — see the function docstring for details.
+ * `/v1/browser-relay` WebSocket, with an HTTP fallback to
+ * `/v1/host-browser-result` when no open socket is available — see the
+ * function docstring for details.
  */
 
 import type {
@@ -50,19 +46,16 @@ const NORMAL_CLOSE_CODES = new Set([1000, 1001]);
  * Connection mode with the corresponding base URL + bearer token. The
  * base URL is normalised by {@link RelayConnection.buildUrl}: any
  * `http(s)://` scheme is rewritten to `ws(s)://` and a trailing slash is
- * stripped. Pass the daemon's HTTP origin for self-hosted mode and the
- * cloud gateway's HTTPS origin for cloud mode — the class figures out
+ * stripped. Pass the daemon's HTTP origin — the class figures out
  * the WebSocket scheme.
  */
-export type RelayMode =
-  | { kind: 'self-hosted'; baseUrl: string; token: string | null }
-  | { kind: 'cloud'; baseUrl: string; token: string | null };
+export type RelayMode = { kind: 'self-hosted'; baseUrl: string; token: string | null };
 
 /**
  * Context passed to {@link RelayConnectionDeps.onReconnect}. Includes the
  * close code / reason so the handler can tell an authentication failure
  * (e.g. expired JWT closed with a 4001 policy code) apart from a
- * transient network blip — the cloud refresh path uses this to decide
+ * transient network blip — the refresh path uses this to decide
  * whether to force a non-interactive OAuth renewal.
  */
 export interface RelayReconnectContext {
@@ -95,7 +88,7 @@ export interface RelayConnectionDeps {
   /**
    * Mode + token. The token is pre-fetched by the caller (so the caller
    * can decide whether to skip the connection entirely when there's no
-   * token yet, e.g. before cloud sign-in or before self-hosted pairing).
+   * token yet, e.g. before self-hosted pairing).
    */
   mode: RelayMode;
   /**
@@ -132,7 +125,7 @@ export interface RelayConnectionDeps {
    *     - `null` / `undefined` is treated as `{ kind: 'keep' }`.
    *   - A {@link RelayReconnectDecision}, which additionally lets the
    *     hook abort the reconnect loop entirely when refresh is
-   *     impossible (e.g. the cloud OAuth flow can no longer renew
+   *     impossible (e.g. the token refresh flow can no longer renew
    *     non-interactively and the user must sign in again).
    *
    * The {@link RelayReconnectContext} argument carries the close code
@@ -434,13 +427,13 @@ export class RelayConnection {
   /**
    * Unexpected close path: give the caller a chance to refresh the
    * token (e.g. the self-hosted daemon rotated its edge JWT, or the
-   * cloud OAuth flow expired) before the next connect attempt.
+   * token expired) before the next connect attempt.
    *
    * The close `code` / `reason` are forwarded as a
    * {@link RelayReconnectContext} so the handler can tell an
    * auth-failure close (4001/4002/4003/1008, or 1006 when the
    * pre-upgrade HTTP 401 surfaces as abnormal closure) apart from a
-   * transient network drop. For auth-failure closes in cloud mode the
+   * transient network drop. For auth-failure closes the
    * handler returns `{ kind: 'abort' }` when refresh is impossible —
    * we stop the reconnect loop, mark the connection closed, and
    * surface the error through `onClose` so the popup UI can prompt
@@ -503,7 +496,7 @@ export class RelayConnection {
         }
       }
       if (decision.kind === 'abort') {
-        // Refresh is impossible (e.g. cloud token expired and
+        // Refresh is impossible (e.g. token expired and
         // non-interactive renewal failed, or the refresh hook threw).
         // Stop reconnecting and surface the error via onClose so the
         // worker can push an actionable message into chrome.storage
@@ -574,7 +567,7 @@ function normaliseReconnectResult(
 // The host-browser dispatcher needs a way to ship CDP result envelopes
 // back to the daemon.
 //
-// Preferred path (self-hosted + cloud): send a `host_browser_result`
+// Preferred path: send a `host_browser_result`
 // frame over the live browser-relay WebSocket.
 //
 // Fallback path (self-hosted only): POST to the local daemon's
@@ -673,7 +666,7 @@ export function postHostBrowserSessionInvalidated(
 /**
  * Ship a host_browser result envelope back to the daemon.
  *
- * Preferred path (both cloud + self-hosted): send a
+ * Preferred path: send a
  * `{ type: 'host_browser_result', ...result }` frame over the supplied
  * relay WebSocket when it is currently open.
  *
@@ -697,45 +690,23 @@ export async function postHostBrowserResult(
       if (delivered) {
         return;
       }
-      if (mode.kind === 'cloud') {
-        // Cloud has no HTTP fallback path — keep existing drop semantics.
-        console.warn(
-          '[vellum-relay] host-browser-result dropped: cloud relay not connected',
-        );
-        return;
-      }
-      // Self-hosted: if send() reports not delivered, fall back to
-      // loopback POST. This covers the race where a close lands between
-      // caller-side isOpen() and actual send.
+      // If send() reports not delivered, fall back to loopback POST.
+      // This covers the race where a close lands between caller-side
+      // isOpen() and actual send.
       console.warn(
-        '[vellum-relay] host-browser-result relay send was not delivered in self-hosted mode; falling back to HTTP POST',
+        '[vellum-relay] host-browser-result relay send was not delivered; falling back to HTTP POST',
       );
     } catch (err) {
-      if (mode.kind === 'cloud') {
-        // Cloud has no HTTP fallback path — keep existing drop semantics.
-        console.warn(
-          '[vellum-relay] host-browser-result dropped: cloud relay send failed',
-          err,
-        );
-        return;
-      }
-      // Self-hosted can fall back to loopback POST when WS send races
-      // with disconnect/worker suspension.
+      // Fall back to loopback POST when WS send races with
+      // disconnect/worker suspension.
       console.warn(
-        '[vellum-relay] host-browser-result WS send failed in self-hosted mode; falling back to HTTP POST',
+        '[vellum-relay] host-browser-result WS send failed; falling back to HTTP POST',
         err,
       );
     }
   }
 
-  if (mode.kind === 'cloud') {
-    console.warn(
-      '[vellum-relay] host-browser-result dropped: cloud relay not connected',
-    );
-    return;
-  }
-
-  // self-hosted: POST to the local daemon. The base URL is whatever
+  // POST to the local daemon. The base URL is whatever
   // `buildRelayModeConfig` resolved at connect time (usually
   // `http://127.0.0.1:<port>`).
   const headers: Record<string, string> = { 'content-type': 'application/json' };
