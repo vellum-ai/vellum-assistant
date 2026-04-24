@@ -42,6 +42,7 @@ public struct ToolConfirmationData: Equatable {
     public let diff: ConfirmationRequestDiff?
     public let allowlistOptions: [ConfirmationRequestAllowlistOption]
     public let scopeOptions: [ConfirmationRequestScopeOption]
+    public let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -578,7 +579,7 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -587,6 +588,7 @@ public struct ToolConfirmationData: Equatable {
         self.diff = diff
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
+        self.directoryScopeOptions = directoryScopeOptions
         self.executionTarget = executionTarget
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.temporaryOptionsAvailable = temporaryOptionsAvailable
@@ -884,6 +886,8 @@ public struct ToolCallData: Identifiable, Equatable {
     public var riskReason: String?
     /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
     public var riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Directory scope options ladder for the rule editor (scope + label pairs, narrowest to broadest).
+    public var riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
     /// Working directory for this tool call (extracted from confirmation scope options).
     /// Persists after pendingConfirmation is cleared so the rule editor modal can use it.
     public var workingDir: String?
