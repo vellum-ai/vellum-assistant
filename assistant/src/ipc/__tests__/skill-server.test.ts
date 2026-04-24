@@ -35,7 +35,7 @@ afterEach(() => {
 
 async function startServerAt(socketPath: string): Promise<SkillIpcServer> {
   const srv = new SkillIpcServer({ socketPath });
-  srv.start();
+  await srv.start();
   // Give the listener a tick to bind.
   await new Promise((resolve) => setTimeout(resolve, 50));
   return srv;

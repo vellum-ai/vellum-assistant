@@ -32,11 +32,11 @@ let tempDir: string | null = null;
 let server: SkillIpcServer | null = null;
 let socketPath = "";
 
-beforeEach(() => {
+beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "events-ipc-test-"));
   socketPath = join(tempDir, "assistant-skill.sock");
   server = new SkillIpcServer({ socketPath });
-  server.start();
+  await server.start();
 });
 
 afterEach(async () => {
