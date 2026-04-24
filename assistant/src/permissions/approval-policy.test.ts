@@ -180,7 +180,7 @@ describe("allow rule", () => {
 describe("sandbox auto-approve", () => {
   test("bash + hasSandboxAutoApprove + containerized → allow", () => {
     const result = evaluate({
-      riskLevel: RiskLevel.High,
+      riskLevel: RiskLevel.Low,
       toolName: "bash",
       hasSandboxAutoApprove: true,
       isContainerized: true,
@@ -202,17 +202,16 @@ describe("sandbox auto-approve", () => {
     expect(result.reason).toContain("sandbox auto-approve");
   });
 
-  test("bash + hasSandboxAutoApprove + not containerized + High risk → allow (path resolution validated upstream)", () => {
+  test("bash + hasSandboxAutoApprove + High risk → blocked by default threshold", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
       hasSandboxAutoApprove: true,
       isContainerized: false,
     });
-    // Even at High risk, hasSandboxAutoApprove === true means the checker already
-    // validated that all path arguments are within the workspace root.
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("sandbox auto-approve");
+    // High risk is outside the default "low" threshold, so sandbox auto-approve
+    // does not fire. Falls through to risk-based evaluation → prompt.
+    expect(result.decision).toBe("prompt");
   });
 
   test("host_bash + hasSandboxAutoApprove + containerized → falls through", () => {
@@ -241,13 +240,38 @@ describe("sandbox auto-approve", () => {
     expect(result.reason).toContain("high risk");
   });
 
-  test("sandbox auto-approve fires even for High risk commands", () => {
-    // e.g. rm -rf in a container — should be auto-approved
+  test("sandbox auto-approve fires for High risk commands when threshold allows", () => {
+    // e.g. rm -rf in a container where the user has set autoApproveUpTo: "high"
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
       hasSandboxAutoApprove: true,
       isContainerized: true,
+      autoApproveUpTo: "high",
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("sandbox auto-approve");
+  });
+
+  test("sandbox auto-approve blocked when autoApproveUpTo is 'none' (Strict mode override)", () => {
+    // Per-conversation Strict override: threshold = none → no commands auto-approved.
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+      autoApproveUpTo: "none",
+    });
+    expect(result.decision).toBe("prompt");
+  });
+
+  test("sandbox auto-approve still works when autoApproveUpTo is 'low'", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+      autoApproveUpTo: "low",
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("sandbox auto-approve");

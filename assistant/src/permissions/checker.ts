@@ -631,16 +631,14 @@ export async function classifyRisk(
   }
   riskCache.set(cacheKey, result);
 
-  // Store a RiskAssessment-shaped entry in the assessment cache so
-  // generateAllowlistOptions() can retrieve gateway-produced options.
-  // Note: RiskAssessment.scopeOptions uses the risk-types ScopeOption
-  // (pattern/label) which differs from the gateway's ScopeOption
-  // (scope/label). Since the assessment cache is only consulted for
-  // allowlistOptions, we pass an empty scopeOptions array.
+  // Store a RiskAssessment-shaped entry in the assessment cache so that
+  // generateAllowlistOptions() can retrieve gateway-produced allowlistOptions
+  // and permission-checker.ts can populate riskScopeOptions for the Rule
+  // Editor Modal via cachedAssessment.scopeOptions.
   const assessment: RiskAssessment = {
     riskLevel: gatewayResult.risk === "unknown" ? "medium" : gatewayResult.risk,
     reason: gatewayResult.reason,
-    scopeOptions: [],
+    scopeOptions: gatewayResult.scopeOptions ?? [],
     matchType: gatewayResult.matchType ?? "unknown",
     allowlistOptions: gatewayResult.allowlistOptions,
   };

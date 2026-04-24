@@ -555,6 +555,33 @@ describe("Permission Checker (gateway IPC)", () => {
       const assessment = getCachedAssessment("bash", { command: "not-cached" });
       expect(assessment).toBeUndefined();
     });
+
+    test("preserves scopeOptions from gateway result in cached assessment", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "Registry match",
+        matchType: "registry",
+        scopeOptions: [
+          { pattern: "echo *", label: "only 'echo' commands" },
+          { pattern: ".*", label: "everywhere" },
+        ],
+        allowlistOptions: [],
+      };
+
+      await classifyRisk("bash", { command: "echo hello" });
+
+      const assessment = getCachedAssessment("bash", { command: "echo hello" });
+      expect(assessment).toBeDefined();
+      expect(assessment!.scopeOptions).toHaveLength(2);
+      expect(assessment!.scopeOptions[0]).toEqual({
+        pattern: "echo *",
+        label: "only 'echo' commands",
+      });
+      expect(assessment!.scopeOptions[1]).toEqual({
+        pattern: ".*",
+        label: "everywhere",
+      });
+    });
   });
 
   // ── generateScopeOptions (kept in checker.ts) ─────────────────────────────

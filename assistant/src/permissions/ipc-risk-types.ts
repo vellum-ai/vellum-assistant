@@ -6,7 +6,8 @@
  * Keep them in sync when the gateway response evolves.
  */
 
-import type { AllowlistOption, ScopeOption } from "./types.js";
+import type { AllowlistOption } from "./types.js";
+import type { ScopeOption } from "./risk-types.js";
 
 // ── Dangerous pattern (mirrors gateway wire format) ─────────────────────────
 

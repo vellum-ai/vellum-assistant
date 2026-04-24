@@ -205,13 +205,16 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
 
     // ── 3. Sandbox auto-approve: bash + allowlisted → allow ──
     // Only fires in workspace mode — strict mode always requires explicit rules.
+    // Respects the autoApproveUpTo threshold: if the user has set "none" (Strict
+    // per-conversation override), sandbox auto-approve is suppressed.
     // Path resolution is baked into `hasSandboxAutoApprove` upstream:
     // containerized environments skip path checks (entire fs is workspace),
     // non-containerized environments validate all path args against workspace root.
     if (
       permissionsMode === "workspace" &&
       toolName === "bash" &&
-      hasSandboxAutoApprove === true
+      hasSandboxAutoApprove === true &&
+      isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
     ) {
       return {
         decision: "allow",
