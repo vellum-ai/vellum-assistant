@@ -7,11 +7,14 @@
  */
 
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 
 import { parseArgs } from "../risk/arg-parser.js";
-import { bashRiskClassifier } from "../risk/bash-risk-classifier.js";
+import {
+  bashRiskClassifier,
+  getWrappedProgramWithArgs,
+} from "../risk/bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry.js";
 import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
@@ -97,6 +100,20 @@ interface ClassificationResult {
   sandboxAutoApprove?: boolean;
   directoryScopeOptions?: DirectoryScopeOption[];
   matchType: string;
+}
+
+// ── Registry spec lookup ────────────────────────────────────────────────────
+
+/**
+ * Look up a `CommandRiskSpec` by program name, stripping any path prefix
+ * (e.g. `/usr/bin/rm` → `rm`). Uses `Object.hasOwn` so prototype entries
+ * like `toString` don't spuriously match.
+ */
+function lookupSpec(program: string): CommandRiskSpec | undefined {
+  const name = program.split("/").pop() ?? program;
+  return Object.hasOwn(DEFAULT_COMMAND_REGISTRY, name)
+    ? DEFAULT_COMMAND_REGISTRY[name as keyof typeof DEFAULT_COMMAND_REGISTRY]
+    : undefined;
 }
 
 // ── Path-within-workspace check ─────────────────────────────────────────────
@@ -212,42 +229,94 @@ export async function handleClassifyRisk(
       }
 
       // Detect complex syntax and collect filesystem-op path args for the
-      // directory scope ladder. Walks every segment once; a segment may
-      // contribute to both checks independently.
+      // directory scope ladder. Walks every segment left-to-right, tracking
+      // a per-segment "current cwd" that advances through simple `cd <dir>`
+      // segments so relative path args in later segments resolve against
+      // the right directory (e.g. `cd /tmp && rm foo` scopes `foo` to
+      // `/tmp/foo`, not `<initial workingDir>/foo`).
+      //
+      // Wrapper segments (e.g. `sudo rm -rf foo`, `env cp a b`) are unwrapped
+      // before the filesystem-op check so the inner command's spec and
+      // argSchema are used.
       const parsed = await cachedParse(command);
       let isComplexSyntax = false;
       let hasFilesystemOp = false;
       const fsPathArgs = new Set<string>();
+      let trackedCwd = workingDir;
       for (const seg of parsed.segments) {
-        const name = seg.program.split("/").pop() ?? seg.program;
-        const spec: CommandRiskSpec | undefined = Object.hasOwn(
-          DEFAULT_COMMAND_REGISTRY,
-          name,
-        )
-          ? DEFAULT_COMMAND_REGISTRY[
-              name as keyof typeof DEFAULT_COMMAND_REGISTRY
-            ]
-          : undefined;
-        if (spec?.complexSyntax) {
+        // Unwrap wrappers iteratively so `sudo sudo rm foo` and
+        // `env sudo rm foo` both resolve to the innermost `rm`.
+        let effectiveProgram = seg.program;
+        let effectiveArgs = seg.args;
+        let effectiveSpec = lookupSpec(effectiveProgram);
+        const visited = new Set<string>();
+        while (
+          effectiveSpec?.isWrapper &&
+          !visited.has(effectiveProgram)
+        ) {
+          visited.add(effectiveProgram);
+          const inner = getWrappedProgramWithArgs({
+            program: effectiveProgram,
+            args: effectiveArgs,
+          });
+          if (!inner) break;
+          effectiveProgram = inner.program;
+          effectiveArgs = inner.args;
+          effectiveSpec = lookupSpec(effectiveProgram);
+        }
+
+        if (effectiveSpec?.complexSyntax) {
           isComplexSyntax = true;
         }
-        if (spec?.filesystemOp === true) {
+        if (effectiveSpec?.filesystemOp === true) {
           hasFilesystemOp = true;
-          const parsedArgs = parseArgs(seg.args, spec.argSchema ?? {});
+          const parsedArgs = parseArgs(
+            effectiveArgs,
+            effectiveSpec.argSchema ?? {},
+          );
           for (const p of parsedArgs.pathArgs) {
-            fsPathArgs.add(p);
+            // Pre-resolve relative path args against the current tracked
+            // cwd so scope ladder ancestors reflect cd-induced dir changes.
+            // Keep `~` / `~/...` as-is — `generateDirectoryScopeOptions`
+            // expands them itself and the tracked cwd doesn't affect that.
+            if (p === "~" || p.startsWith("~/") || p.startsWith("~")) {
+              fsPathArgs.add(p);
+            } else if (isAbsolute(p)) {
+              fsPathArgs.add(p);
+            } else {
+              fsPathArgs.add(resolve(trackedCwd, p));
+            }
+          }
+        }
+
+        // Advance tracked cwd for simple `cd <dir>` segments. Bail out
+        // (keep the current tracked cwd) for `cd` with no args, `cd -`,
+        // or `cd ~` forms — those require runtime state we don't have.
+        if (effectiveProgram === "cd") {
+          const positionals = effectiveArgs.filter((a) => !a.startsWith("-"));
+          if (positionals.length === 1) {
+            const target = positionals[0]!;
+            if (target === "-" || target === "~" || target.startsWith("~")) {
+              // Unsupported form — leave trackedCwd unchanged.
+            } else if (isAbsolute(target)) {
+              trackedCwd = resolve(target);
+            } else {
+              trackedCwd = resolve(trackedCwd, target);
+            }
           }
         }
       }
 
       // Emit directory scope ladder only when at least one segment is a
       // filesystem op. Empty pathArgs is still valid — PR 5 falls back to
-      // workingDir as the ancestor.
+      // workingDir as the ancestor. Use the final trackedCwd so the
+      // bare-command fallback and project-boundary walk reflect any
+      // cd-induced directory changes.
       let directoryScopeOptions: DirectoryScopeOption[] | undefined;
       if (hasFilesystemOp) {
         directoryScopeOptions = generateDirectoryScopeOptions({
           pathArgs: [...fsPathArgs],
-          workingDir,
+          workingDir: trackedCwd,
           workspaceRoot: params.workspaceRoot,
         });
       }

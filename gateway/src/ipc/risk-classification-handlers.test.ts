@@ -422,6 +422,73 @@ describe("directoryScopeOptions", () => {
     });
     expect(result.directoryScopeOptions).toBeUndefined();
   });
+
+  test("bash 'sudo rm -rf foo' unwraps wrapper and emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "sudo rm -rf foo",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'env rm file.txt' unwraps env wrapper and emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "env rm file.txt",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'cd /tmp && rm foo' resolves 'foo' under the cd-tracked cwd", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "cd /tmp && rm foo",
+      workingDir: "/home/user",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    // The exact-dir option must reference /tmp (or an ancestor of it),
+    // NOT the original /home/user workingDir.
+    const nonEverywhere = opts.filter((o) => o.scope !== "everywhere");
+    expect(nonEverywhere.length).toBeGreaterThan(0);
+    for (const opt of nonEverywhere) {
+      expect(opt.scope.startsWith("/home/user")).toBe(false);
+    }
+    // At least one scope should reference /tmp.
+    expect(
+      nonEverywhere.some(
+        (o) => o.scope === "/tmp/*" || o.scope.startsWith("/tmp/"),
+      ),
+    ).toBe(true);
+  });
+
+  test("bash 'sudo curl http://example' has no directoryScopeOptions (curl lacks filesystemOp even after unwrap)", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "sudo curl http://example.com",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
 });
 
 // ── Route registration ──────────────────────────────────────────────────────
