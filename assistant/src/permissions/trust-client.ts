@@ -9,7 +9,7 @@
  * assistant's own config/auth modules so the package stays transport-focused.
  */
 
-import type { TrustRule } from "@vellumai/ces-contracts";
+import type { TrustRule } from "@vellumai/service-contracts/trust-rules";
 import {
   type AcceptStarterBundleResult,
   TrustRulesClient,

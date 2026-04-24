@@ -12,7 +12,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { CES_PROTOCOL_VERSION } from "@vellumai/ces-contracts";
+import { CES_PROTOCOL_VERSION } from "@vellumai/service-contracts/credential-rpc";
 
 import {
   CesClientError,

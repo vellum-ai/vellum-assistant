@@ -1,4 +1,4 @@
-import { SCOPED_TOOLS } from "@vellumai/ces-contracts";
+import { SCOPED_TOOLS } from "@vellumai/service-contracts/trust-rules";
 
 import type { TrustRule } from "../permissions/types.js";
 

@@ -8,14 +8,15 @@
     ".": "./src/index.ts",
     "./http-credentials": "./src/http-credentials.ts",
     "./http-log-export": "./src/http-log-export.ts",
-    "./rpc-client": "./src/rpc-client.ts"
+    "./rpc-client": "./src/rpc-client.ts",
+    "./credential-rpc": "./src/credential-rpc.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test src/"
   },
   "dependencies": {
-    "@vellumai/ces-contracts": "file:../ces-contracts"
+    "@vellumai/service-contracts": "file:../service-contracts"
   },
   "devDependencies": {
     "@types/bun": "1.2.4",

@@ -7,7 +7,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { ruleScope } from "@vellumai/ces-contracts";
+import { ruleScope } from "@vellumai/service-contracts/trust-rules";
 
 import { getDb, initializeDb } from "../memory/db.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
