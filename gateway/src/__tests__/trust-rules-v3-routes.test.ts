@@ -2,14 +2,9 @@
  * Tests for gateway trust-rule v3 route handlers.
  *
  * Tests exercise the route handlers directly (not via the full HTTP server),
- * using an in-memory SQLite database initialized by initGatewayDb().
- *
- * Note: Feature flag gating tests are skipped because mocking
- * getMergedFeatureFlags() across module boundaries is complex. The flag
- * gating is tested implicitly via integration tests. All mutation tests
- * here run with the flag assumed to be enabled (the handlers are called
- * directly, bypassing the flag check path by design — see individual
- * test comments).
+ * using the SQLite database initialized by initGatewayDb() against a temp dir.
+ * The `permission-controls-v3` feature flag is enabled in beforeEach so the
+ * mutation handlers don't short-circuit with 403.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
@@ -25,6 +20,10 @@ import {
   createTrustRuleV3sDeleteHandler,
   createTrustRuleV3sResetHandler,
 } from "../http/routes/trust-rules-v3.js";
+import {
+  clearFeatureFlagStoreCache,
+  writeFeatureFlag,
+} from "../feature-flag-store.js";
 import "./test-preload.js";
 
 // ---------------------------------------------------------------------------
@@ -36,13 +35,18 @@ let store: TrustRuleV3Store;
 beforeEach(async () => {
   resetGatewayDb();
   resetTrustRuleV3Cache();
+  clearFeatureFlagStoreCache();
   await initGatewayDb();
   initTrustRuleV3Cache();
   store = new TrustRuleV3Store();
+
+  // Mutation handlers are gated behind this flag (403 otherwise).
+  writeFeatureFlag("permission-controls-v3", true);
 });
 
 afterEach(() => {
   resetTrustRuleV3Cache();
+  clearFeatureFlagStoreCache();
   resetGatewayDb();
 });
 
