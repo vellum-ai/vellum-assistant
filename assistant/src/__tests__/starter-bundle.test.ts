@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { ruleScope } from "@vellumai/ces-contracts";
+import { ruleScope } from "@vellumai/service-contracts/trust-rules";
 
 // Set up a temp directory before importing trust-store
 const TEST_ROOT = join(

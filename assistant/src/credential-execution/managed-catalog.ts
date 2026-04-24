@@ -9,7 +9,7 @@
  * and non-secret metadata (provider, account info, scopes, status).
  */
 
-import { platformOAuthHandle } from "@vellumai/ces-contracts";
+import { platformOAuthHandle } from "@vellumai/service-contracts/credential-rpc";
 
 import { VellumPlatformClient } from "../platform/client.js";
 import { getLogger } from "../util/logger.js";

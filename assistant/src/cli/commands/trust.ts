@@ -1,4 +1,4 @@
-import { ruleScope } from "@vellumai/ces-contracts";
+import { ruleScope } from "@vellumai/service-contracts/trust-rules";
 import type { Command } from "commander";
 
 import {

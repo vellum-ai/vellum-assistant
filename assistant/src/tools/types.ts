@@ -1,4 +1,4 @@
-import type { ApprovalRequired } from "@vellumai/ces-contracts";
+import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import type {
   DiffInfo,
   ExecutionTarget,

@@ -10,7 +10,7 @@
  * 4xx regressions, but fields invalid for a tool's family (e.g.
  * `executionTarget` on a URL-tool rule) are silently stripped.
  */
-import { SCOPED_TOOLS } from "@vellumai/ces-contracts";
+import { SCOPED_TOOLS } from "@vellumai/service-contracts/trust-rules";
 import { z } from "zod";
 
 import {

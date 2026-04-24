@@ -1,4 +1,4 @@
-import type { TrustRuleBase } from "@vellumai/ces-contracts";
+import type { TrustRuleBase } from "@vellumai/service-contracts/trust-rules";
 
 export type {
   AllowlistOption,
@@ -7,7 +7,7 @@ export type {
 export { RiskLevel } from "@vellumai/skill-host-contracts";
 
 /**
- * Re-exported TrustRule type from `@vellumai/ces-contracts`.
+ * Re-exported TrustRule type from `@vellumai/service-contracts`.
  *
  * The contracts package defines `TrustRule` as a discriminated union over tool
  * families (scoped, URL, managed-skill, skill-load, generic). Some variants

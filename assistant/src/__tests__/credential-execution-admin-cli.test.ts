@@ -22,7 +22,7 @@ import type {
   ListGrantsResponse,
   PersistentGrantRecord,
   RevokeGrantResponse,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 import { Command } from "commander";
 
 // ---------------------------------------------------------------------------

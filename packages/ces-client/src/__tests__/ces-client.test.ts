@@ -12,7 +12,7 @@ import { describe, expect, test, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { CES_PROTOCOL_VERSION } from "@vellumai/ces-contracts";
+import { CES_PROTOCOL_VERSION } from "@vellumai/service-contracts/credential-rpc";
 
 import { createCesHttpCredentialClient } from "../http-credentials.js";
 import type { CesHttpLogger, CesHttpCredentialConfig } from "../http-credentials.js";
@@ -36,6 +36,7 @@ describe("package independence", () => {
     "../http-credentials.ts",
     "../http-log-export.ts",
     "../rpc-client.ts",
+    "../credential-rpc.ts",
   ];
 
   for (const file of sourceFiles) {
