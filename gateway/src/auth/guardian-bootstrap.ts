@@ -11,6 +11,11 @@ import { join } from "node:path";
 
 import { Database } from "bun:sqlite";
 
+import { getGatewayDb } from "../db/connection.js";
+import {
+  contacts as gwContacts,
+  contactChannels as gwContactChannels,
+} from "../db/schema.js";
 import { getLogger } from "../logger.js";
 import { getWorkspaceDir } from "../paths.js";
 
@@ -170,6 +175,7 @@ function createVellumGuardianBinding(
   const contactId = uuid();
   const channelId = uuid();
 
+  // --- Assistant DB write (primary) ---
   db.exec("BEGIN IMMEDIATE");
   try {
     db.run(
@@ -197,6 +203,48 @@ function createVellumGuardianBinding(
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
+  }
+
+  // --- Gateway DB dual-write (best-effort) ---
+  try {
+    const gwDb = getGatewayDb();
+    gwDb
+      .insert(gwContacts)
+      .values({
+        id: contactId,
+        displayName: guardianPrincipalId,
+        role: "guardian",
+        principalId: guardianPrincipalId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+
+    gwDb
+      .insert(gwContactChannels)
+      .values({
+        id: channelId,
+        contactId,
+        type: "vellum",
+        address: guardianPrincipalId,
+        externalUserId: guardianPrincipalId,
+        externalChatId: "local",
+        isPrimary: true,
+        status: "active",
+        policy: "allow",
+        verifiedAt: now,
+        verifiedVia: "bootstrap",
+        interactionCount: 0,
+        createdAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  } catch (gwErr) {
+    log.warn(
+      { err: gwErr },
+      "Failed to dual-write guardian binding to gateway DB",
+    );
   }
 
   log.info(
