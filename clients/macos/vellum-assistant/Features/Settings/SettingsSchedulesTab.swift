@@ -57,7 +57,8 @@ struct SettingsSchedulesTab: View {
 
     @ViewBuilder
     private var header: some View {
-        let total = schedules.count + systemTaskCount
+        let scheduleCount = loadError != nil ? 0 : schedules.count
+        let total = scheduleCount + systemTaskCount
         Text("\(total) Scheduled Job\(total == 1 ? "" : "s")")
             .font(VFont.titleSmall)
             .foregroundStyle(VColor.contentDefault)
@@ -77,14 +78,16 @@ struct SettingsSchedulesTab: View {
         if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 120)
-        } else if let error = loadError {
-            errorView(error)
         } else if schedules.isEmpty && heartbeatConfig == nil && filingConfig == nil {
-            VEmptyState(
-                title: "No schedules",
-                subtitle: "Schedules you create through conversation will appear here.",
-                icon: VIcon.clock.rawValue
-            )
+            if let error = loadError {
+                errorView(error)
+            } else {
+                VEmptyState(
+                    title: "No schedules",
+                    subtitle: "Schedules you create through conversation will appear here.",
+                    icon: VIcon.clock.rawValue
+                )
+            }
         } else {
             scheduleList
         }
@@ -93,8 +96,12 @@ struct SettingsSchedulesTab: View {
     @ViewBuilder
     private var scheduleList: some View {
         VStack(spacing: VSpacing.sm) {
-            ForEach(schedules, id: \.id) { schedule in
-                scheduleRow(schedule)
+            if let error = loadError {
+                errorView(error)
+            } else {
+                ForEach(schedules, id: \.id) { schedule in
+                    scheduleRow(schedule)
+                }
             }
 
             if heartbeatConfig != nil || filingConfig != nil {
@@ -150,8 +157,7 @@ struct SettingsSchedulesTab: View {
 
             if expandedScheduleId == schedule.id {
                 scheduleEditSection(schedule)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.bottom, VSpacing.md)
+                    .padding(EdgeInsets(top: 0, leading: VSpacing.md, bottom: VSpacing.md, trailing: VSpacing.md))
             }
         }
         .background(VColor.surfaceBase)
@@ -559,8 +565,13 @@ struct SettingsSchedulesTab: View {
     }
 
     private func filingSubtitle(_ config: FilingConfigResponse) -> String {
-        let interval = Int(config.intervalMs / 60_000)
-        var subtitle = "Every \(interval) min"
+        let minutes = Int(config.intervalMs / 60_000)
+        var subtitle: String
+        if minutes >= 60 && minutes % 60 == 0 {
+            subtitle = "Every \(minutes / 60) hr"
+        } else {
+            subtitle = "Every \(minutes) min"
+        }
         if let start = config.activeHoursStart, let end = config.activeHoursEnd {
             subtitle += " (\(Int(start)):00\u{2013}\(Int(end)):00)"
         }
