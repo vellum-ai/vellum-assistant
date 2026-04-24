@@ -24,7 +24,6 @@ import {
   getBrowserRelayWebsocketHandlers,
   type BrowserRelaySocketData,
 } from "./http/routes/browser-relay-websocket.js";
-import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
@@ -282,10 +281,6 @@ async function main() {
       credentials: credentialCache,
       configFile: configFileCache,
     });
-  const handleTelegramDeliver = createTelegramDeliverHandler(config, {
-    credentials: credentialCache,
-    configFile: configFileCache,
-  });
   const isTelegramConfigured = () => telegramReady;
   const isWhatsAppConfigured = () => whatsappReady;
 
@@ -496,12 +491,6 @@ async function main() {
     },
 
     // ── Deliver routes (token-tracked) ──
-    {
-      path: "/deliver/telegram",
-      precondition: requireTelegram,
-      auth: "track-failures",
-      handler: (req) => handleTelegramDeliver(req),
-    },
     {
       path: "/deliver/slack",
       precondition: requireSlack,

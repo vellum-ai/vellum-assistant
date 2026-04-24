@@ -12,9 +12,8 @@
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import { getGatewayInternalBaseUrl } from "../../../config/env.js";
+import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
 import { getLogger } from "../../../util/logger.js";
-import { mintDaemonDeliveryToken } from "../../auth/token-service.js";
 import {
   bindSessionIdentity,
   createOutboundSession,
@@ -108,7 +107,7 @@ export async function handleBootstrapIntercept(
     },
   );
 
-  // Deliver verification Telegram message via the gateway (fire-and-forget)
+  // Deliver verification Telegram message directly (fire-and-forget)
   deliverBootstrapVerificationTelegram(
     conversationExternalId,
     telegramBody,
@@ -141,43 +140,26 @@ function deliverBootstrapVerificationTelegram(
   assistantId: string,
 ): void {
   const attemptDelivery = async (): Promise<boolean> => {
-    const gatewayUrl = getGatewayInternalBaseUrl();
-    const bearerToken = mintDaemonDeliveryToken();
-    const url = `${gatewayUrl}/deliver/telegram`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${bearerToken}`,
-      },
-      body: JSON.stringify({ chatId, text, assistantId }),
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "<unreadable>");
-      log.error(
-        { chatId, assistantId, status: resp.status, body },
-        "Gateway /deliver/telegram failed for bootstrap verification",
-      );
-      return false;
-    }
-    return true;
-  };
-
-  (async () => {
     try {
-      const delivered = await attemptDelivery();
-      if (delivered) {
-        log.info(
-          { chatId, assistantId },
-          "Bootstrap verification Telegram message delivered",
-        );
-        return;
-      }
+      await sendTelegramReply(chatId, text);
+      return true;
     } catch (err) {
       log.error(
         { err, chatId, assistantId },
         "Failed to deliver bootstrap verification Telegram message",
       );
+      return false;
+    }
+  };
+
+  (async () => {
+    const delivered = await attemptDelivery();
+    if (delivered) {
+      log.info(
+        { chatId, assistantId },
+        "Bootstrap verification Telegram message delivered",
+      );
+      return;
     }
 
     // Self-retry after a short delay. The gateway deduplicates inbound
@@ -185,23 +167,16 @@ function deliverBootstrapVerificationTelegram(
     // user re-clicking the deep link may never arrive. This ensures
     // delivery is re-attempted even without a gateway duplicate.
     setTimeout(async () => {
-      try {
-        const delivered = await attemptDelivery();
-        if (delivered) {
-          log.info(
-            { chatId, assistantId },
-            "Bootstrap verification Telegram message delivered on self-retry",
-          );
-        } else {
-          log.error(
-            { chatId, assistantId },
-            "Bootstrap verification Telegram self-retry also failed",
-          );
-        }
-      } catch (retryErr) {
+      const retried = await attemptDelivery();
+      if (retried) {
+        log.info(
+          { chatId, assistantId },
+          "Bootstrap verification Telegram message delivered on self-retry",
+        );
+      } else {
         log.error(
-          { err: retryErr, chatId, assistantId },
-          "Bootstrap verification Telegram self-retry threw; giving up",
+          { chatId, assistantId },
+          "Bootstrap verification Telegram self-retry also failed",
         );
       }
     }, 3000);

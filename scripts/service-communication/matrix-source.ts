@@ -395,16 +395,17 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   {
     label: "Channel reply delivery (Telegram)",
     caller: "assistant",
-    callee: "gateway",
+    callee: "telegram",
     protocol: "http",
-    auth: "JWT Bearer (daemon delivery token)",
+    auth: "Bot token from secure store",
     description:
-      "Assistant delivers reply messages to Telegram chats via the gateway's /deliver/telegram endpoint.",
+      "Assistant delivers reply messages to Telegram chats by calling the Bot API directly — no gateway proxy hop.",
     callerGlobs: [
-      "assistant/src/runtime/gateway-client.ts",
-      "assistant/src/notifications/adapters/telegram.ts",
+      "assistant/src/messaging/providers/telegram-bot/api.ts",
+      "assistant/src/messaging/providers/telegram-bot/send.ts",
+      "assistant/src/messaging/providers/index.ts",
     ],
-    calleeGlobs: ["gateway/src/http/routes/telegram-deliver.ts"],
+    calleeGlobs: [],
   },
   {
     label: "Channel reply delivery (WhatsApp)",

@@ -3640,64 +3640,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/deliver/telegram": {
-        post: {
-          summary: "Telegram delivery (internal)",
-          description:
-            "Internal endpoint called by the assistant runtime to deliver outbound messages and attachments to a Telegram chat. Not intended for external use.",
-          operationId: "telegramDeliver",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/TelegramDeliverRequest" },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Message delivered",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/TelegramOk" },
-                },
-              },
-            },
-            "400": {
-              description: "Invalid JSON or missing required fields",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed (only POST accepted)",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to deliver message via Telegram API",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "503": {
-              description: "Telegram integration not configured",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/deliver/slack": {
         post: {
           summary: "Slack delivery (internal)",
@@ -4493,59 +4435,6 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
-          },
-        },
-        TelegramDeliverRequest: {
-          type: "object",
-          required: ["chatId"],
-          description:
-            "Request to deliver a message or chat action to a Telegram chat. At least one of `text`, `attachments`, or `chatAction` must be provided.",
-          properties: {
-            chatId: {
-              type: "string",
-              description: "Telegram chat ID to deliver the message to",
-            },
-            text: {
-              type: "string",
-              description: "Text content to send",
-              minLength: 1,
-            },
-            assistantId: {
-              type: "string",
-              description:
-                "Assistant ID (optional — attachments are downloaded via the assistant-less endpoint when omitted)",
-            },
-            chatAction: {
-              type: "string",
-              enum: ["typing"],
-              description:
-                "Optional Telegram chat action to emit (currently only `typing`)",
-            },
-            attachments: {
-              type: "array",
-              description:
-                "Attachments to deliver (images sent via sendPhoto, others via sendDocument)",
-              items: { $ref: "#/components/schemas/RuntimeAttachmentMeta" },
-              minItems: 1,
-            },
-          },
-          anyOf: [
-            { required: ["text"] },
-            { required: ["attachments"] },
-            { required: ["chatAction"] },
-          ],
-        },
-        RuntimeAttachmentMeta: {
-          type: "object",
-          required: ["id"],
-          description:
-            "Attachment metadata. Only `id` is required; missing fields are hydrated from the downloaded attachment data.",
-          properties: {
-            id: { type: "string" },
-            filename: { type: "string" },
-            mimeType: { type: "string" },
-            sizeBytes: { type: "integer" },
-            kind: { type: "string" },
           },
         },
         SlackDeliverRequest: {

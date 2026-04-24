@@ -1,22 +1,13 @@
 /**
  * Telegram Bot messaging provider adapter.
  *
- * Enables proactive outbound messaging to Telegram chats via the gateway's
- * /deliver/telegram endpoint. Unlike Slack/Gmail which use direct API calls
- * with OAuth tokens, Telegram delivery is proxied through the gateway which
- * owns the bot token and handles Telegram API retries.
- *
- * The `connection` parameter in MessagingProvider methods is unused
- * for Telegram because delivery is authenticated via the gateway's bearer
- * token, not a per-user OAuth token.
+ * Calls the Telegram Bot API directly — no gateway proxy hop.
  */
 
-import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
-import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
@@ -33,16 +24,6 @@ import type {
 } from "../../provider-types.js";
 import * as telegram from "./client.js";
 
-/** Resolve the gateway base URL. */
-function getGatewayUrl(): string {
-  return getGatewayInternalBaseUrl();
-}
-
-/** Mint a short-lived JWT for authenticating with the gateway. */
-function getBearerToken(): string {
-  return mintDaemonDeliveryToken();
-}
-
 /** Read the Telegram bot token from the credential vault. */
 async function getBotToken(): Promise<string | undefined> {
   return getSecureKeyAsync(credentialKey("telegram", "bot_token"));
@@ -54,17 +35,6 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   credentialService: "telegram",
   capabilities: new Set(["send"]),
 
-  /**
-   * Custom connectivity check using both the oauth_connection record AND
-   * actual stored credentials. The connection row alone can become stale
-   * if clearTelegramConfig() returns early on a secure-key deletion error
-   * without removing the row. Checking both ensures we don't report
-   * Telegram as connected when secrets are missing.
-   *
-   * Both bot_token and webhook_secret are required — the gateway's
-   * /deliver/telegram endpoint rejects requests without the webhook
-   * secret, so partial credentials would cause every send to fail.
-   */
   async isConnected(): Promise<boolean> {
     const conn = getConnectionByProvider("telegram");
     if (!(conn && conn.status === "active")) return false;
@@ -126,10 +96,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     text: string,
     _options?: SendOptions,
   ): Promise<SendResult> {
-    const gatewayUrl = getGatewayUrl();
-    const bearerToken = getBearerToken();
-
-    await telegram.sendMessage(gatewayUrl, bearerToken, conversationId, text);
+    await telegram.sendMessage(conversationId, text);
 
     // Upsert external conversation binding so deleted/reset syncs are
     // resurrected when an outbound message is sent. This ensures the
@@ -155,9 +122,6 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     };
   },
 
-  // Telegram Bot API does not support listing conversations. Bots only
-  // interact with chats where users have initiated contact or the bot
-  // has been added to a group.
   async listConversations(
     _connection?: OAuthConnection,
     _options?: ListOptions,
@@ -165,7 +129,6 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     return [];
   },
 
-  // Telegram Bot API does not provide message history retrieval.
   async getHistory(
     _connection: OAuthConnection | undefined,
     _conversationId: string,
@@ -174,7 +137,6 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     return [];
   },
 
-  // Telegram Bot API does not support message search.
   async search(
     _connection: OAuthConnection | undefined,
     _query: string,
