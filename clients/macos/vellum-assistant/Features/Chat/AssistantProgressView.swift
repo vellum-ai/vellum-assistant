@@ -750,6 +750,7 @@ private struct ToolCallStepDetailRow: View {
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
     private static let trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()
+    private static let trustRuleV3Client = TrustRuleV3Client()
 
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
         let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
@@ -845,13 +846,14 @@ private struct ToolCallStepDetailRow: View {
                     scopeOptions: Self.v3ScopeOptions(from: tc),
                     onSave: { rule in
                         Task {
-                            try? await Self.trustRuleClient.addTrustRule(
-                                toolName: rule.toolName,
+                            try? await Self.trustRuleV3Client.createRule(
+                                tool: rule.toolName,
                                 pattern: rule.pattern,
-                                scope: rule.scope,
-                                decision: "allow",
-                                executionTarget: nil,
-                                riskLevel: rule.riskLevel
+                                risk: rule.riskLevel,
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                }()
                             )
                         }
                     },
