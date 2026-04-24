@@ -10,9 +10,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { Database } from "bun:sqlite";
+import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
+  actorRefreshTokenRecords as gwActorRefreshTokenRecords,
+  actorTokenRecords as gwActorTokenRecords,
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
@@ -205,41 +208,41 @@ function createVellumGuardianBinding(
     throw err;
   }
 
-  // --- Gateway DB dual-write (best-effort) ---
+  // --- Gateway DB dual-write (best-effort, transactional) ---
   try {
     const gwDb = getGatewayDb();
-    gwDb
-      .insert(gwContacts)
-      .values({
-        id: contactId,
-        displayName: guardianPrincipalId,
-        role: "guardian",
-        principalId: guardianPrincipalId,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
+    gwDb.transaction((tx) => {
+      tx.insert(gwContacts)
+        .values({
+          id: contactId,
+          displayName: guardianPrincipalId,
+          role: "guardian",
+          principalId: guardianPrincipalId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
 
-    gwDb
-      .insert(gwContactChannels)
-      .values({
-        id: channelId,
-        contactId,
-        type: "vellum",
-        address: guardianPrincipalId,
-        externalUserId: guardianPrincipalId,
-        externalChatId: "local",
-        isPrimary: true,
-        status: "active",
-        policy: "allow",
-        verifiedAt: now,
-        verifiedVia: "bootstrap",
-        interactionCount: 0,
-        createdAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
+      tx.insert(gwContactChannels)
+        .values({
+          id: channelId,
+          contactId,
+          type: "vellum",
+          address: guardianPrincipalId,
+          externalUserId: guardianPrincipalId,
+          externalChatId: "local",
+          isPrimary: true,
+          status: "active",
+          policy: "allow",
+          verifiedAt: now,
+          verifiedVia: "bootstrap",
+          interactionCount: 0,
+          createdAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+    });
   } catch (gwErr) {
     log.warn(
       { err: gwErr },
@@ -265,14 +268,35 @@ function revokeActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
+  const now = Date.now();
   db.run(
     `UPDATE actor_token_records
      SET status = 'revoked', updated_at = ?
      WHERE guardian_principal_id = ?
        AND hashed_device_id = ?
        AND status = 'active'`,
-    [Date.now(), guardianPrincipalId, hashedDeviceId],
+    [now, guardianPrincipalId, hashedDeviceId],
   );
+
+  // --- Gateway DB dual-write (best-effort) ---
+  try {
+    getGatewayDb()
+      .update(gwActorTokenRecords)
+      .set({ status: "revoked", updatedAt: now })
+      .where(
+        and(
+          eq(gwActorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+          eq(gwActorTokenRecords.hashedDeviceId, hashedDeviceId),
+          eq(gwActorTokenRecords.status, "active"),
+        ),
+      )
+      .run();
+  } catch (gwErr) {
+    log.warn(
+      { err: gwErr },
+      "Failed to dual-write actor token revocation to gateway DB",
+    );
+  }
 }
 
 /**
@@ -283,14 +307,38 @@ function revokeRefreshTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
+  const now = Date.now();
   db.run(
     `UPDATE actor_refresh_token_records
      SET status = 'revoked', updated_at = ?
      WHERE guardian_principal_id = ?
        AND hashed_device_id = ?
        AND status = 'active'`,
-    [Date.now(), guardianPrincipalId, hashedDeviceId],
+    [now, guardianPrincipalId, hashedDeviceId],
   );
+
+  // --- Gateway DB dual-write (best-effort) ---
+  try {
+    getGatewayDb()
+      .update(gwActorRefreshTokenRecords)
+      .set({ status: "revoked", updatedAt: now })
+      .where(
+        and(
+          eq(
+            gwActorRefreshTokenRecords.guardianPrincipalId,
+            guardianPrincipalId,
+          ),
+          eq(gwActorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
+          eq(gwActorRefreshTokenRecords.status, "active"),
+        ),
+      )
+      .run();
+  } catch (gwErr) {
+    log.warn(
+      { err: gwErr },
+      "Failed to dual-write refresh token revocation to gateway DB",
+    );
+  }
 }
 
 /**
@@ -317,13 +365,14 @@ function mintAccessToken(
   const expiresAt = now + ACCESS_TOKEN_TTL_MS;
   const tokenHash = hashToken(token);
 
+  const tokenId = uuid();
   db.run(
     `INSERT INTO actor_token_records
        (id, token_hash, guardian_principal_id, hashed_device_id, platform,
         status, issued_at, expires_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
     [
-      uuid(),
+      tokenId,
       tokenHash,
       guardianPrincipalId,
       hashedDeviceId,
@@ -334,6 +383,28 @@ function mintAccessToken(
       now,
     ],
   );
+
+  // --- Gateway DB dual-write (best-effort) ---
+  try {
+    getGatewayDb()
+      .insert(gwActorTokenRecords)
+      .values({
+        id: tokenId,
+        tokenHash,
+        guardianPrincipalId,
+        hashedDeviceId,
+        platform,
+        status: "active",
+        issuedAt: now,
+        expiresAt,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  } catch (gwErr) {
+    log.warn({ err: gwErr }, "Failed to dual-write actor token to gateway DB");
+  }
 
   return { token, expiresAt };
 }
@@ -358,6 +429,7 @@ function mintRefreshToken(
   const absoluteExpiresAt = now + REFRESH_ABSOLUTE_TTL_MS;
   const inactivityExpiresAt = now + REFRESH_INACTIVITY_TTL_MS;
 
+  const refreshTokenId = uuid();
   db.run(
     `INSERT INTO actor_refresh_token_records
        (id, token_hash, family_id, guardian_principal_id, hashed_device_id,
@@ -365,7 +437,7 @@ function mintRefreshToken(
         last_used_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)`,
     [
-      uuid(),
+      refreshTokenId,
       refreshTokenHash,
       familyId,
       guardianPrincipalId,
@@ -378,6 +450,34 @@ function mintRefreshToken(
       now,
     ],
   );
+
+  // --- Gateway DB dual-write (best-effort) ---
+  try {
+    getGatewayDb()
+      .insert(gwActorRefreshTokenRecords)
+      .values({
+        id: refreshTokenId,
+        tokenHash: refreshTokenHash,
+        familyId,
+        guardianPrincipalId,
+        hashedDeviceId,
+        platform,
+        status: "active",
+        issuedAt: now,
+        absoluteExpiresAt,
+        inactivityExpiresAt,
+        lastUsedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .run();
+  } catch (gwErr) {
+    log.warn(
+      { err: gwErr },
+      "Failed to dual-write refresh token to gateway DB",
+    );
+  }
 
   return {
     refreshToken,
