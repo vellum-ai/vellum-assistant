@@ -236,15 +236,18 @@ export class SubagentManager {
       );
     }
 
+    // Resolve the parent conversation once: forks read its system prompt,
+    // and every spawn inherits its trust context below.
+    const parentConv = this.resolveParentConversation?.(
+      config.parentConversationId,
+    );
+
     let systemPrompt: string;
     if (isFork) {
       // Forks use the parent's system prompt directly — no subagent preamble.
       if (config.parentSystemPrompt) {
         systemPrompt = config.parentSystemPrompt;
       } else if (this.resolveParentConversation) {
-        const parentConv = this.resolveParentConversation(
-          config.parentConversationId,
-        );
         const resolved = parentConv?.getCurrentSystemPrompt();
         if (!resolved) {
           throw new Error(
@@ -338,6 +341,13 @@ export class SubagentManager {
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
     conversation.setIsSubagent(true);
+
+    // Inherit parent trust context so guardian-gated tools evaluate the
+    // subagent against the parent's actor trust class instead of defaulting
+    // to "unknown" and failing closed.
+    if (parentConv?.trustContext) {
+      conversation.setTrustContext(parentConv.trustContext);
+    }
 
     if (isFork) {
       // Force the fork to use the parent's system prompt as-is without dynamic rebuild.
