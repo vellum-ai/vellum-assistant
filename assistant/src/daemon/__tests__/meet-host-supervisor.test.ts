@@ -191,7 +191,7 @@ describe("MeetHostSupervisor", () => {
 
   test("hash mismatch rejects ensureRunning with a clear error and allows re-spawn", async () => {
     harness = makeHarness({ manifestHash: "expected-hash" });
-    const { supervisor, spawnFn } = harness;
+    const { supervisor, spawnFn, child: firstChild } = harness;
 
     const p = supervisor.ensureRunning();
     await tick();
@@ -200,8 +200,13 @@ describe("MeetHostSupervisor", () => {
     await expect(p).rejects.toThrow(/source hash mismatch/);
     await expect(p).rejects.toThrow(/Regenerate the meet-join manifest/);
 
+    expect(firstChild.kill).toHaveBeenCalledWith("SIGKILL");
+
     // After a rejected handshake the supervisor should be ready to try again.
     expect(supervisor.isRunning).toBe(false);
+
+    const secondChild = new FakeChild();
+    spawnFn.mockImplementation(() => secondChild as unknown as ChildProcess);
 
     const p2 = supervisor.ensureRunning();
     expect(spawnFn).toHaveBeenCalledTimes(2);
