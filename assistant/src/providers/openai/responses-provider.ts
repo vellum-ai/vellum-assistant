@@ -26,13 +26,16 @@ export interface OpenAIResponsesProviderOptions {
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
- *  The Responses API caps at "high", so "xhigh" and "max" both collapse to "high". */
-const EFFORT_TO_REASONING_EFFORT: Record<string, "low" | "medium" | "high"> = {
+ *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". */
+const EFFORT_TO_REASONING_EFFORT: Record<
+  string,
+  "low" | "medium" | "high" | "xhigh"
+> = {
   low: "low",
   medium: "medium",
   high: "high",
-  xhigh: "high",
-  max: "high",
+  xhigh: "xhigh",
+  max: "xhigh",
 };
 
 /** Values accepted by the Responses API `text.verbosity` parameter. */

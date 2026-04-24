@@ -496,7 +496,7 @@ describe("OpenAIResponsesProvider", () => {
     expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
   });
 
-  test('effort: "max" maps to reasoning: { effort: "high" }', async () => {
+  test('effort: "max" maps to reasoning: { effort: "xhigh" }', async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -506,10 +506,10 @@ describe("OpenAIResponsesProvider", () => {
       { config: { effort: "max" } },
     );
 
-    expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "xhigh" });
   });
 
-  test('effort: "xhigh" maps to reasoning: { effort: "high" }', async () => {
+  test('effort: "xhigh" maps to reasoning: { effort: "xhigh" }', async () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -519,7 +519,7 @@ describe("OpenAIResponsesProvider", () => {
       { config: { effort: "xhigh" } },
     );
 
-    expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "xhigh" });
   });
 
   test("no effort config means no reasoning in params", async () => {
