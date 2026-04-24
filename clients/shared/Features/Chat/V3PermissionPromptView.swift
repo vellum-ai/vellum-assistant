@@ -12,6 +12,9 @@ public struct V3PermissionPromptView: View {
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAlwaysAllow: (String, String, String, String) -> Void
+    /// Called when the user taps "Allow & Create Rule". The parent is responsible
+    /// for calling the suggest API and presenting the rule editor modal.
+    public let onAllowAndSuggestRule: (() -> Void)?
 
     @State private var showTechnicalDetails = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
@@ -24,13 +27,15 @@ public struct V3PermissionPromptView: View {
         isKeyboardActive: Bool,
         onAllow: @escaping () -> Void,
         onDeny: @escaping () -> Void,
-        onAlwaysAllow: @escaping (String, String, String, String) -> Void
+        onAlwaysAllow: @escaping (String, String, String, String) -> Void,
+        onAllowAndSuggestRule: (() -> Void)? = nil
     ) {
         self.confirmation = confirmation
         self.isKeyboardActive = isKeyboardActive
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAlwaysAllow = onAlwaysAllow
+        self.onAllowAndSuggestRule = onAllowAndSuggestRule
     }
 
     private var v3TopLevelActions: [ToolConfirmationKeyboardModel.Action] {
@@ -200,25 +205,42 @@ public struct V3PermissionPromptView: View {
         }
     }
 
-    /// v3 simplified actions: flat Allow + Deny buttons, no split button or duration.
+    /// v3 simplified actions: Allow (with optional split for suggest) + Deny.
     private var v3ConfirmationActions: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: "Allow", style: .primary, size: .compact) {
-                // In v3, "Allow" sends the selected allowlist pattern + scope
-                // through the always-allow path when patterns are available,
-                // otherwise falls back to a simple allow.
-                if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
-                    let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-                    onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
-                } else {
-                    onAllow()
+            if onAllowAndSuggestRule != nil {
+                VSplitButton(label: "Allow", style: .primary, size: .compact, action: {
+                    if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
+                        let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+                        onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
+                    } else {
+                        onAllow()
+                    }
+                }) {
+                    Button("Allow & Create Rule") {
+                        onAllowAndSuggestRule?()
+                    }
                 }
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
+                        .allowsHitTesting(false)
+                )
+            } else {
+                VButton(label: "Allow", style: .primary, size: .compact) {
+                    if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
+                        let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+                        onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
+                    } else {
+                        onAllow()
+                    }
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
+                        .allowsHitTesting(false)
+                )
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
-                    .allowsHitTesting(false)
-            )
 
             VButton(label: "Deny", style: .danger, size: .compact) {
                 onDeny()

@@ -36,6 +36,10 @@ struct AssistantProgressView: View {
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
+    /// Tool call that triggered the suggestion-driven rule editor (from "Allow & Create Rule").
+    @State private var suggestRuleToolCall: ToolCallData?
+    /// LLM-generated suggestion returned from the suggest API.
+    @State private var suggestRuleSuggestion: TrustRuleSuggestion?
     /// When the post-tool-completion thinking phase started (typically the last
     /// tool's `completedAt`). Nil until all tools complete and the card remains active.
     @State private var thinkingAfterToolsStartDate: Date?
@@ -296,6 +300,35 @@ struct AssistantProgressView: View {
         .onAppear {
             handleOnAppear()
         }
+        .sheet(item: $suggestRuleToolCall) { tc in
+            V3RuleEditorModal(
+                toolName: tc.toolName,
+                commandText: tc.inputSummary,
+                commandDescription: tc.reasonDescription ?? "",
+                riskLevel: tc.riskLevel ?? "medium",
+                scopeOptions: ToolCallStepDetailRow.v3ScopeOptions(from: tc),
+                directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
+                suggestion: suggestRuleSuggestion,
+                onSave: { rule in
+                    Task {
+                        try? await TrustRuleV3Client().createRule(
+                            tool: rule.toolName,
+                            pattern: rule.pattern,
+                            risk: rule.riskLevel,
+                            description: {
+                                let desc = tc.reasonDescription ?? ""
+                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                            }(),
+                            scope: rule.scope
+                        )
+                    }
+                },
+                onDismiss: {
+                    suggestRuleToolCall = nil
+                    suggestRuleSuggestion = nil
+                }
+            )
+        }
     }
 
     // MARK: - Change Handlers (extracted to reduce body type-check complexity)
@@ -476,6 +509,44 @@ struct AssistantProgressView: View {
         }
     }
 
+    /// Calls the suggest API for a tool call and opens the rule editor with the result.
+    @MainActor
+    private func fetchSuggestionAndOpenEditor(for toolCall: ToolCallData) async {
+        let client = TrustRuleV3Client()
+        let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
+            (pattern: $0.pattern, label: $0.label)
+        }
+        let dirScopeOpts: [(scope: String, label: String)] = (toolCall.riskDirectoryScopeOptions ?? []).map {
+            (scope: $0.scope, label: $0.label)
+        }
+        // Use the full command text for the LLM — inputSummary is truncated to ~80 chars.
+        let fullCommand: String = {
+            if !toolCall.inputFull.isEmpty { return toolCall.inputFull }
+            if let dict = toolCall.inputRawDict { return ToolCallData.formatAllToolInput(dict) }
+            return toolCall.inputSummary
+        }()
+        do {
+            let suggestion = try await client.suggestRule(
+                tool: toolCall.toolName,
+                command: fullCommand,
+                riskAssessment: (
+                    risk: toolCall.riskLevel ?? "medium",
+                    reasoning: toolCall.riskReason ?? "",
+                    reasonDescription: toolCall.reasonDescription ?? ""
+                ),
+                scopeOptions: scopeOpts,
+                directoryScopeOptions: dirScopeOpts,
+                intent: "auto_approve"
+            )
+            suggestRuleSuggestion = suggestion
+            suggestRuleToolCall = toolCall
+        } catch {
+            // Suggestion failed — fall back to opening the rule editor without a suggestion.
+            suggestRuleSuggestion = nil
+            suggestRuleToolCall = toolCall
+        }
+    }
+
     @MainActor
     private func syncStartDateFromModelIfNeeded() {
         if let earliest = model.earliestStartedAt, startDate != earliest {
@@ -647,7 +718,20 @@ struct AssistantProgressView: View {
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
-                        onTemporaryAllow: onTemporaryAllow
+                        onTemporaryAllow: onTemporaryAllow,
+                        onAllowAndSuggestRule: {
+                            // Allow the tool first
+                            if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
+                                let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
+                                onAlwaysAllow?(confirmation.requestId, option.pattern, scope, "allow")
+                            } else {
+                                onConfirmationAllow?(confirmation.requestId)
+                            }
+                            // Fire the suggest API and open the rule editor with the result
+                            Task {
+                                await fetchSuggestionAndOpenEditor(for: toolCall)
+                            }
+                        }
                     )
                     .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
                 }
@@ -746,6 +830,8 @@ private struct ToolCallStepDetailRow: View {
     /// Drives the Rule Editor Modal sheet presentation. Set to a tool call
     /// when the user taps a risk badge in the expanded view.
     @State private var ruleEditorToolCall: ToolCallData?
+    /// LLM-generated suggestion to pre-populate the rule editor.
+    @State private var ruleEditorSuggestion: TrustRuleSuggestion?
 
     /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
@@ -845,6 +931,7 @@ private struct ToolCallStepDetailRow: View {
                     riskLevel: tc.riskLevel ?? "medium",
                     scopeOptions: Self.v3ScopeOptions(from: tc),
                     directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
+                    suggestion: ruleEditorSuggestion,
                     onSave: { rule in
                         Task {
                             try? await Self.trustRuleV3Client.createRule(
@@ -859,7 +946,10 @@ private struct ToolCallStepDetailRow: View {
                             )
                         }
                     },
-                    onDismiss: { ruleEditorToolCall = nil }
+                    onDismiss: {
+                        ruleEditorToolCall = nil
+                        ruleEditorSuggestion = nil
+                    }
                 )
             } else {
                 RuleEditorModal(
@@ -942,7 +1032,7 @@ private struct ToolCallStepDetailRow: View {
 
     /// Constructs the V3 scope option items from the tool call's risk scope options.
     /// Falls back to a single exact command option when none are provided.
-    private static func v3ScopeOptions(from toolCall: ToolCallData) -> [V3ScopeOptionItem] {
+    static func v3ScopeOptions(from toolCall: ToolCallData) -> [V3ScopeOptionItem] {
         guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
             return [
                 V3ScopeOptionItem(
