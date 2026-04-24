@@ -785,18 +785,24 @@ case "$VELLUM_ENVIRONMENT" in
     *)          _VELLUM_CONFIG_DIR="$_XDG_CONFIG_HOME/vellum-${VELLUM_ENVIRONMENT}" ;;
 esac
 _DOCK_LABEL_FILE="$_VELLUM_CONFIG_DIR/dock-display-name"
+# Compute environment-aware default name: "Vellum" for production, "Vellum <Env>" otherwise.
+case "$VELLUM_ENVIRONMENT" in
+    production) _DEFAULT_DISPLAY_NAME="Vellum" ;;
+    *)          _ENV_LABEL="$(echo "${VELLUM_ENVIRONMENT:0:1}" | tr '[:lower:]' '[:upper:]')${VELLUM_ENVIRONMENT:1}"
+                _DEFAULT_DISPLAY_NAME="Vellum ${_ENV_LABEL}" ;;
+esac
 if [ -z "${BUNDLE_DISPLAY_NAME:-}" ] && [ -f "$_DOCK_LABEL_FILE" ]; then
     _SAVED_NAME="$(cat "$_DOCK_LABEL_FILE" 2>/dev/null | tr -d '\n')"
     # Reject names containing XML-reserved chars (&, <, >) or path separators (/)
     # that would produce invalid Info.plist XML or break file paths.
     if [[ "${_SAVED_NAME:-}" =~ [/\<\>\&] ]]; then
-        echo "Warning: dock-display-name contains unsafe characters, falling back to 'Vellum'" >&2
-        BUNDLE_DISPLAY_NAME="Vellum"
+        echo "Warning: dock-display-name contains unsafe characters, falling back to '${_DEFAULT_DISPLAY_NAME}'" >&2
+        BUNDLE_DISPLAY_NAME="$_DEFAULT_DISPLAY_NAME"
     else
-        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-Vellum}"
+        BUNDLE_DISPLAY_NAME="${_SAVED_NAME:-$_DEFAULT_DISPLAY_NAME}"
     fi
 fi
-BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-Vellum}"
+BUNDLE_DISPLAY_NAME="${BUNDLE_DISPLAY_NAME:-$_DEFAULT_DISPLAY_NAME}"
 APP_DIR="$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS/MacOS"
