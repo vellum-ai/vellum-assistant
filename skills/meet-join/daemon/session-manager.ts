@@ -2463,32 +2463,38 @@ class MeetSessionManagerImpl {
       return { shouldRespond: false, reason: "" };
     }
 
-    const controller = llm.createTimeout(CHAT_OPPORTUNITY_LLM_TIMEOUT_MS);
-    const response = await provider.sendMessage(
-      [llm.userMessage(prompt)],
-      [CHAT_OPPORTUNITY_TOOL],
-      "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
-      {
-        config: {
-          callSite: "meetChatOpportunity",
-          max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
-          tool_choice: {
-            type: "tool" as const,
-            name: CHAT_OPPORTUNITY_TOOL.name,
-          },
-        },
-        signal: controller.signal,
-      },
+    const { signal, cleanup } = llm.createTimeout(
+      CHAT_OPPORTUNITY_LLM_TIMEOUT_MS,
     );
-    const tool = llm.extractToolUse(response) as {
-      input?: { shouldRespond?: unknown; reason?: unknown };
-    } | null;
-    if (!tool) return { shouldRespond: false, reason: "" };
-    const input = tool.input ?? {};
-    return {
-      shouldRespond: input.shouldRespond === true,
-      reason: typeof input.reason === "string" ? input.reason : "",
-    };
+    try {
+      const response = await provider.sendMessage(
+        [llm.userMessage(prompt)],
+        [CHAT_OPPORTUNITY_TOOL],
+        "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
+        {
+          config: {
+            callSite: "meetChatOpportunity",
+            max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
+            tool_choice: {
+              type: "tool" as const,
+              name: CHAT_OPPORTUNITY_TOOL.name,
+            },
+          },
+          signal,
+        },
+      );
+      const tool = llm.extractToolUse(response) as {
+        input?: { shouldRespond?: unknown; reason?: unknown };
+      } | null;
+      if (!tool) return { shouldRespond: false, reason: "" };
+      const input = tool.input ?? {};
+      return {
+        shouldRespond: input.shouldRespond === true,
+        reason: typeof input.reason === "string" ? input.reason : "",
+      };
+    } finally {
+      cleanup();
+    }
   }
 }
 
@@ -2638,10 +2644,10 @@ function buildSessionManagerTestHost(): SkillHost {
         createTimeout: (ms: number) => {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), ms);
-          controller.signal.addEventListener("abort", () =>
-            clearTimeout(timer),
-          );
-          return controller;
+          return {
+            signal: controller.signal,
+            cleanup: () => clearTimeout(timer),
+          };
         },
       },
       stt: {

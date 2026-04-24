@@ -134,18 +134,24 @@ export type UserMessage = unknown;
 export type ToolUse = unknown;
 
 export interface LlmProvidersFacet {
-  /** Resolve the provider configured for the given LLM call site. */
-  getConfigured(callSite: string): Provider;
+  /**
+   * Resolve the provider configured for the given LLM call site, or `null`
+   * when no provider is available (missing credentials, unsupported
+   * call-site, misconfigured profile). Async because the daemon's resolver
+   * reads the credential store asynchronously.
+   */
+  getConfigured(callSite: string): Promise<Provider | null>;
   /** Wrap plain text into the provider's user-message envelope shape. */
   userMessage(text: string): UserMessage;
   /** Pull the first `tool_use` block out of a completion response, if any. */
   extractToolUse(response: unknown): ToolUse | null;
   /**
-   * Produce an `AbortController` that aborts after `ms` milliseconds.
-   * Callers pass `controller.signal` into the LLM request to enforce a
-   * per-call deadline.
+   * Produce an `AbortSignal` that fires after `ms` milliseconds, alongside a
+   * `cleanup()` callback that cancels the underlying timer. Callers pass
+   * `signal` into the LLM request and must invoke `cleanup()` in a `finally`
+   * block so the timer does not leak when the request finishes first.
    */
-  createTimeout(ms: number): AbortController;
+  createTimeout(ms: number): { signal: AbortSignal; cleanup: () => void };
 }
 
 /** Opaque STT spec (skill passes an instance obtained from config through). */
@@ -157,7 +163,14 @@ export type StreamingTranscriber = unknown;
 export interface SttProvidersFacet {
   listProviderIds(): string[];
   supportsBoundary(id: string): boolean;
-  resolveStreamingTranscriber(spec: SttSpec): StreamingTranscriber;
+  /**
+   * Resolve a streaming transcriber for `spec`, or `null` when no configured
+   * STT provider supports the requested boundary/diarization. Async because
+   * the daemon's resolver reads credentials and pings the provider catalog.
+   */
+  resolveStreamingTranscriber(
+    spec: SttSpec,
+  ): Promise<StreamingTranscriber | null>;
 }
 
 /** Opaque TTS provider handle. */

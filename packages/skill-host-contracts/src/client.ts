@@ -626,10 +626,9 @@ export class SkillHostClient implements SkillHost {
   private buildLlmProvidersFacet(): LlmProvidersFacet {
     // The provider, user-message, and tool-use values are opaque tokens on
     // the contract; the client synthesizes structurally inert descriptors
-    // that round-trip through future dispatch routes. Synthesis is sync
-    // to match the contract shape.
+    // that round-trip through future dispatch routes.
     return {
-      getConfigured: (callSite: string): Provider =>
+      getConfigured: async (callSite: string): Promise<Provider | null> =>
         ({
           __vellumSkillHostClientHandle: "llm-provider",
           callSite,
@@ -650,8 +649,10 @@ export class SkillHostClient implements SkillHost {
       createTimeout: (ms: number) => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), ms);
-        controller.signal.addEventListener("abort", () => clearTimeout(timer));
-        return controller;
+        return {
+          signal: controller.signal,
+          cleanup: () => clearTimeout(timer),
+        };
       },
     };
   }
@@ -672,7 +673,7 @@ export class SkillHostClient implements SkillHost {
           "SkillHostClient.providers.stt.supportsBoundary: use `client.rawCall('host.providers.stt.supportsBoundary', { id, boundary: 'daemon-streaming' })` and await the result.",
         );
       },
-      resolveStreamingTranscriber: (spec: unknown) =>
+      resolveStreamingTranscriber: async (spec: unknown) =>
         ({
           __vellumSkillHostClientHandle: "streaming-transcriber",
           spec,

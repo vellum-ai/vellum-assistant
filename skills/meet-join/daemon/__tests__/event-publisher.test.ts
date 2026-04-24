@@ -101,15 +101,18 @@ function makeTestHost(): {
     },
     providers: {
       llm: {
-        getConfigured: () => ({}),
+        getConfigured: async () => ({}),
         userMessage: () => ({}),
         extractToolUse: () => null,
-        createTimeout: () => new AbortController(),
+        createTimeout: () => ({
+          signal: new AbortController().signal,
+          cleanup: () => {},
+        }),
       },
       stt: {
         listProviderIds: () => [],
         supportsBoundary: () => false,
-        resolveStreamingTranscriber: () => ({}),
+        resolveStreamingTranscriber: async () => ({}),
       },
       tts: {
         get: () => ({}),

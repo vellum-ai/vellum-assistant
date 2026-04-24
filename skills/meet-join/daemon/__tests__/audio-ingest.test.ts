@@ -953,15 +953,18 @@ describe("createAudioIngest — default transcriber factory", () => {
       },
       providers: {
         llm: {
-          getConfigured: () => undefined,
+          getConfigured: async () => undefined,
           userMessage: () => undefined,
           extractToolUse: () => null,
-          createTimeout: () => new AbortController(),
+          createTimeout: () => ({
+            signal: new AbortController().signal,
+            cleanup: () => {},
+          }),
         },
         stt: {
           listProviderIds: () => options.providerIds ?? ["deepgram"],
           supportsBoundary: () => true,
-          resolveStreamingTranscriber: ((spec?: Record<string, unknown>) =>
+          resolveStreamingTranscriber: (async (spec?: Record<string, unknown>) =>
             options.resolver(spec)) as never,
         },
         tts: {

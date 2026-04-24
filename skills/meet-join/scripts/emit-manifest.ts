@@ -121,15 +121,18 @@ function buildCollectorHost(captured: Captured): SkillHost {
     },
     providers: {
       llm: {
-        getConfigured: () => undefined,
+        getConfigured: async () => null,
         userMessage: () => undefined,
         extractToolUse: () => null,
-        createTimeout: () => new AbortController(),
+        createTimeout: () => ({
+          signal: new AbortController().signal,
+          cleanup: () => {},
+        }),
       },
       stt: {
         listProviderIds: () => [],
         supportsBoundary: () => false,
-        resolveStreamingTranscriber: () => undefined,
+        resolveStreamingTranscriber: async () => null,
       },
       tts: {
         get: () => undefined,

@@ -148,15 +148,17 @@ function defaultPlatformFacet(): PlatformFacet {
 
 function defaultLlmFacet(): LlmProvidersFacet {
   return {
-    getConfigured: () => undefined as unknown as Provider,
+    getConfigured: async () => null as unknown as Provider | null,
     userMessage: (text: string) =>
       ({ role: "user", content: text }) as unknown as UserMessage,
     extractToolUse: () => null,
     createTimeout: (ms: number) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), ms);
-      controller.signal.addEventListener("abort", () => clearTimeout(timer));
-      return controller;
+      return {
+        signal: controller.signal,
+        cleanup: () => clearTimeout(timer),
+      };
     },
   };
 }
@@ -165,8 +167,8 @@ function defaultSttFacet(): SttProvidersFacet {
   return {
     listProviderIds: () => [],
     supportsBoundary: () => false,
-    resolveStreamingTranscriber: () =>
-      undefined as unknown as StreamingTranscriber,
+    resolveStreamingTranscriber: async () =>
+      null as unknown as StreamingTranscriber | null,
   };
 }
 

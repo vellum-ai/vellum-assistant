@@ -40,6 +40,7 @@ import type {
   SkillRoute,
   SkillRouteHandle,
   SpeakersFacet,
+  StreamingTranscriber,
   SttProvidersFacet,
   Subscription,
   ToolUse,
@@ -55,6 +56,7 @@ import { getConfig, getNestedValue } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import {
+  createTimeout,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
@@ -130,24 +132,13 @@ function buildPlatformFacet(): PlatformFacet {
 
 function buildLlmProvidersFacet(): LlmProvidersFacet {
   return {
-    // `getConfiguredProvider` is async in the daemon. The contract types the
-    // return as `Provider = unknown`, so the awaited value is threaded back
-    // through other host methods by the skill; we return the promise here.
-    getConfigured: (callSite) =>
-      getConfiguredProvider(callSite as LLMCallSite) as unknown as Provider,
+    getConfigured: async (callSite) =>
+      (await getConfiguredProvider(callSite as LLMCallSite)) as Provider | null,
     userMessage: (text) => userMessage(text) as unknown as UserMessage,
     extractToolUse: (response) =>
-      (extractToolUse(response as never) ?? null) as ToolUse | null,
-    // Contract returns an `AbortController`; daemon's helper returns
-    // `{ signal, cleanup }`. The controller's `abort()` already fires the
-    // signal, and an already-aborted controller lets its timer be GC'd, so
-    // a minimal controller-driven timer matches the contract exactly.
-    createTimeout: (ms) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), ms);
-      controller.signal.addEventListener("abort", () => clearTimeout(timer));
-      return controller;
-    },
+      (extractToolUse(response as Parameters<typeof extractToolUse>[0]) ??
+        null) as ToolUse | null,
+    createTimeout,
   };
 }
 
@@ -158,9 +149,14 @@ function buildSttProvidersFacet(): SttProvidersFacet {
     // daemon-streaming boundary which is the only boundary skills currently
     // care about. Passes the id through to the daemon helper.
     supportsBoundary: (id) =>
-      sttSupportsBoundary(id as never, "daemon-streaming"),
-    resolveStreamingTranscriber: (spec) =>
-      sttResolveStreamingTranscriber(spec as never) as never,
+      sttSupportsBoundary(
+        id as Parameters<typeof sttSupportsBoundary>[0],
+        "daemon-streaming",
+      ),
+    resolveStreamingTranscriber: async (spec) =>
+      (await sttResolveStreamingTranscriber(
+        spec as Parameters<typeof sttResolveStreamingTranscriber>[0],
+      )) as StreamingTranscriber | null,
   };
 }
 

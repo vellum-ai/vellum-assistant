@@ -774,29 +774,35 @@ function createDefaultLlmAsk(host: SkillHost): ObjectionLLMAsk {
       return { objected: false, reason: "" };
     }
 
-    const controller = host.providers.llm.createTimeout(CONSENT_LLM_TIMEOUT_MS);
-    const response = await provider.sendMessage(
-      [host.providers.llm.userMessage(prompt)],
-      [OBJECTION_TOOL],
-      "You are a strict JSON classifier. Only respond via the report_objection tool.",
-      {
-        config: {
-          callSite: "meetConsentMonitor",
-          max_tokens: CONSENT_LLM_MAX_TOKENS,
-          tool_choice: { type: "tool" as const, name: OBJECTION_TOOL.name },
-        },
-        signal: controller.signal,
-      },
+    const { signal, cleanup } = host.providers.llm.createTimeout(
+      CONSENT_LLM_TIMEOUT_MS,
     );
-    const tool = host.providers.llm.extractToolUse(response) as {
-      input?: { objected?: unknown; reason?: unknown };
-    } | null;
-    if (!tool) return { objected: false, reason: "" };
-    const input = tool.input ?? {};
-    return {
-      objected: input.objected === true,
-      reason: typeof input.reason === "string" ? input.reason : "",
-    };
+    try {
+      const response = await provider.sendMessage(
+        [host.providers.llm.userMessage(prompt)],
+        [OBJECTION_TOOL],
+        "You are a strict JSON classifier. Only respond via the report_objection tool.",
+        {
+          config: {
+            callSite: "meetConsentMonitor",
+            max_tokens: CONSENT_LLM_MAX_TOKENS,
+            tool_choice: { type: "tool" as const, name: OBJECTION_TOOL.name },
+          },
+          signal,
+        },
+      );
+      const tool = host.providers.llm.extractToolUse(response) as {
+        input?: { objected?: unknown; reason?: unknown };
+      } | null;
+      if (!tool) return { objected: false, reason: "" };
+      const input = tool.input ?? {};
+      return {
+        objected: input.objected === true,
+        reason: typeof input.reason === "string" ? input.reason : "",
+      };
+    } finally {
+      cleanup();
+    }
   };
 }
 

@@ -226,10 +226,10 @@ describe("createDaemonSkillHost", () => {
     expect(typeof host.providers.llm.getConfigured).toBe("function");
     expect(typeof host.providers.llm.userMessage).toBe("function");
     expect(typeof host.providers.llm.extractToolUse).toBe("function");
-    const controller = host.providers.llm.createTimeout(1000);
-    expect(controller).toBeInstanceOf(AbortController);
-    controller.abort();
-    expect(controller.signal.aborted).toBe(true);
+    const { signal, cleanup } = host.providers.llm.createTimeout(1000);
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(typeof cleanup).toBe("function");
+    cleanup();
   });
 
   test("memory.addMessage and wakeAgentForOpportunity are callable", async () => {
