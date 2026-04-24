@@ -9,6 +9,7 @@
  * classifications reflect the change immediately.
  */
 
+import { z } from "zod";
 import {
   TrustRuleV3Store,
   VALID_RISK_VALUES,
@@ -17,6 +18,10 @@ import { invalidateTrustRuleV3Cache } from "../../risk/trust-rule-v3-cache.js";
 import { getMergedFeatureFlags } from "../../ipc/feature-flag-handlers.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry/index.js";
 import { getLogger } from "../../logger.js";
+import { ipcSuggestTrustRule } from "../../ipc/assistant-client.js";
+import { getGatewayDb } from "../../db/connection.js";
+import { autoApproveThresholds } from "../../db/schema.js";
+import { eq } from "drizzle-orm";
 
 const log = getLogger("trust-rules-v3");
 
@@ -33,6 +38,97 @@ function requireV3Flag(): Response | null {
     return Response.json({ error: "Feature not enabled" }, { status: 403 });
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Zod schema for POST /v1/trust-rules-v3/suggest request body
+// ---------------------------------------------------------------------------
+
+const SuggestRequestSchema = z.object({
+  tool: z.string().min(1),
+  command: z.string().min(1),
+  riskAssessment: z.object({
+    risk: z.string(),
+    reasoning: z.string(),
+    reasonDescription: z.string(),
+  }),
+  scopeOptions: z.array(
+    z.object({
+      pattern: z.string(),
+      label: z.string(),
+    }),
+  ),
+  directoryScopeOptions: z
+    .array(
+      z.object({
+        scope: z.string(),
+        label: z.string(),
+      }),
+    )
+    .optional(),
+  intent: z.enum(["auto_approve", "escalate"]),
+});
+
+/**
+ * Read the interactive auto-approve threshold from the DB.
+ * Falls back to "low" if the DB is unavailable or the row is missing.
+ */
+function readInteractiveThreshold(): string {
+  try {
+    const db = getGatewayDb();
+    const row = db
+      .select()
+      .from(autoApproveThresholds)
+      .where(eq(autoApproveThresholds.id, 1))
+      .get();
+    return row?.interactive ?? "low";
+  } catch {
+    return "low";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/trust-rules-v3/suggest — LLM-generated trust rule suggestion
+// ---------------------------------------------------------------------------
+
+export function createTrustRuleV3sSuggestHandler() {
+  return async (req: Request): Promise<Response> => {
+    const flagResponse = requireV3Flag();
+    if (flagResponse) return flagResponse;
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return Response.json(
+        { error: "Request body must be valid JSON" },
+        { status: 400 },
+      );
+    }
+
+    const parsed = SuggestRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid request body", issues: parsed.error.issues },
+        { status: 400 },
+      );
+    }
+
+    const currentThreshold = readInteractiveThreshold();
+
+    try {
+      const suggestion = await ipcSuggestTrustRule({
+        ...parsed.data,
+        currentThreshold,
+      });
+      return Response.json({ suggestion });
+    } catch (err) {
+      log.error({ err }, "Trust rule suggestion failed");
+      const message =
+        err instanceof Error ? err.message : "Suggestion generation failed";
+      return Response.json({ error: message }, { status: 503 });
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
