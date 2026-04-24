@@ -9,6 +9,7 @@
 
 import { extractFlag } from "../lib/arg-utils.js";
 import { AssistantClient } from "../lib/assistant-client.js";
+import { getClientRegistrationHeaders } from "../lib/client-identity.js";
 
 function printUsage(): void {
   console.log(`vellum events - Stream events from a running assistant
@@ -136,6 +137,7 @@ export async function events(): Promise<void> {
   for await (const event of client.stream<AssistantEvent>("/events", {
     signal: controller.signal,
     query,
+    headers: getClientRegistrationHeaders(),
   })) {
     if (jsonOutput) {
       console.log(JSON.stringify(event));
