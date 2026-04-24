@@ -168,13 +168,24 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     ],
   },
   {
-    label: "Health and readiness probes",
+    label: "Health probe (migration state)",
     caller: "gateway",
     callee: "assistant",
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway forwards /healthz and /readyz probes to the assistant's /v1/health and /readyz endpoints to verify full-stack readiness.",
+      "Gateway forwards /healthz?include=migrations to the assistant's /v1/health endpoint to surface migration state.",
+    callerGlobs: ["gateway/src/index.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Readiness probe",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "none",
+    description:
+      "Gateway forwards /readyz to the assistant's /readyz endpoint for full-stack readiness checks.",
     callerGlobs: ["gateway/src/index.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
@@ -187,7 +198,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (service token, query param)",
+    auth: "JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)",
     description:
       "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
     callerGlobs: [
@@ -213,7 +224,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (service token, query param)",
+    auth: "JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)",
     description:
       "Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.",
     callerGlobs: [

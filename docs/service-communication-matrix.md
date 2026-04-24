@@ -19,24 +19,25 @@ This document enumerates every observed communication permutation between the th
 | 7 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime proxy |
 | 8 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Log export (daemon logs) |
 | 9 | Gateway -> Assistant | `http` | none (audioId capability token) | Audio proxy |
-| 10 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health and readiness probes |
-| 11 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio ConversationRelay WebSocket proxy |
-| 12 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
-| 13 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
-| 14 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
-| 15 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
-| 16 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
-| 17 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
-| 18 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
-| 19 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 20 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 21 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 22 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 23 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 24 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 25 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 26 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 27 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 10 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health probe (migration state) |
+| 11 | Gateway -> Assistant | `http` | none | Readiness probe |
+| 12 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only) | Twilio ConversationRelay WebSocket proxy |
+| 13 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
+| 14 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only) | Twilio MediaStream WebSocket proxy |
+| 15 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
+| 16 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
+| 17 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
+| 18 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
+| 19 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 20 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 21 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 22 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 23 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 24 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 25 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 26 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 27 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 28 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -148,11 +149,23 @@ This document enumerates every observed communication permutation between the th
 **Callee files:**
 - `assistant/src/runtime/routes/audio-routes.ts`
 
-### Health and readiness probes
+### Health probe (migration state)
 
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
-- **Description:** Gateway forwards /healthz and /readyz probes to the assistant's /v1/health and /readyz endpoints to verify full-stack readiness.
+- **Description:** Gateway forwards /healthz?include=migrations to the assistant's /v1/health endpoint to surface migration state.
+
+**Caller files:**
+- `gateway/src/index.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Readiness probe
+
+- **Protocol:** `http`
+- **Auth:** none
+- **Description:** Gateway forwards /readyz to the assistant's /readyz endpoint for full-stack readiness checks.
 
 **Caller files:**
 - `gateway/src/index.ts`
@@ -163,7 +176,7 @@ This document enumerates every observed communication permutation between the th
 ### Twilio ConversationRelay WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param)
+- **Auth:** JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)
 - **Description:** Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.
 
 **Caller files:**
@@ -187,7 +200,7 @@ This document enumerates every observed communication permutation between the th
 ### Twilio MediaStream WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param)
+- **Auth:** JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)
 - **Description:** Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.
 
 **Caller files:**
