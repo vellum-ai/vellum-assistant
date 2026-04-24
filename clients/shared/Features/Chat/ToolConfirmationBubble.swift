@@ -21,6 +21,9 @@ public struct ToolConfirmationBubble: View {
     /// Called when the user taps the post-decision "Create a rule" nudge.
     /// The caller is responsible for presenting the rule editor.
     public let onCreateRule: (() -> Void)?
+    /// Called when the user taps "Allow & Create Rule" in the v3 prompt.
+    /// The parent should allow the tool, call the suggest API, and open the rule editor.
+    public let onAllowAndSuggestRule: (() -> Void)?
 
     @State private var showDiff = false
     @State private var showTechnicalDetails = false
@@ -40,7 +43,8 @@ public struct ToolConfirmationBubble: View {
         onDeny: @escaping () -> Void,
         onAlwaysAllow: @escaping (String, String, String, String) -> Void,
         onTemporaryAllow: ((String, String) -> Void)? = nil,
-        onCreateRule: (() -> Void)? = nil
+        onCreateRule: (() -> Void)? = nil,
+        onAllowAndSuggestRule: (() -> Void)? = nil
     ) {
         self.confirmation = confirmation
         self.isKeyboardActive = isKeyboardActive
@@ -50,6 +54,7 @@ public struct ToolConfirmationBubble: View {
         self.onAlwaysAllow = onAlwaysAllow
         self.onTemporaryAllow = onTemporaryAllow
         self.onCreateRule = onCreateRule
+        self.onAllowAndSuggestRule = onAllowAndSuggestRule
     }
 
     private var hasRuleOptions: Bool {
@@ -142,7 +147,8 @@ public struct ToolConfirmationBubble: View {
                     isKeyboardActive: isKeyboardActive,
                     onAllow: onAllow,
                     onDeny: onDeny,
-                    onAlwaysAllow: onAlwaysAllow
+                    onAlwaysAllow: onAlwaysAllow,
+                    onAllowAndSuggestRule: onAllowAndSuggestRule
                 )
             }
         } else {

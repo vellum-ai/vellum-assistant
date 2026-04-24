@@ -27,6 +27,30 @@ private struct TrustRuleV3SingleResponse: Decodable {
     let rule: TrustRuleV3
 }
 
+/// LLM-generated trust rule suggestion from `POST /v1/trust-rules-v3/suggest`.
+public struct TrustRuleSuggestion: Decodable, Sendable {
+    public let pattern: String
+    public let risk: String
+    public let scope: String?
+    public let description: String
+    public let scopeOptions: [TrustRuleSuggestionScopeOption]
+    public let directoryScopeOptions: [TrustRuleSuggestionDirectoryScopeOption]?
+}
+
+public struct TrustRuleSuggestionScopeOption: Decodable, Sendable {
+    public let pattern: String
+    public let label: String
+}
+
+public struct TrustRuleSuggestionDirectoryScopeOption: Decodable, Sendable {
+    public let scope: String
+    public let label: String
+}
+
+private struct TrustRuleSuggestionResponse: Decodable {
+    let suggestion: TrustRuleSuggestion
+}
+
 // MARK: - Errors
 
 public enum TrustRuleV3ClientError: Error, LocalizedError {
@@ -51,6 +75,14 @@ public protocol TrustRuleV3ClientProtocol {
     func updateRule(id: String, risk: String?, description: String?) async throws -> TrustRuleV3
     func deleteRule(id: String) async throws
     func resetRule(id: String) async throws -> TrustRuleV3
+    func suggestRule(
+        tool: String,
+        command: String,
+        riskAssessment: (risk: String, reasoning: String, reasonDescription: String),
+        scopeOptions: [(pattern: String, label: String)],
+        directoryScopeOptions: [(scope: String, label: String)],
+        intent: String
+    ) async throws -> TrustRuleSuggestion
 }
 
 // MARK: - Gateway-Backed Implementation
@@ -151,5 +183,39 @@ public struct TrustRuleV3Client: TrustRuleV3ClientProtocol {
             throw TrustRuleV3ClientError.requestFailed(response.statusCode)
         }
         return try JSONDecoder().decode(TrustRuleV3SingleResponse.self, from: response.data).rule
+    }
+
+    public func suggestRule(
+        tool: String,
+        command: String,
+        riskAssessment: (risk: String, reasoning: String, reasonDescription: String),
+        scopeOptions: [(pattern: String, label: String)],
+        directoryScopeOptions: [(scope: String, label: String)],
+        intent: String = "auto_approve"
+    ) async throws -> TrustRuleSuggestion {
+        let body: [String: Any] = [
+            "tool": tool,
+            "command": command,
+            "riskAssessment": [
+                "risk": riskAssessment.risk,
+                "reasoning": riskAssessment.reasoning,
+                "reasonDescription": riskAssessment.reasonDescription,
+            ],
+            "scopeOptions": scopeOptions.map { ["pattern": $0.pattern, "label": $0.label] },
+            "directoryScopeOptions": directoryScopeOptions.map { ["scope": $0.scope, "label": $0.label] },
+            "currentThreshold": "",
+            "intent": intent,
+        ]
+        let response = try await GatewayHTTPClient.post(
+            path: "trust-rules-v3/suggest", json: body, timeout: 30
+        )
+        if response.statusCode == 403 {
+            throw TrustRuleV3ClientError.featureDisabled
+        }
+        guard response.isSuccess else {
+            log.error("suggestRule failed (HTTP \(response.statusCode))")
+            throw TrustRuleV3ClientError.requestFailed(response.statusCode)
+        }
+        return try JSONDecoder().decode(TrustRuleSuggestionResponse.self, from: response.data).suggestion
     }
 }

@@ -28,6 +28,8 @@ struct V3RuleEditorModal: View {
     let riskLevel: String
     let scopeOptions: [V3ScopeOptionItem]
     let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
+    /// Optional LLM-generated suggestion used to pre-populate selections.
+    let suggestion: TrustRuleSuggestion?
     let onSave: (V3SavedRule) -> Void
     let onDismiss: () -> Void
 
@@ -102,8 +104,36 @@ struct V3RuleEditorModal: View {
         .frame(width: 480)
         .background(VColor.surfaceLift)
         .onAppear {
+            applySuggestionOrDefaults()
+        }
+    }
+
+    // MARK: - Suggestion / Default Application
+
+    private func applySuggestionOrDefaults() {
+        if let suggestion {
+            // Risk level from suggestion
+            selectedRiskLevel = suggestion.risk.isEmpty ? (riskLevel.isEmpty ? "medium" : riskLevel) : suggestion.risk
+
+            // Pattern: find the matching scope option index.
+            // In multi-option mode the UI hides index 0 (exact match), so skip
+            // it to avoid an invisible selection that silently persists.
+            if let matchIndex = scopeOptions.firstIndex(where: { $0.pattern == suggestion.pattern }),
+               (matchIndex > 0 || isSingleOption) {
+                selectedPatternIndex = matchIndex
+            } else if isSingleOption {
+                selectedPatternIndex = 0
+            }
+
+            // Directory scope: match suggestion scope to options
+            if let suggestedScope = suggestion.scope, suggestedScope != "everywhere" {
+                let filtered = directoryScopeOptions.filter { $0.scope != "everywhere" }
+                if let matchIndex = filtered.firstIndex(where: { $0.scope == suggestedScope }) {
+                    selectedDirectoryScopeIndex = matchIndex
+                }
+            }
+        } else {
             selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
-            // If single option, use index 0. Otherwise, start at index 1 (skip exact match)
             if isSingleOption {
                 selectedPatternIndex = 0
             }
