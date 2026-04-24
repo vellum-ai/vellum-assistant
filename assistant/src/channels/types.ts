@@ -21,18 +21,6 @@ export function parseChannelId(value: unknown): ChannelId | null {
   return null;
 }
 
-export function assertChannelId(value: unknown, field: string): ChannelId {
-  const parsed = parseChannelId(value);
-  if (!parsed) {
-    throw new Error(
-      `Invalid channel ID for ${field}: ${String(
-        value,
-      )}. Valid values: ${CHANNEL_IDS.join(", ")}`,
-    );
-  }
-  return parsed;
-}
-
 export interface TurnChannelContext {
   userMessageChannel: ChannelId;
   assistantMessageChannel: ChannelId;
@@ -62,17 +50,6 @@ export function isInterfaceId(value: unknown): value is InterfaceId {
 
 export function parseInterfaceId(value: unknown): InterfaceId | null {
   return isInterfaceId(value) ? value : null;
-}
-
-export function assertInterfaceId(value: unknown, field: string): InterfaceId {
-  if (!isInterfaceId(value)) {
-    throw new Error(
-      `Invalid interface ID for ${field}: ${String(
-        value,
-      )}. Valid values: ${INTERFACE_IDS.join(", ")}`,
-    );
-  }
-  return value;
 }
 
 /**

@@ -18,10 +18,7 @@ import {
   updateStatusText,
 } from "./cli/main-screen.jsx";
 import { renderHistoryContent } from "./daemon/handlers/shared.js";
-import type {
-  ConfirmationRequest,
-  ServerMessage,
-} from "./daemon/message-protocol.js";
+import type { ServerMessage } from "./daemon/message-protocol.js";
 import { getConversation, getMessages } from "./memory/conversation-crud.js";
 import {
   getConversationByKey,
@@ -57,63 +54,6 @@ export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   } catch {
     return value.replace(/\/\/([^/?#\s@]+)@/g, "//[REDACTED]@");
   }
-}
-
-function stringifyConfirmationInputValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean")
-    return String(value);
-  if (value == null) return "null";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-export function formatConfirmationInputLines(
-  input: Record<string, unknown>,
-): string[] {
-  const lines: string[] = [];
-  for (const key of Object.keys(input).sort()) {
-    const rawValue = input[key];
-    const value =
-      key.toLowerCase().includes("url") && typeof rawValue === "string"
-        ? sanitizeUrlForDisplay(rawValue)
-        : rawValue;
-    const rendered = stringifyConfirmationInputValue(value);
-    const renderedLines = rendered.split("\n");
-    if (renderedLines.length === 0) {
-      lines.push(`${key}:`);
-      continue;
-    }
-    lines.push(`${key}: ${renderedLines[0]}`);
-    for (const continuation of renderedLines.slice(1)) {
-      lines.push(`  ${continuation}`);
-    }
-  }
-  return lines;
-}
-
-export function formatConfirmationCommandPreview(
-  req: Pick<ConfirmationRequest, "toolName" | "input">,
-): string {
-  if (req.toolName === "bash" || req.toolName === "host_bash") {
-    return String(req.input.command ?? "");
-  }
-  if (req.toolName === "file_read" || req.toolName === "host_file_read") {
-    return `read ${req.input.path ?? ""}`;
-  }
-  if (req.toolName === "file_write" || req.toolName === "host_file_write") {
-    return `write ${req.input.path ?? ""}`;
-  }
-  if (req.toolName === "file_edit" || req.toolName === "host_file_edit") {
-    return `edit ${req.input.path ?? ""}`;
-  }
-  if (req.toolName === "web_fetch") {
-    return `fetch ${sanitizeUrlForDisplay(req.input.url ?? "")}`;
-  }
-  return req.toolName;
 }
 
 export async function startCli(): Promise<void> {

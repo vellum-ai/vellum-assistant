@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 
-import {
-  formatConfirmationCommandPreview,
-  formatConfirmationInputLines,
-  sanitizeUrlForDisplay,
-} from "../cli.js";
+import { sanitizeUrlForDisplay } from "../cli.js";
 
 describe("sanitizeUrlForDisplay", () => {
   test("removes userinfo from absolute URLs", () => {
@@ -32,39 +28,6 @@ describe("sanitizeUrlForDisplay", () => {
     expect(sanitizeUrlForDisplay(rawValue)).toBe(
       "not-a-url //[REDACTED]@example.com",
     );
-  });
-});
-
-describe("formatConfirmationInputLines", () => {
-  test("preserves full old_string and new_string values without truncation", () => {
-    const oldString = "old ".repeat(120);
-    const newString = "new ".repeat(120);
-    const lines = formatConfirmationInputLines({
-      old_string: oldString,
-      new_string: newString,
-    });
-
-    expect(lines).toContain(`old_string: ${oldString}`);
-    expect(lines).toContain(`new_string: ${newString}`);
-    expect(lines.some((line) => line.includes("..."))).toBe(false);
-  });
-
-  test("preserves multiline values", () => {
-    const lines = formatConfirmationInputLines({
-      old_string: "line1\nline2\nline3",
-    });
-
-    expect(lines).toEqual(["old_string: line1", "  line2", "  line3"]);
-  });
-});
-
-describe("formatConfirmationCommandPreview", () => {
-  test("shows concise file_edit preview", () => {
-    const preview = formatConfirmationCommandPreview({
-      toolName: "file_edit",
-      input: { path: "/tmp/sample.txt" },
-    });
-    expect(preview).toBe("edit /tmp/sample.txt");
   });
 });
 
