@@ -47,7 +47,7 @@ public enum TrustRuleV3ClientError: Error, LocalizedError {
 
 public protocol TrustRuleV3ClientProtocol {
     func listRules(origin: String?, tool: String?, includeDeleted: Bool?) async throws -> [TrustRuleV3]
-    func createRule(tool: String, pattern: String, risk: String, description: String) async throws -> TrustRuleV3
+    func createRule(tool: String, pattern: String, risk: String, description: String, scope: String) async throws -> TrustRuleV3
     func updateRule(id: String, risk: String?, description: String?) async throws -> TrustRuleV3
     func deleteRule(id: String) async throws
     func resetRule(id: String) async throws -> TrustRuleV3
@@ -75,12 +75,13 @@ public struct TrustRuleV3Client: TrustRuleV3ClientProtocol {
         return try JSONDecoder().decode(TrustRuleV3ListResponse.self, from: response.data).rules
     }
 
-    public func createRule(tool: String, pattern: String, risk: String, description: String) async throws -> TrustRuleV3 {
+    public func createRule(tool: String, pattern: String, risk: String, description: String, scope: String = "everywhere") async throws -> TrustRuleV3 {
         let body: [String: Any] = [
             "tool": tool,
             "pattern": pattern,
             "risk": risk,
             "description": description,
+            "scope": scope,
         ]
         let response = try await GatewayHTTPClient.post(
             path: "trust-rules-v3", json: body, timeout: 10
