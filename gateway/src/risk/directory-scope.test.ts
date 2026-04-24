@@ -456,4 +456,72 @@ describe("generateDirectoryScopeOptions", () => {
       label: "In project/",
     });
   });
+
+  test("multiple pathArgs whose common prefix does NOT exist on disk keep the prefix", () => {
+    // Regression for Codex cycle 3 (P1): the cycle-2 multi-path fallback
+    // `dirname(prefix)` when the prefix didn't currently exist widened valid
+    // create-directory workflows. `cp a.txt b.txt /repo/newdir/` (newdir
+    // not yet created) must still scope to `/repo/newdir/*`, not `/repo/*`,
+    // so the user isn't nudged into a broader persisted trust rule.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    mkdirSync(projectRoot, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+
+    // `newdir` deliberately NOT created on disk — mirrors a `cp` that will
+    // create the destination directory.
+    const newdir = join(projectRoot, "newdir");
+    const a = join(newdir, "a.txt");
+    const b = join(newdir, "b.txt");
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [a, b],
+      workingDir: projectRoot,
+      workspaceRoot: root,
+    });
+
+    // The narrowest option must be `newdir/*`, not `projectRoot/*`.
+    expect(result[0]).toEqual({
+      scope: `${newdir}${sep}*`,
+      label: "In newdir/",
+    });
+    // Sanity check: projectRoot/* must NOT be the narrowest option.
+    expect(result[0]?.scope).not.toBe(`${projectRoot}${sep}*`);
+    // The project boundary still emits projectRoot/* as option 2.
+    expect(result).toContainEqual({
+      scope: `${projectRoot}${sep}*`,
+      label: "In project/",
+    });
+    expect(result[result.length - 1]).toEqual({
+      scope: "everywhere",
+      label: "Everywhere",
+    });
+  });
+
+  test("multiple non-existent files inside an existing directory scope to that directory", () => {
+    // `touch a.txt b.txt` in an existing directory: neither file exists yet,
+    // but their shared parent does. The common prefix IS the existing parent,
+    // so the scope should remain that parent regardless of the files' status.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const subdir = join(projectRoot, "src");
+    mkdirSync(subdir, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+
+    const a = join(subdir, "does-not-exist-a.txt");
+    const b = join(subdir, "does-not-exist-b.txt");
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [a, b],
+      workingDir: subdir,
+      workspaceRoot: root,
+    });
+
+    // Common prefix of the two files is `subdir`, which exists. The
+    // ancestor must be `subdir`, not `subdir`'s parent.
+    expect(result[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+  });
 });

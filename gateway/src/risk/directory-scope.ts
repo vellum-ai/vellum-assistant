@@ -45,8 +45,14 @@ export function generateDirectoryScopeOptions(
   //     the ancestor directly; otherwise (file path or missing) fall back to
   //     `dirname`.
   //   - Multiple pathArgs: resolve, dedupe, and walk the shared segment prefix.
-  //     If the shared prefix is an existing directory, keep it; otherwise
-  //     `dirname` the prefix to drop any partial-filename component.
+  //     Use the prefix as-is — after deduping distinct full paths, the shared
+  //     segment prefix is always semantically a directory (no input's
+  //     trailing filename can survive the walk because at least one other
+  //     path diverges before or at that segment), so no existence check is
+  //     needed. Skipping the stat call also preserves valid "create the
+  //     output directory" workflows like `cp a.txt b.txt /repo/newdir/`,
+  //     where `/repo/newdir` does not exist yet but is still the intended
+  //     narrowest scope.
   let ancestor: string;
   if (pathArgs.length === 0) {
     ancestor = workingDir;
@@ -123,11 +129,19 @@ function resolvePath(path: string, workingDir: string): string {
  * For a single path, the result is the path itself when it resolves to an
  * existing directory (so `ls src` where `src/` is a dir scopes to `src/*`,
  * not `<parent>/*`) and its `dirname` otherwise (file path or missing —
- * best-effort fallback). For multiple paths it is the deepest directory
- * whose path is a prefix of every input; if that prefix is not an existing
- * directory we `dirname` it to drop any partial-filename component (e.g.
- * `/a/b/src` vs `/a/b/style` share the prefix `/a/b/s`, which is not a real
- * directory, so we return `/a/b`).
+ * best-effort fallback).
+ *
+ * For multiple distinct paths, the result is the deepest segment-wise
+ * common prefix of the inputs. This prefix is always semantically a
+ * directory: because each input path's filename sits in its own final
+ * segment, the shared prefix can only include a filename segment if that
+ * segment is identical across *every* input — but then those paths were
+ * the same and would have collapsed in the dedupe step. So for a list of
+ * distinct absolute paths the common prefix is guaranteed to stop strictly
+ * above any filename, and we can return it unchanged even when it doesn't
+ * currently exist on disk (e.g. `cp a.txt b.txt /repo/newdir/` where
+ * `newdir` will be created by the command — the intended narrowest scope
+ * is `/repo/newdir/*`, not `/repo/*`).
  *
  * Duplicate paths are collapsed first so that `[p, p]` behaves identically
  * to `[p]` — otherwise the multi-path branch's segment-prefix walk would
@@ -163,11 +177,11 @@ function commonAncestor(paths: string[]): string {
   if (common.length === 1 && common[0] === "") return sep;
 
   const joined = common.join(sep);
-  const prefix = joined === "" ? sep : joined;
-  // If the common prefix is already a real directory (e.g. `cp -r src dst`
-  // sharing `/a/b` as their prefix), keep it. Otherwise it's likely a
-  // partial filename — drop the last segment.
-  return pathIsExistingDirectory(prefix) ? prefix : dirname(prefix);
+  // The segment-wise shared prefix of distinct absolute paths is always a
+  // directory path (see function-level comment), so we return it as-is
+  // without checking the filesystem. This preserves create-directory
+  // workflows where the shared parent does not yet exist.
+  return joined === "" ? sep : joined;
 }
 
 /**
