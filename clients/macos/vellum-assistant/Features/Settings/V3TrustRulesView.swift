@@ -64,7 +64,7 @@ struct V3TrustRulesView: View {
         }
         .frame(width: 600, minHeight: 500)
         .task { await loadRules() }
-        .onChange(of: showAllDefaults) { await loadRules() }
+        .onChange(of: showAllDefaults) { _, _ in await loadRules() }
         .sheet(item: $editingRule) { rule in
             V3TrustRuleEditSheet(
                 rule: rule,
@@ -100,8 +100,8 @@ struct V3TrustRulesView: View {
                 // Fetch all default rules plus user-relevant rules, merge and deduplicate
                 async let defaultRules = trustRuleV3Client.listRules(origin: "default", tool: nil, includeDeleted: nil)
                 async let userRules = trustRuleV3Client.listRules(origin: nil, tool: nil, includeDeleted: nil)
-                let allDefaults = (try? await defaultRules) ?? []
-                let allUser = (try? await userRules) ?? []
+                let allDefaults = try await defaultRules
+                let allUser = try await userRules
                 var seen = Set<String>()
                 var merged: [TrustRuleV3] = []
                 for rule in allUser {
@@ -135,9 +135,13 @@ struct V3TrustRulesView: View {
 
     @MainActor
     private func deleteRule(rule: TrustRuleV3) async {
-        try? await trustRuleV3Client.deleteRule(id: rule.id)
-        withAnimation {
-            rules.removeAll { $0.id == rule.id }
+        do {
+            try await trustRuleV3Client.deleteRule(id: rule.id)
+            withAnimation {
+                rules.removeAll { $0.id == rule.id }
+            }
+        } catch {
+            // Delete failed — keep the rule visible
         }
     }
 }
@@ -180,8 +184,7 @@ private struct V3TrustRuleRow: View {
             // Risk badge
             Text(rule.risk.lowercased())
                 .font(VFont.labelDefault)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 2)
+                .padding(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
                 .background(riskColor(rule.risk).opacity(0.15))
                 .foregroundStyle(riskColor(rule.risk))
                 .clipShape(Capsule())
@@ -206,6 +209,7 @@ private struct V3TrustRuleRow: View {
                 VIconView(.pencil, size: 14)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("Edit \(rule.description) trust rule")
 
             // Delete button (only for user-defined or modified defaults)
             if canDelete {
@@ -216,12 +220,21 @@ private struct V3TrustRuleRow: View {
                         .foregroundStyle(VColor.systemNegativeStrong)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Delete \(rule.description) trust rule")
             }
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.vertical, VSpacing.sm)
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.lg, bottom: VSpacing.sm, trailing: VSpacing.lg))
         .contentShape(Rectangle())
-        .onTapGesture { onEdit() }
+        .background {
+            Button("") { onEdit() }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(rule.description)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onEdit() }
     }
 }
 
@@ -235,6 +248,7 @@ private struct V3TrustRuleEditSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedRisk: String = ""
     @State private var isSaving = false
+    @State private var saveError: String? = nil
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -283,12 +297,27 @@ private struct V3TrustRuleEditSheet: View {
             // Reset to Default button (only for modified defaults)
             if rule.origin == "default" && rule.userModified {
                 VButton(label: "Reset to Default", style: .outlined) {
+                    isSaving = true
+                    saveError = nil
                     Task {
-                        try? await trustRuleV3Client.resetRule(id: rule.id)
-                        await onSave()
-                        dismiss()
+                        do {
+                            try await trustRuleV3Client.resetRule(id: rule.id)
+                            await onSave()
+                            dismiss()
+                        } catch {
+                            saveError = error.localizedDescription
+                            isSaving = false
+                        }
                     }
                 }
+            }
+
+            // Error message
+            if let saveError {
+                Text(saveError)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Spacer()
@@ -305,10 +334,16 @@ private struct V3TrustRuleEditSheet: View {
                     isDisabled: selectedRisk == rule.risk || isSaving
                 ) {
                     isSaving = true
+                    saveError = nil
                     Task {
-                        try? await trustRuleV3Client.updateRule(id: rule.id, risk: selectedRisk, description: nil)
-                        await onSave()
-                        dismiss()
+                        do {
+                            try await trustRuleV3Client.updateRule(id: rule.id, risk: selectedRisk, description: nil)
+                            await onSave()
+                            dismiss()
+                        } catch {
+                            saveError = error.localizedDescription
+                            isSaving = false
+                        }
                     }
                 }
             }
