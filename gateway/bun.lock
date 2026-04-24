@@ -497,13 +497,13 @@
 
     "@vellumai/ces-client/@vellumai/ces-contracts": ["@vellumai/ces-contracts@file:../packages/ces-contracts", {}],
 
-    "@vellumai/ces-client/@vellumai/ces-contracts/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", {}],
+    "@vellumai/ces-client/@vellumai/ces-contracts/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", { "dependencies": { "zod": "4.3.6" } }],
 
     "@vellumai/ces-client/typescript": ["typescript@5.7.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw=="],
 
     "@vellumai/ces-contracts/@types/bun": ["@types/bun@1.2.4", "", { "dependencies": { "bun-types": "1.2.4" } }, "sha512-QtuV5OMR8/rdKJs213iwXDpfVvnskPXY/S0ZiFbsTjQZycuqPbMW8Gf/XhLfwE5njW8sxI2WjISURXPlHypMFA=="],
 
-    "@vellumai/ces-contracts/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", {}],
+    "@vellumai/ces-contracts/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../packages/service-contracts", { "dependencies": { "zod": "4.3.6" } }],
 
     "@vellumai/ces-contracts/typescript": ["typescript@5.7.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw=="],
 

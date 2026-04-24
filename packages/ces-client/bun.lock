@@ -30,6 +30,6 @@
 
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
-    "@vellumai/ces-contracts/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../service-contracts", {}],
+    "@vellumai/ces-contracts/@vellumai/service-contracts": ["@vellumai/service-contracts@file:../service-contracts", { "dependencies": { "zod": "4.3.6" } }],
   }
 }
