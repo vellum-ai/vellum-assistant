@@ -5,18 +5,25 @@
  *
  * Wire protocol (mirrors `assistant/src/ipc/skill-server.ts`):
  *
- *   one-shot RPC
- *     → { id, method, params? }
- *     ← { id, result } | { id, error }
+ *   skill-initiated RPC (one-shot)
+ *     → { id: "s:<n>", method, params? }
+ *     ← { id: "s:<n>", result } | { id: "s:<n>", error }
  *
- *   streaming RPC (e.g. `host.events.subscribe`)
- *     → { id, method, params? }
- *     ← { id, result: { subscribed: true } }            (open ack)
- *     ← { id, event: "delivery", payload: <data> }       (0..N)
- *     ← { id, error }                                    (terminal)
- *     → { id: ctrl-id, method: "host.events.subscribe.close",
+ *   daemon-initiated RPC (one-shot, requires registered handler)
+ *     ← { id: "d:<n>", method, params? }
+ *     → { id: "d:<n>", result } | { id: "d:<n>", error }
+ *
+ *   streaming RPC (e.g. `host.events.subscribe`, skill-initiated only)
+ *     → { id: "s:<n>", method, params? }
+ *     ← { id: "s:<n>", result: { subscribed: true } }     (open ack)
+ *     ← { id: "s:<n>", event: "delivery", payload: <data> } (0..N)
+ *     ← { id: "s:<n>", error }                            (terminal)
+ *     → { id: "s:<n>", method: "host.events.subscribe.close",
  *          params: { subscribeId: <original-id> } }
- *     ← { id: ctrl-id, result: { closed: true } }
+ *     ← { id: "s:<n>", result: { closed: true } }
+ *
+ * The `s:` / `d:` id prefixes namespace the two directions so each side can
+ * route inbound responses to its own pending-request map without collision.
  *
  * ### Sync-method bootstrap
  *
@@ -98,6 +105,11 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 3_000;
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 200;
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 10_000;
 
+/** Prefix for ids minted by the daemon (server) side. */
+const DAEMON_ID_PREFIX = "d:" as const;
+/** Prefix for ids minted by the skill (client) side. */
+const SKILL_ID_PREFIX = "s:" as const;
+
 // ---------------------------------------------------------------------------
 // Wire-format types
 // ---------------------------------------------------------------------------
@@ -110,11 +122,22 @@ type IpcRequest = {
 
 type IpcResponseFrame = {
   id: string;
+  method?: string;
+  params?: unknown;
   result?: unknown;
   error?: string;
   event?: "delivery";
   payload?: unknown;
 };
+
+/**
+ * Handler for a daemon-initiated request. Returning a value (or a Promise)
+ * resolves the daemon's `sendRequest` call; throwing rejects it with the
+ * thrown error's message. Synchronous returns are wrapped automatically.
+ */
+export type SkillHostRequestHandler = (
+  params: unknown,
+) => unknown | Promise<unknown>;
 
 // ---------------------------------------------------------------------------
 // Public options
@@ -188,6 +211,16 @@ function swallow(err: unknown): void {
   }
 }
 
+/**
+ * Stringify an unknown error value for the wire — `Error.message` when
+ * available, otherwise `String(err)` so non-Error throws still surface
+ * something readable on the daemon side.
+ */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 // ---------------------------------------------------------------------------
 // Client implementation
 // ---------------------------------------------------------------------------
@@ -225,6 +258,21 @@ export class SkillHostClient implements SkillHost {
   private connectingPromise: Promise<void> | null = null;
   private closed = false;
   private reconnectAttempt = 0;
+  /**
+   * Monotonic counter for skill-initiated request ids, formatted as
+   * `s:<n>`. The daemon mints `d:<n>` ids independently, so the two
+   * sequences never collide on a shared socket.
+   */
+  private nextSkillRequestSeq = 1;
+  /**
+   * Handlers for daemon-initiated requests, keyed by method name. Populated
+   * via `registerHandler(method, handler)`. Daemon→skill request frames
+   * (id starts with `d:`) are dispatched through this table.
+   */
+  private readonly daemonRequestHandlers = new Map<
+    string,
+    SkillHostRequestHandler
+  >();
 
   // Prefetched sync state — populated by `connect()`.
   private cachedInternalAssistantId: string | null = null;
@@ -308,6 +356,17 @@ export class SkillHostClient implements SkillHost {
       this.socket.destroy();
     }
     this.socket = null;
+  }
+
+  /**
+   * Install a handler for daemon-initiated requests of the given method.
+   * The daemon's `SkillIpcServer.sendRequest(connection, method, ...)`
+   * resolves with whatever the handler returns (or rejects with the
+   * handler's thrown error). Re-registering a method replaces the prior
+   * handler — last writer wins.
+   */
+  registerHandler(method: string, handler: SkillHostRequestHandler): void {
+    this.daemonRequestHandlers.set(method, handler);
   }
 
   // ── Internal: socket lifecycle ──────────────────────────────────────────
@@ -453,6 +512,17 @@ export class SkillHostClient implements SkillHost {
       return;
     }
 
+    // Daemon-initiated request frame — dispatch to a registered handler
+    // and write back the response. Identified by the `d:` id prefix and
+    // the presence of a `method` field.
+    if (
+      typeof frame.method === "string" &&
+      frame.id.startsWith(DAEMON_ID_PREFIX)
+    ) {
+      this.dispatchDaemonRequest(frame.id, frame.method, frame.params);
+      return;
+    }
+
     // Response frame — resolve or reject the pending call.
     const pending = this.pending.get(frame.id);
     if (pending) {
@@ -478,11 +548,63 @@ export class SkillHostClient implements SkillHost {
     }
   }
 
+  private dispatchDaemonRequest(
+    id: string,
+    method: string,
+    params: unknown,
+  ): void {
+    const handler = this.daemonRequestHandlers.get(method);
+    if (!handler) {
+      this.writeResponseFrame({
+        id,
+        error: `method not found: ${method}`,
+      });
+      return;
+    }
+    let result: unknown;
+    try {
+      result = handler(params);
+    } catch (err) {
+      this.writeResponseFrame({ id, error: errorMessage(err) });
+      return;
+    }
+    if (result instanceof Promise) {
+      result.then(
+        (value) => {
+          this.writeResponseFrame({ id, result: value });
+        },
+        (err) => {
+          this.writeResponseFrame({ id, error: errorMessage(err) });
+        },
+      );
+    } else {
+      this.writeResponseFrame({ id, result });
+    }
+  }
+
+  private writeResponseFrame(response: {
+    id: string;
+    result?: unknown;
+    error?: string;
+  }): void {
+    if (!this.socket || this.socket.destroyed) {
+      // The peer is gone; silently drop. The daemon-side pending entry
+      // will already have been rejected by the connection-close path.
+      return;
+    }
+    this.socket.write(JSON.stringify(response) + "\n");
+  }
+
   private writeFrame(req: IpcRequest): void {
     if (!this.socket || this.socket.destroyed) {
       throw new Error("SkillHostClient: not connected");
     }
     this.socket.write(JSON.stringify(req) + "\n");
+  }
+
+  /** Allocate the next `s:<n>` id for a skill-initiated request. */
+  private nextSkillRequestId(): string {
+    return `${SKILL_ID_PREFIX}${this.nextSkillRequestSeq++}`;
   }
 
   private async call<T>(
@@ -497,7 +619,7 @@ export class SkillHostClient implements SkillHost {
         "SkillHostClient: not connected. Call `await client.connect()` first.",
       );
     }
-    const id = randomUUID();
+    const id = this.nextSkillRequestId();
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(id)) {
@@ -771,7 +893,7 @@ export class SkillHostClient implements SkillHost {
     filter: Filter,
     callback: AssistantEventCallback,
   ): Subscription {
-    const id = randomUUID();
+    const id = this.nextSkillRequestId();
     const active: ActiveSubscription = {
       id,
       filter,
