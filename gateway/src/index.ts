@@ -105,6 +105,7 @@ import {
   createTrustRuleV3sUpdateHandler,
   createTrustRuleV3sDeleteHandler,
   createTrustRuleV3sResetHandler,
+  createTrustRuleV3sSuggestHandler,
 } from "./http/routes/trust-rules-v3.js";
 import { initTrustRuleV3Cache } from "./risk/trust-rule-v3-cache.js";
 import { getLogger, initLogger } from "./logger.js";
@@ -407,6 +408,7 @@ async function main() {
   const handleTrustRuleV3sUpdate = createTrustRuleV3sUpdateHandler();
   const handleTrustRuleV3sDelete = createTrustRuleV3sDeleteHandler();
   const handleTrustRuleV3sReset = createTrustRuleV3sResetHandler();
+  const handleTrustRuleV3sSuggest = createTrustRuleV3sSuggestHandler();
 
   const audioProxy = createAudioProxyHandler(config);
 
@@ -1215,6 +1217,14 @@ async function main() {
       method: "GET",
       auth: "edge",
       handler: (req) => handleTrustRuleV3sList(req),
+    },
+    {
+      // Must appear before the POST /v1/trust-rules-v3 create entry and before
+      // the /:id catch-all regex so the literal path is matched first.
+      path: "/v1/trust-rules-v3/suggest",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRuleV3sSuggest(req),
     },
     {
       path: "/v1/trust-rules-v3",
