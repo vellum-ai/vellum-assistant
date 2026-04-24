@@ -850,7 +850,10 @@ private struct ToolCallStepDetailRow: View {
                                 tool: rule.toolName,
                                 pattern: rule.pattern,
                                 risk: rule.riskLevel,
-                                description: tc.reasonDescription ?? "\(rule.toolName) — \(rule.pattern)"
+                                description: {
+                                    let desc = tc.reasonDescription ?? ""
+                                    return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                }()
                             )
                         }
                     },
