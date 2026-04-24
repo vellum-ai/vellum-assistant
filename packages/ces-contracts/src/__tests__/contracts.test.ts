@@ -1,9 +1,11 @@
 /**
- * Tests for @vellumai/ces-contracts
+ * Tests for @vellumai/ces-contracts (compatibility shim)
  *
  * These tests verify:
- * 1. The package can be consumed independently (no assistant/ or CES imports).
- * 2. All exported schemas parse valid payloads and reject invalid ones.
+ * 1. All exported schemas are re-exported correctly from the shim (no breakage).
+ * 2. Representative symbols imported via the old package name are identical
+ *    (===) to the same symbols from @vellumai/service-contracts, confirming
+ *    the shim is a true facade with no independent contract logic.
  * 3. The transport message union correctly discriminates by `type`.
  */
 
@@ -20,30 +22,50 @@ import {
 } from "../index.js";
 
 // ---------------------------------------------------------------------------
-// Independence guard — the package must not pull in assistant or CES modules.
+// Shim equivalence — symbols from ces-contracts must be identical to those
+// from service-contracts (same object references, not just structurally equal).
 // ---------------------------------------------------------------------------
 
-describe("package independence", () => {
-  const sourceFiles = [
-    "../index.ts",
-    "../handles.ts",
-    "../grants.ts",
-    "../rpc.ts",
-    "../rendering.ts",
-  ];
+describe("shim equivalence", () => {
+  test("CES_PROTOCOL_VERSION is the same value as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(CES_PROTOCOL_VERSION).toBe(sc.CES_PROTOCOL_VERSION);
+  });
 
-  for (const file of sourceFiles) {
-    test(`${file} does not import from assistant/ or credential-executor/`, () => {
-      const src = require("node:fs").readFileSync(
-        require("node:path").resolve(__dirname, file),
-        "utf-8",
-      );
-      expect(src).not.toMatch(/from\s+['"].*assistant\//);
-      expect(src).not.toMatch(/from\s+['"].*credential-executor\//);
-      expect(src).not.toMatch(/require\(['"].*assistant\//);
-      expect(src).not.toMatch(/require\(['"].*credential-executor\//);
-    });
-  }
+  test("HandshakeRequestSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(HandshakeRequestSchema).toBe(sc.HandshakeRequestSchema);
+  });
+
+  test("HandshakeAckSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(HandshakeAckSchema).toBe(sc.HandshakeAckSchema);
+  });
+
+  test("RpcEnvelopeSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(RpcEnvelopeSchema).toBe(sc.RpcEnvelopeSchema);
+  });
+
+  test("RpcErrorSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(RpcErrorSchema).toBe(sc.RpcErrorSchema);
+  });
+
+  test("ToolRequestBaseSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(ToolRequestBaseSchema).toBe(sc.ToolRequestBaseSchema);
+  });
+
+  test("ToolResponseBaseSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(ToolResponseBaseSchema).toBe(sc.ToolResponseBaseSchema);
+  });
+
+  test("TransportMessageSchema is the same reference as service-contracts", async () => {
+    const sc = await import("@vellumai/service-contracts");
+    expect(TransportMessageSchema).toBe(sc.TransportMessageSchema);
+  });
 });
 
 // ---------------------------------------------------------------------------
