@@ -8,18 +8,29 @@
  *
  * Protocol: newline-delimited JSON over a Unix domain socket.
  *
- * One-shot RPC:
- * - Request:  { "id": string, "method": string, "params"?: Record<string, unknown> }
- * - Response: { "id": string, "result"?: unknown, "error"?: string }
+ * Bidirectional RPC: either side may initiate a request. Per-direction id
+ * namespacing prevents collisions:
+ * - Skill-initiated request ids start with `s:` (minted client-side).
+ * - Daemon-initiated request ids start with `d:` (minted server-side).
+ * Response frames echo the request id, so each side routes inbound responses
+ * to its own pending-request map by prefix.
  *
- * Streaming RPC (e.g. `host.events.subscribe`):
- * - Request:    { "id": string, "method": string, "params"?: Record<string, unknown> }
- * - Open ack:   { "id": string, "result": { "subscribed": true } }
- * - Deliveries: { "id": string, "event": "delivery", "payload": <data> } (0..N)
- * - Error:      { "id": string, "error": string } (terminal)
- * - Close req:  { "id": "<ctrl-id>", "method": "host.events.subscribe.close",
+ * Skill→daemon one-shot RPC:
+ * - Request:  { "id": "s:<n>", "method": string, "params"?: Record<string, unknown> }
+ * - Response: { "id": "s:<n>", "result"?: unknown, "error"?: string }
+ *
+ * Daemon→skill one-shot RPC:
+ * - Request:  { "id": "d:<n>", "method": string, "params"?: unknown }
+ * - Response: { "id": "d:<n>", "result"?: unknown, "error"?: string }
+ *
+ * Streaming RPC (e.g. `host.events.subscribe`, skill-initiated only):
+ * - Request:    { "id": "s:<n>", "method": string, "params"?: Record<string, unknown> }
+ * - Open ack:   { "id": "s:<n>", "result": { "subscribed": true } }
+ * - Deliveries: { "id": "s:<n>", "event": "delivery", "payload": <data> } (0..N)
+ * - Error:      { "id": "s:<n>", "error": string } (terminal)
+ * - Close req:  { "id": "s:<n>", "method": "host.events.subscribe.close",
  *                 "params": { "subscribeId": "<original-id>" } }
- * - Close ack:  { "id": "<ctrl-id>", "result": { "closed": true } }
+ * - Close ack:  { "id": "s:<n>", "result": { "closed": true } }
  *
  * The preferred socket path is `{workspaceDir}/assistant-skill.sock`. On
  * platforms with strict AF_UNIX path limits (notably macOS), the server falls
@@ -48,6 +59,16 @@ import {
 import { resolveSkillIpcSocketPath } from "./skill-socket-path.js";
 
 const log = getLogger("skill-ipc-server");
+
+// ---------------------------------------------------------------------------
+// Id namespacing
+// ---------------------------------------------------------------------------
+
+/** Prefix for ids minted by the daemon (server) side. */
+export const SKILL_IPC_DAEMON_ID_PREFIX = "d:" as const;
+
+/** Default per-call timeout for daemon-initiated requests. */
+const DEFAULT_SEND_REQUEST_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Streaming
@@ -124,13 +145,33 @@ export interface SkillIpcConnection {
   addSkillToolsOwner(skillId: string): void;
 }
 
+/** Internal record for a daemon-initiated request awaiting a response. */
+interface PendingDaemonRequest {
+  resolve: (value: unknown) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 class SkillIpcConnectionState implements SkillIpcConnection {
   readonly connectionId: string;
+  readonly socket: Socket;
   private routeHandlesBySkill = new Map<string, SkillRouteHandle[]>();
   private skillToolOwners = new Set<string>();
+  /**
+   * Pending daemon-initiated requests keyed by `d:<n>` id. Cleared on
+   * connection teardown so callers never see a hung promise.
+   */
+  readonly pendingDaemonRequests = new Map<string, PendingDaemonRequest>();
+  private nextRequestSeq = 1;
 
-  constructor(connectionId: string) {
+  constructor(connectionId: string, socket: Socket) {
     this.connectionId = connectionId;
+    this.socket = socket;
+  }
+
+  /** Allocate the next `d:<n>` id for a daemon-initiated request. */
+  nextDaemonRequestId(): string {
+    return `${SKILL_IPC_DAEMON_ID_PREFIX}${this.nextRequestSeq++}`;
   }
 
   addRouteHandle(skillId: string, handle: SkillRouteHandle): void {
@@ -168,6 +209,20 @@ class SkillIpcConnectionState implements SkillIpcConnection {
       }
     }
     this.skillToolOwners.clear();
+    // Reject every in-flight daemon-initiated request so callers don't
+    // hang on a dropped peer. The socket's "close" listener fires before
+    // dispose() in the normal path, but defending here keeps behavior
+    // identical when teardown is invoked from the explicit `stop()` path.
+    if (this.pendingDaemonRequests.size > 0) {
+      const closeErr = new Error(
+        `SkillIpcServer: connection closed before response (connectionId=${this.connectionId})`,
+      );
+      for (const pending of this.pendingDaemonRequests.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(closeErr);
+      }
+      this.pendingDaemonRequests.clear();
+    }
   }
 }
 
@@ -239,6 +294,71 @@ export class SkillIpcServer {
     this.streamingMethods.set(method, handler);
   }
 
+  /**
+   * Send a request to the skill on the other side of `connection` and resolve
+   * with the matching response's `result` (or reject with its `error`).
+   *
+   * Daemon-initiated request ids are namespaced under the `d:` prefix so the
+   * skill can disambiguate them from its own `s:`-prefixed responses on the
+   * same socket. The pending entry is held on the per-connection state so a
+   * disconnect rejects every in-flight request without leaking timers.
+   *
+   * Throws synchronously if `connection` is unknown or its socket is already
+   * destroyed. Rejects asynchronously on:
+   *   - skill-side error response (`{ id, error }`),
+   *   - timeout (default 30s, override via `opts.timeoutMs`),
+   *   - peer disconnect before a response arrives.
+   */
+  sendRequest(
+    connection: SkillIpcConnection,
+    method: string,
+    params?: unknown,
+    opts?: { timeoutMs?: number },
+  ): Promise<unknown> {
+    const state = connection as SkillIpcConnectionState;
+    if (!(state instanceof SkillIpcConnectionState)) {
+      return Promise.reject(
+        new Error(
+          "SkillIpcServer.sendRequest: connection must be a SkillIpcConnection produced by this server",
+        ),
+      );
+    }
+    if (state.socket.destroyed) {
+      return Promise.reject(
+        new Error(
+          `SkillIpcServer.sendRequest: connection ${state.connectionId} socket is destroyed`,
+        ),
+      );
+    }
+
+    const id = state.nextDaemonRequestId();
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_SEND_REQUEST_TIMEOUT_MS;
+    return new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (state.pendingDaemonRequests.delete(id)) {
+          reject(
+            new Error(
+              `SkillIpcServer.sendRequest: '${method}' on ${state.connectionId} timed out after ${timeoutMs}ms`,
+            ),
+          );
+        }
+      }, timeoutMs);
+      state.pendingDaemonRequests.set(id, { resolve, reject, timer });
+      try {
+        const frame: { id: string; method: string; params?: unknown } = {
+          id,
+          method,
+        };
+        if (params !== undefined) frame.params = params;
+        state.socket.write(JSON.stringify(frame) + "\n");
+      } catch (err) {
+        state.pendingDaemonRequests.delete(id);
+        clearTimeout(timer);
+        reject(err as Error);
+      }
+    });
+  }
+
   /** Start listening on the Unix domain socket. */
   async start(): Promise<void> {
     // Ensure the parent directory exists before listening.
@@ -258,6 +378,7 @@ export class SkillIpcServer {
       this.clients.add(socket);
       const connection = new SkillIpcConnectionState(
         `skill-ipc-${this.nextConnectionId++}`,
+        socket,
       );
       this.connections.set(socket, connection);
       log.debug(
@@ -340,9 +461,12 @@ export class SkillIpcServer {
   // ── Internal ──────────────────────────────────────────────────────────
 
   private handleMessage(socket: Socket, line: string): void {
-    let req: IpcRequest;
+    let frame: IpcRequest & { result?: unknown; error?: string };
     try {
-      req = JSON.parse(line) as IpcRequest;
+      frame = JSON.parse(line) as IpcRequest & {
+        result?: unknown;
+        error?: string;
+      };
     } catch {
       this.sendResponse(socket, {
         id: "unknown",
@@ -352,22 +476,54 @@ export class SkillIpcServer {
     }
 
     if (
-      !req ||
-      typeof req !== "object" ||
-      Array.isArray(req) ||
-      !req.id ||
-      !req.method
+      !frame ||
+      typeof frame !== "object" ||
+      Array.isArray(frame) ||
+      !frame.id
     ) {
       const id =
-        req &&
-        typeof req === "object" &&
-        !Array.isArray(req) &&
-        typeof req.id === "string"
-          ? req.id
+        frame &&
+        typeof frame === "object" &&
+        !Array.isArray(frame) &&
+        typeof frame.id === "string"
+          ? frame.id
           : "unknown";
       this.sendResponse(socket, {
         id,
         error: "Missing 'id' or 'method' field",
+      });
+      return;
+    }
+
+    // Response frame for a daemon-initiated request — route to the
+    // pending-request map on the connection state instead of treating it
+    // as an inbound RPC. Identified by the `d:` id prefix and the
+    // absence of a `method` field.
+    if (
+      frame.method === undefined &&
+      frame.id.startsWith(SKILL_IPC_DAEMON_ID_PREFIX)
+    ) {
+      this.handleDaemonResponse(socket, frame);
+      return;
+    }
+
+    if (!frame.method) {
+      this.sendResponse(socket, {
+        id: frame.id,
+        error: "Missing 'id' or 'method' field",
+      });
+      return;
+    }
+
+    const req = frame as IpcRequest;
+
+    // Reserve the daemon prefix for server-minted ids. A skill that sends
+    // a request whose id starts with `d:` would collide with daemon-side
+    // pending entries; reject it loudly so the bug surfaces early.
+    if (req.id.startsWith(SKILL_IPC_DAEMON_ID_PREFIX)) {
+      this.sendResponse(socket, {
+        id: req.id,
+        error: `Reserved id prefix '${SKILL_IPC_DAEMON_ID_PREFIX}': skill-initiated request ids must not collide with daemon-initiated ids`,
       });
       return;
     }
@@ -513,6 +669,28 @@ export class SkillIpcServer {
       id: req.id,
       result: { closed: true },
     });
+  }
+
+  private handleDaemonResponse(
+    socket: Socket,
+    frame: { id: string; result?: unknown; error?: string },
+  ): void {
+    const connection = this.connections.get(socket);
+    if (!connection) return;
+    const pending = connection.pendingDaemonRequests.get(frame.id);
+    if (!pending) {
+      // Either a duplicate/late response or a frame for a request the
+      // server already timed out. Drop silently — it would have already
+      // settled the caller's promise.
+      return;
+    }
+    connection.pendingDaemonRequests.delete(frame.id);
+    clearTimeout(pending.timer);
+    if (frame.error !== undefined) {
+      pending.reject(new Error(String(frame.error)));
+    } else {
+      pending.resolve(frame.result);
+    }
   }
 
   private teardownConnection(socket: Socket): void {
