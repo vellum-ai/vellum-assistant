@@ -771,4 +771,61 @@ describe("command-registry", () => {
       }
     });
   });
+
+  // ── filesystemOp tagging ─────────────────────────────────────────────────
+  describe("filesystemOp tagging", () => {
+    /** Collect all top-level commands tagged with filesystemOp: true. */
+    function getFilesystemOpCommands(): string[] {
+      return Object.entries(DEFAULT_COMMAND_REGISTRY)
+        .filter(
+          ([, spec]) => (spec as CommandRiskSpec).filesystemOp === true,
+        )
+        .map(([name]) => name)
+        .sort();
+    }
+
+    test("has at least 30 entries tagged with filesystemOp (design-doc inventory)", () => {
+      const tagged = getFilesystemOpCommands();
+      expect(tagged.length).toBeGreaterThanOrEqual(30);
+    });
+
+    test("representative filesystem commands are tagged with filesystemOp", () => {
+      const expectedTagged = ["ls", "cat", "grep", "rm", "cp", "tar"];
+      const missing: string[] = [];
+      for (const cmd of expectedTagged) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        if (!spec) {
+          missing.push(`${cmd}: missing from registry`);
+        } else if (spec.filesystemOp !== true) {
+          missing.push(`${cmd}: filesystemOp is not true`);
+        }
+      }
+      expect(missing).toEqual([]);
+    });
+
+    test("non-filesystem commands are NOT tagged with filesystemOp", () => {
+      const expectedNotTagged = [
+        "echo",
+        "curl",
+        "git",
+        "npm",
+        "node",
+        "python",
+      ];
+      const errors: string[] = [];
+      for (const cmd of expectedNotTagged) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        if (!spec) {
+          errors.push(`${cmd}: missing from registry`);
+        } else if (spec.filesystemOp === true) {
+          errors.push(`${cmd}: filesystemOp should not be true`);
+        }
+      }
+      expect(errors).toEqual([]);
+    });
+  });
 });
