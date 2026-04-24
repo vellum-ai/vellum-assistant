@@ -304,4 +304,146 @@ describe("GET /v1/trust-rules/match — query", () => {
     const body = (await res.json()) as { rule: null };
     expect(body.rule).toBeNull();
   });
+
+  test("`paths` query param matches when all resolved paths are covered", async () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "route-rp-in",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/ws/scratch/*",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const handler = createTrustRulesMatchHandler();
+    const req = new Request(
+      "http://localhost/v1/trust-rules/match" +
+        "?tool=file_write" +
+        "&commands=" +
+        encodeURIComponent("/ws/scratch/a") +
+        "&scope=" +
+        encodeURIComponent("/unrelated/cwd") +
+        "&paths=" +
+        encodeURIComponent("/ws/scratch/a,/ws/scratch/b"),
+      { method: "GET" },
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { rule: { id: string } | null };
+    expect(body.rule).toBeTruthy();
+    expect(body.rule!.id).toBe("route-rp-in");
+  });
+
+  test("`paths` query param rejects when one resolved path is outside scope", async () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "route-rp-out",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/ws/scratch/*",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const handler = createTrustRulesMatchHandler();
+    const req = new Request(
+      "http://localhost/v1/trust-rules/match" +
+        "?tool=file_write" +
+        "&commands=" +
+        encodeURIComponent("/ws/scratch/a") +
+        "&scope=" +
+        encodeURIComponent("/ws/scratch/a") +
+        "&paths=" +
+        encodeURIComponent("/ws/scratch/a,/ws/other/b"),
+      { method: "GET" },
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { rule: null };
+    expect(body.rule).toBeNull();
+  });
+
+  test('"everywhere" scope matches regardless of `paths`', async () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "route-rp-everywhere",
+          tool: "file_write",
+          pattern: "**",
+          scope: "everywhere",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const handler = createTrustRulesMatchHandler();
+    const req = new Request(
+      "http://localhost/v1/trust-rules/match" +
+        "?tool=file_write" +
+        "&commands=" +
+        encodeURIComponent("/x") +
+        "&scope=" +
+        encodeURIComponent("/any/cwd") +
+        "&paths=" +
+        encodeURIComponent("/a,/b,/weird/path"),
+      { method: "GET" },
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { rule: { id: string } | null };
+    expect(body.rule).toBeTruthy();
+    expect(body.rule!.id).toBe("route-rp-everywhere");
+  });
+
+  test("empty `paths` falls back to cwd check (backward compat)", async () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "route-rp-fallback",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/ws/scratch",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const handler = createTrustRulesMatchHandler();
+    // Omit `paths` entirely — should still match via cwd.
+    const req = new Request(
+      "http://localhost/v1/trust-rules/match" +
+        "?tool=file_write" +
+        "&commands=" +
+        encodeURIComponent("/ws/scratch/a") +
+        "&scope=" +
+        encodeURIComponent("/ws/scratch"),
+      { method: "GET" },
+    );
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { rule: { id: string } | null };
+    expect(body.rule).toBeTruthy();
+    expect(body.rule!.id).toBe("route-rp-fallback");
+  });
 });

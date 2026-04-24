@@ -561,13 +561,25 @@ function fileRemoveRule(id: string): boolean {
   return true;
 }
 
-function matchesScope(ruleScope: string, workingDir: string): boolean {
+function matchesScope(
+  ruleScope: string,
+  workingDir: string,
+  resolvedPaths?: readonly string[],
+): boolean {
   if (ruleScope === "everywhere") return true;
   // Strip optional trailing wildcard, then enforce a directory-boundary match
   // so that a rule for "/path/project" does NOT match "/path/project-evil".
   const prefix = ruleScope.replace(/\*$/, "").replace(/\/+$/, "");
-  const dir = workingDir.replace(/\/+$/, "");
-  return dir === prefix || dir.startsWith(prefix + "/");
+  const covers = (p: string): boolean => {
+    const normalized = p.replace(/\/+$/, "");
+    return normalized === prefix || normalized.startsWith(prefix + "/");
+  };
+  // When resolved path args are provided, the rule must cover ALL of them
+  // (AND semantics). Otherwise, fall back to the working-directory check.
+  if (resolvedPaths && resolvedPaths.length > 0) {
+    return resolvedPaths.every(covers);
+  }
+  return covers(workingDir);
 }
 
 function findRuleByDecision(
@@ -575,6 +587,7 @@ function findRuleByDecision(
   command: string,
   scope: string,
   decision: "allow" | "deny" | "ask",
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
@@ -582,7 +595,7 @@ function findRuleByDecision(
     if (rule.decision !== decision) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled || !compiled.match(command)) continue;
-    if (!matchesScope(ruleScope(rule), scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope, resolvedPaths)) continue;
     return rule;
   }
   return null;
@@ -616,6 +629,7 @@ function fileFindHighestPriorityRule(
   commands: string[],
   scope: string,
   ctx?: PolicyContext,
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
   // Check ephemeral (task-scoped) rules first — they take precedence over
   // file-based rules at the same priority because they are evaluated earlier.
@@ -633,7 +647,7 @@ function fileFindHighestPriorityRule(
 
   for (const rule of allRules) {
     if (rule.tool !== tool) continue;
-    if (!matchesScope(ruleScope(rule), scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope, resolvedPaths)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled) continue;
@@ -650,8 +664,9 @@ function fileFindMatchingRule(
   tool: string,
   command: string,
   scope: string,
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
-  return findRuleByDecision(tool, command, scope, "allow");
+  return findRuleByDecision(tool, command, scope, "allow", resolvedPaths);
 }
 
 function fileFindDenyRule(
@@ -976,6 +991,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     commands: string[],
     scope: string,
     ctx?: PolicyContext,
+    resolvedPaths?: readonly string[],
   ): TrustRule | null {
     this.ensureInitialized();
     const ephemeral = ctx?.ephemeralRules ?? [];
@@ -986,7 +1002,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
     for (const rule of allRules) {
       if (rule.tool !== tool) continue;
-      if (!matchesScope(ruleScope(rule), scope)) continue;
+      if (!matchesScope(ruleScope(rule), scope, resolvedPaths)) continue;
       if (!matchesExecutionTarget(rule, ctx)) continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled) continue;
@@ -1003,6 +1019,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     tool: string,
     command: string,
     scope: string,
+    resolvedPaths?: readonly string[],
   ): TrustRule | null {
     this.ensureInitialized();
     for (const rule of this.rules) {
@@ -1010,7 +1027,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "allow") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(ruleScope(rule), scope)) continue;
+      if (!matchesScope(ruleScope(rule), scope, resolvedPaths)) continue;
       return rule;
     }
     return null;
@@ -1282,16 +1299,24 @@ export function findHighestPriorityRule(
   commands: string[],
   scope: string,
   ctx?: PolicyContext,
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
-  return getTrustStore().findHighestPriorityRule(tool, commands, scope, ctx);
+  return getTrustStore().findHighestPriorityRule(
+    tool,
+    commands,
+    scope,
+    ctx,
+    resolvedPaths,
+  );
 }
 
 export function findMatchingRule(
   tool: string,
   command: string,
   scope: string,
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
-  return getTrustStore().findMatchingRule(tool, command, scope);
+  return getTrustStore().findMatchingRule(tool, command, scope, resolvedPaths);
 }
 
 export function findDenyRule(

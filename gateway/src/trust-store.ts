@@ -193,11 +193,18 @@ function ruleOrder(a: TrustRule, b: TrustRule): number {
 function matchesScope(
   ruleScope: string | undefined,
   workingDir: string,
+  resolvedPaths?: readonly string[],
 ): boolean {
   if (!ruleScope || ruleScope === "everywhere") return true;
   const prefix = ruleScope.replace(/\*$/, "").replace(/\/+$/, "");
-  const dir = workingDir.replace(/\/+$/, "");
-  return dir === prefix || dir.startsWith(prefix + "/");
+  const covers = (p: string): boolean => {
+    const normalized = p.replace(/\/+$/, "");
+    return normalized === prefix || normalized.startsWith(prefix + "/");
+  };
+  if (resolvedPaths && resolvedPaths.length > 0) {
+    return resolvedPaths.every(covers);
+  }
+  return covers(workingDir);
 }
 
 // ---------------------------------------------------------------------------
@@ -455,13 +462,14 @@ export function findMatchingRule(
   tool: string,
   command: string,
   scope: string,
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled || !compiled.match(command)) continue;
-    if (!matchesScope(ruleScope(rule), scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope, resolvedPaths)) continue;
     return rule;
   }
   return null;
@@ -475,11 +483,12 @@ export function findHighestPriorityRule(
   tool: string,
   commands: string[],
   scope: string,
+  resolvedPaths?: readonly string[],
 ): TrustRule | null {
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
-    if (!matchesScope(ruleScope(rule), scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope, resolvedPaths)) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled) continue;
     for (const command of commands) {

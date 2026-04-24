@@ -508,6 +508,151 @@ describe("scope matching", () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolvedPaths — path-aware scope matching
+// ---------------------------------------------------------------------------
+
+describe("resolvedPaths scope matching", () => {
+  test("scoped rule matches when all resolvedPaths are covered", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rp-all-in",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/ws/scratch/*",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    loadRules();
+
+    // Using cwd outside the rule scope — the check must rely solely on
+    // resolvedPaths, not the workingDir fallback.
+    const rule = findMatchingRule(
+      "file_write",
+      "/ws/scratch/a",
+      "/unrelated/cwd",
+      ["/ws/scratch/a", "/ws/scratch/b"],
+    );
+    expect(rule).toBeTruthy();
+    expect(rule!.id).toBe("rp-all-in");
+
+    const hpRule = findHighestPriorityRule(
+      "file_write",
+      ["/ws/scratch/a"],
+      "/unrelated/cwd",
+      ["/ws/scratch/a", "/ws/scratch/b"],
+    );
+    expect(hpRule).toBeTruthy();
+    expect(hpRule!.id).toBe("rp-all-in");
+  });
+
+  test("scoped rule does NOT match when any resolvedPath is outside scope", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rp-one-out",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/ws/scratch/*",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    loadRules();
+
+    expect(
+      findMatchingRule("file_write", "/ws/scratch/a", "/ws/scratch/a", [
+        "/ws/scratch/a",
+        "/ws/other/b",
+      ]),
+    ).toBeNull();
+
+    expect(
+      findHighestPriorityRule(
+        "file_write",
+        ["/ws/scratch/a"],
+        "/ws/scratch/a",
+        ["/ws/scratch/a", "/ws/other/b"],
+      ),
+    ).toBeNull();
+  });
+
+  test("empty/undefined resolvedPaths falls back to cwd check", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rp-fallback",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/ws/scratch",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    loadRules();
+
+    // Undefined resolvedPaths — cwd fallback works
+    expect(
+      findMatchingRule("file_write", "/ws/scratch/a", "/ws/scratch"),
+    ).toBeTruthy();
+    // Empty array also falls back to cwd
+    expect(
+      findMatchingRule("file_write", "/ws/scratch/a", "/ws/scratch", []),
+    ).toBeTruthy();
+    // Backward-compat: cwd outside the scope — no match
+    expect(
+      findMatchingRule("file_write", "/ws/scratch/a", "/elsewhere"),
+    ).toBeNull();
+  });
+
+  test('"everywhere" scope matches regardless of resolvedPaths', () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rp-everywhere",
+          tool: "file_write",
+          pattern: "**",
+          scope: "everywhere",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    loadRules();
+
+    expect(
+      findMatchingRule("file_write", "/x", "/any/cwd", [
+        "/a",
+        "/b",
+        "/weird/path",
+      ]),
+    ).toBeTruthy();
+    expect(
+      findHighestPriorityRule("file_write", ["/x"], "/any/cwd", [
+        "/ws/scratch/a",
+        "/ws/other/b",
+      ]),
+    ).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Rule matching
 // ---------------------------------------------------------------------------
 

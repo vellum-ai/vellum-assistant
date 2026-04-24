@@ -298,6 +298,7 @@ export function createTrustRulesMatchHandler() {
     const pattern = url.searchParams.get("pattern");
     const scope = url.searchParams.get("scope");
     const commandsParam = url.searchParams.get("commands");
+    const pathsParam = url.searchParams.get("paths");
 
     if (!tool) {
       return Response.json(
@@ -312,6 +313,12 @@ export function createTrustRulesMatchHandler() {
       );
     }
 
+    // Optional resolved path args, comma-separated. When present, rule scope
+    // must cover ALL resolved paths (AND semantics).
+    const resolvedPaths = pathsParam
+      ? pathsParam.split(",").filter(Boolean)
+      : undefined;
+
     try {
       // Support two modes:
       // 1. Single pattern match: ?tool=X&pattern=Y&scope=Z
@@ -324,7 +331,12 @@ export function createTrustRulesMatchHandler() {
             { status: 400 },
           );
         }
-        const rule = findHighestPriorityRule(tool, commands, scope);
+        const rule = findHighestPriorityRule(
+          tool,
+          commands,
+          scope,
+          resolvedPaths,
+        );
         return Response.json({ rule: rule ?? null });
       }
 
@@ -335,7 +347,7 @@ export function createTrustRulesMatchHandler() {
         );
       }
 
-      const rule = findMatchingRule(tool, pattern, scope);
+      const rule = findMatchingRule(tool, pattern, scope, resolvedPaths);
       return Response.json({ rule: rule ?? null });
     } catch (err) {
       log.error({ err }, "Failed to find matching trust rule");
