@@ -198,7 +198,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)",
+    auth: "JWT Bearer (service token, query param; unverified)",
     description:
       "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
     callerGlobs: [
@@ -224,7 +224,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)",
+    auth: "JWT Bearer (service token, query param; unverified)",
     description:
       "Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.",
     callerGlobs: [

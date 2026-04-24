@@ -21,9 +21,9 @@ This document enumerates every observed communication permutation between the th
 | 9 | Gateway -> Assistant | `http` | none (audioId capability token) | Audio proxy |
 | 10 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health probe (migration state) |
 | 11 | Gateway -> Assistant | `http` | none | Readiness probe |
-| 12 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only) | Twilio ConversationRelay WebSocket proxy |
+| 12 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param; unverified) | Twilio ConversationRelay WebSocket proxy |
 | 13 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
-| 14 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only) | Twilio MediaStream WebSocket proxy |
+| 14 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param; unverified) | Twilio MediaStream WebSocket proxy |
 | 15 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
 | 16 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
 | 17 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
@@ -176,7 +176,7 @@ This document enumerates every observed communication permutation between the th
 ### Twilio ConversationRelay WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)
+- **Auth:** JWT Bearer (service token, query param; unverified)
 - **Description:** Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.
 
 **Caller files:**
@@ -200,7 +200,7 @@ This document enumerates every observed communication permutation between the th
 ### Twilio MediaStream WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)
+- **Auth:** JWT Bearer (service token, query param; unverified)
 - **Description:** Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.
 
 **Caller files:**
