@@ -1152,6 +1152,19 @@ export async function runGcsImport(
     taggedSource.destroy(err);
   });
   upstreamNodeStream.pipe(taggedSource);
+  // Absorb stream errors on `taggedSource`. `streamCommitImport` does
+  // several `await`s (workspace recovery, temp-dir mkdir) before
+  // `parseVBundleStream(source)` attaches its own `source.on('error')`
+  // listener. If the upstream socket is destroyed during that window,
+  // the `upstreamNodeStream.on('close')` handler above calls
+  // `taggedSource.destroy(err)` with no listener attached yet and the
+  // error surfaces as unhandled. We don't need to act on it here — the
+  // `kFetchBodyTornDown` flag has already been latched on the stream,
+  // and the post-import branch below (`wasFetchBodyTornDown(taggedSource)`)
+  // maps the failure to `fetch_failed`. Register this absorber
+  // unconditionally so there is always at least one `'error'` listener
+  // on the wrapper for the lifetime of the stream.
+  taggedSource.on("error", () => {});
   // Propagate wrapper teardown back to the upstream fetch body. When the
   // streaming importer hits a validation/extraction error, it destroys
   // `source` (which is `taggedSource`). Without this listener the
