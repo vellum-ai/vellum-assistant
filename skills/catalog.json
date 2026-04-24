@@ -563,9 +563,6 @@
         "emoji": "🤖",
         "vellum": {
           "display-name": "Telegram Setup",
-          "includes": [
-            "public-ingress"
-          ],
           "activation-hints": [
             "Telegram bot setup, webhook configuration, or BotFather token",
             "User wants to connect Telegram to the assistant"

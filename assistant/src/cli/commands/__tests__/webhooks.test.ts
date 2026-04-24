@@ -364,6 +364,31 @@ describe("assistant webhooks register", () => {
       expect(result.mode).toBe("platform");
     });
   });
+  describe("--source option", () => {
+    test("passes source to registerCallbackRoute on platform mode", async () => {
+      mockShouldUsePlatformCallbacks = true;
+      mockRegisterCallbackRoute = async (path, type) => {
+        expect(path).toBe("webhooks/telegram");
+        expect(type).toBe("telegram");
+        return "https://callbacks.vellum.app/a/asst_123/webhooks/telegram";
+      };
+
+      const { stdout } = await runAssistantCommandFull(
+        "webhooks",
+        "register",
+        "telegram",
+        "--source",
+        "@my_bot",
+        "--json",
+      );
+
+      const result = parseJson(stdout);
+      expect(result.ok).toBe(true);
+      expect(result.callbackUrl).toBe(
+        "https://callbacks.vellum.app/a/asst_123/webhooks/telegram",
+      );
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -390,6 +415,7 @@ describe("assistant webhooks list", () => {
         callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram",
         callback_url:
           "https://test-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram/",
+        source_identifier: "@my_bot",
       },
       {
         id: "route-2",
@@ -398,6 +424,7 @@ describe("assistant webhooks list", () => {
         callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/resend",
         callback_url:
           "https://test-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/resend/",
+        source_identifier: null,
       },
     ];
     mockFetch(
@@ -497,6 +524,7 @@ describe("assistant webhooks list", () => {
         callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/email",
         callback_url:
           "https://test-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/email/",
+        source_identifier: null,
       },
     ];
     mockFetch(

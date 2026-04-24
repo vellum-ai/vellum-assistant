@@ -53,17 +53,13 @@ If the user also wants to **receive** emails via Mailgun, you need to get a webh
 
 #### Getting the webhook URL
 
-Check the `IS_PLATFORM` environment variable to determine the approach:
+Use the unified webhooks CLI to get a callback URL. This handles both platform-managed and self-hosted assistants automatically:
 
-- **If `IS_PLATFORM=true`** (managed assistant): Register a platform callback route:
+```bash
+CALLBACK_URL=$(assistant webhooks register mailgun --source "$DOMAIN")
+```
 
-  ```bash
-  assistant platform callback-routes register --path webhooks/mailgun --type mailgun --json
-  ```
-
-  This returns JSON with a `callbackUrl` field — use that as the webhook URL.
-
-- **If `IS_PLATFORM` is not set** (self-hosted): Use a tunnel like ngrok to expose the gateway's `/webhooks/mailgun` endpoint. The public URL from the tunnel is the webhook URL.
+If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
 
 #### Creating the inbound route in Mailgun
 

@@ -6,8 +6,6 @@ metadata:
   emoji: "🤖"
   vellum:
     display-name: "Telegram Setup"
-    includes:
-      - public-ingress
     activation-hints:
       - "Telegram bot setup, webhook configuration, or BotFather token"
       - "User wants to connect Telegram to the assistant"
@@ -51,35 +49,13 @@ If the `curl` call fails, the token is invalid - ask the user to re-enter (repea
 
 ## Step 3: Set Up Webhook Routing
 
-First check whether managed platform callback routes are available:
+Use the unified webhooks CLI to get a callback URL. This handles both platform-managed and self-hosted assistants automatically:
 
 ```bash
-assistant platform status --json
+CALLBACK_URL=$(assistant webhooks register telegram --source "$BOT_USERNAME")
 ```
 
-If `isPlatform` is `true` and both `baseUrl` and `assistantId` are present, then we should use Platform Routing, otherwise, use Self-Hosted Routing.
-
-**Platform Routing:**
-
-- Register the managed callback route:
-
-```bash
-ROUTE_RESPONSE=$(assistant platform callback-routes register --path webhooks/telegram --type telegram --json)
-CALLBACK_URL=$(echo "$ROUTE_RESPONSE" | jq -r '.callbackUrl')
-```
-
-- In this mode, do **not** load `public-ingress` or mention ngrok. The managed platform callback route is the Telegram webhook URL.
-
-**Self-Hosted Routing:**
-
-- Telegram needs a publicly reachable URL to send webhook events to. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
-
-- After `public-ingress` completes, construct the callback URL from the persisted base URL:
-
-```bash
-PUBLIC_BASE_URL=$(assistant config get ingress.publicBaseUrl)
-CALLBACK_URL="${PUBLIC_BASE_URL}/webhooks/telegram"
-```
+If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
 
 ### Generate Webhook Secret
 

@@ -70,8 +70,9 @@ separators, prefixed with webhooks/.
 
 Examples:
   $ assistant webhooks register telegram
-  $ assistant webhooks register twilio_voice --json
-  $ assistant webhooks register resend --json`,
+  $ assistant webhooks register resend --source "@bot_handle"
+  $ assistant webhooks list
+  $ assistant webhooks list --json`,
   );
 
   // ---------------------------------------------------------------------------
@@ -104,56 +105,72 @@ Arguments:
            oauth_callback → webhooks/oauth/callback
 
 Options:
-  --path <path>   Override the derived webhook path.
+  --path <path>     Override the derived webhook path.
+  --source <label>  Human-readable source label (e.g. bot handle, phone number)
+                    for admin display.
 
 Examples:
-  $ assistant webhooks register telegram
+  $ assistant webhooks register telegram --source "@my_bot"
   $ assistant webhooks register twilio_voice --json
   $ assistant webhooks register resend --json
   $ assistant webhooks register custom_provider --path webhooks/my-provider --json`,
     )
     .option("--path <path>", "Override the derived webhook path")
-    .action(async (type: string, opts: { path?: string }, cmd: Command) => {
-      try {
-        const webhookPath = opts.path ?? deriveWebhookPath(type);
+    .option(
+      "--source <label>",
+      "Human-readable source label for admin display (e.g. bot handle, phone number)",
+    )
+    .action(
+      async (
+        type: string,
+        opts: { path?: string; source?: string },
+        cmd: Command,
+      ) => {
+        try {
+          const webhookPath = opts.path ?? deriveWebhookPath(type);
 
-        let callbackUrl: string;
-        let mode: "platform" | "self-hosted";
+          let callbackUrl: string;
+          let mode: "platform" | "self-hosted";
 
-        if (shouldUsePlatformCallbacks()) {
-          // Platform-managed: register callback route
-          callbackUrl = await registerCallbackRoute(webhookPath, type);
-          mode = "platform";
-        } else {
-          // Self-hosted: use ingress.publicBaseUrl
-          const config = getConfig();
-          const baseUrl = getPublicBaseUrl(config);
-          callbackUrl = `${baseUrl}/${webhookPath}`;
-          mode = "self-hosted";
-        }
+          if (shouldUsePlatformCallbacks()) {
+            // Platform-managed: register callback route
+            callbackUrl = await registerCallbackRoute(
+              webhookPath,
+              type,
+              opts.source,
+            );
+            mode = "platform";
+          } else {
+            // Self-hosted: use ingress.publicBaseUrl
+            const config = getConfig();
+            const baseUrl = getPublicBaseUrl(config);
+            callbackUrl = `${baseUrl}/${webhookPath}`;
+            mode = "self-hosted";
+          }
 
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, {
-            ok: true,
-            callbackUrl,
-            type,
-            path: webhookPath,
-            mode,
-          });
-        } else {
-          // Plain mode: emit only the URL so callers can capture it with $()
-          process.stdout.write(callbackUrl + "\n");
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              ok: true,
+              callbackUrl,
+              type,
+              path: webhookPath,
+              mode,
+            });
+          } else {
+            // Plain mode: emit only the URL so callers can capture it with $()
+            process.stdout.write(callbackUrl + "\n");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, { ok: false, error: message });
+          } else {
+            log.error(message);
+          }
+          process.exitCode = 1;
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (shouldOutputJson(cmd)) {
-          writeOutput(cmd, { ok: false, error: message });
-        } else {
-          log.error(message);
-        }
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // webhooks list
@@ -220,6 +237,7 @@ Examples:
           type: string;
           callback_path: string;
           callback_url: string;
+          source_identifier: string | null;
         }>;
 
         if (shouldOutputJson(cmd)) {
@@ -230,9 +248,11 @@ Examples:
           } else {
             log.info(`${routes.length} webhook route(s) registered:\n`);
             for (const route of routes) {
-              log.info(`  Type: ${route.type}`);
-              log.info(`  URL:  ${route.callback_url}`);
-              log.info(`  Path: ${route.callback_path}`);
+              log.info(`  Type:   ${route.type}`);
+              log.info(`  URL:    ${route.callback_url}`);
+              if (route.source_identifier) {
+                log.info(`  Source: ${route.source_identifier}`);
+              }
               log.info("");
             }
           }
