@@ -91,9 +91,6 @@ import * as sequenceImport from "./bundled-skills/sequences/tools/sequence-impor
 import * as sequenceList from "./bundled-skills/sequences/tools/sequence-list.js";
 import * as sequenceUpdate from "./bundled-skills/sequences/tools/sequence-update.js";
 // ── settings ───────────────────────────────────────────────────────────────────
-import * as avatarGet from "./bundled-skills/settings/tools/avatar-get.js";
-import * as avatarRemove from "./bundled-skills/settings/tools/avatar-remove.js";
-import * as avatarUpdate from "./bundled-skills/settings/tools/avatar-update.js";
 import * as navigateSettingsTab from "./bundled-skills/settings/tools/navigate-settings-tab.js";
 import * as openSystemSettings from "./bundled-skills/settings/tools/open-system-settings.js";
 import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config-update.js";
@@ -213,9 +210,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["settings:tools/voice-config-update.ts", voiceConfigUpdate],
   ["settings:tools/open-system-settings.ts", openSystemSettings],
   ["settings:tools/navigate-settings-tab.ts", navigateSettingsTab],
-  ["settings:tools/avatar-update.ts", avatarUpdate],
-  ["settings:tools/avatar-remove.ts", avatarRemove],
-  ["settings:tools/avatar-get.ts", avatarGet],
 
   // skill-management
   ["skill-management:tools/scaffold-managed.ts", scaffoldManaged],

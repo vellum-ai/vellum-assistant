@@ -1,0 +1,302 @@
+# Service Communication Matrix
+
+> **Auto-generated** from `scripts/service-communication/matrix-source.ts`.
+> Do not edit by hand. Run `bun run scripts/service-communication/generate-matrix.ts` to regenerate.
+
+This document enumerates every observed communication permutation between the three core services:
+**Assistant** (daemon), **Gateway** (channel ingress), and **CES** (Credential Execution Service).
+
+## Summary
+
+| # | Direction | Protocol | Auth | Label |
+|---|-----------|----------|------|-------|
+| 1 | Gateway -> Assistant | `http` | JWT Bearer (ingress token) | Channel inbound forwarding |
+| 2 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Conversation reset |
+| 3 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Attachment upload |
+| 4 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Attachment download |
+| 5 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Twilio voice webhook forwarding |
+| 6 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth callback forwarding |
+| 7 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime proxy |
+| 8 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Log export (daemon logs) |
+| 9 | Gateway -> Assistant | `websocket` | JWT Bearer (edge relay token, query param) | Twilio ConversationRelay WebSocket proxy |
+| 10 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
+| 11 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
+| 12 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
+| 13 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 14 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 15 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 16 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 17 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 18 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 19 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 20 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 21 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+
+## Gateway -> Assistant
+
+### Channel inbound forwarding
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (ingress token)
+- **Description:** Gateway forwards normalized channel messages (Telegram, WhatsApp, Slack, email) to the assistant's /v1/channels/inbound endpoint.
+
+**Caller files:**
+- `gateway/src/runtime/client.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/inbound-stages/*.ts`
+
+### Conversation reset
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway resets a channel conversation via DELETE /v1/channels/conversation on the assistant.
+
+**Caller files:**
+- `gateway/src/runtime/client.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/inbound-message-handler.ts`
+
+### Attachment upload
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway uploads channel attachments to the assistant via POST /v1/attachments.
+
+**Caller files:**
+- `gateway/src/runtime/client.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/inbound-message-handler.ts`
+
+### Attachment download
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway downloads attachment metadata and content from the assistant for channel delivery.
+
+**Caller files:**
+- `gateway/src/runtime/client.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/inbound-message-handler.ts`
+
+### Twilio voice webhook forwarding
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway forwards validated Twilio voice/status/connect-action webhooks to the assistant's internal Twilio endpoints.
+
+**Caller files:**
+- `gateway/src/runtime/client.ts`
+
+**Callee files:**
+- `assistant/src/calls/*.ts`
+
+### OAuth callback forwarding
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway forwards OAuth callback codes to the assistant's internal OAuth endpoint.
+
+**Caller files:**
+- `gateway/src/runtime/client.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/inbound-message-handler.ts`
+
+### Runtime proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies authenticated external HTTP requests directly to the assistant runtime.
+
+**Caller files:**
+- `gateway/src/http/routes/runtime-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Log export (daemon logs)
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway collects daemon logs from the assistant via POST /v1/export during log export.
+
+**Caller files:**
+- `gateway/src/http/routes/log-export.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Twilio ConversationRelay WebSocket proxy
+
+- **Protocol:** `websocket`
+- **Auth:** JWT Bearer (edge relay token, query param)
+- **Description:** Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/twilio-relay-websocket.ts`
+
+**Callee files:**
+- `assistant/src/calls/relay-server.ts`
+
+## Assistant -> Gateway
+
+### Channel reply delivery (Telegram)
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (daemon delivery token)
+- **Description:** Assistant delivers reply messages to Telegram chats via the gateway's /deliver/telegram endpoint.
+
+**Caller files:**
+- `assistant/src/runtime/gateway-client.ts`
+- `assistant/src/notifications/adapters/telegram.ts`
+
+**Callee files:**
+- `gateway/src/http/routes/telegram-deliver.ts`
+
+### Channel reply delivery (WhatsApp)
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (daemon delivery token)
+- **Description:** Assistant delivers reply messages to WhatsApp via the gateway's /deliver/whatsapp endpoint.
+
+**Caller files:**
+- `assistant/src/runtime/gateway-client.ts`
+- `assistant/src/messaging/providers/whatsapp/adapter.ts`
+
+**Callee files:**
+- `gateway/src/http/routes/whatsapp-deliver.ts`
+
+### Channel reply delivery (Slack)
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (daemon delivery token)
+- **Description:** Assistant delivers reply messages to Slack via the gateway's /deliver/slack endpoint.
+
+**Caller files:**
+- `assistant/src/runtime/gateway-client.ts`
+- `assistant/src/notifications/adapters/slack.ts`
+
+**Callee files:**
+- `gateway/src/http/routes/slack-deliver.ts`
+
+### Trust rules CRUD
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (edge relay token)
+- **Description:** Assistant reads/writes trust rules via the gateway's /v1/trust-rules REST API (containerized mode).
+
+**Caller files:**
+- `assistant/src/permissions/trust-client.ts`
+
+**Callee files:**
+- `gateway/src/ipc/trust-rule-handlers.ts`
+- `gateway/src/trust-store.ts`
+
+### Feature flags IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant fetches merged feature flags from the gateway via the Unix domain socket IPC (get_feature_flags method).
+
+**Caller files:**
+- `assistant/src/ipc/gateway-client.ts`
+
+**Callee files:**
+- `gateway/src/ipc/feature-flag-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Contact data IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant reads contact auth/authz data from the gateway via IPC (get_contact, list_contacts, get_contact_by_channel, get_channels_for_contact).
+
+**Caller files:**
+- `assistant/src/ipc/gateway-client.ts`
+
+**Callee files:**
+- `gateway/src/ipc/contact-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Risk classification IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant classifies tool invocation risk via the persistent IPC connection to the gateway (classify_risk method).
+
+**Caller files:**
+- `assistant/src/ipc/gateway-client.ts`
+
+**Callee files:**
+- `gateway/src/ipc/server.ts`
+
+## Assistant -> CES
+
+### CES RPC (local mode)
+
+- **Protocol:** `stdio-ndjson`
+- **Auth:** none (child process)
+- **Description:** Assistant spawns the credential-executor as a child process and communicates via stdio JSON-RPC for tool execution (run_authenticated_command, make_authenticated_request, manage_secure_command_tool).
+
+**Caller files:**
+- `assistant/src/credential-execution/process-manager.ts`
+- `assistant/src/credential-execution/client.ts`
+
+**Callee files:**
+- `credential-executor/src/server.ts`
+- `credential-executor/src/main.ts`
+
+### CES RPC (managed mode)
+
+- **Protocol:** `unix-socket-ndjson`
+- **Auth:** none (bootstrap socket)
+- **Description:** Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.
+
+**Caller files:**
+- `assistant/src/credential-execution/process-manager.ts`
+
+**Callee files:**
+- `credential-executor/src/managed-main.ts`
+- `credential-executor/src/server.ts`
+
+### CES credential CRUD (HTTP)
+
+- **Protocol:** `http`
+- **Auth:** CES_SERVICE_TOKEN Bearer
+- **Description:** Assistant performs credential CRUD via the CES HTTP API (CES_CREDENTIAL_URL) in containerized mode.
+
+**Caller files:**
+- `assistant/src/security/ces-credential-client.ts`
+
+**Callee files:**
+- `credential-executor/src/http/*.ts`
+
+## Gateway -> CES
+
+### Gateway credential reads (HTTP)
+
+- **Protocol:** `http`
+- **Auth:** CES_SERVICE_TOKEN Bearer
+- **Description:** Gateway reads credentials from the CES HTTP API (CES_CREDENTIAL_URL) in containerized mode for channel auth (Telegram bot token, Twilio SID, etc.).
+
+**Caller files:**
+- `gateway/src/credential-reader.ts`
+
+**Callee files:**
+- `credential-executor/src/http/*.ts`
+
+### Gateway CES log export (HTTP)
+
+- **Protocol:** `http`
+- **Auth:** CES_SERVICE_TOKEN Bearer
+- **Description:** Gateway fetches CES audit logs during log export via GET /v1/logs/export on the CES HTTP API.
+
+**Caller files:**
+- `gateway/src/http/routes/log-export.ts`
+
+**Callee files:**
+- `credential-executor/src/http/*.ts`

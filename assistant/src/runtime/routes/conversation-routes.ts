@@ -48,6 +48,7 @@ import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
+import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type {
   HostProxyTransportMetadata,
@@ -1227,6 +1228,14 @@ function registerHostProxyPendingInteraction(
     });
     return msg.requestId;
   }
+  if (msg.type === "host_transfer_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_transfer",
+    });
+    return msg.requestId;
+  }
   return undefined;
 }
 
@@ -1743,8 +1752,15 @@ export async function handleSendMessage(
       });
       conversation.setHostFileProxy(fileProxy);
     }
+    if (!conversation.isProcessing() || !conversation.getHostTransferProxy()) {
+      const transferProxy = new HostTransferProxy(onEvent, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      conversation.setHostTransferProxy(transferProxy);
+    }
   } else if (!conversation.isProcessing()) {
     conversation.setHostFileProxy(undefined);
+    conversation.setHostTransferProxy(undefined);
   }
   if (supportsHostProxy(sourceInterface, "host_cu")) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {

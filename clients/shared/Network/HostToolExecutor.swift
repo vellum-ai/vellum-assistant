@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -470,6 +471,303 @@ public enum HostToolExecutor {
         }
 
         return nil
+    }
+
+    // MARK: - Host Transfer Execution
+
+    /// Execute a host file transfer request locally and post the result back to the daemon.
+    /// Dispatches by direction: `to_host` (pull from sandbox) or `to_sandbox` (push to sandbox).
+    @MainActor
+    public static func executeHostTransferRequest(_ request: HostTransferRequest) {
+        Task.detached {
+            // Pre-cancellation check
+            if isCancelledAndConsume(request.requestId) {
+                log.debug("Host transfer skipped (pre-cancelled) — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
+
+            switch request.direction {
+            case "to_host":
+                await executeToHostTransfer(request)
+            case "to_sandbox":
+                await executeToSandboxTransfer(request)
+            default:
+                log.error("Unknown transfer direction: \(request.direction, privacy: .public)")
+                let result = HostTransferResultPayload(
+                    requestId: request.requestId,
+                    isError: true,
+                    bytesWritten: nil,
+                    errorMessage: "Unknown transfer direction: \(request.direction)"
+                )
+                if !isCancelledAndConsume(request.requestId) {
+                    _ = await HostProxyClient().postTransferResult(result)
+                }
+            }
+        }
+    }
+
+    /// Cancel an in-flight host file transfer request.
+    public static func cancelHostTransferRequest(_ requestId: String) {
+        markCancelled(requestId)
+        log.info("Cancelling host transfer — requestId=\(requestId, privacy: .public)")
+    }
+
+    // MARK: - Transfer Direction Handlers
+
+    /// Pull a file from the sandbox to the host (to_host direction).
+    /// Downloads the file content via GET, writes to destPath, and verifies SHA-256.
+    private static func executeToHostTransfer(_ request: HostTransferRequest) async {
+        guard let destPath = request.destPath, !destPath.isEmpty else {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "destPath is required for to_host transfers"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        let transferId = request.transferId
+
+        // Check overwrite: if overwrite is not true and file already exists, fail early.
+        if request.overwrite != true, FileManager.default.fileExists(atPath: destPath) {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "File already exists at \(destPath) and overwrite is not enabled"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // Create parent directories
+        let destURL = URL(fileURLWithPath: destPath)
+        let parentDir = destURL.deletingLastPathComponent().path
+        do {
+            try FileManager.default.createDirectory(
+                atPath: parentDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        } catch {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Failed to create parent directory: \(error.localizedDescription)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // Check cancellation before downloading
+        if isCancelledAndConsume(request.requestId) {
+            log.debug("Host transfer cancelled before download — requestId=\(request.requestId, privacy: .public)")
+            return
+        }
+
+        // Pull file content from the daemon
+        let data: Data
+        do {
+            data = try await HostProxyClient().pullTransferContent(transferId: transferId)
+        } catch {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Failed to pull transfer content: \(error.localizedDescription)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // Check cancellation after download
+        if isCancelledAndConsume(request.requestId) {
+            log.debug("Host transfer cancelled after download — requestId=\(request.requestId, privacy: .public)")
+            return
+        }
+
+        // Write data to destination
+        do {
+            try data.write(to: destURL)
+        } catch {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Failed to write file to \(destPath): \(error.localizedDescription)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // Verify SHA-256 if expected hash is provided
+        if let expectedSha = request.sha256, !expectedSha.isEmpty {
+            let actualSha = sha256Hex(data)
+            if actualSha != expectedSha {
+                // Mismatch — delete the written file and post error
+                try? FileManager.default.removeItem(at: destURL)
+                let result = HostTransferResultPayload(
+                    requestId: request.requestId,
+                    isError: true,
+                    bytesWritten: nil,
+                    errorMessage: "SHA-256 mismatch: expected \(expectedSha), got \(actualSha)"
+                )
+                if !isCancelledAndConsume(request.requestId) {
+                    _ = await HostProxyClient().postTransferResult(result)
+                }
+                return
+            }
+        }
+
+        log.debug("Host transfer to_host completed — requestId=\(request.requestId, privacy: .public) bytes=\(data.count)")
+
+        // Post success
+        let result = HostTransferResultPayload(
+            requestId: request.requestId,
+            isError: false,
+            bytesWritten: data.count,
+            errorMessage: nil
+        )
+        if !isCancelledAndConsume(request.requestId) {
+            _ = await HostProxyClient().postTransferResult(result)
+        }
+    }
+
+    /// Push a file from the host to the sandbox (to_sandbox direction).
+    /// Reads the source file, computes SHA-256, and uploads via PUT.
+    private static func executeToSandboxTransfer(_ request: HostTransferRequest) async {
+        guard let sourcePath = request.sourcePath, !sourcePath.isEmpty else {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "sourcePath is required for to_sandbox transfers"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        let transferId = request.transferId
+
+        // Validate source exists and is a file (not directory)
+        let sourceURL = URL(fileURLWithPath: sourcePath)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sourcePath, isDirectory: &isDirectory) else {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Source file does not exist: \(sourcePath)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+        guard !isDirectory.boolValue else {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Source path is a directory, not a file: \(sourcePath)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // Read file data
+        let data: Data
+        do {
+            data = try Data(contentsOf: sourceURL)
+        } catch {
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Failed to read source file: \(error.localizedDescription)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // Check cancellation before uploading
+        if isCancelledAndConsume(request.requestId) {
+            log.debug("Host transfer cancelled before upload — requestId=\(request.requestId, privacy: .public)")
+            return
+        }
+
+        // Compute SHA-256
+        let sha = sha256Hex(data)
+
+        // Push via PUT
+        do {
+            let success = try await HostProxyClient().pushTransferContent(
+                transferId: transferId,
+                data: data,
+                sha256: sha,
+                sourcePath: sourcePath
+            )
+            guard success else {
+                // PUT returned a non-success HTTP status (e.g. SHA-256
+                // mismatch, write failure). Report the error so the server
+                // can resolve the pending interaction immediately instead
+                // of waiting 120 s for the timeout.
+                let result = HostTransferResultPayload(
+                    requestId: request.requestId,
+                    isError: true,
+                    bytesWritten: nil,
+                    errorMessage: "Failed to push transfer content"
+                )
+                if !isCancelledAndConsume(request.requestId) {
+                    _ = await HostProxyClient().postTransferResult(result)
+                }
+                return
+            }
+        } catch {
+            // Network error (timeout, connection refused, etc.). Report
+            // so the server doesn't hang for 120 s.
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Failed to push transfer content: \(error.localizedDescription)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
+            return
+        }
+
+        // On success the PUT response handler on the server already resolved
+        // the pending interaction — no separate result POST needed.
+        log.debug("Host transfer to_sandbox completed — requestId=\(request.requestId, privacy: .public) bytes=\(data.count)")
+    }
+
+    // MARK: - SHA-256 Helper
+
+    /// Compute the lowercase hex-encoded SHA-256 digest of the given data.
+    private static func sha256Hex(_ data: Data) -> String {
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private enum FileOperationError: LocalizedError {

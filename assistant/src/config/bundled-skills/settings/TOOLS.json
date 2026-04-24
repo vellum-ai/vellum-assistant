@@ -87,62 +87,6 @@
       },
       "executor": "tools/navigate-settings-tab.ts",
       "execution_target": "host"
-    },
-    {
-      "name": "set_avatar",
-      "description": "Set the assistant's avatar to an image file. Copies the source image to the canonical avatar location (data/avatar/avatar-image.png), removes any native character avatar files, and notifies the app to refresh. Use this when the user asks to set, change, or update the avatar to a specific image (e.g. from a conversation attachment).",
-      "category": "system",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "image_path": {
-            "type": "string",
-            "description": "Path to the image file. Can be absolute or relative to the workspace directory (e.g. 'conversations/<id>/attachments/Dropped Image.png')."
-          },
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are doing, shown to the user as a status update."
-          }
-        },
-        "required": ["image_path"]
-      },
-      "executor": "tools/avatar-update.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "remove_avatar",
-      "description": "Remove the custom avatar image and restore the native character avatar. Only deletes the custom image — preserves character traits so the character avatar is automatically restored. Use this when the user asks to remove, clear, or reset their avatar.",
-      "category": "system",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are doing, shown to the user as a status update."
-          }
-        }
-      },
-      "executor": "tools/avatar-remove.ts",
-      "execution_target": "host"
-    },
-    {
-      "name": "get_avatar",
-      "description": "Read and return the current avatar image so the user can see it. Use this when the user asks to see, view, or show their avatar. Returns the image inline — do NOT copy the file or use bash commands.",
-      "category": "system",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are doing, shown to the user as a status update."
-          }
-        }
-      },
-      "executor": "tools/avatar-get.ts",
-      "execution_target": "host"
     }
   ]
 }

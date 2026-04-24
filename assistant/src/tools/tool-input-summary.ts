@@ -53,6 +53,16 @@ export function summarizeToolInput(
       const path = extractString(input, "file_path", "path");
       return path ? path.trim() : "";
     }
+    case "host_file_transfer": {
+      // Display the host-side path: source_path for to_sandbox (reading from
+      // host), dest_path for to_host (writing to host).
+      const direction = extractString(input, "direction") ?? "";
+      const path =
+        direction === "to_sandbox"
+          ? extractString(input, "source_path")
+          : extractString(input, "dest_path");
+      return path ? path.trim() : "";
+    }
     case "web_fetch":
     case "network_request": {
       const url = extractString(input, "url");

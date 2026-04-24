@@ -48,6 +48,8 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../ces-client && bun install --frozen-lockfile
+          cd ../gateway-client && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
           cd ../../gateway && bun install --frozen-lockfile
 
@@ -90,6 +92,8 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../ces-client && bun install --frozen-lockfile
+          cd ../gateway-client && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
           cd ../../gateway && bun install --frozen-lockfile
 
@@ -129,6 +133,8 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../ces-client && bun install --frozen-lockfile
+          cd ../gateway-client && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
           cd ../../gateway && bun install --frozen-lockfile
 
@@ -228,6 +234,8 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../ces-client && bun install --frozen-lockfile
+          cd ../gateway-client && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
           cd ../../gateway && bun install --frozen-lockfile
 

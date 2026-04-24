@@ -7,7 +7,6 @@
     "src/messaging/providers/*/types.ts",
     "src/messaging/providers/*/client.ts",
     "src/memory/graph/inspect.ts",
-    "src/cli/lib/daemon-avatar-client.ts",
     "../skills/meet-join/**/*.test.ts",
     "../skills/meet-join/**/__tests__/**/*.ts",
     "!../skills/meet-join/bot/**",
@@ -27,9 +26,11 @@
     "!../skills/meet-join/bot/**"
   ],
   "ignoreDependencies": [
+    "@vellumai/ces-client",
     "@vellumai/ces-contracts",
     "@vellumai/credential-storage",
     "@vellumai/egress-proxy",
+    "@vellumai/gateway-client",
     "@resvg/resvg-js-darwin-arm64",
     "@resvg/resvg-js-darwin-x64",
     "@vellumai/skill-host-contracts"

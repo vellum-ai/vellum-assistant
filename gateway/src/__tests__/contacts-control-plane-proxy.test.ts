@@ -209,4 +209,64 @@ describe("contacts control-plane proxy", () => {
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({ error: "Gateway Timeout" });
   });
+
+  test("returns 502 when runtime is unreachable", async () => {
+    fetchMock = mock(async () => {
+      throw new Error("Connection refused");
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Bad Gateway" });
+  });
+
+  test("passes through successful response body", async () => {
+    const responsePayload = {
+      contacts: [{ id: "ct_1", name: "Alice" }],
+      total: 1,
+    };
+    fetchMock = mock(async () => {
+      return new Response(JSON.stringify(responsePayload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListContacts(
+      new Request("http://localhost:7830/v1/contacts"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(responsePayload);
+    expect(res.headers.get("content-type")).toBe("application/json");
+  });
+
+  test("strips hop-by-hop headers from upstream response", async () => {
+    fetchMock = mock(async () => {
+      return new Response("ok", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain",
+          connection: "keep-alive",
+          "keep-alive": "timeout=5",
+          "x-custom": "preserved",
+        },
+      });
+    });
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleUpsertContact(
+      new Request("http://localhost:7830/v1/contacts", { method: "POST" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.has("connection")).toBe(false);
+    expect(res.headers.has("keep-alive")).toBe(false);
+    expect(res.headers.get("x-custom")).toBe("preserved");
+  });
 });

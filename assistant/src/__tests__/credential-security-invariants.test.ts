@@ -216,6 +216,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
       "daemon/daemon-skill-host.ts", // SkillHost secureKeys facet adapter (delegates to getProviderKeyAsync)
+      "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
@@ -223,6 +224,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "tts/providers/xai-provider.ts", // xAI TTS API key lookup
       "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
+      "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

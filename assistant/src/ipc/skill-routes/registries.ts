@@ -1,0 +1,270 @@
+/**
+ * Skill IPC routes — `host.registries.*` surface.
+ *
+ * Lets an out-of-process skill install tools, HTTP routes, shutdown hooks
+ * and session-tracking signals into the daemon's in-memory registries. The
+ * register_* routes install proxy entries whose behavior ultimately dispatches
+ * back over the same IPC socket via `skill.dispatch_*` calls; those
+ * reverse-direction dispatch paths are PR 28's concern, so the proxies here
+ * install `execute` / handler / hook stubs that throw a "not implemented —
+ * dispatch added in PR 28" error. The shape of the registration (name,
+ * description, risk level, execution target, regex, methods) is what matters
+ * for this PR — downstream PRs only need to swap the stub body for a real
+ * `skill.dispatch_*` round-trip.
+ *
+ * `report_session_started` / `report_session_ended` keep an internal counter
+ * the PR 27 `MeetHostSupervisor` reads. Until that supervisor lands the
+ * counter lives in this module — PR 27 replaces the helper without changing
+ * the IPC wire contract.
+ */
+
+import { z } from "zod";
+
+import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
+import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
+import { registerExternalTools } from "../../tools/registry.js";
+import type {
+  ExecutionTarget,
+  Tool,
+  ToolDefinition,
+} from "../../tools/types.js";
+import { RiskLevel } from "../../tools/types.js";
+import { getLogger } from "../../util/logger.js";
+import type { IpcRoute } from "../cli-server.js";
+
+const log = getLogger("skill-routes-registries");
+
+// ── Wire-level schemas ────────────────────────────────────────────────
+
+/**
+ * Serialized tool manifest entry sent over IPC. Mirrors the subset of
+ * {@link Tool} a skill process can describe without carrying the tool's
+ * executable closure across the socket; the closure is synthesized
+ * daemon-side (see {@link buildProxyTool}) to forward invocations back
+ * over IPC.
+ */
+const ToolManifestSchema = z.object({
+  name: z.string().min(1),
+  description: z.string(),
+  input_schema: z.record(z.string(), z.unknown()),
+  defaultRiskLevel: z.enum(["low", "medium", "high"]),
+  category: z.string().min(1),
+  executionTarget: z.enum(["sandbox", "host"]).optional(),
+  executionMode: z.enum(["local", "proxy"]).optional(),
+  ownerSkillId: z.string().optional(),
+  ownerSkillBundled: z.boolean().optional(),
+  ownerSkillVersionHash: z.string().optional(),
+});
+
+export type ToolManifest = z.infer<typeof ToolManifestSchema>;
+
+const RegisterToolsParams = z.object({
+  tools: z.array(ToolManifestSchema).min(1),
+});
+
+const RegisterSkillRouteParams = z.object({
+  patternSource: z.string().min(1),
+  methods: z.array(z.string().min(1)).min(1),
+});
+
+const RegisterShutdownHookParams = z.object({
+  name: z.string().min(1),
+});
+
+const ReportSessionParams = z.object({
+  meetingId: z.string().min(1),
+});
+
+// ── Session counter (replaced by PR 27 MeetHostSupervisor) ────────────
+
+/**
+ * Active-session set. Keyed by meetingId so duplicate `report_session_started`
+ * calls for the same meeting are idempotent and `report_session_ended` with
+ * no prior start is a no-op. PR 27's `MeetHostSupervisor` takes over this
+ * responsibility and this module delegates to it when it lands; the IPC wire
+ * format does not change.
+ */
+const activeSessions = new Set<string>();
+
+// TODO(skill-isolation PR 27): replace this helper with a call into
+// MeetHostSupervisor so idle-timeout tracking shares state with the rest
+// of the daemon's session accounting.
+function reportSessionStarted(meetingId: string): number {
+  activeSessions.add(meetingId);
+  log.info(
+    { meetingId, activeCount: activeSessions.size },
+    "Skill reported session started (supervisor stub)",
+  );
+  return activeSessions.size;
+}
+
+function reportSessionEnded(meetingId: string): number {
+  activeSessions.delete(meetingId);
+  log.info(
+    { meetingId, activeCount: activeSessions.size },
+    "Skill reported session ended (supervisor stub)",
+  );
+  return activeSessions.size;
+}
+
+/** Test-only: drop all active sessions between test cases. */
+export function __resetActiveSessionsForTesting(): void {
+  activeSessions.clear();
+}
+
+/** Test-only: peek at the current active set size. */
+export function __getActiveSessionCountForTesting(): number {
+  return activeSessions.size;
+}
+
+// ── Proxy-tool construction ───────────────────────────────────────────
+
+/**
+ * Build a daemon-side {@link Tool} whose `execute` routes back to the
+ * remote skill over IPC. PR 28 replaces the stub body with a real
+ * `skill.dispatch_tool` round-trip; until then we keep a shape-complete
+ * proxy in the registry so the rest of the tool-manifest plumbing can be
+ * exercised end-to-end.
+ */
+function buildProxyTool(manifest: ToolManifest): Tool {
+  const definition: ToolDefinition = {
+    name: manifest.name,
+    description: manifest.description,
+    input_schema: manifest.input_schema as object,
+  };
+  // RiskLevel is a string enum whose values are "low" | "medium" | "high",
+  // matching the schema above exactly — the cast is a no-op at runtime.
+  return {
+    name: manifest.name,
+    description: manifest.description,
+    category: manifest.category,
+    defaultRiskLevel: manifest.defaultRiskLevel as RiskLevel,
+    executionMode: manifest.executionMode ?? "proxy",
+    executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
+    origin: "skill",
+    ownerSkillId: manifest.ownerSkillId,
+    ownerSkillBundled: manifest.ownerSkillBundled,
+    ownerSkillVersionHash: manifest.ownerSkillVersionHash,
+    getDefinition: () => definition,
+    execute: async () => {
+      throw new Error(
+        `Skill tool "${manifest.name}" invocation not implemented — dispatch added in PR 28`,
+      );
+    },
+  };
+}
+
+// ── Handlers ──────────────────────────────────────────────────────────
+
+async function handleRegisterTools(
+  params?: Record<string, unknown>,
+): Promise<{ registered: string[] }> {
+  const { tools } = RegisterToolsParams.parse(params);
+  const proxies = tools.map(buildProxyTool);
+  // `registerExternalTools` takes a provider closure so the tool list is
+  // resolved lazily inside `initializeTools()`; wrap the already-built
+  // proxies in an arrow so registration is observable immediately.
+  registerExternalTools(() => proxies);
+  log.info(
+    { count: proxies.length, names: proxies.map((t) => t.name) },
+    "Registered skill proxy tools via IPC",
+  );
+  return { registered: proxies.map((t) => t.name) };
+}
+
+async function handleRegisterSkillRoute(
+  params?: Record<string, unknown>,
+): Promise<{ patternSource: string; methods: string[] }> {
+  const { patternSource, methods } = RegisterSkillRouteParams.parse(params);
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(patternSource);
+  } catch (err) {
+    throw new Error(
+      `Invalid skill-route pattern "${patternSource}": ${String(err)}`,
+    );
+  }
+  registerSkillRoute({
+    pattern,
+    methods,
+    handler: async () => {
+      // PR 28 replaces this stub with a `skill.dispatch_route` round-trip
+      // that marshals the Request across the IPC socket and materializes
+      // the Response back on the daemon side.
+      return new Response(
+        "Skill route dispatch not implemented — added in PR 28",
+        { status: 501 },
+      );
+    },
+  });
+  log.info(
+    { patternSource, methods },
+    "Registered skill proxy HTTP route via IPC",
+  );
+  return { patternSource, methods };
+}
+
+async function handleRegisterShutdownHook(
+  params?: Record<string, unknown>,
+): Promise<{ name: string }> {
+  const { name } = RegisterShutdownHookParams.parse(params);
+  registerShutdownHook(name, async (reason) => {
+    // PR 28 replaces this stub with a `skill.shutdown` dispatch that
+    // delivers the reason string to the out-of-process skill and awaits
+    // its teardown before returning.
+    log.info(
+      { name, reason },
+      "Skill shutdown hook fired (dispatch stub — added in PR 28)",
+    );
+  });
+  return { name };
+}
+
+async function handleReportSessionStarted(
+  params?: Record<string, unknown>,
+): Promise<{ activeCount: number }> {
+  const { meetingId } = ReportSessionParams.parse(params);
+  return { activeCount: reportSessionStarted(meetingId) };
+}
+
+async function handleReportSessionEnded(
+  params?: Record<string, unknown>,
+): Promise<{ activeCount: number }> {
+  const { meetingId } = ReportSessionParams.parse(params);
+  return { activeCount: reportSessionEnded(meetingId) };
+}
+
+// ── Route exports ─────────────────────────────────────────────────────
+
+export const registerToolsRoute: IpcRoute = {
+  method: "host.registries.register_tools",
+  handler: handleRegisterTools,
+};
+
+export const registerSkillRouteRoute: IpcRoute = {
+  method: "host.registries.register_skill_route",
+  handler: handleRegisterSkillRoute,
+};
+
+export const registerShutdownHookRoute: IpcRoute = {
+  method: "host.registries.register_shutdown_hook",
+  handler: handleRegisterShutdownHook,
+};
+
+export const reportSessionStartedRoute: IpcRoute = {
+  method: "host.registries.report_session_started",
+  handler: handleReportSessionStarted,
+};
+
+export const reportSessionEndedRoute: IpcRoute = {
+  method: "host.registries.report_session_ended",
+  handler: handleReportSessionEnded,
+};
+
+export const registriesRoutes: IpcRoute[] = [
+  registerToolsRoute,
+  registerSkillRouteRoute,
+  registerShutdownHookRoute,
+  reportSessionStartedRoute,
+  reportSessionEndedRoute,
+];
