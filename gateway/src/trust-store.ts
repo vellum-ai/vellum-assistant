@@ -23,13 +23,13 @@ import type {
   TrustDecision,
   TrustFileData,
   TrustRule,
-} from "@vellumai/ces-contracts/trust-rules";
+} from "@vellumai/service-contracts/trust-rules";
 import {
   parseTrustFileData,
   parseTrustRule,
   ruleScope,
   SCOPED_TOOLS,
-} from "@vellumai/ces-contracts/trust-rules";
+} from "@vellumai/service-contracts/trust-rules";
 
 import { getLogger } from "./logger.js";
 import { getGatewaySecurityDir } from "./paths.js";

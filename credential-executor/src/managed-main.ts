@@ -22,7 +22,7 @@ import { createServer as createNetServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 
-import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/ces-contracts";
+import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 
 import { AuditStore } from "./audit/store.js";
 import { PersistentGrantStore } from "./grants/persistent-store.js";
@@ -56,7 +56,7 @@ import { validateSourceUrl } from "./toolstore/manifest.js";
 import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveManagedSubject } from "./subjects/managed.js";
 import { materializeManagedToken } from "./materializers/managed-platform.js";
-import { HandleType, parseHandle } from "@vellumai/ces-contracts";
+import { HandleType, parseHandle } from "@vellumai/service-contracts/credential-rpc";
 import { buildLazyGetters, type ApiKeyRef, type AssistantIdRef } from "./managed-lazy-getters.js";
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";

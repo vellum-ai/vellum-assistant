@@ -15,7 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { AuditRecordSummary } from "@vellumai/ces-contracts";
+import type { AuditRecordSummary } from "@vellumai/service-contracts/credential-rpc";
 import { derivePathTemplate } from "./path-template.js";
 
 // ---------------------------------------------------------------------------

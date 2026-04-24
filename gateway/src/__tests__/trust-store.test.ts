@@ -13,7 +13,7 @@ import {
 import { join } from "node:path";
 import { describe, test, expect, beforeEach } from "bun:test";
 
-import { isScopedRule, ruleScope } from "@vellumai/ces-contracts/trust-rules";
+import { isScopedRule, ruleScope } from "@vellumai/service-contracts/trust-rules";
 
 import {
   loadRules,

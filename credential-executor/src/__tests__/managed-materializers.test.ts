@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { platformOAuthHandle } from "@vellumai/ces-contracts";
+import { platformOAuthHandle } from "@vellumai/service-contracts/credential-rpc";
 
 import {
   type ManagedSubject,

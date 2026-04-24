@@ -45,7 +45,7 @@ import {
 } from "../toolstore/publish.js";
 import { getCesToolStoreDir, getCesDataRoot } from "../paths.js";
 import { computeDigest } from "../toolstore/integrity.js";
-import { hashProposal, type CommandGrantProposal } from "@vellumai/ces-contracts";
+import { hashProposal, type CommandGrantProposal } from "@vellumai/service-contracts/credential-rpc";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -244,7 +244,7 @@ function addCommandGrant(
  * Add a temporary command grant.
  *
  * Constructs the same CommandGrantProposal shape that the executor builds
- * and hashes it with `hashProposal` from `@vellumai/ces-contracts` so the
+ * and hashes it with `hashProposal` from `@vellumai/service-contracts` so the
  * hashes align.
  */
 function addTemporaryCommandGrant(
