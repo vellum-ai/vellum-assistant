@@ -6,17 +6,20 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./credential-rpc": "./src/credential-rpc.ts",
     "./handles": "./src/handles.ts",
     "./grants": "./src/grants.ts",
     "./rpc": "./src/rpc.ts",
     "./rendering": "./src/rendering.ts",
-    "./trust-rules": "./src/trust-rules.ts"
+    "./trust-rules": "./src/trust-rules.ts",
+    "./error": "./src/error.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test src/"
   },
   "dependencies": {
+    "@vellumai/service-contracts": "file:../service-contracts",
     "zod": "4.3.6"
   },
   "devDependencies": {
