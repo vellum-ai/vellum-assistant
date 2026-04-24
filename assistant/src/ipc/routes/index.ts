@@ -5,6 +5,7 @@ import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
 import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
+import { inferenceSendRoute } from "./inference-send.js";
 import { listClientsRoute } from "./list-clients.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
@@ -29,6 +30,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   mergeContactsRoute,
   renameConversationRoute,
   searchContactsRoute,
+  inferenceSendRoute,
   suggestTrustRuleRoute,
   uiRequestRoute,
   upsertContactRoute,
