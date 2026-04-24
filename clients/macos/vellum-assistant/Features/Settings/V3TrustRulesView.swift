@@ -63,8 +63,7 @@ struct V3TrustRulesView: View {
             }
         }
         .frame(width: 600, minHeight: 500)
-        .task { await loadRules() }
-        .onChange(of: showAllDefaults) { _, _ in await loadRules() }
+        .task(id: showAllDefaults) { await loadRules() }
         .sheet(item: $editingRule) { rule in
             V3TrustRuleEditSheet(
                 rule: rule,
