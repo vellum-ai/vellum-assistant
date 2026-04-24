@@ -1,11 +1,23 @@
-import { describe, test, expect, mock, afterEach } from "bun:test";
-import * as actualFs from "node:fs";
+import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
+import { closeAssistantDb } from "../auth/guardian-bootstrap.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
+// fetchMock retained for proxyToRuntime calls (refresh, verification, etc.)
 type FetchFn = (
   input: string | URL | Request,
   init?: RequestInit,
@@ -18,61 +30,109 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-let lockFileExists = false;
-let writtenLockFiles: string[] = [];
-let consumedSecretsContent: string | null = null;
-let writtenConsumedFiles: string[] = [];
-let unlinkedFiles: string[] = [];
-
-mock.module("node:fs", () => ({
-  ...actualFs,
-  existsSync: (p: string) => {
-    if (typeof p === "string" && p.endsWith("guardian-init.lock")) {
-      return lockFileExists;
-    }
-    if (typeof p === "string" && p.endsWith("guardian-init-consumed.json")) {
-      return consumedSecretsContent !== null;
-    }
-    return actualFs.existsSync(p);
-  },
-  readFileSync: (p: string, encoding?: BufferEncoding) => {
-    if (typeof p === "string" && p.endsWith("guardian-init-consumed.json")) {
-      if (consumedSecretsContent === null) {
-        throw new Error("ENOENT");
-      }
-      return consumedSecretsContent;
-    }
-    return actualFs.readFileSync(p, encoding as BufferEncoding);
-  },
-  writeFileSync: (
-    p: string,
-    data: string | NodeJS.ArrayBufferView,
-    options?: actualFs.WriteFileOptions,
-  ) => {
-    if (typeof p === "string" && p.endsWith("guardian-init.lock")) {
-      writtenLockFiles.push(p);
-      lockFileExists = true;
-      return;
-    }
-    if (typeof p === "string" && p.endsWith("guardian-init-consumed.json")) {
-      consumedSecretsContent = String(data);
-      writtenConsumedFiles.push(p);
-      return;
-    }
-    return actualFs.writeFileSync(p, data, options);
-  },
-  unlinkSync: (p: string) => {
-    if (typeof p === "string" && p.endsWith("guardian-init.lock")) {
-      unlinkedFiles.push(p);
-      lockFileExists = false;
-      return;
-    }
-    return actualFs.unlinkSync(p);
-  },
-}));
-
 const { createChannelVerificationSessionProxyHandler } =
   await import("../http/routes/channel-verification-session-proxy.js");
+
+// ---------------------------------------------------------------------------
+// Test directory setup
+// ---------------------------------------------------------------------------
+
+let testRoot: string;
+let securityDir: string;
+
+/** Lock-file and consumed-file paths under the test security dir. */
+function lockPath(): string {
+  return join(securityDir, "guardian-init.lock");
+}
+function consumedPath(): string {
+  return join(securityDir, "guardian-init-consumed.json");
+}
+
+function setupTestDirs(): void {
+  testRoot = mkdtempSync(join(tmpdir(), "guardian-bootstrap-test-"));
+  securityDir = join(testRoot, "protected");
+  mkdirSync(securityDir, { recursive: true });
+
+  const dbDir = join(testRoot, "data", "db");
+  mkdirSync(dbDir, { recursive: true });
+
+  const db = new Database(join(dbDir, "assistant.db"));
+  db.exec("PRAGMA journal_mode=WAL");
+  db.exec("PRAGMA foreign_keys=ON");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contacts (
+      id TEXT PRIMARY KEY,
+      display_name TEXT NOT NULL,
+      notes TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      role TEXT NOT NULL DEFAULT 'contact',
+      principal_id TEXT,
+      user_file TEXT,
+      contact_type TEXT NOT NULL DEFAULT 'human'
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS contact_channels (
+      id TEXT PRIMARY KEY,
+      contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      address TEXT NOT NULL,
+      is_primary INTEGER NOT NULL DEFAULT 0,
+      external_user_id TEXT,
+      external_chat_id TEXT,
+      status TEXT NOT NULL DEFAULT 'unverified',
+      policy TEXT NOT NULL DEFAULT 'allow',
+      verified_at INTEGER,
+      verified_via TEXT,
+      invite_id TEXT,
+      revoked_reason TEXT,
+      blocked_reason TEXT,
+      last_seen_at INTEGER,
+      interaction_count INTEGER NOT NULL DEFAULT 0,
+      last_interaction INTEGER,
+      updated_at INTEGER,
+      created_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS actor_token_records (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      guardian_principal_id TEXT NOT NULL,
+      hashed_device_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      issued_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS actor_refresh_token_records (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      family_id TEXT NOT NULL,
+      guardian_principal_id TEXT NOT NULL,
+      hashed_device_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      issued_at INTEGER NOT NULL,
+      absolute_expires_at INTEGER NOT NULL,
+      inactivity_expires_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  db.close();
+
+  // Point gateway at temp dirs
+  process.env.VELLUM_WORKSPACE_DIR = testRoot;
+  process.env.GATEWAY_SECURITY_DIR = securityDir;
+}
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return {
@@ -102,102 +162,44 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   };
 }
 
-afterEach(() => {
-  fetchMock = mock(async () => new Response());
-  lockFileExists = false;
-  writtenLockFiles = [];
-  consumedSecretsContent = null;
-  writtenConsumedFiles = [];
-  unlinkedFiles = [];
+beforeEach(() => {
+  setupTestDirs();
 });
+
+afterEach(() => {
+  closeAssistantDb();
+  fetchMock = mock(async () => new Response());
+  delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+  try {
+    rmSync(testRoot, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function lockFileExists(): boolean {
+  return existsSync(lockPath());
+}
+
+function consumedSecrets(): number[] {
+  try {
+    return JSON.parse(readFileSync(consumedPath(), "utf-8")) as number[];
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 describe("guardian/init bootstrap secret", () => {
   test("rejects requests without secret when GUARDIAN_BOOTSTRAP_SECRET is set", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
-      const res = await handler.handleGuardianInit(
-        new Request("http://localhost:7830/v1/guardian/init", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
-        }),
-      );
-
-      expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.error).toBe("Invalid bootstrap secret");
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
-  });
-
-  test("rejects requests with wrong secret", async () => {
-    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
-      const res = await handler.handleGuardianInit(
-        new Request("http://localhost:7830/v1/guardian/init", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-bootstrap-secret": "wrong-secret",
-          },
-          body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
-        }),
-      );
-
-      expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.error).toBe("Invalid bootstrap secret");
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
-  });
-
-  test("accepts requests with correct secret and writes lock for single secret", async () => {
-    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
-
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
-      const res = await handler.handleGuardianInit(
-        new Request("http://localhost:7830/v1/guardian/init", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-bootstrap-secret": "test-secret-abc123",
-          },
-          body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
-        }),
-      );
-
-      expect(res.status).toBe(200);
-      // Single secret: consumed file written and lock file created immediately
-      expect(writtenConsumedFiles.length).toBe(1);
-      expect(writtenLockFiles.length).toBe(1);
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
-  });
-
-  test("skips secret check when GUARDIAN_BOOTSTRAP_SECRET is not set", async () => {
-    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
-
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -207,19 +209,57 @@ describe("guardian/init bootstrap secret", () => {
       }),
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid bootstrap secret");
   });
-});
 
-describe("guardian/init one-time-use lockfile", () => {
-  test("first call succeeds and creates lock file", async () => {
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
+  test("rejects requests with wrong secret", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bootstrap-secret": "wrong-secret",
+        },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+    );
 
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid bootstrap secret");
+  });
+
+  test("accepts requests with correct secret and writes lock for single secret", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "test-secret-abc123";
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bootstrap-secret": "test-secret-abc123",
+        },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.guardianPrincipalId).toMatch(/^vellum-principal-/);
+    expect(body.accessToken).toBeTruthy();
+    expect(body.refreshToken).toBeTruthy();
+    expect(body.isNew).toBe(true);
+    // Single secret: consumed file written and lock file created immediately
+    expect(consumedSecrets()).toContain(0);
+    expect(lockFileExists()).toBe(true);
+  });
+
+  test("skips secret check when GUARDIAN_BOOTSTRAP_SECRET is not set", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
@@ -231,19 +271,30 @@ describe("guardian/init one-time-use lockfile", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.accessToken).toBe("test-jwt");
-    expect(writtenLockFiles.length).toBe(1);
-    expect(writtenLockFiles[0]).toContain("guardian-init.lock");
+    expect(body.accessToken).toBeTruthy();
+  });
+});
+
+describe("guardian/init one-time-use lockfile", () => {
+  test("first call succeeds and creates lock file", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.guardianPrincipalId).toMatch(/^vellum-principal-/);
+    expect(body.accessToken).toBeTruthy();
+    expect(body.refreshToken).toBeTruthy();
+    expect(lockFileExists()).toBe(true);
   });
 
-  test("second call is rejected with 403", async () => {
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
-
+  test("second call is rejected by lockfile", async () => {
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
     // First call succeeds
@@ -256,7 +307,7 @@ describe("guardian/init one-time-use lockfile", () => {
     );
     expect(res1.status).toBe(200);
 
-    // Second call rejected
+    // Second call rejected by lockfile
     const res2 = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
         method: "POST",
@@ -270,17 +321,6 @@ describe("guardian/init one-time-use lockfile", () => {
   });
 
   test("concurrent requests are rejected by in-memory guard", async () => {
-    let resolveProxy: (() => void) | undefined;
-    fetchMock = mock(async () => {
-      await new Promise<void>((resolve) => {
-        resolveProxy = resolve;
-      });
-      return new Response(
-        JSON.stringify({ accessToken: "test-jwt", refreshToken: "test-rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
-
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
     const makeReq = () =>
@@ -298,34 +338,65 @@ describe("guardian/init one-time-use lockfile", () => {
     const res2 = await p2;
     expect(res2.status).toBe(403);
 
-    // Resolve the first request's proxy call
-    resolveProxy!();
     const res1 = await p1;
     expect(res1.status).toBe(200);
 
-    // Lock file should only be written once
-    expect(writtenLockFiles.length).toBe(1);
+    // Lock file should be written exactly once
+    expect(lockFileExists()).toBe(true);
   });
 
-  test("lock file is not created when upstream returns an error", async () => {
-    fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ error: "Internal error" }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      });
-    });
-
+  test("bootstrap creates contact and token records in the DB", async () => {
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+        body: JSON.stringify({ platform: "cli", deviceId: "my-device" }),
       }),
     );
+    expect(res.status).toBe(200);
+    const body = await res.json();
 
-    expect(res.status).toBe(500);
-    expect(writtenLockFiles.length).toBe(0);
+    // Verify records were written to the assistant DB
+    const db = new Database(join(testRoot, "data", "db", "assistant.db"), {
+      readonly: true,
+    });
+
+    const contact = db
+      .query<
+        { role: string; principal_id: string },
+        []
+      >("SELECT role, principal_id FROM contacts WHERE role = 'guardian'")
+      .get();
+    expect(contact).toBeTruthy();
+    expect(contact!.principal_id).toBe(body.guardianPrincipalId);
+
+    const channel = db
+      .query<
+        { type: string; status: string },
+        []
+      >("SELECT type, status FROM contact_channels WHERE type = 'vellum'")
+      .get();
+    expect(channel).toBeTruthy();
+    expect(channel!.status).toBe("active");
+
+    const tokenCount = db
+      .query<
+        { cnt: number },
+        []
+      >("SELECT COUNT(*) as cnt FROM actor_token_records WHERE status = 'active'")
+      .get();
+    expect(tokenCount!.cnt).toBe(1);
+
+    const refreshCount = db
+      .query<
+        { cnt: number },
+        []
+      >("SELECT COUNT(*) as cnt FROM actor_refresh_token_records WHERE status = 'active'")
+      .get();
+    expect(refreshCount!.cnt).toBe(1);
+
+    db.close();
   });
 });
 
@@ -352,188 +423,88 @@ describe("guardian/init multi-secret consumption tracking", () => {
 
   test("first secret is consumed but lock is deferred until all secrets used", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "jwt-a", refreshToken: "rt-a" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
 
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
-      const res = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-
-      expect(res.status).toBe(200);
-      // Consumed file written, but lock file NOT yet created
-      expect(writtenConsumedFiles.length).toBe(1);
-      expect(writtenLockFiles.length).toBe(0);
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
+    expect(res.status).toBe(200);
+    expect(consumedSecrets()).toEqual([0]);
+    expect(lockFileExists()).toBe(false);
   });
 
   test("lock file written after all secrets consumed", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "jwt", refreshToken: "rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
+    const res1 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    expect(res1.status).toBe(200);
+    expect(lockFileExists()).toBe(false);
 
-      // First secret
-      const res1 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-      expect(res1.status).toBe(200);
-      expect(writtenLockFiles.length).toBe(0);
-
-      // Second secret
-      const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_B));
-      expect(res2.status).toBe(200);
-      expect(writtenLockFiles.length).toBe(1);
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
+    const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_B));
+    expect(res2.status).toBe(200);
+    expect(lockFileExists()).toBe(true);
   });
 
   test("reusing a consumed secret is rejected", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "jwt", refreshToken: "rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
+    const res1 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    expect(res1.status).toBe(200);
 
-      // Consume SECRET_A
-      const res1 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-      expect(res1.status).toBe(200);
-
-      // Try to reuse SECRET_A
-      const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-      expect(res2.status).toBe(403);
-      const body = await res2.json();
-      expect(body.error).toBe("Bootstrap secret already used");
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
+    const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    expect(res2.status).toBe(403);
+    const body = await res2.json();
+    expect(body.error).toBe("Bootstrap secret already used");
   });
 
   test("all secrets rejected after full consumption and lock", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
-    fetchMock = mock(async () => {
-      return new Response(
-        JSON.stringify({ accessToken: "jwt", refreshToken: "rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
+    await handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    await handler.handleGuardianInit(makeInitRequest(SECRET_B));
+    expect(lockFileExists()).toBe(true);
 
-      // Consume both
-      await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-      await handler.handleGuardianInit(makeInitRequest(SECRET_B));
-      expect(writtenLockFiles.length).toBe(1);
-
-      // Any further attempt is rejected (lock file exists)
-      const res = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-      expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.error).toContain("already");
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
+    const res = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("already");
   });
 
   test("concurrent requests with same secret rejected by in-flight guard", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
-    let resolveProxy: (() => void) | undefined;
-    fetchMock = mock(async () => {
-      await new Promise<void>((resolve) => {
-        resolveProxy = resolve;
-      });
-      return new Response(
-        JSON.stringify({ accessToken: "jwt", refreshToken: "rt" }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    });
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
+    const p1 = handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
 
-      // GIVEN a first request with SECRET_A is in flight
-      const p1 = handler.handleGuardianInit(makeInitRequest(SECRET_A));
+    expect(res2.status).toBe(403);
+    const body = await res2.json();
+    expect(body.error).toBe("Bootstrap secret already used");
 
-      // WHEN a second request with the same SECRET_A arrives concurrently
-      const res2 = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-
-      // THEN the second request is rejected
-      expect(res2.status).toBe(403);
-      const body = await res2.json();
-      expect(body.error).toBe("Bootstrap secret already used");
-
-      // AND the first request completes successfully once resolved
-      resolveProxy!();
-      const res1 = await p1;
-      expect(res1.status).toBe(200);
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
-  });
-
-  test("consumed secret not recorded when upstream fails", async () => {
-    process.env.GUARDIAN_BOOTSTRAP_SECRET = `${SECRET_A},${SECRET_B}`;
-    fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ error: "Internal error" }), {
-        status: 500,
-        headers: { "content-type": "application/json" },
-      });
-    });
-
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
-      const res = await handler.handleGuardianInit(makeInitRequest(SECRET_A));
-
-      expect(res.status).toBe(500);
-      expect(writtenConsumedFiles.length).toBe(0);
-      expect(writtenLockFiles.length).toBe(0);
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
+    const res1 = await p1;
+    expect(res1.status).toBe(200);
   });
 });
 
 describe("guardian/reset-bootstrap", () => {
   test("removes lock file and allows re-init on bare-metal", async () => {
-    lockFileExists = true;
-    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    // Pre-create a lock file
+    writeFileSync(lockPath(), new Date().toISOString(), { mode: 0o600 });
+    expect(lockFileExists()).toBe(true);
 
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleResetBootstrap("127.0.0.1");
     expect(res.status).toBe(200);
-    expect(unlinkedFiles.length).toBe(1);
-    expect(unlinkedFiles[0]).toContain("guardian-init.lock");
-    expect(lockFileExists).toBe(false);
+    expect(lockFileExists()).toBe(false);
   });
 
   test("succeeds idempotently when lock file does not exist", async () => {
-    lockFileExists = false;
+    expect(lockFileExists()).toBe(false);
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
     const res = await handler.handleResetBootstrap("127.0.0.1");
     expect(res.status).toBe(200);
-    expect(unlinkedFiles.length).toBe(0);
   });
 
   test("rejects non-loopback clients", async () => {
@@ -546,69 +517,20 @@ describe("guardian/reset-bootstrap", () => {
   });
 
   test("rejects in Docker mode (bootstrap secret set)", async () => {
-    process.env.GUARDIAN_BOOTSTRAP_SECRET = "docker-secret";
-    try {
-      const handler =
-        createChannelVerificationSessionProxyHandler(makeConfig());
-
-      const res = await handler.handleResetBootstrap("127.0.0.1");
-      expect(res.status).toBe(403);
-      const body = await res.json();
-      expect(body.error).toBe("Reset not available in containerized mode");
-    } finally {
-      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
-    }
-  });
-
-  test("rejects with 409 while init is awaiting upstream", async () => {
-    let resolveInit: (v: Response) => void;
-    fetchMock = mock(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveInit = resolve;
-        }),
-    );
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "some-secret";
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    // Start an init that will hang until we resolve it
-    const initPromise = handler.handleGuardianInit(
-      new Request("http://localhost:7830/v1/guardian/init", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
-      }),
-      "127.0.0.1",
-    );
-
-    // Reset while init is pending
-    const resetRes = await handler.handleResetBootstrap("127.0.0.1");
-    expect(resetRes.status).toBe(409);
-    const body = await resetRes.json();
-    expect(body.error).toBe("Guardian init is in progress — try again shortly");
-
-    // Let the init finish so it doesn't leak
-    resolveInit!(
-      new Response(JSON.stringify({ accessToken: "t", refreshToken: "r" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    );
-    await initPromise;
+    const res = await handler.handleResetBootstrap("127.0.0.1");
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Reset not available in containerized mode");
   });
 
   test("resets in-flight flag so init can proceed", async () => {
-    lockFileExists = false;
-    fetchMock = mock(
-      async () =>
-        new Response(JSON.stringify({ accessToken: "t", refreshToken: "r" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
     // First init succeeds and writes lock
-    await handler.handleGuardianInit(
+    const res1 = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -616,14 +538,15 @@ describe("guardian/reset-bootstrap", () => {
       }),
       "127.0.0.1",
     );
-    expect(lockFileExists).toBe(true);
+    expect(res1.status).toBe(200);
+    expect(lockFileExists()).toBe(true);
 
     // Second init is rejected
     const blocked = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
+        body: JSON.stringify({ platform: "cli", deviceId: "d2" }),
       }),
       "127.0.0.1",
     );
@@ -632,16 +555,120 @@ describe("guardian/reset-bootstrap", () => {
     // Reset clears the lock
     const resetRes = await handler.handleResetBootstrap("127.0.0.1");
     expect(resetRes.status).toBe(200);
+    expect(lockFileExists()).toBe(false);
 
-    // Init works again
-    const retryRes = await handler.handleGuardianInit(
+    // Third init succeeds again
+    const res3 = await handler.handleGuardianInit(
       new Request("http://localhost:7830/v1/guardian/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
+        body: JSON.stringify({ platform: "cli", deviceId: "d3" }),
       }),
       "127.0.0.1",
     );
-    expect(retryRes.status).toBe(200);
+    expect(res3.status).toBe(200);
+  });
+});
+
+describe("guardian/init bare-metal loopback gating", () => {
+  test("rejects non-loopback clients in bare-metal mode", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+      "192.168.1.100",
+    );
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Bootstrap endpoint is local-only");
+  });
+
+  test("allows loopback clients in bare-metal mode", async () => {
+    delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.accessToken).toBeTruthy();
+  });
+
+  test("skips loopback check in Docker mode (secret-based)", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "docker-secret-123";
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-bootstrap-secret": "docker-secret-123",
+        },
+        body: JSON.stringify({ platform: "cli", deviceId: "test-device" }),
+      }),
+      "10.0.2.15",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.accessToken).toBeTruthy();
+  });
+});
+
+describe("guardian/init request validation", () => {
+  test("rejects missing platform", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deviceId: "test-device" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Missing required fields");
+  });
+
+  test("rejects invalid platform", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "ios", deviceId: "test-device" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Invalid platform");
+  });
+
+  test("rejects invalid JSON body", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "not json",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Invalid JSON body");
   });
 });

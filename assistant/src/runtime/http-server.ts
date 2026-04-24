@@ -174,7 +174,6 @@ import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
-import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
@@ -1054,14 +1053,9 @@ export class RuntimeHttpServer {
       return await handleBrowserExtensionPair(req, server);
     }
 
-    // Guardian bootstrap and refresh endpoints — before JWT auth because
-    // bootstrap is the first endpoint called to obtain a JWT, and refresh
-    // needs to work when the access token is expired. Bootstrap has its
-    // own loopback IP validation; refresh is secured by the refresh token
-    // in the request body (32 random bytes, hash-only storage).
-    if (path === "/v1/guardian/init" && req.method === "POST") {
-      return await handleGuardianBootstrap(req, server);
-    }
+    // Guardian refresh endpoint — before JWT auth because refresh needs
+    // to work when the access token is expired. Secured by the refresh
+    // token in the request body (32 random bytes, hash-only storage).
     if (path === "/v1/guardian/refresh" && req.method === "POST") {
       return await handleGuardianRefresh(req);
     }
