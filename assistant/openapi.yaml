@@ -4987,6 +4987,8 @@ paths:
                     type: string
                   localGatewayTarget:
                     type: string
+                  managedCallbacks:
+                    type: boolean
                   success:
                     type: boolean
                 required:

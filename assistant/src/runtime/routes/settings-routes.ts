@@ -878,6 +878,7 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
         enabled: z.boolean(),
         publicBaseUrl: z.string(),
         localGatewayTarget: z.string(),
+        managedCallbacks: z.boolean().optional(),
         success: z.boolean(),
       }),
       handler: async ({ req }) => {

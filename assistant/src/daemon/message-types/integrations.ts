@@ -98,6 +98,12 @@ export interface IngressConfigResponse {
   publicBaseUrl: string;
   /** Read-only gateway target computed from GATEWAY_PORT env var (default 7830) + loopback host. */
   localGatewayTarget: string;
+  /**
+   * When true, this assistant uses platform-managed callback routing.
+   * Webhook delivery is handled by the platform — no local tunnel or
+   * ngrok setup is needed. `publicBaseUrl` reflects the platform callback URL.
+   */
+  managedCallbacks?: boolean;
   success: boolean;
   error?: string;
 }

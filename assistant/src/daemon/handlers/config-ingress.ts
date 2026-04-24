@@ -5,6 +5,8 @@ import {
 } from "../../calls/twilio-rest.js";
 import {
   getGatewayInternalBaseUrl,
+  getPlatformAssistantId,
+  getPlatformBaseUrl,
   setIngressPublicBaseUrl,
 } from "../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
@@ -38,8 +40,25 @@ export function getIngressConfigResult(): {
   enabled: boolean;
   publicBaseUrl: string;
   localGatewayTarget: string;
+  managedCallbacks: boolean;
   success: boolean;
 } {
+  // Platform-managed assistants don't configure ingress.publicBaseUrl —
+  // they receive webhooks through platform callback routing. Surface the
+  // platform callback URL and flag managedCallbacks so consumers (including
+  // the assistant LLM) don't mistakenly try to set up ngrok or a tunnel.
+  if (shouldUsePlatformCallbacks()) {
+    const platformBase = getPlatformBaseUrl().replace(/\/+$/, "");
+    const assistantId = getPlatformAssistantId();
+    return {
+      enabled: true,
+      publicBaseUrl: `${platformBase}/gateway/callbacks/${assistantId}`,
+      localGatewayTarget: computeGatewayTarget(),
+      managedCallbacks: true,
+      success: true,
+    };
+  }
+
   const raw = loadRawConfig();
   const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
   const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
@@ -48,6 +67,7 @@ export function getIngressConfigResult(): {
     enabled,
     publicBaseUrl,
     localGatewayTarget: computeGatewayTarget(),
+    managedCallbacks: false,
     success: true,
   };
 }
