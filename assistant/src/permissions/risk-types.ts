@@ -30,6 +30,17 @@ export interface ScopeOption {
 }
 
 /**
+ * A directory scope option emitted by the gateway for filesystem operations.
+ * Mirrors `DirectoryScopeOption` in `gateway/src/risk/risk-types.ts`.
+ */
+export interface DirectoryScopeOption {
+  /** Path glob (e.g. "/workspace/scratch/*") or the sentinel "everywhere". */
+  scope: string;
+  /** Human-readable label (e.g. "In scratch/"). */
+  label: string;
+}
+
+/**
  * The output of a risk classifier. Tool-agnostic — every classifier
  * (bash, file_write, web_fetch, etc.) produces this same shape.
  */
@@ -49,4 +60,17 @@ export interface RiskAssessment {
    * directly instead of calling the per-tool strategy function.
    */
   allowlistOptions?: AllowlistOption[];
+  /**
+   * Directory scope options emitted by the gateway for filesystem operations.
+   * Mirrors `directoryScopeOptions` in the gateway's ClassificationResult.
+   * Present when the gateway's classifier identified one or more filesystem
+   * path arguments and generated a directory-scope ladder for them.
+   */
+  directoryScopeOptions?: DirectoryScopeOption[];
+  /**
+   * Fully resolved filesystem path arguments from the gateway classifier.
+   * Threaded into `findHighestPriorityRule` so directory-scoped trust rules
+   * match against actual target paths, not just the working directory.
+   */
+  resolvedPaths?: string[];
 }

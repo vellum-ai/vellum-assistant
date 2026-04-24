@@ -97,6 +97,8 @@ export interface ToolExecutionResult {
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /** Directory scope ladder for the rule editor (narrowest to broadest). */
+  riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
   /**
    * When present, indicates that a CES tool returned an `approval_required`
    * response. The executor uses the approval bridge to prompt the guardian,

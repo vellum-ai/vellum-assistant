@@ -90,16 +90,20 @@ export async function clearRules(): Promise<void> {
 /**
  * Find the highest-priority matching rule for a tool invocation.
  *
- * @param tool      Tool name (e.g. "host_bash")
- * @param candidates  Command candidates to match against rule patterns
- * @param scope     Working directory scope
+ * @param tool          Tool name (e.g. "host_bash")
+ * @param candidates    Command candidates to match against rule patterns
+ * @param scope         Working directory scope
+ * @param resolvedPaths Optional resolved path args — when present and
+ *                      non-empty, the rule's scope must cover ALL of them
+ *                      (AND semantics).
  */
 export async function findMatchingRule(
   tool: string,
   candidates: string[],
   scope: string,
+  resolvedPaths?: readonly string[],
 ): Promise<TrustRule | null> {
-  return getClient().findMatchingRule(tool, candidates, scope);
+  return getClient().findMatchingRule(tool, candidates, scope, resolvedPaths);
 }
 
 /** Accept the starter approval bundle, seeding common low-risk allow rules. */

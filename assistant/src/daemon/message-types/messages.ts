@@ -153,6 +153,8 @@ export interface ToolResult {
   isContainerized?: boolean;
   /** Scope options ladder for the rule editor modal (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  /** Directory scope ladder for the rule editor modal (narrowest to broadest). */
+  riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
 }
 
 export interface ConfirmationRequest {
@@ -172,6 +174,7 @@ export interface ConfirmationRequest {
     pattern: string;
   }>;
   scopeOptions: Array<{ label: string; scope: string }>;
+  directoryScopeOptions?: Array<{ scope: string; label: string }>;
   diff?: {
     filePath: string;
     oldContent: string;

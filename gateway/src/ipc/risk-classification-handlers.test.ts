@@ -362,6 +362,243 @@ describe("unknown tool fallback", () => {
   });
 });
 
+// ── Directory scope options ─────────────────────────────────────────────────
+
+describe("directoryScopeOptions", () => {
+  test("bash rm -rf foo emits directoryScopeOptions with 'everywhere'", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "rm -rf foo",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash curl has no directoryScopeOptions (curl lacks filesystemOp)", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "curl https://example.com",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("bash echo has no directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "echo hi",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("file_write with path emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/ws/scratch/output.txt",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("web_fetch has no directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "web_fetch",
+      url: "https://example.com",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("bash 'sudo rm -rf foo' unwraps wrapper and emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "sudo rm -rf foo",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'env rm file.txt' unwraps env wrapper and emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "env rm file.txt",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'sudo sudo rm foo' unwraps repeated wrappers and emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "sudo sudo rm foo",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'env sudo rm -rf bar' unwraps mixed repeated wrappers", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "env sudo rm -rf bar",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'cd /tmp && rm foo' resolves 'foo' under the cd-tracked cwd", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "cd /tmp && rm foo",
+      workingDir: "/home/user",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    // The exact-dir option must reference /tmp (or an ancestor of it),
+    // NOT the original /home/user workingDir.
+    const nonEverywhere = opts.filter((o) => o.scope !== "everywhere");
+    expect(nonEverywhere.length).toBeGreaterThan(0);
+    for (const opt of nonEverywhere) {
+      expect(opt.scope.startsWith("/home/user")).toBe(false);
+    }
+    // At least one scope should reference /tmp.
+    expect(
+      nonEverywhere.some(
+        (o) => o.scope === "/tmp/*" || o.scope.startsWith("/tmp/"),
+      ),
+    ).toBe(true);
+  });
+
+  test("bash 'sudo curl http://example' has no directoryScopeOptions (curl lacks filesystemOp even after unwrap)", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "sudo curl http://example.com",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("bash 'ls && cd /tmp' anchors scope to original workingDir, not /tmp", async () => {
+    // The bare `ls` runs in workingDir, and the later `cd /tmp` must not
+    // shift the emitted scope away from where `ls` actually ran.
+    // Use /ws/project (not /home/user) so the ancestor doesn't get widened
+    // up to `/home`, which `generateDirectoryScopeOptions` skips because
+    // the test runner's $HOME sits under it.
+    const result = await classify({
+      tool: "bash",
+      command: "ls && cd /tmp",
+      workingDir: "/ws/project",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    const nonEverywhere = opts.filter((o) => o.scope !== "everywhere");
+    expect(nonEverywhere.length).toBeGreaterThan(0);
+    // Scope must reference /ws (the dirname of /ws/project since it does
+    // not exist) — explicitly NOT /tmp.
+    for (const opt of nonEverywhere) {
+      expect(opt.scope.startsWith("/tmp")).toBe(false);
+    }
+    expect(
+      nonEverywhere.some(
+        (o) => o.scope === "/ws/*" || o.scope.startsWith("/ws/"),
+      ),
+    ).toBe(true);
+  });
+
+  test("bash 'cd /tmp && ls' anchors scope to /tmp (forward direction)", async () => {
+    // `ls` runs after the cd, so its effective cwd is /tmp — the scope
+    // should reflect that.
+    const result = await classify({
+      tool: "bash",
+      command: "cd /tmp && ls",
+      workingDir: "/ws/project",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    const nonEverywhere = opts.filter((o) => o.scope !== "everywhere");
+    expect(nonEverywhere.length).toBeGreaterThan(0);
+    for (const opt of nonEverywhere) {
+      expect(opt.scope.startsWith("/ws")).toBe(false);
+    }
+    expect(
+      nonEverywhere.some(
+        (o) => o.scope === "/tmp/*" || o.scope.startsWith("/tmp/"),
+      ),
+    ).toBe(true);
+  });
+
+  test("bash 'command -v rm' has no directoryScopeOptions (non-exec wrapper)", async () => {
+    // `command -v` is a lookup, not an exec — the inner `rm` is not actually
+    // invoked, so no filesystem op occurs and no directory scope should surface.
+    const result = await classify({
+      tool: "bash",
+      command: "command -v rm",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("bash 'command -V rm' has no directoryScopeOptions (non-exec wrapper, -V variant)", async () => {
+    // Same as `-v` — both flags are in `command`'s nonExecFlags list.
+    const result = await classify({
+      tool: "bash",
+      command: "command -V rm",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+});
+
 // ── Route registration ──────────────────────────────────────────────────────
 
 describe("route registration", () => {

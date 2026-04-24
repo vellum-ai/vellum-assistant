@@ -530,6 +530,58 @@ describe("Trust Store", () => {
         ).toBeNull();
       });
     });
+
+    // resolvedPaths — path-aware scope matching
+    describe("resolvedPaths scope matching", () => {
+      test("matches when all resolvedPaths are covered by rule scope", () => {
+        addRule("file_write", "**", "/ws/scratch/*", "allow", 100);
+        const match = findMatchingRule(
+          "file_write",
+          "/ws/scratch/a",
+          "/unrelated/cwd",
+          ["/ws/scratch/a", "/ws/scratch/b"],
+        );
+        expect(match).not.toBeNull();
+      });
+
+      test("does not match when a resolvedPath is outside rule scope", () => {
+        addRule("file_write", "**", "/ws/scratch/*", "allow", 100);
+        const match = findMatchingRule(
+          "file_write",
+          "/ws/scratch/a",
+          "/ws/scratch/a",
+          ["/ws/scratch/a", "/ws/other/b"],
+        );
+        expect(match).toBeNull();
+      });
+
+      test("empty resolvedPaths falls back to cwd check", () => {
+        addRule("file_write", "**", "/ws/scratch", "allow", 100);
+        // With empty array, fall back to scope (cwd) — covered
+        expect(
+          findMatchingRule(
+            "file_write",
+            "/ws/scratch/a",
+            "/ws/scratch",
+            [],
+          ),
+        ).not.toBeNull();
+        // Undefined also falls back to cwd (not covered → null)
+        expect(
+          findMatchingRule("file_write", "/ws/scratch/a", "/elsewhere"),
+        ).toBeNull();
+      });
+
+      test('"everywhere" scope always matches regardless of paths', () => {
+        addRule("file_write", "**", "everywhere", "allow", 100);
+        const match = findMatchingRule("file_write", "/x", "/any/cwd", [
+          "/a",
+          "/b",
+          "/weird/path",
+        ]);
+        expect(match).not.toBeNull();
+      });
+    });
   });
 
   // ── findHighestPriorityRule ──────────────────────────────────────

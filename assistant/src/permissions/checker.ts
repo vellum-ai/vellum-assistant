@@ -68,6 +68,8 @@ interface RiskClassificationWithMeta extends RiskClassification {
   sandboxAutoApprove?: boolean;
   /** Allowlist options from the gateway for generateAllowlistOptions(). */
   allowlistOptions?: AllowlistOption[];
+  /** Resolved filesystem path arguments for directory-scoped rule matching. */
+  resolvedPaths?: string[];
 }
 
 const RISK_CACHE_MAX = 256;
@@ -622,6 +624,7 @@ export async function classifyRisk(
     actionKeys: gatewayResult.actionKeys,
     sandboxAutoApprove: gatewayResult.sandboxAutoApprove,
     allowlistOptions: gatewayResult.allowlistOptions,
+    resolvedPaths: gatewayResult.resolvedPaths,
   };
 
   // Cache the result.
@@ -641,6 +644,8 @@ export async function classifyRisk(
     scopeOptions: gatewayResult.scopeOptions ?? [],
     matchType: gatewayResult.matchType ?? "unknown",
     allowlistOptions: gatewayResult.allowlistOptions,
+    directoryScopeOptions: gatewayResult.directoryScopeOptions,
+    resolvedPaths: gatewayResult.resolvedPaths,
   };
   const aKey = assessmentCacheKey(toolName, input);
   if (assessmentCache.size >= RISK_CACHE_MAX) {
@@ -688,12 +693,15 @@ export async function check(
       : undefined,
   );
 
-  // Find the highest-priority matching rule across all candidates
+  // Find the highest-priority matching rule across all candidates.
+  // Pass resolvedPaths so directory-scoped rules match against actual
+  // target paths (e.g. /tmp/foo) rather than just the working directory.
   const matchedRule = findHighestPriorityRule(
     toolName,
     commandCandidates,
     workingDir,
     policyContext,
+    classification.resolvedPaths,
   );
 
   // Use gateway-provided sandboxAutoApprove instead of evaluating locally.

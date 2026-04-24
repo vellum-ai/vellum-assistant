@@ -3,10 +3,10 @@
  *
  * These types mirror the gateway's classify_risk IPC response shape
  * (gateway/src/ipc/risk-classification-handlers.ts) and request parameters.
- * Keep them in sync when the gateway response evolves.
+ * Keep in sync when the gateway response evolves.
  */
 
-import type { ScopeOption } from "./risk-types.js";
+import type { DirectoryScopeOption, ScopeOption } from "./risk-types.js";
 import type { AllowlistOption } from "./types.js";
 
 // ── Dangerous pattern (mirrors gateway wire format) ─────────────────────────
@@ -31,6 +31,8 @@ export interface ClassificationResult {
   matchType: "user_rule" | "registry" | "unknown";
   scopeOptions: ScopeOption[];
   allowlistOptions?: AllowlistOption[];
+  directoryScopeOptions?: DirectoryScopeOption[];
+  resolvedPaths?: string[];
   actionKeys?: string[];
   commandCandidates?: string[];
   dangerousPatterns?: DangerousPattern[];

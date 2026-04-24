@@ -92,6 +92,7 @@ let cachedAssessmentOverride:
       riskLevel: string;
       reason: string;
       scopeOptions: Array<{ pattern: string; label: string }>;
+      directoryScopeOptions?: Array<{ scope: string; label: string }>;
       matchType: string;
     }
   | undefined;
@@ -2441,5 +2442,83 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     expect(result.riskLevel).toBe("medium");
     expect(result.riskReason).toBe("Package manager installation");
     expect(result.riskScopeOptions).toHaveLength(2);
+  });
+
+  test("tool result includes riskDirectoryScopeOptions when classifier emits directoryScopeOptions", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "medium",
+      reason: "Writes to file in workspace",
+      scopeOptions: [
+        { pattern: "file_write:/workspace/scratch/out.txt", label: "This file only" },
+      ],
+      directoryScopeOptions: [
+        { scope: "/workspace/scratch", label: "In scratch/" },
+        { scope: "/workspace", label: "Anywhere in workspace/" },
+        { scope: "everywhere", label: "Everywhere" },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "/workspace/scratch/out.txt" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.riskDirectoryScopeOptions).toEqual([
+      { scope: "/workspace/scratch", label: "In scratch/" },
+      { scope: "/workspace", label: "Anywhere in workspace/" },
+      { scope: "everywhere", label: "Everywhere" },
+    ]);
+  });
+
+  test("tool result omits riskDirectoryScopeOptions when classifier does not emit directoryScopeOptions", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "low",
+      reason: "Read-only operation",
+      scopeOptions: [],
+      // directoryScopeOptions intentionally omitted
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.riskDirectoryScopeOptions).toBeUndefined();
+  });
+
+  test("riskScopeOptions and riskDirectoryScopeOptions are independent — one does not clobber the other", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "medium",
+      reason: "Filesystem write",
+      scopeOptions: [
+        { pattern: "file_write:/tmp/foo.txt", label: "This file" },
+      ],
+      directoryScopeOptions: [
+        { scope: "/tmp", label: "Anywhere in tmp/" },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "/tmp/foo.txt" },
+      makeContext(),
+    );
+
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "file_write:/tmp/foo.txt", label: "This file" },
+    ]);
+    expect(result.riskDirectoryScopeOptions).toEqual([
+      { scope: "/tmp", label: "Anywhere in tmp/" },
+    ]);
   });
 });

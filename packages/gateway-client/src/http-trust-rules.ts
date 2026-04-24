@@ -135,20 +135,28 @@ export class TrustRulesClient {
   /**
    * Find the highest-priority matching rule for a tool invocation.
    *
-   * @param tool       Tool name (e.g. "host_bash")
-   * @param candidates Command candidates to match against rule patterns
-   * @param scope      Working directory scope
+   * @param tool          Tool name (e.g. "host_bash")
+   * @param candidates    Command candidates to match against rule patterns
+   * @param scope         Working directory scope
+   * @param resolvedPaths Optional resolved path args — when present and
+   *                      non-empty, the rule's scope must cover ALL of them
+   *                      (AND semantics). Forwarded to the gateway via the
+   *                      `paths` query parameter.
    */
   async findMatchingRule(
     tool: string,
     candidates: string[],
     scope: string,
+    resolvedPaths?: readonly string[],
   ): Promise<TrustRule | null> {
     const params = new URLSearchParams({
       tool,
       commands: candidates.join(","),
       scope,
     });
+    if (resolvedPaths && resolvedPaths.length > 0) {
+      params.set("paths", resolvedPaths.join(","));
+    }
     const data = await this.request<{ rule: unknown | null }>(
       "GET",
       `/v1/trust-rules/match?${params.toString()}`,

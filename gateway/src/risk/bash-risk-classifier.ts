@@ -132,7 +132,7 @@ const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
  * Given a wrapper segment, extract the wrapped program and its args.
  * Returns undefined when no suitable argument is found.
  */
-function getWrappedProgramWithArgs(seg: {
+export function getWrappedProgramWithArgs(seg: {
   program: string;
   args: string[];
 }): { program: string; args: string[] } | undefined {

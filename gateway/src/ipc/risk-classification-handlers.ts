@@ -7,17 +7,24 @@
  */
 
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 
 import { parseArgs } from "../risk/arg-parser.js";
-import { bashRiskClassifier } from "../risk/bash-risk-classifier.js";
+import {
+  bashRiskClassifier,
+  getWrappedProgramWithArgs,
+} from "../risk/bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry.js";
+import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
   fileRiskClassifier,
   type FileClassificationContext,
 } from "../risk/file-risk-classifier.js";
-import type { CommandRiskSpec } from "../risk/risk-types.js";
+import type {
+  CommandRiskSpec,
+  DirectoryScopeOption,
+} from "../risk/risk-types.js";
 import { scheduleRiskClassifier } from "../risk/schedule-risk-classifier.js";
 import {
   analyzeShellCommand,
@@ -91,7 +98,23 @@ interface ClassificationResult {
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
+  directoryScopeOptions?: DirectoryScopeOption[];
+  resolvedPaths?: string[];
   matchType: string;
+}
+
+// ── Registry spec lookup ────────────────────────────────────────────────────
+
+/**
+ * Look up a `CommandRiskSpec` by program name, stripping any path prefix
+ * (e.g. `/usr/bin/rm` → `rm`). Uses `Object.hasOwn` so prototype entries
+ * like `toString` don't spuriously match.
+ */
+function lookupSpec(program: string): CommandRiskSpec | undefined {
+  const name = program.split("/").pop() ?? program;
+  return Object.hasOwn(DEFAULT_COMMAND_REGISTRY, name)
+    ? DEFAULT_COMMAND_REGISTRY[name as keyof typeof DEFAULT_COMMAND_REGISTRY]
+    : undefined;
 }
 
 // ── Path-within-workspace check ─────────────────────────────────────────────
@@ -206,23 +229,136 @@ export async function handleClassifyRisk(
         );
       }
 
-      // Detect complex syntax
+      // Detect complex syntax and collect filesystem-op path args for the
+      // directory scope ladder. Walks every segment left-to-right, tracking
+      // a per-segment "current cwd" that advances through simple `cd <dir>`
+      // segments so relative path args in later segments resolve against
+      // the right directory (e.g. `cd /tmp && rm foo` scopes `foo` to
+      // `/tmp/foo`, not `<initial workingDir>/foo`).
+      //
+      // For bare filesystem-op segments (filesystemOp=true with no resolved
+      // pathArgs, e.g. a lone `ls`), capture the segment's current cwd as a
+      // pathArg so the emitted scope reflects where that segment actually
+      // ran — not where a later `cd` segment moved to. This keeps
+      // `ls && cd /tmp` scoped to the original workingDir rather than /tmp.
+      //
+      // Wrapper segments (e.g. `sudo rm -rf foo`, `env cp a b`) are unwrapped
+      // before the filesystem-op check so the inner command's spec and
+      // argSchema are used. Wrappers in non-exec modes (e.g. `command -v rm`,
+      // `timeout --help rm`) are NOT unwrapped — they look up or print help
+      // for the inner program rather than executing it, so the inner
+      // program's filesystemOp flag must not apply.
       const parsed = await cachedParse(command);
       let isComplexSyntax = false;
+      let hasFilesystemOp = false;
+      const fsPathArgs = new Set<string>();
+      let trackedCwd = workingDir;
       for (const seg of parsed.segments) {
-        const name = seg.program.split("/").pop() ?? seg.program;
-        const spec: CommandRiskSpec | undefined = Object.hasOwn(
-          DEFAULT_COMMAND_REGISTRY,
-          name,
-        )
-          ? DEFAULT_COMMAND_REGISTRY[
-              name as keyof typeof DEFAULT_COMMAND_REGISTRY
-            ]
-          : undefined;
-        if (spec?.complexSyntax) {
-          isComplexSyntax = true;
-          break;
+        // Unwrap wrappers iteratively so `sudo sudo rm foo` and
+        // `env sudo rm foo` both resolve to the innermost `rm`.
+        //
+        // Mirror `classifySegment` in bash-risk-classifier.ts: if the
+        // wrapper's first arg is in its `nonExecFlags`, the wrapper is in
+        // lookup/help mode and does NOT execute the inner command — stop
+        // unwrapping so the inner program's spec (and filesystemOp flag)
+        // does not bleed through.
+        let effectiveProgram = seg.program;
+        let effectiveArgs = seg.args;
+        let effectiveSpec = lookupSpec(effectiveProgram);
+        // Use a depth guard instead of a visited set so repeated wrappers
+        // (e.g. `sudo sudo rm foo`, `env env cp a b`) are fully unwrapped.
+        const MAX_WRAPPER_DEPTH = 10;
+        let depth = 0;
+        while (
+          effectiveSpec?.isWrapper &&
+          depth < MAX_WRAPPER_DEPTH
+        ) {
+          depth++;
+          const isNonExecMode =
+            effectiveSpec.nonExecFlags !== undefined &&
+            effectiveArgs.length > 0 &&
+            effectiveSpec.nonExecFlags.includes(effectiveArgs[0]!);
+          if (isNonExecMode) break;
+          const inner = getWrappedProgramWithArgs({
+            program: effectiveProgram,
+            args: effectiveArgs,
+          });
+          if (!inner) break;
+          effectiveProgram = inner.program;
+          effectiveArgs = inner.args;
+          effectiveSpec = lookupSpec(effectiveProgram);
         }
+
+        if (effectiveSpec?.complexSyntax) {
+          isComplexSyntax = true;
+        }
+        if (effectiveSpec?.filesystemOp === true) {
+          hasFilesystemOp = true;
+          const parsedArgs = parseArgs(
+            effectiveArgs,
+            effectiveSpec.argSchema ?? {},
+          );
+          if (parsedArgs.pathArgs.length === 0) {
+            // Bare filesystem-op segment (e.g. `ls`, `pwd`). Anchor the
+            // scope to the cwd AS-OF THIS SEGMENT so a later `cd` doesn't
+            // shift the scope away from where the segment actually ran.
+            fsPathArgs.add(trackedCwd);
+          } else {
+            for (const p of parsedArgs.pathArgs) {
+              // Pre-resolve all path args to absolute paths so that
+              // resolvedPaths (used by directory-scoped rule matching)
+              // always contains absolute paths that can be compared
+              // against scope prefixes.
+              if (p === "~") {
+                fsPathArgs.add(homedir());
+              } else if (p.startsWith("~/")) {
+                fsPathArgs.add(join(homedir(), p.slice(2)));
+              } else if (isAbsolute(p)) {
+                fsPathArgs.add(resolve(p));
+              } else {
+                fsPathArgs.add(resolve(trackedCwd, p));
+              }
+            }
+          }
+        }
+
+        // Advance tracked cwd for simple `cd <dir>` segments. Bail out
+        // (keep the current tracked cwd) for `cd` with no args or `cd -`
+        // (requires runtime state we don't have). Expand `~` and `~/...`
+        // to homedir for consistency with how we resolve path args above.
+        if (effectiveProgram === "cd") {
+          const positionals = effectiveArgs.filter((a) => !a.startsWith("-"));
+          if (positionals.length === 1) {
+            const target = positionals[0]!;
+            if (target === "-") {
+              // Unsupported — requires OLDPWD runtime state.
+            } else if (target === "~") {
+              trackedCwd = homedir();
+            } else if (target.startsWith("~/")) {
+              trackedCwd = join(homedir(), target.slice(2));
+            } else if (isAbsolute(target)) {
+              trackedCwd = resolve(target);
+            } else {
+              trackedCwd = resolve(trackedCwd, target);
+            }
+          }
+        }
+      }
+
+      // Emit directory scope ladder only when at least one segment is a
+      // filesystem op. Pass the ORIGINAL `workingDir` (not the final
+      // `trackedCwd`) — each filesystem-op segment has already contributed
+      // its effective cwd into `fsPathArgs` (bare segments pushed their
+      // at-the-time cwd; non-bare segments pre-resolved relative args against
+      // their at-the-time cwd), so the generator does not need the final
+      // trackedCwd to reflect per-segment cd progress.
+      let directoryScopeOptions: DirectoryScopeOption[] | undefined;
+      if (hasFilesystemOp) {
+        directoryScopeOptions = generateDirectoryScopeOptions({
+          pathArgs: [...fsPathArgs],
+          workingDir,
+          workspaceRoot: params.workspaceRoot,
+        });
       }
 
       // Proxied bash risk cap: when running through the credential proxy,
@@ -238,6 +374,15 @@ export async function handleClassifyRisk(
         finalRisk = "medium";
       }
 
+      // Collect resolved paths for directory-scoped rule enforcement.
+      // These are the same resolved args used for scope generation — the
+      // assistant threads them into `findHighestPriorityRule` so scoped
+      // rules match against actual target paths, not just cwd.
+      const resolvedPaths =
+        hasFilesystemOp && fsPathArgs.size > 0
+          ? [...fsPathArgs]
+          : undefined;
+
       return {
         risk: finalRisk,
         reason: assessment.reason,
@@ -249,6 +394,8 @@ export async function handleClassifyRisk(
         opaqueConstructs: analysis.hasOpaqueConstructs,
         isComplexSyntax,
         sandboxAutoApprove,
+        directoryScopeOptions,
+        resolvedPaths,
         matchType: assessment.matchType,
       };
     }
@@ -281,11 +428,26 @@ export async function handleClassifyRisk(
         context,
       );
 
+      // File tools always emit a directory scope ladder: either the filePath's
+      // parent (when provided) or the working directory as the ancestor.
+      const directoryScopeOptions = generateDirectoryScopeOptions({
+        pathArgs: filePath ? [filePath] : [],
+        workingDir,
+        workspaceRoot: params.workspaceRoot,
+      });
+
       return {
         risk: assessment.riskLevel,
         reason: assessment.reason,
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,
+        directoryScopeOptions,
+        resolvedPaths: filePath
+          ? [filePath === "~" ? homedir()
+             : filePath.startsWith("~/") ? join(homedir(), filePath.slice(2))
+             : isAbsolute(filePath) ? resolve(filePath)
+             : resolve(workingDir, filePath)]
+          : undefined,
         matchType: assessment.matchType,
       };
     }

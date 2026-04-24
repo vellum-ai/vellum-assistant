@@ -29,19 +29,31 @@ export interface TrustStoreBackend {
   /**
    * Find the highest-priority rule that matches any of the command candidates.
    * Rules are pre-sorted by priority descending, so the first match wins.
+   *
+   * When `resolvedPaths` is provided and non-empty, a scoped rule must cover
+   * ALL of the provided paths (AND semantics); the `scope` cwd fallback is
+   * bypassed. `"everywhere"` scope always matches regardless of paths.
    */
   findHighestPriorityRule(
     tool: string,
     commands: string[],
     scope: string,
     ctx?: PolicyContext,
+    resolvedPaths?: readonly string[],
   ): TrustRule | null;
 
-  /** Find the first matching allow rule for a tool/command/scope. */
+  /**
+   * Find the first matching allow rule for a tool/command/scope.
+   *
+   * When `resolvedPaths` is provided and non-empty, a scoped rule must cover
+   * ALL of the provided paths (AND semantics); the `scope` cwd fallback is
+   * bypassed. `"everywhere"` scope always matches regardless of paths.
+   */
   findMatchingRule(
     tool: string,
     command: string,
     scope: string,
+    resolvedPaths?: readonly string[],
   ): TrustRule | null;
 
   /** Find the first matching deny rule for a tool/command/scope. */
