@@ -3283,6 +3283,157 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/trust-rules-v3": {
+        get: {
+          summary: "List v3 trust rules",
+          description:
+            "Authenticated gateway endpoint that lists trust rules from the v3 SQLite-backed store. By default returns user-relevant rules (user_defined + user-modified defaults). Supports `origin`, `tool`, and `include_deleted` query filters.",
+          operationId: "trustRulesV3Get",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "origin",
+              in: "query",
+              required: false,
+              schema: { type: "string", enum: ["default", "user_defined"] },
+              description: "Filter by rule origin.",
+            },
+            {
+              name: "tool",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Filter by tool name.",
+            },
+            {
+              name: "include_deleted",
+              in: "query",
+              required: false,
+              schema: { type: "boolean" },
+              description: "Include soft-deleted rules in the response.",
+            },
+          ],
+          responses: {
+            "200": { description: "Trust rules returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        post: {
+          summary: "Create a v3 trust rule",
+          description:
+            "Authenticated gateway endpoint that creates a user-defined trust rule in the v3 SQLite-backed store. Gated behind the `permission-controls-v3` feature flag.",
+          operationId: "trustRulesV3Post",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "201": { description: "Trust rule created" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Feature not enabled" },
+          },
+        },
+      },
+      "/v1/trust-rules-v3/{ruleId}": {
+        patch: {
+          summary: "Update a v3 trust rule",
+          description:
+            "Authenticated gateway endpoint that updates a v3 trust rule's risk and/or description. Default rules are marked `userModified=true` on change. Gated behind the `permission-controls-v3` feature flag.",
+          operationId: "trustRulesV3Patch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Trust rule updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Feature not enabled" },
+            "404": { description: "Trust rule not found" },
+          },
+        },
+        delete: {
+          summary: "Delete a v3 trust rule",
+          description:
+            "Authenticated gateway endpoint that deletes a v3 trust rule. User-defined rules are hard-deleted; default rules are soft-deleted. Gated behind the `permission-controls-v3` feature flag.",
+          operationId: "trustRulesV3Delete",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Trust rule deleted" },
+            "400": { description: "Rule ID is required" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Feature not enabled" },
+            "404": { description: "Trust rule not found" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/trust-rules-v3/{ruleId}/reset": {
+        post: {
+          summary: "Reset a v3 default trust rule",
+          description:
+            "Authenticated gateway endpoint that resets a modified default trust rule back to its original risk and description from the command registry. Only valid for rules with `origin=default`. Gated behind the `permission-controls-v3` feature flag.",
+          operationId: "trustRulesV3ResetPost",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "ruleId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Trust rule reset to defaults" },
+            "400": {
+              description:
+                "Rule is not a default rule, or original values cannot be determined",
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Feature not enabled" },
+            "404": { description: "Trust rule not found" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/v1/trust-rules": {
         get: {
           summary: "List trust rules",
