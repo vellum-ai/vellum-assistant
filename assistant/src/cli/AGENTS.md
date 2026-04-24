@@ -20,6 +20,7 @@ Examples: `config`, `contacts`, `memory`, `autonomy`, `conversations` belong her
 - Each command module exports a registration function that attaches subcommands to the program.
 - Register new commands in `assistant/src/cli/program.ts` inside the `buildCliProgram()` function by importing and calling the registration function.
 - Use `getCliLogger("cli")` for output (not raw `console.log`).
+- When adding/removing/renaming assistant CLI commands or subcommands, update the gateway bash risk registry coverage in `gateway/src/risk/command-registry/commands/assistant.ts` (supported command paths + risk overrides) so permission prompts stay correct.
 
 ## Service calls — no gateway proxying
 

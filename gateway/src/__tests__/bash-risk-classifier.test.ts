@@ -6,7 +6,7 @@ import {
   resetTrustRuleV3Cache,
 } from "../risk/trust-rule-v3-cache.js";
 import { classifySegment } from "../risk/bash-risk-classifier.js";
-import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandSegment } from "../risk/shell-parser.js";
 import "./test-preload.js";
 

@@ -15,7 +15,7 @@ import {
 } from "../../db/trust-rule-v3-store.js";
 import { invalidateTrustRuleV3Cache } from "../../risk/trust-rule-v3-cache.js";
 import { getMergedFeatureFlags } from "../../ipc/feature-flag-handlers.js";
-import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry/index.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("trust-rules-v3");

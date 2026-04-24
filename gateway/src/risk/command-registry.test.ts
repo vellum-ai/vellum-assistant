@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "./command-registry/index.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -368,11 +368,23 @@ describe("command-registry", () => {
     });
   });
 
-  // ── assistant subcommand risk levels ─────────────────────────────────────
-  // These tests verify the registry matches classifyAssistantSubcommand()
-  // from checker.ts, covering every branch of that function.
-  describe("assistant subcommand classifications match classifyAssistantSubcommand", () => {
+  // ── assistant CLI subcommand risk levels ─────────────────────────────────
+  // Keep this in sync with assistant/src/cli/commands and with
+  // gateway/src/risk/command-registry/commands/assistant.ts.
+  describe("assistant subcommand classifications", () => {
     const assistantSpec = DEFAULT_COMMAND_REGISTRY.assistant;
+    const assistantSubs = assistantSpec.subcommands!;
+
+    function getAssistantPath(path: string): CommandRiskSpec {
+      const segments = path.split(" ").filter((segment) => segment.length > 0);
+      let current: CommandRiskSpec = assistantSpec;
+      for (const segment of segments) {
+        const next = current.subcommands?.[segment];
+        expect(next).toBeDefined();
+        current = next!;
+      }
+      return current;
+    }
 
     test("assistant (bare) is low risk", () => {
       expect(assistantSpec.baseRisk).toBe("low");
@@ -380,7 +392,7 @@ describe("command-registry", () => {
 
     // ── oauth subcommand ──────────────────────────────────────────────────
     describe("oauth", () => {
-      const oauthSpec = assistantSpec.subcommands!.oauth;
+      const oauthSpec = assistantSubs.oauth;
 
       test("assistant oauth (bare) is low risk", () => {
         expect(oauthSpec.baseRisk).toBe("low");
@@ -419,7 +431,7 @@ describe("command-registry", () => {
 
     // ── credentials subcommand ────────────────────────────────────────────
     describe("credentials", () => {
-      const credSpec = assistantSpec.subcommands!.credentials;
+      const credSpec = assistantSubs.credentials;
 
       test("assistant credentials (bare) is low risk", () => {
         expect(credSpec.baseRisk).toBe("low");
@@ -440,7 +452,7 @@ describe("command-registry", () => {
 
     // ── keys subcommand ───────────────────────────────────────────────────
     describe("keys", () => {
-      const keysSpec = assistantSpec.subcommands!.keys;
+      const keysSpec = assistantSubs.keys;
 
       test("assistant keys (bare) is low risk", () => {
         expect(keysSpec.baseRisk).toBe("low");
@@ -457,7 +469,7 @@ describe("command-registry", () => {
 
     // ── trust subcommand ──────────────────────────────────────────────────
     describe("trust", () => {
-      const trustSpec = assistantSpec.subcommands!.trust;
+      const trustSpec = assistantSubs.trust;
 
       test("assistant trust (bare) is low risk", () => {
         expect(trustSpec.baseRisk).toBe("low");
@@ -475,22 +487,22 @@ describe("command-registry", () => {
     // ── low-risk subcommands (no further subcommands) ────────────────────
     describe("simple low-risk subcommands", () => {
       test("assistant platform is low risk", () => {
-        expect(assistantSpec.subcommands!.platform.baseRisk).toBe("low");
+        expect(assistantSubs.platform.baseRisk).toBe("low");
       });
 
       test("assistant backup is low risk", () => {
-        expect(assistantSpec.subcommands!.backup.baseRisk).toBe("low");
+        expect(assistantSubs.backup.baseRisk).toBe("low");
       });
 
       test("assistant help is low risk", () => {
-        expect(assistantSpec.subcommands!.help.baseRisk).toBe("low");
+        expect(assistantSubs.help.baseRisk).toBe("low");
       });
     });
 
     // ── completeness check ────────────────────────────────────────────────
-    test("all assistant subcommand groups from classifyAssistantSubcommand are present", () => {
+    test("legacy elevated assistant subcommand groups are present", () => {
       const requiredSubcommands = ["oauth", "credentials", "keys", "trust"];
-      const actualSubcommands = Object.keys(assistantSpec.subcommands!);
+      const actualSubcommands = Object.keys(assistantSubs);
       for (const sub of requiredSubcommands) {
         expect(actualSubcommands).toContain(sub);
       }
@@ -530,6 +542,66 @@ describe("command-registry", () => {
       );
       expect(trustSubs).toContain("remove");
       expect(trustSubs).toContain("clear");
+    });
+
+    test("covers expanded top-level assistant command groups", () => {
+      const requiredTopLevel = [
+        "attachment",
+        "audit",
+        "auth",
+        "autonomy",
+        "avatar",
+        "backup",
+        "bash",
+        "browser",
+        "cache",
+        "channel-verification-sessions",
+        "clients",
+        "completions",
+        "config",
+        "contacts",
+        "conversations",
+        "credential-execution",
+        "credentials",
+        "domain",
+        "email",
+        "image-generation",
+        "inference",
+        "llm",
+        "keys",
+        "mcp",
+        "memory",
+        "notifications",
+        "oauth",
+        "platform",
+        "routes",
+        "sequence",
+        "skills",
+        "stt",
+        "task",
+        "trust",
+        "tts",
+        "ui",
+        "usage",
+        "watchers",
+        "webhooks",
+      ];
+      const actual = Object.keys(assistantSubs);
+      for (const sub of requiredTopLevel) {
+        expect(actual).toContain(sub);
+      }
+    });
+
+    test("expanded assistant operations have expected risk levels", () => {
+      expect(getAssistantPath("config set").baseRisk).toBe("medium");
+      expect(getAssistantPath("oauth providers register").baseRisk).toBe(
+        "medium",
+      );
+      expect(getAssistantPath("email send").baseRisk).toBe("medium");
+      expect(getAssistantPath("domain register").baseRisk).toBe("medium");
+      expect(getAssistantPath("conversations clear").baseRisk).toBe("high");
+      expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
+      expect(getAssistantPath("backup restore").baseRisk).toBe("high");
     });
   });
 
@@ -777,9 +849,7 @@ describe("command-registry", () => {
     /** Collect all top-level commands tagged with filesystemOp: true. */
     function getFilesystemOpCommands(): string[] {
       return Object.entries(DEFAULT_COMMAND_REGISTRY)
-        .filter(
-          ([, spec]) => (spec as CommandRiskSpec).filesystemOp === true,
-        )
+        .filter(([, spec]) => (spec as CommandRiskSpec).filesystemOp === true)
         .map(([name]) => name)
         .sort();
     }

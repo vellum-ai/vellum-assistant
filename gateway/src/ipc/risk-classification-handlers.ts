@@ -15,7 +15,7 @@ import {
   bashRiskClassifier,
   getWrappedProgramWithArgs,
 } from "../risk/bash-risk-classifier.js";
-import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import { generateDirectoryScopeOptions } from "../risk/directory-scope.js";
 import {
   fileRiskClassifier,
@@ -269,10 +269,7 @@ export async function handleClassifyRisk(
         // (e.g. `sudo sudo rm foo`, `env env cp a b`) are fully unwrapped.
         const MAX_WRAPPER_DEPTH = 10;
         let depth = 0;
-        while (
-          effectiveSpec?.isWrapper &&
-          depth < MAX_WRAPPER_DEPTH
-        ) {
+        while (effectiveSpec?.isWrapper && depth < MAX_WRAPPER_DEPTH) {
           depth++;
           const isNonExecMode =
             effectiveSpec.nonExecFlags !== undefined &&
@@ -379,9 +376,7 @@ export async function handleClassifyRisk(
       // assistant threads them into `findHighestPriorityRule` so scoped
       // rules match against actual target paths, not just cwd.
       const resolvedPaths =
-        hasFilesystemOp && fsPathArgs.size > 0
-          ? [...fsPathArgs]
-          : undefined;
+        hasFilesystemOp && fsPathArgs.size > 0 ? [...fsPathArgs] : undefined;
 
       return {
         risk: finalRisk,
@@ -443,10 +438,15 @@ export async function handleClassifyRisk(
         allowlistOptions: assessment.allowlistOptions,
         directoryScopeOptions,
         resolvedPaths: filePath
-          ? [filePath === "~" ? homedir()
-             : filePath.startsWith("~/") ? join(homedir(), filePath.slice(2))
-             : isAbsolute(filePath) ? resolve(filePath)
-             : resolve(workingDir, filePath)]
+          ? [
+              filePath === "~"
+                ? homedir()
+                : filePath.startsWith("~/")
+                  ? join(homedir(), filePath.slice(2))
+                  : isAbsolute(filePath)
+                    ? resolve(filePath)
+                    : resolve(workingDir, filePath),
+            ]
           : undefined,
         matchType: assessment.matchType,
       };

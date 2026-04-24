@@ -12,7 +12,7 @@
 
 import type { CommandSegment, ParsedCommand } from "./shell-parser.js";
 import { parseArgs } from "./arg-parser.js";
-import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "./command-registry/index.js";
 import {
   maxRisk,
   riskOrd,

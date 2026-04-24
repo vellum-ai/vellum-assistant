@@ -7,7 +7,7 @@
  * rules, while the three-guard upsert protects user modifications.
  */
 
-import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandRiskSpec } from "../risk/risk-types.js";
 import type {
   TrustRuleV3Store,
