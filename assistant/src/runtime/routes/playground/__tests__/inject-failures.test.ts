@@ -8,7 +8,23 @@
  * into interesting states without having to wait for three real summary
  * LLM failures.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+mock.module("../../../../config/loader.js", () => ({
+  getConfig: () => ({
+    llm: {
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 500_000,
+          compactThreshold: 0.8,
+        },
+      },
+    },
+  }),
+}));
 
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
@@ -282,6 +298,8 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
       expect(body).toHaveProperty(key);
     }
     expect(body.consecutiveCompactionFailures).toBe(2);
+    expect(body.maxInputTokens).toBe(200_000);
+    expect(body.thresholdTokens).toBe(160_000);
     expect(body.isCircuitOpen).toBe(false);
     expect(body.compactionCircuitOpenUntil).toBeNull();
     expect(typeof body.estimatedInputTokens).toBe("number");

@@ -4,9 +4,11 @@ mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     llm: {
       default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
         contextWindow: {
           enabled: true,
-          maxInputTokens: 200_000,
+          maxInputTokens: 500_000,
           compactThreshold: 0.8,
         },
       },
