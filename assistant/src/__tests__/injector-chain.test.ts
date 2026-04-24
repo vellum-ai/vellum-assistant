@@ -365,22 +365,22 @@ describe("injector chain", () => {
     );
   });
 
-  test("third-party injector at order 25 lands between unified-turn-context (20) and pkb-context (30) in the final message", async () => {
+  test("third-party prepend injector at order 15 lands between workspace (10) and unified-turn-context (20) in the final message", async () => {
     // Proves the extensibility contract end-to-end: a plugin-registered
-    // injector at `order: 25` with `placement: "prepend-user-tail"` slots
-    // between the unified-turn prepend (order 20, executes just before
-    // workspace) and the PKB after-memory splice (order 30). Because it
-    // uses prepend-user-tail placement it becomes a third prepend,
-    // landing between workspace (topmost) and unified-turn.
+    // injector at `order: 15` with `placement: "prepend-user-tail"` slots
+    // between the workspace prepend (order 10) and the unified-turn
+    // prepend (order 20). Because descending-order application for
+    // prepends puts the lowest-`order` injector topmost, workspace ends
+    // up on top, then plugin@15, then unified-turn.
     registerPlugin(defaultInjectorsPlugin);
     registerPlugin(
-      wrapInPlugin("third-party-25-prepend", [
+      wrapInPlugin("third-party-15-prepend", [
         {
-          name: "plugin-25",
+          name: "plugin-15",
           order: 15, // between workspace (10) and unified-turn (20)
           async produce(): Promise<InjectionBlock> {
             return {
-              id: "plugin-25",
+              id: "plugin-15",
               text: "<plugin_block_15/>",
               placement: "prepend-user-tail",
             };
