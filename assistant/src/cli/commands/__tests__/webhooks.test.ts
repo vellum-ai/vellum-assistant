@@ -10,6 +10,15 @@ let mockRegisterCallbackRoute: (
   type: string,
 ) => Promise<string> = async () => "";
 let mockPublicBaseUrl: string | null = null;
+let mockPlatformContext: Record<string, unknown> = {
+  isPlatform: false,
+  platformBaseUrl: "",
+  assistantId: "",
+  hasInternalApiKey: false,
+  hasAssistantApiKey: false,
+  authHeader: null,
+  enabled: false,
+};
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -19,15 +28,7 @@ mock.module("../../../inbound/platform-callback-registration.js", () => ({
   shouldUsePlatformCallbacks: () => mockShouldUsePlatformCallbacks,
   registerCallbackRoute: (path: string, type: string) =>
     mockRegisterCallbackRoute(path, type),
-  resolvePlatformCallbackRegistrationContext: async () => ({
-    isPlatform: false,
-    platformBaseUrl: "",
-    assistantId: "",
-    hasInternalApiKey: false,
-    hasAssistantApiKey: false,
-    authHeader: null,
-    enabled: false,
-  }),
+  resolvePlatformCallbackRegistrationContext: async () => mockPlatformContext,
   resolveCallbackUrl: async () => "",
 }));
 
@@ -117,15 +118,46 @@ function parseJson(stdout: string): Record<string, unknown> {
 // Tests
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Mock fetch helper
+// ---------------------------------------------------------------------------
+
+import { mockFetch, resetMockFetch } from "../../../__tests__/mock-fetch.js";
+
+function connectedContext(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    isPlatform: false,
+    platformBaseUrl: "https://test-platform.vellum.ai",
+    assistantId: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
+    hasInternalApiKey: false,
+    hasAssistantApiKey: true,
+    authHeader: "Api-Key vak_test123",
+    enabled: true,
+    ...overrides,
+  };
+}
+
 describe("assistant webhooks register", () => {
   beforeEach(() => {
     mockShouldUsePlatformCallbacks = false;
     mockRegisterCallbackRoute = async () => "";
     mockPublicBaseUrl = null;
+    mockPlatformContext = {
+      isPlatform: false,
+      platformBaseUrl: "",
+      assistantId: "",
+      hasInternalApiKey: false,
+      hasAssistantApiKey: false,
+      authHeader: null,
+      enabled: false,
+    };
     process.exitCode = undefined;
   });
 
   afterEach(() => {
+    resetMockFetch();
     process.exitCode = undefined;
   });
 
@@ -331,5 +363,156 @@ describe("assistant webhooks register", () => {
       );
       expect(result.mode).toBe("platform");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assistant webhooks list
+// ---------------------------------------------------------------------------
+
+describe("assistant webhooks list", () => {
+  beforeEach(() => {
+    mockPlatformContext = connectedContext();
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    resetMockFetch();
+    process.exitCode = undefined;
+  });
+
+  test("returns registered routes as JSON", async () => {
+    const routes = [
+      {
+        id: "route-1",
+        assistant_id: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
+        type: "telegram",
+        callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram",
+        callback_url:
+          "https://test-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/telegram/",
+      },
+      {
+        id: "route-2",
+        assistant_id: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
+        type: "resend",
+        callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/resend",
+        callback_url:
+          "https://test-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/resend/",
+      },
+    ];
+    mockFetch(
+      "/v1/internal/gateway/callback-routes/",
+      {},
+      { body: routes, status: 200 },
+    );
+
+    const { stdout } = await runAssistantCommandFull(
+      "webhooks",
+      "list",
+      "--json",
+    );
+
+    const parsed = parseJson(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.routes).toHaveLength(2);
+    expect((parsed.routes as Array<{ type: string }>)[0].type).toBe("telegram");
+    expect((parsed.routes as Array<{ type: string }>)[1].type).toBe("resend");
+  });
+
+  test("returns empty list when no routes registered", async () => {
+    mockFetch(
+      "/v1/internal/gateway/callback-routes/",
+      {},
+      { body: [], status: 200 },
+    );
+
+    const { stdout } = await runAssistantCommandFull(
+      "webhooks",
+      "list",
+      "--json",
+    );
+
+    const parsed = parseJson(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.routes).toEqual([]);
+  });
+
+  test("returns coming-soon error for self-hosted without platform credentials", async () => {
+    mockPlatformContext = {
+      isPlatform: false,
+      platformBaseUrl: "",
+      assistantId: "",
+      hasInternalApiKey: false,
+      hasAssistantApiKey: false,
+      authHeader: null,
+      enabled: false,
+    };
+
+    const { stdout } = await runAssistantCommandFull(
+      "webhooks",
+      "list",
+      "--json",
+    );
+
+    expect(process.exitCode).toBe(1);
+    const parsed = parseJson(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Self-hosted webhook listing coming soon");
+  });
+
+  test("handles platform HTTP error", async () => {
+    mockFetch(
+      "/v1/internal/gateway/callback-routes/",
+      {},
+      { body: { detail: "Unauthorized" }, status: 401 },
+    );
+
+    const { stdout } = await runAssistantCommandFull(
+      "webhooks",
+      "list",
+      "--json",
+    );
+
+    expect(process.exitCode).toBe(1);
+    const parsed = parseJson(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("HTTP 401");
+  });
+
+  test("works for self-hosted assistants with connected credentials", async () => {
+    // Explicitly reset — previous error-path tests may leave exitCode = 1
+    // due to async commander teardown racing with afterEach.
+    process.exitCode = undefined;
+
+    mockPlatformContext = connectedContext({
+      isPlatform: false,
+      enabled: true,
+    });
+
+    const routes = [
+      {
+        id: "route-1",
+        assistant_id: "019d6d4f-6dbd-779f-91d3-cb273b9429a5",
+        type: "email",
+        callback_path: "019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/email",
+        callback_url:
+          "https://test-platform.vellum.ai/v1/gateway/callbacks/019d6d4f-6dbd-779f-91d3-cb273b9429a5/webhooks/email/",
+      },
+    ];
+    mockFetch(
+      "/v1/internal/gateway/callback-routes/",
+      {},
+      { body: routes, status: 200 },
+    );
+
+    const { stdout } = await runAssistantCommandFull(
+      "webhooks",
+      "list",
+      "--json",
+    );
+
+    const parsed = parseJson(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.routes).toHaveLength(1);
   });
 });
