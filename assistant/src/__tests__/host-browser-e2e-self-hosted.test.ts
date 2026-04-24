@@ -40,15 +40,15 @@ import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import {
+  getAllowedExtensionOrigins,
+  handleBrowserExtensionPair,
+} from "../../../gateway/src/http/routes/browser-extension-pair.js";
+import {
   mintHostBrowserCapability,
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
   verifyHostBrowserCapability,
 } from "../runtime/capability-tokens.js";
-import {
-  getAllowedExtensionOrigins,
-  handleBrowserExtensionPair,
-} from "../../../gateway/src/http/routes/browser-extension-pair.js";
 
 // ---------------------------------------------------------------------------
 // Native helper binary discovery + skip guard
@@ -140,7 +140,7 @@ interface PairServer {
  * Boots a minimal Bun.serve that mounts the real
  * `handleBrowserExtensionPair` route. This is intentionally a narrower
  * surface than `RuntimeHttpServer` — we want to exercise the exact same
- * route handler the daemon uses in production, but without pulling in the
+ * route handler the gateway uses in production, but without pulling in the
  * full runtime's dependency graph (which would drag in the workspace DB,
  * conversation manager, etc. and make the test flaky + slow).
  */
@@ -151,9 +151,9 @@ function startPairServer(): PairServer {
     async fetch(req, srv) {
       const url = new URL(req.url);
       if (url.pathname === "/v1/browser-extension-pair") {
-        return handleBrowserExtensionPair(req, {
-          requestIP: (_req) => srv.requestIP(_req),
-        });
+        const addr = srv.requestIP(req);
+        const clientIp = addr?.address ?? "";
+        return handleBrowserExtensionPair(req, clientIp);
       }
       return new Response("not found", { status: 404 });
     },

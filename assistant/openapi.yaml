@@ -3740,18 +3740,6 @@ paths:
           schema:
             type: string
           description: Conversation ID (required)
-  /v1/guardian/init:
-    post:
-      operationId: guardian_init_post
-      responses:
-        "200":
-          description: Successful response
-  /v1/guardian/refresh:
-    post:
-      operationId: guardian_refresh_post
-      responses:
-        "200":
-          description: Successful response
   /v1/health:
     get:
       operationId: health_get
