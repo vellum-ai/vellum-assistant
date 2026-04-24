@@ -97,7 +97,6 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
-import { getClientRegistry } from "../client-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -1581,22 +1580,6 @@ export async function handleSendMessage(
         channelId: sourceChannel,
         interfaceId: sourceInterface,
       } satisfies NonHostProxyTransportMetadata);
-
-  // Register/refresh the client in the unified client registry so
-  // `assistant clients list` can discover all connected interfaces.
-  // Uses the client-supplied clientId when available (stable per-install
-  // UUID), falling back to a synthetic key derived from interfaceId so
-  // older clients that don't send clientId still appear in the registry.
-  const effectiveClientId =
-    typeof body.clientId === "string" && body.clientId.length > 0
-      ? body.clientId
-      : `synthetic:${sourceInterface}`;
-  getClientRegistry().register({
-    clientId: effectiveClientId,
-    interfaceId: sourceInterface,
-    hostHomeDir: body.hostHomeDir,
-    hostUsername: body.hostUsername,
-  });
 
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,

@@ -4,16 +4,14 @@
  * Tracks all clients currently connected to the assistant — macOS desktop
  * (SSE), iOS (SSE), web (SSE), chrome-extension (WebSocket), CLI, and
  * channel interfaces. Each entry records the interface type, derived
- * capabilities, connection timestamps, and optional host environment fields.
+ * capabilities, and connection timestamps.
  *
  * The registry is populated by:
- *   - `handleSendMessage` in conversation-routes.ts (registers/refreshes on
- *     every inbound message with the interface and transport metadata)
+ *   - SSE /events route (events-routes.ts) — registers on connect,
+ *     unregisters on disconnect, touches on heartbeat.
  *
  * Future enhancements:
- *   - Deregister on SSE disconnect (events-routes.ts abort signal)
  *   - Surface ChromeExtensionRegistry entries through `listAll()`
- *   - Stale-client eviction sweep
  *
  * Consumers:
  *   - `assistant clients list` CLI command (via `list_clients` IPC route)
@@ -56,10 +54,6 @@ export interface ClientEntry {
   connectedAt: number;
   /** Wall-clock timestamp (ms) of the most recent activity. */
   lastActiveAt: number;
-  /** Home directory on the host machine (only for host-proxy interfaces). */
-  hostHomeDir?: string;
-  /** Username on the host machine (only for host-proxy interfaces). */
-  hostUsername?: string;
 }
 
 /** Serialized form returned by the IPC route / CLI command. */
@@ -69,8 +63,6 @@ export interface ClientEntryJSON {
   capabilities: HostProxyCapability[];
   connectedAt: string;
   lastActiveAt: string;
-  hostHomeDir?: string;
-  hostUsername?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,25 +76,14 @@ export class ClientRegistry {
    * Register or refresh a client connection.
    *
    * If a client with the same `clientId` already exists, its `lastActiveAt`
-   * and host environment fields are updated. Otherwise a new entry is created.
+   * is updated. Otherwise a new entry is created with derived capabilities.
    */
-  register(opts: {
-    clientId: string;
-    interfaceId: InterfaceId;
-    hostHomeDir?: string;
-    hostUsername?: string;
-  }): ClientEntry {
+  register(opts: { clientId: string; interfaceId: InterfaceId }): ClientEntry {
     const existing = this.clients.get(opts.clientId);
     const now = Date.now();
 
     if (existing) {
       existing.lastActiveAt = now;
-      if (opts.hostHomeDir !== undefined) {
-        existing.hostHomeDir = opts.hostHomeDir;
-      }
-      if (opts.hostUsername !== undefined) {
-        existing.hostUsername = opts.hostUsername;
-      }
       log.debug(
         { clientId: opts.clientId, interfaceId: opts.interfaceId },
         "client refreshed",
@@ -120,8 +101,6 @@ export class ClientRegistry {
       capabilities,
       connectedAt: now,
       lastActiveAt: now,
-      hostHomeDir: opts.hostHomeDir,
-      hostUsername: opts.hostUsername,
     };
 
     this.clients.set(opts.clientId, entry);
@@ -237,8 +216,6 @@ export class ClientRegistry {
       capabilities: entry.capabilities,
       connectedAt: new Date(entry.connectedAt).toISOString(),
       lastActiveAt: new Date(entry.lastActiveAt).toISOString(),
-      ...(entry.hostHomeDir ? { hostHomeDir: entry.hostHomeDir } : {}),
-      ...(entry.hostUsername ? { hostUsername: entry.hostUsername } : {}),
     };
   }
 }

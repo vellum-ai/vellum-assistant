@@ -18,8 +18,6 @@ describe("ClientRegistry", () => {
     const entry = registry.register({
       clientId: "mac-1",
       interfaceId: "macos",
-      hostHomeDir: "/Users/alice",
-      hostUsername: "alice",
     });
 
     expect(entry.clientId).toBe("mac-1");
@@ -28,16 +26,14 @@ describe("ClientRegistry", () => {
     expect(entry.capabilities).toContain("host_file");
     expect(entry.capabilities).toContain("host_cu");
     expect(entry.capabilities).toContain("host_browser");
-    expect(entry.hostHomeDir).toBe("/Users/alice");
-    expect(entry.hostUsername).toBe("alice");
     expect(entry.connectedAt).toBeGreaterThan(0);
     expect(entry.lastActiveAt).toBeGreaterThanOrEqual(entry.connectedAt);
   });
 
-  test("register derives empty capabilities for web interface", () => {
+  test("register derives empty capabilities for cli interface", () => {
     const registry = new ClientRegistry();
     const entry = registry.register({
-      clientId: "web-1",
+      clientId: "cli-1",
       interfaceId: "cli",
     });
 
@@ -66,13 +62,11 @@ describe("ClientRegistry", () => {
     const second = registry.register({
       clientId: "mac-1",
       interfaceId: "macos",
-      hostHomeDir: "/Users/bob",
     });
 
     // Same object reference — refreshed in place
     expect(second).toBe(first);
     expect(second.lastActiveAt).toBeGreaterThanOrEqual(firstActive);
-    expect(second.hostHomeDir).toBe("/Users/bob");
     // connectedAt should NOT change on refresh
     expect(second.connectedAt).toBe(first.connectedAt);
   });
@@ -161,7 +155,7 @@ describe("ClientRegistry", () => {
   test("listByCapability filters to clients with matching capability", () => {
     const registry = new ClientRegistry();
     registry.register({ clientId: "mac-1", interfaceId: "macos" });
-    registry.register({ clientId: "web-1", interfaceId: "cli" });
+    registry.register({ clientId: "cli-1", interfaceId: "cli" });
     registry.register({ clientId: "ext-1", interfaceId: "chrome-extension" });
 
     const bashCapable = registry.listByCapability("host_bash");
@@ -177,7 +171,7 @@ describe("ClientRegistry", () => {
 
   test("listByCapability returns empty when no clients match", () => {
     const registry = new ClientRegistry();
-    registry.register({ clientId: "web-1", interfaceId: "cli" });
+    registry.register({ clientId: "cli-1", interfaceId: "cli" });
     expect(registry.listByCapability("host_bash")).toEqual([]);
   });
 
@@ -199,7 +193,7 @@ describe("ClientRegistry", () => {
 
   test("getMostRecentByCapability returns undefined when no clients match", () => {
     const registry = new ClientRegistry();
-    registry.register({ clientId: "web-1", interfaceId: "cli" });
+    registry.register({ clientId: "cli-1", interfaceId: "cli" });
     expect(registry.getMostRecentByCapability("host_bash")).toBeUndefined();
   });
 
@@ -210,8 +204,6 @@ describe("ClientRegistry", () => {
     const entry = registry.register({
       clientId: "mac-1",
       interfaceId: "macos",
-      hostHomeDir: "/Users/alice",
-      hostUsername: "alice",
     });
 
     const json = ClientRegistry.toJSON(entry);
@@ -220,20 +212,6 @@ describe("ClientRegistry", () => {
     expect(json.capabilities).toContain("host_bash");
     expect(json.connectedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(json.lastActiveAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(json.hostHomeDir).toBe("/Users/alice");
-    expect(json.hostUsername).toBe("alice");
-  });
-
-  test("toJSON omits host fields when not present", () => {
-    const registry = new ClientRegistry();
-    const entry = registry.register({
-      clientId: "web-1",
-      interfaceId: "cli",
-    });
-
-    const json = ClientRegistry.toJSON(entry);
-    expect(json.hostHomeDir).toBeUndefined();
-    expect(json.hostUsername).toBeUndefined();
   });
 
   // ── evictStale ─────────────────────────────────────────────────────────────
