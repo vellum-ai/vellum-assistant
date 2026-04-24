@@ -374,6 +374,3 @@ export function isAssistantFeatureFlagEnabled(
 export function getAssistantFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
   return loadDefaultsRegistry();
 }
-
-// ---------------------------------------------------------------------------
-// Named flag helpers
