@@ -35,18 +35,20 @@ export function generateDirectoryScopeOptions(
 ): DirectoryScopeOption[] {
   const { pathArgs, workingDir, workspaceRoot } = input;
 
-  // Resolve every path arg to an absolute path (expanding `~` and joining
-  // relative paths against workingDir). If none were provided, fall back to
-  // the working directory as the single target.
-  const resolvedTargets =
-    pathArgs.length === 0
-      ? [workingDir]
-      : pathArgs.map((p) => resolvePath(p, workingDir));
-
   // The "exact dir" ancestor is the most specific common ancestor of the
-  // target paths. For a single target we use its dirname; for multiple we
-  // walk down the shared path-segment prefix.
-  const ancestor = commonAncestor(resolvedTargets);
+  // target paths.
+  //   - Empty pathArgs: treat `workingDir` itself as the ancestor. Taking
+  //     `dirname(workingDir)` here would widen the scope to the parent of the
+  //     cwd, which is not what users expect from a bare command like `ls`.
+  //   - Single pathArg: resolve it and use its dirname (it's typically a file).
+  //   - Multiple pathArgs: resolve, dedupe, and walk the shared segment prefix.
+  let ancestor: string;
+  if (pathArgs.length === 0) {
+    ancestor = workingDir;
+  } else {
+    const resolvedTargets = pathArgs.map((p) => resolvePath(p, workingDir));
+    ancestor = commonAncestor(resolvedTargets);
+  }
 
   const options: DirectoryScopeOption[] = [];
   const seenScopes = new Set<string>();
@@ -57,11 +59,13 @@ export function generateDirectoryScopeOptions(
   };
 
   // Option 1 — exact dir. Skip when the ancestor collapsed to the fs root,
-  // the user's home directory, or a path shallower than the workspace root.
+  // the user's home directory or a strict ancestor of it (e.g. `/home`,
+  // `/Users`), or a path shallower than the workspace root.
   const home = homedir();
   const skipExact =
     ancestor === sep ||
     ancestor === home ||
+    isWithin(home, ancestor) ||
     (workspaceRoot !== undefined && !isWithin(ancestor, workspaceRoot));
   if (!skipExact) {
     push({
@@ -71,17 +75,21 @@ export function generateDirectoryScopeOptions(
   }
 
   // Option 2 — nearest project boundary above the ancestor. Only emit if the
-  // boundary differs from both the ancestor itself and the workspace root.
-  const boundary = findProjectBoundary(ancestor, workspaceRoot);
-  if (
-    boundary !== undefined &&
-    boundary !== ancestor &&
-    boundary !== workspaceRoot
-  ) {
-    push({
-      scope: `${boundary}${sep}*`,
-      label: `In ${basename(boundary)}/`,
-    });
+  // ancestor is itself inside the workspaceRoot (otherwise the boundary walk
+  // can escape the cap and return an unrelated project) and the boundary
+  // differs from both the ancestor itself and the workspace root.
+  if (workspaceRoot === undefined || isWithin(ancestor, workspaceRoot)) {
+    const boundary = findProjectBoundary(ancestor, workspaceRoot);
+    if (
+      boundary !== undefined &&
+      boundary !== ancestor &&
+      boundary !== workspaceRoot
+    ) {
+      push({
+        scope: `${boundary}${sep}*`,
+        label: `In ${basename(boundary)}/`,
+      });
+    }
   }
 
   // Option 3 — always-emit sentinel.
@@ -107,17 +115,22 @@ function resolvePath(path: string, workingDir: string): string {
  * Compute the most specific common ancestor directory of a non-empty list of
  * absolute paths. For a single path this is its `dirname`; for multiple it
  * is the deepest directory whose path is a prefix of every input.
+ *
+ * Duplicate paths are collapsed first so that `[p, p]` behaves identically
+ * to `[p]` — otherwise the multi-path branch's segment-prefix walk would
+ * return the full path (a file), not its dirname.
  */
 function commonAncestor(paths: string[]): string {
-  if (paths.length === 1) {
-    return dirname(paths[0]!);
+  const unique = [...new Set(paths)];
+  if (unique.length === 1) {
+    return dirname(unique[0]!);
   }
 
   // Split each path into its segments. An absolute POSIX path like
   // "/a/b/c" splits as ["", "a", "b", "c"]; the leading empty segment
   // represents the filesystem root and is preserved so we can rejoin it
   // correctly below.
-  const splits = paths.map((p) => p.split(sep));
+  const splits = unique.map((p) => p.split(sep));
   const minLen = Math.min(...splits.map((s) => s.length));
   const common: string[] = [];
   for (let i = 0; i < minLen; i++) {

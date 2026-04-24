@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 
 import { generateDirectoryScopeOptions } from "./directory-scope.js";
 
@@ -32,7 +32,7 @@ describe("generateDirectoryScopeOptions", () => {
     expect(result[2]).toEqual({ scope: "everywhere", label: "Everywhere" });
   });
 
-  test("no path args uses workingDir as the sole target", () => {
+  test("no path args uses workingDir itself as the exact-dir ancestor", () => {
     const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
     const projectRoot = join(root, "project");
     const subdir = join(projectRoot, "src");
@@ -45,16 +45,45 @@ describe("generateDirectoryScopeOptions", () => {
       workspaceRoot: root,
     });
 
-    // With no path args, workingDir becomes the single target. Its dirname
-    // is the project root, so the exact-dir option equals the project
-    // boundary — dedup should collapse them to a single non-everywhere
-    // option plus "everywhere".
-    expect(result).toHaveLength(2);
+    // With no path args, workingDir itself (not its dirname) is the exact-dir
+    // ancestor. A bare `ls` in /workspace/project/src should scope to
+    // /workspace/project/src/*, not /workspace/project/*. The project
+    // boundary above is still emitted as option 2.
+    expect(result).toHaveLength(3);
     expect(result[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+    expect(result[1]).toEqual({
       scope: `${projectRoot}${sep}*`,
       label: "In project/",
     });
-    expect(result[1]).toEqual({ scope: "everywhere", label: "Everywhere" });
+    expect(result[2]).toEqual({ scope: "everywhere", label: "Everywhere" });
+  });
+
+  test("bare command inside a project scopes to cwd, not its parent", () => {
+    // Regression for Codex P1 (Issue A): bare `ls` in /workspace/project/src
+    // previously offered /workspace/project/* as the narrowest scope.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const subdir = join(projectRoot, "src");
+    mkdirSync(subdir, { recursive: true });
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [],
+      workingDir: subdir,
+      workspaceRoot: root,
+    });
+
+    // Without any project marker, option 2 is absent. Option 1 must be
+    // subdir/*, not projectRoot/*.
+    expect(result[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+    for (const opt of result) {
+      expect(opt.scope).not.toBe(`${projectRoot}${sep}*`);
+    }
   });
 
   test("multiple paths sharing a common ancestor use that ancestor", () => {
@@ -112,11 +141,16 @@ describe("generateDirectoryScopeOptions", () => {
       workingDir: homedir(),
     });
 
-    // ~ resolves to homedir → ancestor is homedir → option 1 skipped.
-    // findProjectBoundary may or may not find something; the guarantee is
-    // that everywhere appears and option 1 isn't `${homedir}/*`.
+    // ~ resolves to homedir(); the single-path branch then applies dirname,
+    // yielding e.g. /home or /Users — a strict ancestor of homedir(). Option
+    // 1 is skipped because scoping to "all of /home/*" would include other
+    // users' homes. The only non-everywhere option that may appear is a
+    // project boundary above homedir (rare in sandboxes), so we can't
+    // assert exact length — but neither homedir/* nor its parent/* may
+    // appear as a scope.
     for (const opt of result) {
       expect(opt.scope).not.toBe(`${homedir()}${sep}*`);
+      expect(opt.scope).not.toBe(`${dirname(homedir())}${sep}*`);
     }
     expect(result[result.length - 1]).toEqual({
       scope: "everywhere",
@@ -211,6 +245,63 @@ describe("generateDirectoryScopeOptions", () => {
       label: "In nested/",
     });
     expect(result[1]).toEqual({ scope: "everywhere", label: "Everywhere" });
+  });
+
+  test("ancestor outside workspaceRoot suppresses project-boundary option", () => {
+    // Regression for Codex P1 (Issue B): findProjectBoundary used to run
+    // unconditionally, so when the ancestor was outside workspaceRoot the
+    // walk could escape the cap and surface an unrelated project as option 2.
+    const wsRoot = mkdtempSync(join(tmpdir(), "dir-scope-ws-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "dir-scope-other-"));
+    // Plant a project marker inside the unrelated directory — it must NOT
+    // be surfaced as option 2 for a target that lives under `otherRoot`.
+    mkdirSync(join(otherRoot, ".git"));
+    const otherFile = join(otherRoot, "file.ts");
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [otherFile],
+      workingDir: wsRoot,
+      workspaceRoot: wsRoot,
+    });
+
+    // Ancestor is otherRoot, which is outside wsRoot. Option 1 is skipped
+    // (isWithin check) and option 2 must also be skipped.
+    expect(result).toEqual([{ scope: "everywhere", label: "Everywhere" }]);
+    for (const opt of result) {
+      expect(opt.scope).not.toBe(`${otherRoot}${sep}*`);
+    }
+  });
+
+  test("duplicate identical path args behave like a single path", () => {
+    // Regression for Devin (Issue C): commonAncestor's multi-path branch used
+    // to return the full file path for duplicate inputs.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const subdir = join(projectRoot, "src");
+    mkdirSync(subdir, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+
+    const target = join(subdir, "file.ts");
+    const duplicated = generateDirectoryScopeOptions({
+      pathArgs: [target, target],
+      workingDir: subdir,
+      workspaceRoot: root,
+    });
+    const single = generateDirectoryScopeOptions({
+      pathArgs: [target],
+      workingDir: subdir,
+      workspaceRoot: root,
+    });
+
+    // The ancestor must be the file's dirname, not the file path itself.
+    expect(duplicated[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+    for (const opt of duplicated) {
+      expect(opt.scope).not.toBe(`${target}${sep}*`);
+    }
+    expect(duplicated).toEqual(single);
   });
 
   test("relative path args resolve against workingDir", () => {
