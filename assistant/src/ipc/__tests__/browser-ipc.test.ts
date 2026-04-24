@@ -68,7 +68,7 @@ mock.module("../routes/browser-context.js", () => ({
     return (
       mockResolvedContext ?? {
         conversationId: params.fallbackConversationId,
-        trustClass: "guardian",
+        trustClass: "unknown",
       }
     );
   },

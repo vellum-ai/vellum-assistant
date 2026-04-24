@@ -58,6 +58,6 @@ export function resolveBrowserIpcContext(params: {
 
   return {
     conversationId: fallbackConversationId,
-    trustClass: "guardian",
+    trustClass: "unknown",
   };
 }
