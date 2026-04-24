@@ -43,6 +43,7 @@ export type IpcResponse = {
 
 export type IpcMethodHandler = (
   params?: Record<string, unknown>,
+  connection?: unknown,
 ) => unknown | Promise<unknown>;
 
 /** A single IPC route definition — method name + handler function. */

@@ -22,7 +22,7 @@ import { z } from "zod";
 
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
-import { registerExternalTools } from "../../tools/registry.js";
+import { registerSkillTools } from "../../tools/registry.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -31,6 +31,7 @@ import type {
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { IpcRoute } from "../cli-server.js";
+import type { SkillIpcConnection } from "../skill-server.js";
 
 const log = getLogger("skill-routes-registries");
 
@@ -64,7 +65,11 @@ const RegisterToolsParams = z.object({
 
 const RegisterSkillRouteParams = z.object({
   patternSource: z.string().min(1),
+  // `new RegExp(patternSource)` alone silently drops i/m/g/s/u/y flags from
+  // the skill-side RegExp — keep them as a separate field to survive IPC.
+  patternFlags: z.string().default(""),
   methods: z.array(z.string().min(1)).min(1),
+  skillId: z.string().min(1).optional(),
 });
 
 const RegisterShutdownHookParams = z.object({
@@ -157,34 +162,49 @@ function buildProxyTool(manifest: ToolManifest): Tool {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleRegisterTools(
-  params?: Record<string, unknown>,
+  params: Record<string, unknown> | undefined,
+  connection?: unknown,
 ): Promise<{ registered: string[] }> {
   const { tools } = RegisterToolsParams.parse(params);
   const proxies = tools.map(buildProxyTool);
-  // `registerExternalTools` takes a provider closure so the tool list is
-  // resolved lazily inside `initializeTools()`; wrap the already-built
-  // proxies in an arrow so registration is observable immediately.
-  registerExternalTools(() => proxies);
+  // `registerExternalTools` is only consumed inside `initializeTools()` at
+  // daemon boot; IPC children connect after boot, so route through
+  // `registerSkillTools` into the live registry the agent-loop reads from.
+  const accepted = registerSkillTools(proxies);
+
+  const conn = connection as SkillIpcConnection | undefined;
+  if (conn) {
+    const ownerIds = new Set<string>();
+    for (const tool of accepted) {
+      if (tool.ownerSkillId) ownerIds.add(tool.ownerSkillId);
+    }
+    for (const skillId of ownerIds) {
+      conn.addSkillToolsOwner(skillId);
+    }
+  }
+
   log.info(
-    { count: proxies.length, names: proxies.map((t) => t.name) },
+    { count: accepted.length, names: accepted.map((t) => t.name) },
     "Registered skill proxy tools via IPC",
   );
-  return { registered: proxies.map((t) => t.name) };
+  return { registered: accepted.map((t) => t.name) };
 }
 
 async function handleRegisterSkillRoute(
-  params?: Record<string, unknown>,
+  params: Record<string, unknown> | undefined,
+  connection?: unknown,
 ): Promise<{ patternSource: string; methods: string[] }> {
-  const { patternSource, methods } = RegisterSkillRouteParams.parse(params);
+  const { patternSource, patternFlags, methods, skillId } =
+    RegisterSkillRouteParams.parse(params);
   let pattern: RegExp;
   try {
-    pattern = new RegExp(patternSource);
+    pattern = new RegExp(patternSource, patternFlags);
   } catch (err) {
     throw new Error(
-      `Invalid skill-route pattern "${patternSource}": ${String(err)}`,
+      `Invalid skill-route pattern "${patternSource}" (flags "${patternFlags}"): ${String(err)}`,
     );
   }
-  registerSkillRoute({
+  const handle = registerSkillRoute({
     pattern,
     methods,
     handler: async () => {
@@ -197,8 +217,13 @@ async function handleRegisterSkillRoute(
       );
     },
   });
+  // Retain the handle on the connection so disconnect revokes this route;
+  // without it, reconnects accumulate routes with no owner to unregister them.
+  const conn = connection as SkillIpcConnection | undefined;
+  conn?.addRouteHandle(skillId ?? conn.connectionId, handle);
+
   log.info(
-    { patternSource, methods },
+    { patternSource, patternFlags, methods, skillId },
     "Registered skill proxy HTTP route via IPC",
   );
   return { patternSource, methods };
