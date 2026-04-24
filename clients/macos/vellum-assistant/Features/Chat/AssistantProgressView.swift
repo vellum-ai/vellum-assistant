@@ -844,6 +844,7 @@ private struct ToolCallStepDetailRow: View {
                     commandDescription: tc.reasonDescription ?? "",
                     riskLevel: tc.riskLevel ?? "medium",
                     scopeOptions: Self.v3ScopeOptions(from: tc),
+                    directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                     onSave: { rule in
                         Task {
                             try? await Self.trustRuleV3Client.createRule(
@@ -853,7 +854,8 @@ private struct ToolCallStepDetailRow: View {
                                 description: {
                                     let desc = tc.reasonDescription ?? ""
                                     return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                                }()
+                                }(),
+                                scope: rule.scope
                             )
                         }
                     },

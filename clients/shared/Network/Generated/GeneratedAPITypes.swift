@@ -777,6 +777,7 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let executionTarget: String?
     public let allowlistOptions: [ConfirmationRequestAllowlistOption]
     public let scopeOptions: [ConfirmationRequestScopeOption]
+    public let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
     public let diff: ConfirmationRequestDiff?
     public let sandboxed: Bool?
     public let conversationId: String?
@@ -787,7 +788,7 @@ public struct ConfirmationRequest: Codable, Sendable {
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, riskReason: String? = nil, isContainerized: Bool? = nil, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, riskReason: String? = nil, isContainerized: Bool? = nil, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil, diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -798,6 +799,7 @@ public struct ConfirmationRequest: Codable, Sendable {
         self.executionTarget = executionTarget
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
+        self.directoryScopeOptions = directoryScopeOptions
         self.diff = diff
         self.sandboxed = sandboxed
         self.conversationId = conversationId
@@ -840,6 +842,15 @@ public struct ConfirmationRequestScopeOption: Codable, Sendable {
     public init(label: String, scope: String) {
         self.label = label
         self.scope = scope
+    }
+}
+
+public struct ConfirmationRequestDirectoryScopeOption: Codable, Sendable, Equatable {
+    public let scope: String
+    public let label: String
+    public init(scope: String, label: String) {
+        self.scope = scope
+        self.label = label
     }
 }
 
@@ -4839,8 +4850,9 @@ public struct ToolResult: Codable, Sendable {
     public let isContainerized: Bool?
     /// Scope options ladder for the rule editor modal (narrowest to broadest).
     public let riskScopeOptions: [ToolResultRiskScopeOption]?
+    public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4854,6 +4866,7 @@ public struct ToolResult: Codable, Sendable {
         self.riskReason = riskReason
         self.isContainerized = isContainerized
         self.riskScopeOptions = riskScopeOptions
+        self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
     }
 }
 
