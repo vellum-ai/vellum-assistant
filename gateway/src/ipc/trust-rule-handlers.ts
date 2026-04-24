@@ -57,6 +57,9 @@ const MatchRuleSchema = z.object({
   pattern: z.string().optional(),
   // Multi-command highest priority match
   commands: z.array(z.string()).optional(),
+  // Optional resolved path args to check against rule scope. When present,
+  // the rule's scope must cover ALL resolved paths (AND semantics).
+  resolvedPaths: z.array(z.string()).optional(),
 });
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -133,7 +136,12 @@ export const trustRuleRoutes: IpcRoute[] = [
       const p = params as z.infer<typeof MatchRuleSchema>;
 
       if (p.commands && p.commands.length > 0) {
-        const rule = findHighestPriorityRule(p.tool, p.commands, p.scope);
+        const rule = findHighestPriorityRule(
+          p.tool,
+          p.commands,
+          p.scope,
+          p.resolvedPaths,
+        );
         return { rule: rule ?? null };
       }
 
@@ -141,7 +149,12 @@ export const trustRuleRoutes: IpcRoute[] = [
         throw new Error('"pattern" or "commands" is required');
       }
 
-      const rule = findMatchingRule(p.tool, p.pattern, p.scope);
+      const rule = findMatchingRule(
+        p.tool,
+        p.pattern,
+        p.scope,
+        p.resolvedPaths,
+      );
       return { rule: rule ?? null };
     },
   },
