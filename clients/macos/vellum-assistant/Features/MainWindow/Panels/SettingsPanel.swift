@@ -299,7 +299,11 @@ struct SettingsPanel: View {
             bootstrapGeneration += 1
         }
         .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
-            TrustRulesView(trustRuleClient: TrustRuleClient())
+            if assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
+                V3TrustRulesView(trustRuleV3Client: TrustRuleV3Client())
+            } else {
+                TrustRulesView(trustRuleClient: TrustRuleClient())
+            }
         }
         .onAppear {
             devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
