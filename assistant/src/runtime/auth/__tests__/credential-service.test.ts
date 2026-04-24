@@ -1,6 +1,8 @@
 /**
- * Tests for the JWT credential service — mint round-trip, rotation,
- * replay detection, and device binding enforcement.
+ * Tests for the JWT credential service — mint round-trip and device
+ * binding enforcement.
+ *
+ * Rotation/replay tests live in gateway (guardian-refresh.ts owns rotation).
  */
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -13,11 +15,7 @@ mock.module("../../../util/logger.js", () => ({
 }));
 
 import { getSqlite, initializeDb, resetDb } from "../../../memory/db.js";
-import { findActiveByTokenHash } from "../../actor-token-store.js";
-import {
-  mintCredentialPair,
-  rotateCredentials,
-} from "../credential-service.js";
+import { mintCredentialPair } from "../credential-service.js";
 import { resetExternalAssistantIdCache } from "../external-assistant-id.js";
 import {
   hashToken,
@@ -102,10 +100,15 @@ describe("mintCredentialPair", () => {
     });
 
     const tokenHash = hashToken(result.accessToken);
-    const record = findActiveByTokenHash(tokenHash);
+    const db = getSqlite();
+    const record = db
+      .query(
+        "SELECT * FROM actor_token_records WHERE token_hash = ? AND status = 'active'",
+      )
+      .get(tokenHash) as { platform: string; guardian_principal_id: string } | null;
     expect(record).not.toBeNull();
     expect(record!.platform).toBe("macos");
-    expect(record!.guardianPrincipalId).toBe("principal-store");
+    expect(record!.guardian_principal_id).toBe("principal-store");
   });
 
   test("minting twice for same device revokes previous tokens", () => {
@@ -125,140 +128,20 @@ describe("mintCredentialPair", () => {
     expect(first.accessToken).not.toBe(second.accessToken);
     expect(first.refreshToken).not.toBe(second.refreshToken);
 
+    const db = getSqlite();
+    const findActive = (token: string) =>
+      db
+        .query(
+          "SELECT * FROM actor_token_records WHERE token_hash = ? AND status = 'active'",
+        )
+        .get(hashToken(token));
+
     // First token should be revoked
-    const firstTokenHash = hashToken(first.accessToken);
-    const firstRecord = findActiveByTokenHash(firstTokenHash);
-    expect(firstRecord).toBeNull();
+    expect(findActive(first.accessToken)).toBeNull();
 
     // Second should be active
-    const secondTokenHash = hashToken(second.accessToken);
-    const secondRecord = findActiveByTokenHash(secondTokenHash);
-    expect(secondRecord).not.toBeNull();
+    expect(findActive(second.accessToken)).not.toBeNull();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Rotate credentials
-// ---------------------------------------------------------------------------
 
-describe("rotateCredentials", () => {
-  test("successful rotation returns new JWT access token", () => {
-    const hashedDeviceId = createHash("sha256")
-      .update("device-rot")
-      .digest("hex");
-    const initial = mintCredentialPair({
-      platform: "ios",
-      deviceId: "device-rot",
-      guardianPrincipalId: "principal-rot",
-      hashedDeviceId,
-    });
-
-    const result = rotateCredentials({
-      refreshToken: initial.refreshToken,
-      platform: "ios",
-      deviceId: "device-rot",
-    });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.result.accessToken).toBeTruthy();
-      expect(result.result.accessToken).not.toBe(initial.accessToken);
-      expect(result.result.refreshToken).not.toBe(initial.refreshToken);
-
-      // New access token is a valid JWT
-      const verify = verifyToken(result.result.accessToken, "vellum-gateway");
-      expect(verify.ok).toBe(true);
-    }
-  });
-
-  test("replay detection: reusing rotated refresh token revokes family", () => {
-    const hashedDeviceId = createHash("sha256")
-      .update("device-replay")
-      .digest("hex");
-    const initial = mintCredentialPair({
-      platform: "ios",
-      deviceId: "device-replay",
-      guardianPrincipalId: "principal-replay",
-      hashedDeviceId,
-    });
-
-    // First rotation succeeds
-    const first = rotateCredentials({
-      refreshToken: initial.refreshToken,
-      platform: "ios",
-      deviceId: "device-replay",
-    });
-    expect(first.ok).toBe(true);
-
-    // Reusing the initial (now rotated) refresh token triggers replay detection
-    const replay = rotateCredentials({
-      refreshToken: initial.refreshToken,
-      platform: "ios",
-      deviceId: "device-replay",
-    });
-    expect(replay.ok).toBe(false);
-    if (!replay.ok) {
-      expect(replay.error).toBe("refresh_reuse_detected");
-    }
-  });
-
-  test("invalid refresh token returns refresh_invalid", () => {
-    const result = rotateCredentials({
-      refreshToken: "not-a-real-token",
-      platform: "ios",
-      deviceId: "device-bad",
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("refresh_invalid");
-    }
-  });
-
-  test("device binding mismatch returns device_binding_mismatch", () => {
-    const hashedDeviceId = createHash("sha256")
-      .update("device-bind")
-      .digest("hex");
-    const initial = mintCredentialPair({
-      platform: "ios",
-      deviceId: "device-bind",
-      guardianPrincipalId: "principal-bind",
-      hashedDeviceId,
-    });
-
-    // Try to rotate with a different device ID
-    const result = rotateCredentials({
-      refreshToken: initial.refreshToken,
-      platform: "ios",
-      deviceId: "different-device",
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("device_binding_mismatch");
-    }
-  });
-
-  test("platform mismatch returns device_binding_mismatch", () => {
-    const hashedDeviceId = createHash("sha256")
-      .update("device-plat")
-      .digest("hex");
-    const initial = mintCredentialPair({
-      platform: "ios",
-      deviceId: "device-plat",
-      guardianPrincipalId: "principal-plat",
-      hashedDeviceId,
-    });
-
-    const result = rotateCredentials({
-      refreshToken: initial.refreshToken,
-      platform: "macos",
-      deviceId: "device-plat",
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe("device_binding_mismatch");
-    }
-  });
-});

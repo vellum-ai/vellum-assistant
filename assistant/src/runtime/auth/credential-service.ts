@@ -16,16 +16,11 @@
  * actor-refresh-token-store infrastructure.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
-import { getDb } from "../../memory/db.js";
-import { getLogger } from "../../util/logger.js";
 import {
   createRefreshTokenRecord,
-  findByTokenHash as findRefreshByHash,
-  markRotated,
   revokeByDeviceBinding as revokeRefreshTokensByDevice,
-  revokeFamily,
 } from "../actor-refresh-token-store.js";
 import {
   createActorTokenRecord,
@@ -35,8 +30,6 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getExternalAssistantId } from "./external-assistant-id.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { hashToken, mintToken } from "./token-service.js";
-
-const log = getLogger("credential-service");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,13 +54,6 @@ const REFRESH_AFTER_FRACTION = 0.8;
 // Types
 // ---------------------------------------------------------------------------
 
-export type RefreshErrorCode =
-  | "refresh_invalid"
-  | "refresh_expired"
-  | "refresh_reuse_detected"
-  | "device_binding_mismatch"
-  | "revoked";
-
 export interface CredentialPairResult {
   accessToken: string;
   accessTokenExpiresAt: number;
@@ -75,15 +61,6 @@ export interface CredentialPairResult {
   refreshTokenExpiresAt: number;
   refreshAfter: number;
   guardianPrincipalId: string;
-}
-
-export interface RotateResult {
-  guardianPrincipalId: string;
-  accessToken: string;
-  accessTokenExpiresAt: number;
-  refreshToken: string;
-  refreshTokenExpiresAt: number;
-  refreshAfter: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -223,130 +200,4 @@ export function mintCredentialPair(params: {
     refreshAfter: refresh.refreshAfter,
     guardianPrincipalId: params.guardianPrincipalId,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Public: rotate credentials
-// ---------------------------------------------------------------------------
-
-/**
- * Rotate credentials: validate refresh token, revoke old, mint new pair.
- *
- * Returns either a successful result or an error code. The rotation is
- * wrapped in a SQLite transaction for atomicity.
- */
-export function rotateCredentials(params: {
-  refreshToken: string;
-  platform: string;
-  deviceId: string;
-}):
-  | { ok: true; result: RotateResult }
-  | { ok: false; error: RefreshErrorCode } {
-  const refreshTokenHash = hashRefreshToken(params.refreshToken);
-  const hashedDeviceId = createHash("sha256")
-    .update(params.deviceId)
-    .digest("hex");
-
-  // Look up the refresh token by hash (any status)
-  const record = findRefreshByHash(refreshTokenHash);
-
-  if (!record) {
-    return { ok: false, error: "refresh_invalid" };
-  }
-
-  // Check if this is a reuse of an already-rotated token (replay detection)
-  if (record.status === "rotated") {
-    log.warn(
-      { familyId: record.familyId, hashedDeviceId: record.hashedDeviceId },
-      "Refresh token reuse detected — revoking entire family",
-    );
-    revokeFamily(record.familyId);
-    revokeActorTokensByDevice(
-      record.guardianPrincipalId,
-      record.hashedDeviceId,
-    );
-    return { ok: false, error: "refresh_reuse_detected" };
-  }
-
-  if (record.status === "revoked") {
-    return { ok: false, error: "revoked" };
-  }
-
-  // At this point status === 'active'
-  const now = Date.now();
-
-  // Check absolute expiry
-  if (now > record.absoluteExpiresAt) {
-    return { ok: false, error: "refresh_expired" };
-  }
-
-  // Check inactivity expiry
-  if (now > record.inactivityExpiresAt) {
-    return { ok: false, error: "refresh_expired" };
-  }
-
-  // Verify device binding
-  if (record.hashedDeviceId !== hashedDeviceId) {
-    return { ok: false, error: "device_binding_mismatch" };
-  }
-
-  if (record.platform !== params.platform) {
-    return { ok: false, error: "device_binding_mismatch" };
-  }
-
-  // Wrap the entire rotate-revoke-remint sequence in a transaction
-  const db = getDb();
-  return db.transaction(() => {
-    // Mark old refresh token as rotated (atomic CAS)
-    const didRotate = markRotated(refreshTokenHash);
-    if (!didRotate) {
-      return { ok: false as const, error: "refresh_reuse_detected" as const };
-    }
-
-    // Revoke old access tokens for this device
-    revokeActorTokensByDevice(
-      record.guardianPrincipalId,
-      record.hashedDeviceId,
-    );
-
-    // Mint new JWT access token
-    const access = mintAccessToken(record.guardianPrincipalId);
-
-    createActorTokenRecord({
-      tokenHash: access.tokenHash,
-      guardianPrincipalId: record.guardianPrincipalId,
-      hashedDeviceId: record.hashedDeviceId,
-      platform: params.platform,
-      issuedAt: access.issuedAt,
-      expiresAt: access.expiresAt,
-    });
-
-    // Mint new refresh token in the same family, inheriting the parent's
-    // absolute expiry so rotation resets inactivity but never extends
-    // the session lifetime.
-    const refresh = mintRefreshTokenInternal({
-      guardianPrincipalId: record.guardianPrincipalId,
-      hashedDeviceId: record.hashedDeviceId,
-      platform: params.platform,
-      familyId: record.familyId,
-      absoluteExpiresAt: record.absoluteExpiresAt,
-    });
-
-    log.info(
-      { familyId: record.familyId, platform: params.platform },
-      "Credential rotation completed",
-    );
-
-    return {
-      ok: true as const,
-      result: {
-        guardianPrincipalId: record.guardianPrincipalId,
-        accessToken: access.token,
-        accessTokenExpiresAt: access.expiresAt,
-        refreshToken: refresh.refreshToken,
-        refreshTokenExpiresAt: refresh.refreshTokenExpiresAt,
-        refreshAfter: refresh.refreshAfter,
-      },
-    };
-  });
 }

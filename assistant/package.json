@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
+    "lint:unused:production": "knip --production --include exports",
     "typecheck": "bunx tsc --noEmit",
     "test": "bash scripts/test.sh",
     "test:coverage": "COVERAGE=true bash scripts/test.sh",
