@@ -57,6 +57,8 @@ const FORBIDDEN_IMPORT_PATTERNS = [
   // Gateway runtime internals (not the gateway-client package itself)
   /from\s+["'](?:\.\.\/)+gateway\/src/,
   /require\s*\(\s*["'](?:\.\.\/)+gateway\/src/,
+  /from\s+["']@vellumai\/(?:vellum-)?gateway(?:\/|["'])/,
+  /require\s*\(\s*["']@vellumai\/(?:vellum-)?gateway(?:\/|["'])/,
 
   // Credential executor runtime internals
   /from\s+["'](?:\.\.\/)+credential-executor\/src/,
@@ -127,6 +129,7 @@ describe("package boundary", () => {
     const forbidden = Object.keys(allDeps).filter((dep) =>
       [
         "@vellumai/assistant",
+        "@vellumai/vellum-gateway",
         "@vellumai/credential-storage",
         "@vellumai/egress-proxy",
       ].includes(dep),
