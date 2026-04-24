@@ -197,6 +197,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "headless-claude-code",
+      "name": "headless-claude-code",
+      "description": "Reference guide for running Claude Code in headless, container, and CI environments. Covers auth strategies, interactive mode pitfalls, tmux orchestration, root user workarounds, and git auth without SSH agents or keychains.",
+      "metadata": {
+        "emoji": "🖥️",
+        "vellum": {
+          "display-name": "Headless Claude Code"
+        }
+      },
+      "compatibility": "Any environment running Claude Code headlessly"
+    },
+    {
       "id": "inbox-cleanup",
       "name": "inbox-cleanup",
       "description": "Run a high-recall, multi-pass email inbox cleanup. Pattern-based subject queries catch 25x more archivable email than sender scans alone. Includes urgency triage, classification signals, and post-cleanup filter setup.",
