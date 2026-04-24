@@ -577,6 +577,7 @@ export function handleToolResult(
     riskReason: event.riskReason,
     isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
+    riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
   });
 }
 

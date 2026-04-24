@@ -94,6 +94,7 @@ export type AgentEvent =
       riskReason?: string;
       isContainerized?: boolean;
       riskScopeOptions?: Array<{ pattern: string; label: string }>;
+      riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -275,6 +276,7 @@ export type LoopToolExecutor = (
   riskReason?: string;
   isContainerized?: boolean;
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
+  riskDirectoryScopeOptions?: Array<{ scope: string; label: string }>;
 }>;
 
 export class AgentLoop {
@@ -965,6 +967,7 @@ export class AgentLoop {
             riskReason: result.riskReason,
             isContainerized: result.isContainerized,
             riskScopeOptions: result.riskScopeOptions,
+            riskDirectoryScopeOptions: result.riskDirectoryScopeOptions,
           });
         }
 

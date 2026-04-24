@@ -68,6 +68,7 @@ export class PermissionPrompter {
     hostAccessEnablePrompt?: boolean,
     riskReason?: string,
     isContainerized?: boolean,
+    directoryScopeOptions?: readonly { scope: string; label: string }[],
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
@@ -129,6 +130,9 @@ export class PermissionPrompter {
           label: o.label,
           scope: o.scope,
         })),
+        directoryScopeOptions: directoryScopeOptions
+          ? directoryScopeOptions.map((o) => ({ scope: o.scope, label: o.label }))
+          : undefined,
         diff,
         conversationId,
         executionTarget,
