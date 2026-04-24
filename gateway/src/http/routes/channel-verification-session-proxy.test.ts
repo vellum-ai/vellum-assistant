@@ -22,6 +22,19 @@ mock.module("../../fetch.js", () => ({
 
 mock.module("../../paths.js", () => ({
   getGatewaySecurityDir: () => "/tmp/test-gateway-sec",
+  getWorkspaceDir: () => "/tmp/test-workspace",
+}));
+
+mock.module("../../auth/guardian-bootstrap.js", () => ({
+  bootstrapGuardian: () => ({
+    guardianPrincipalId: "vellum-principal-test",
+    accessToken: "test-jwt",
+    accessTokenExpiresAt: Date.now() + 86400_000,
+    refreshToken: "test-rt",
+    refreshTokenExpiresAt: Date.now() + 86400_000 * 30,
+    refreshAfter: Date.now() + 86400_000 * 15,
+    isNew: true,
+  }),
 }));
 
 // Import after mocks are registered

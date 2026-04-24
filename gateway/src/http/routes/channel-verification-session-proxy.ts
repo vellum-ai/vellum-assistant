@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
+import { bootstrapGuardian } from "../../auth/guardian-bootstrap.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getGatewaySecurityDir } from "../../paths.js";
@@ -156,6 +157,23 @@ export function createChannelVerificationSessionProxyHandler(
 
       const expectedSecrets = parseBootstrapSecrets();
       const provided = req.headers.get("x-bootstrap-secret");
+
+      // Bare-metal mode: restrict to loopback callers only. Without a
+      // bootstrap secret the lockfile is the sole guard, so a remote
+      // client that can reach the gateway (e.g. via ngrok) must not be
+      // able to race the legitimate local user.
+      if (expectedSecrets.length === 0) {
+        if (clientIp && !isLoopbackAddress(clientIp)) {
+          log.warn(
+            { clientIp },
+            "Guardian init rejected — non-loopback client in bare-metal mode",
+          );
+          return Response.json(
+            { error: "Bootstrap endpoint is local-only" },
+            { status: 403 },
+          );
+        }
+      }
       // Resolve the index of the provided secret within the ordered list.
       // We use indices (not raw secrets) in the consumed file and in-flight
       // set so that plain-text secrets are never persisted to disk.
@@ -230,60 +248,66 @@ export function createChannelVerificationSessionProxyHandler(
         secretsInFlight.add(providedIndex);
       }
       try {
-        // Strip x-forwarded-for by omitting clientIp when a bootstrap secret
-        // was provided. In Docker / shared-network topologies the gateway and
-        // runtime share localhost, so the runtime's peer-IP check passes.
-        // Forwarding the external client IP would cause the runtime's secondary
-        // "reject if x-forwarded-for present" check to 403 even though the
-        // request is already authenticated by the bootstrap secret above.
-        // In bare-metal mode (no secret), preserve the header so the runtime
-        // can reject non-loopback origins as defense-in-depth.
-        const forwardClientIp =
-          expectedSecrets.length > 0 ? undefined : clientIp;
-        const response = await proxyToRuntime(
-          req,
-          "/v1/guardian/init",
-          "",
-          forwardClientIp,
-        );
-
-        if (response.status >= 200 && response.status < 300) {
-          if (expectedSecrets.length > 0 && providedIndex >= 0) {
-            // Record this secret's index as consumed (never the secret itself).
-            let consumed: number[] = [];
-            try {
-              if (existsSync(consumedPath)) {
-                consumed = JSON.parse(
-                  readFileSync(consumedPath, "utf-8"),
-                ) as number[];
-              }
-            } catch {
-              // Treat corrupt file as empty.
-            }
-            consumed.push(providedIndex);
-            try {
-              writeFileSync(consumedPath, JSON.stringify(consumed) + "\n", {
-                mode: 0o600,
-              });
-            } catch (err) {
-              log.error({ err }, "Failed to write consumed secrets file");
-            }
-
-            // Write the lock file once every expected secret has been used.
-            const allConsumed = expectedSecrets.every((_s, i) =>
-              consumed.includes(i),
+        // Parse the request body for platform + deviceId.
+        let platform: string;
+        let deviceId: string;
+        try {
+          const body = (await req.json()) as Record<string, unknown>;
+          platform =
+            typeof body.platform === "string" ? body.platform.trim() : "";
+          deviceId =
+            typeof body.deviceId === "string" ? body.deviceId.trim() : "";
+          if (!platform || !deviceId) {
+            guardianInitInFlight = false;
+            return Response.json(
+              { error: "Missing required fields: platform, deviceId" },
+              { status: 400 },
             );
-            if (allConsumed) {
-              try {
-                writeFileSync(lockPath, new Date().toISOString(), {
-                  mode: 0o600,
-                });
-              } catch (err) {
-                log.error({ err }, "Failed to write guardian-init lock file");
-              }
+          }
+        } catch {
+          guardianInitInFlight = false;
+          return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+        }
+
+        if (platform !== "macos" && platform !== "cli" && platform !== "web") {
+          guardianInitInFlight = false;
+          return Response.json(
+            {
+              error:
+                "Invalid platform. Bootstrap is macOS/CLI/web-only; iOS uses QR pairing.",
+            },
+            { status: 400 },
+          );
+        }
+
+        // Execute the bootstrap directly — no round-trip to the runtime.
+        const result = bootstrapGuardian({ platform, deviceId });
+
+        // Bootstrap succeeded — record consumption and write lock files.
+        if (expectedSecrets.length > 0 && providedIndex >= 0) {
+          let consumed: number[] = [];
+          try {
+            if (existsSync(consumedPath)) {
+              consumed = JSON.parse(
+                readFileSync(consumedPath, "utf-8"),
+              ) as number[];
             }
-          } else {
-            // Bare-metal mode: lock immediately after first success.
+          } catch {
+            // Treat corrupt file as empty.
+          }
+          consumed.push(providedIndex);
+          try {
+            writeFileSync(consumedPath, JSON.stringify(consumed) + "\n", {
+              mode: 0o600,
+            });
+          } catch (err) {
+            log.error({ err }, "Failed to write consumed secrets file");
+          }
+
+          const allConsumed = expectedSecrets.every((_s, i) =>
+            consumed.includes(i),
+          );
+          if (allConsumed) {
             try {
               writeFileSync(lockPath, new Date().toISOString(), {
                 mode: 0o600,
@@ -293,13 +317,24 @@ export function createChannelVerificationSessionProxyHandler(
             }
           }
         } else {
-          guardianInitInFlight = false;
+          // Bare-metal mode: lock immediately after first success.
+          try {
+            writeFileSync(lockPath, new Date().toISOString(), {
+              mode: 0o600,
+            });
+          } catch (err) {
+            log.error({ err }, "Failed to write guardian-init lock file");
+          }
         }
 
-        return response;
+        return Response.json(result);
       } catch (err) {
         guardianInitInFlight = false;
-        throw err;
+        log.error({ err }, "Guardian bootstrap failed");
+        return Response.json(
+          { error: "Internal server error" },
+          { status: 500 },
+        );
       } finally {
         guardianInitPending = false;
         if (providedIndex >= 0) {
