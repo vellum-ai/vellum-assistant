@@ -1,9 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { Glob } from "bun";
+
 /**
- * Guard tests for the skill-isolation boundary. See CLAUDE.md "Skill
+ * Guard tests for the skill-isolation boundary. See AGENTS.md "Skill
  * Isolation". The end state is zero relative imports across `assistant/` ↔
  * `skills/` in both directions.
  *
@@ -12,7 +14,7 @@ import { describe, expect, test } from "bun:test";
  * static import (required so `bun --compile` traces the first-party
  * meet-join skill into the binary). It converts to an active `test(...)`
  * once the bootstrap is deleted. Keeping it as `test.todo` rather than an
- * active assertion is required by CLAUDE.md's "Never commit
+ * active assertion is required by AGENTS.md's "Never commit
  * normally-failing `test(...)` cases" rule.
  */
 
@@ -22,47 +24,41 @@ function getRepoRoot(): string {
 }
 
 /**
- * Run `git grep -lE <pattern> -- <globs>` from the repo root and return the
- * list of matching file paths. Treats exit code 1 ("no matches") as the
- * happy path and returns an empty array.
+ * Scan files matching `glob` (relative to repo root) for relative imports
+ * reaching into `<targetDir>/`. Uses a multiline-capable regex over the
+ * full file content so that imports split across lines (common for
+ * `await import("../../../path")` wrapped by a formatter) are caught.
  */
-function gitGrepFiles(pattern: string, globs: string[]): string[] {
-  try {
-    const output = execFileSync(
-      "git",
-      ["grep", "-lE", pattern, "--", ...globs],
-      { encoding: "utf-8", cwd: getRepoRoot() },
-    ).trim();
-    return output.length > 0 ? output.split("\n") : [];
-  } catch (err) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
+function findRelativeImportViolations(
+  glob: string,
+  targetDir: string,
+): string[] {
+  const pattern = new RegExp(
+    String.raw`\b(?:from|import)\s*\(?\s*["'](?:\.\./)+` +
+      targetDir +
+      String.raw`/`,
+    "s",
+  );
+  const repoRoot = getRepoRoot();
+  const violations: string[] = [];
+  for (const relPath of new Glob(glob).scanSync({ cwd: repoRoot })) {
+    const content = readFileSync(join(repoRoot, relPath), "utf-8");
+    if (pattern.test(content)) violations.push(relPath);
   }
-}
-
-/**
- * Matches TypeScript imports (including side-effect `import "..."` and
- * dynamic `import("...")`) whose module specifier starts with one or more
- * `../` segments and then a `<dir>/` segment. We anchor on the quote so
- * line-comments that merely mention the pattern in prose do not match.
- *
- * The `<dir>` placeholder is interpolated per-test (either `assistant` or
- * `skills`).
- */
-function relativeImportPattern(dir: string): string {
-  return `(from|import)[[:space:]]*\\(?["'](\\.\\./)+${dir}/`;
+  return violations.sort();
 }
 
 describe("skill-isolation boundary", () => {
   test("no skills/** TypeScript file imports from assistant/** via relative path", () => {
-    const violations = gitGrepFiles(relativeImportPattern("assistant"), [
+    const violations = findRelativeImportViolations(
       "skills/**/*.ts",
-    ]);
+      "assistant",
+    );
 
     if (violations.length > 0) {
       const message = [
         "Found skills/ files that import assistant/ via relative path.",
-        'Skills must wire into the daemon through a SkillHost — see CLAUDE.md "Skill Isolation".',
+        'Skills must wire into the daemon through a SkillHost — see AGENTS.md "Skill Isolation".',
         "",
         "Violations:",
         ...violations.map((f) => `  - ${f}`),
@@ -82,14 +78,15 @@ describe("skill-isolation boundary", () => {
   test.todo(
     "no assistant/src/** TypeScript file imports from skills/** via relative path",
     () => {
-      const violations = gitGrepFiles(relativeImportPattern("skills"), [
+      const violations = findRelativeImportViolations(
         "assistant/src/**/*.ts",
-      ]);
+        "skills",
+      );
 
       if (violations.length > 0) {
         const message = [
           "Found assistant/src/ files that import skills/ via relative path.",
-          'Assistants must not reach into skills/ — see CLAUDE.md "Skill Isolation".',
+          'Assistants must not reach into skills/ — see AGENTS.md "Skill Isolation".',
           "",
           "Violations:",
           ...violations.map((f) => `  - ${f}`),
