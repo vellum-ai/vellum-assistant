@@ -441,7 +441,7 @@ export function createChannelVerificationSessionProxyHandler(
       }
 
       // Refuse while an init request is awaiting an upstream response —
-      // mintCredentialPair revokes existing device-bound tokens before
+      // bootstrapGuardian revokes existing device-bound tokens before
       // minting, so allowing a concurrent init would invalidate whatever
       // the in-flight one returns.
       if (guardianInitPending) {

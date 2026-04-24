@@ -289,10 +289,9 @@ async function buildPassthroughBatch(
     head,
     conversation.getTurnInterfaceContext(),
   );
-  // Pure classifier — no side effects. `resolveSlash` runs /pair's side
-  // effects (pairing registration, QR PNG write); if we called it here the
-  // real drain would invoke those again and the second call would fail with
-  // "active pairing already in progress".
+  // Pure classifier — no side effects. `resolveSlash` may run side effects
+  // (e.g. /compact); if we called it here the real drain would invoke those
+  // again.
   if (classifySlash(head.content) !== "passthrough") return [];
   if (resolveVerificationSessionIntent(head.content).kind === "direct_setup") {
     // Verification intents stay on the single-message path so their per-turn

@@ -2,7 +2,8 @@
  * Gateway-native guardian token refresh — rotates credentials by operating
  * directly on the assistant's SQLite database (shared workspace volume).
  *
- * Mirrors the rotation logic from assistant/src/runtime/auth/credential-service.ts
+ * Gateway-native credential rotation — operates directly on the assistant's
+ * SQLite database (shared workspace volume).
  * but uses raw SQL against the shared assistant DB (same pattern as guardian-bootstrap.ts).
  */
 

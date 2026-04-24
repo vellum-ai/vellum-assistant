@@ -459,10 +459,10 @@ export function mintUiPageToken(): string {
 /**
  * Mint a JWT bearer token for the iOS pairing flow.
  *
- * Minted once at daemon startup and reused for all pairing approvals
- * during this daemon's lifetime. The token is stored on approved pairing
- * entries and returned in HTTP responses as a legacy compatibility field.
- * (iOS clients also receive proper JWT credentials via mintCredentialPair.)
+ * Minted once at daemon startup and passed to the gateway. The token is
+ * stored on approved pairing entries and returned in HTTP responses as a
+ * legacy compatibility field. iOS clients also receive proper JWT
+ * credentials via the gateway's bootstrapGuardian flow.
  *
  * The 24-hour TTL covers a typical daemon lifecycle. The daemon re-mints
  * on each restart since the signing key is stable across restarts.

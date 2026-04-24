@@ -42,9 +42,7 @@ import {
   isHttpAuthDisabled,
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { normalizeConversationType } from "../daemon/message-types/shared.js";
-import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type AttentionState,
   type Confidence,
@@ -204,12 +202,6 @@ import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
-import type { PairingHandlerContext } from "./routes/pairing-routes.js";
-import {
-  handlePairingRequest,
-  handlePairingStatus,
-  pairingRouteDefinitions,
-} from "./routes/pairing-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
@@ -340,7 +332,6 @@ export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private hostname: string;
-  /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
@@ -352,8 +343,6 @@ export class RuntimeHttpServer {
   private suggestionInFlight = new Map<string, Promise<string | null>>();
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
-  private pairingStore = new PairingStore();
-  private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
   private findConversation?: RuntimeHttpServerOptions["findConversation"];
   private findConversationBySurfaceId?: RuntimeHttpServerOptions["findConversationBySurfaceId"];
@@ -395,34 +384,6 @@ export class RuntimeHttpServer {
   /** The port the server is actually listening on (resolved after start). */
   get actualPort(): number {
     return this.server?.port ?? this.port;
-  }
-
-  /** Expose the pairing store so the daemon server can wire HTTP handlers. */
-  getPairingStore(): PairingStore {
-    return this.pairingStore;
-  }
-
-  /** Set a callback for broadcasting server messages (wired by daemon server). */
-  setPairingBroadcast(fn: (msg: ServerMessage) => void): void {
-    this.pairingBroadcast = fn;
-  }
-
-  private get pairingContext(): PairingHandlerContext {
-    const broadcast = this.pairingBroadcast;
-    return {
-      pairingStore: this.pairingStore,
-      bearerToken: this.bearerToken,
-      pairingBroadcast: broadcast
-        ? (msg) => {
-            // Broadcast to all clients via the event hub so HTTP/SSE clients
-            // (e.g. macOS app) receive pairing approval requests.
-            broadcast(msg);
-            void assistantEventHub.publish(
-              buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
-            );
-          }
-        : undefined,
-    };
   }
 
   async start(): Promise<void> {
@@ -799,8 +760,6 @@ export class RuntimeHttpServer {
       );
     }
 
-    this.pairingStore.start();
-
     if (hasUngatedHttpAuthDisabled()) {
       log.warn(
         "DISABLE_HTTP_AUTH is set but VELLUM_UNSAFE_AUTH_BYPASS=1 is not — auth bypass is IGNORED and HTTP authentication remains enabled. Set VELLUM_UNSAFE_AUTH_BYPASS=1 to confirm the bypass.",
@@ -925,7 +884,6 @@ export class RuntimeHttpServer {
   }
 
   async stop(): Promise<void> {
-    this.pairingStore.stop();
     stopGuardianExpirySweep();
     stopGuardianActionSweep();
     stopCanonicalGuardianExpirySweep();
@@ -1026,14 +984,6 @@ export class RuntimeHttpServer {
     const audioMatch = path.match(/^\/v1\/audio\/([^/]+)$/);
     if (audioMatch && req.method === "GET") {
       return handleGetAudio(audioMatch[1]);
-    }
-
-    // Pairing endpoints (unauthenticated, secret-gated)
-    if (path === "/v1/pairing/request" && req.method === "POST") {
-      return await handlePairingRequest(req, this.pairingContext);
-    }
-    if (path === "/v1/pairing/status" && req.method === "GET") {
-      return handlePairingStatus(url, this.pairingContext);
     }
 
     // Skill-registered routes (e.g. meet-bot event ingress). Handled before
@@ -1693,9 +1643,6 @@ export class RuntimeHttpServer {
       this.getConversationManagementRouteDeps();
 
     return [
-      ...pairingRouteDefinitions({
-        getPairingContext: () => this.pairingContext,
-      }),
       ...appRouteDefinitions(),
       ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions({

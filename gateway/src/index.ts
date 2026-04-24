@@ -54,7 +54,8 @@ import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
 
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
-import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
+import { createPairingHandler } from "./pairing/pairing-routes.js";
+import { PairingStore } from "./pairing/pairing-store.js";
 import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
@@ -334,7 +335,9 @@ async function main() {
     },
   );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
-  const pairingProxy = createPairingProxyHandler(config);
+  const pairingStore = new PairingStore();
+  pairingStore.start();
+  const pairingHandler = createPairingHandler({ pairingStore });
   const channelVerificationSessionProxy =
     createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
@@ -477,21 +480,21 @@ async function main() {
       path: "/pairing/register",
       method: "POST",
       auth: "edge",
-      handler: (req) => pairingProxy.handlePairingRegister(req),
+      handler: (req) => pairingHandler.handlePairingRegister(req),
     },
     {
       path: "/pairing/request",
       method: "POST",
       auth: "track-failures",
       trackFailureStatuses: [401, 403],
-      handler: (req) => pairingProxy.handlePairingRequest(req),
+      handler: (req) => pairingHandler.handlePairingRequest(req),
     },
     {
       path: "/pairing/status",
       method: "GET",
       auth: "track-failures",
       trackFailureStatuses: [401, 403],
-      handler: (req) => pairingProxy.handlePairingStatus(req),
+      handler: (req) => pairingHandler.handlePairingStatus(req),
     },
 
     // ── Runtime health ──

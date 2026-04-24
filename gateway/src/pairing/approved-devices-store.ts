@@ -1,8 +1,8 @@
 /**
  * Persistent store for always-allowed paired devices.
  *
- * Persisted to ~/.vellum/protected/approved-devices.json using the
- * atomic-write pattern from trust-store.ts (write .tmp → rename → chmod).
+ * Persisted to $GATEWAY_SECURITY_DIR/approved-devices.json using an
+ * atomic-write pattern (write .tmp → rename → chmod).
  */
 
 import { createHash } from "node:crypto";
@@ -16,8 +16,8 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { getLogger } from "../util/logger.js";
-import { getProtectedDir } from "../util/platform.js";
+import { getLogger } from "../logger.js";
+import { getGatewaySecurityDir } from "../paths.js";
 
 const log = getLogger("approved-devices-store");
 
@@ -33,7 +33,7 @@ interface ApprovedDevicesFile {
 }
 
 function getStorePath(): string {
-  return join(getProtectedDir(), "approved-devices.json");
+  return join(getGatewaySecurityDir(), "approved-devices.json");
 }
 
 /** Hash a raw deviceId for storage. */

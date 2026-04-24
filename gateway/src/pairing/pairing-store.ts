@@ -8,12 +8,12 @@
 
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import { getLogger } from "../util/logger.js";
+import { getLogger } from "../logger.js";
 
 const log = getLogger("pairing-store");
 
-const TTL_MS = 5 * 60 * 1000; // 5 minutes
-const SWEEP_INTERVAL_MS = 30_000; // 30 seconds
+const PAIRING_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PAIRING_SWEEP_INTERVAL_MS = 30_000; // 30 seconds
 
 export type PairingStatus =
   | "registered"
@@ -50,7 +50,10 @@ export class PairingStore {
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   start(): void {
-    this.sweepTimer = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
+    this.sweepTimer = setInterval(
+      () => this.sweep(),
+      PAIRING_SWEEP_INTERVAL_MS,
+    );
   }
 
   stop(): void {
@@ -143,8 +146,6 @@ export class PairingStore {
 
     const hashedDeviceId = hashValue(params.deviceId);
 
-    // If a device has already been bound to this pairing request, reject
-    // attempts from a different device to prevent hijacking.
     if (
       entry.hashedDeviceId &&
       !timingSafeCompare(entry.hashedDeviceId, hashedDeviceId)
@@ -164,9 +165,6 @@ export class PairingStore {
     return { ok: true, entry };
   }
 
-  /**
-   * Approve a pairing request. Sets the bearer token for iOS to retrieve.
-   */
   approve(
     pairingRequestId: string,
     bearerToken: string,
@@ -178,9 +176,6 @@ export class PairingStore {
     return entry;
   }
 
-  /**
-   * Deny a pairing request.
-   */
   deny(pairingRequestId: string): PairingRequest | null {
     const entry = this.requests.get(pairingRequestId);
     if (!entry) return null;
@@ -188,16 +183,10 @@ export class PairingStore {
     return entry;
   }
 
-  /**
-   * Get a pairing request by ID.
-   */
   get(pairingRequestId: string): PairingRequest | null {
     return this.requests.get(pairingRequestId) ?? null;
   }
 
-  /**
-   * Validate the secret for a status poll request (timing-safe).
-   */
   validateSecret(pairingRequestId: string, secret: string): boolean {
     const entry = this.requests.get(pairingRequestId);
     if (!entry) return false;
@@ -209,13 +198,13 @@ export class PairingStore {
     const now = Date.now();
     let changed = false;
     for (const [id, entry] of this.requests) {
-      if (now - entry.createdAt > TTL_MS) {
+      if (now - entry.createdAt > PAIRING_TTL_MS) {
         if (entry.status !== "approved") {
           entry.status = "expired";
           changed = true;
         }
         // Remove entries older than 2x TTL regardless of status
-        if (now - entry.createdAt > TTL_MS * 2) {
+        if (now - entry.createdAt > PAIRING_TTL_MS * 2) {
           this.requests.delete(id);
           changed = true;
           log.debug({ pairingRequestId: id }, "Pairing request swept");

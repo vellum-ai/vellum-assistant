@@ -553,7 +553,6 @@ describe("assistant ID boundary", () => {
       "assistant/src/memory/*.ts",
       "assistant/src/contacts/*.ts",
       "assistant/src/notifications/*.ts",
-      "assistant/src/runtime/auth/credential-service.ts",
       "assistant/src/runtime/actor-token-store.ts",
       "assistant/src/runtime/actor-refresh-token-store.ts",
       "assistant/src/calls/call-store.ts",

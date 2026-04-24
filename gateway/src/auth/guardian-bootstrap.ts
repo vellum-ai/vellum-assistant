@@ -28,7 +28,7 @@ import { mintToken } from "./token-service.js";
 const log = getLogger("guardian-bootstrap");
 
 // ---------------------------------------------------------------------------
-// Constants (mirrored from assistant/src/runtime/auth/credential-service.ts)
+// Constants — canonical values for token TTLs and refresh thresholds.
 // ---------------------------------------------------------------------------
 
 /** Access token TTL: 30 days in seconds. */

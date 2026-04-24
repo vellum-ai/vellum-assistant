@@ -105,7 +105,6 @@ import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
 } from "./approval-generators.js";
-import { initSlashPairingContext } from "./conversation-slash.js";
 import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
@@ -930,8 +929,8 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
-    // Start the runtime HTTP server. Required for iOS pairing (gateway proxies
-    // to it) and optional REST API access. Defaults to port 7821.
+    // Start the runtime HTTP server for optional REST API access.
+    // Defaults to port 7821.
     let runtimeHttp: RuntimeHttpServer | null = null;
     const httpPort = getRuntimeHttpPort();
     log.info({ httpPort }, "Daemon startup: starting runtime HTTP server");
@@ -1217,10 +1216,6 @@ export async function runDaemon(): Promise<void> {
           }
         },
       );
-      runtimeHttp.setPairingBroadcast((msg) =>
-        server.broadcast(msg as ServerMessage),
-      );
-      initSlashPairingContext(runtimeHttp.getPairingStore());
       server.broadcastStatus();
       log.info(
         { port: httpPort, hostname },
