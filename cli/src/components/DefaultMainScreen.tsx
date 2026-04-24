@@ -14,6 +14,7 @@ import {
 import { Box, render as inkRender, Text, useInput, useStdout } from "ink";
 
 import { removeAssistantEntry } from "../lib/assistant-config";
+import { getClientRegistrationHeaders } from "../lib/client-identity";
 import { SPECIES_CONFIG, type Species } from "../lib/constants";
 import { callDoctorDaemon, type ChatLogEntry } from "../lib/doctor-client";
 import { checkHealth } from "../lib/health-check";
@@ -50,9 +51,7 @@ export const SLASH_COMMANDS = [
   "/retire",
 ];
 
-const POLL_INTERVAL_MS = 3000;
 const SEND_TIMEOUT_MS = 5000;
-const RESPONSE_POLL_INTERVAL_MS = 1000;
 
 // ── Layout constants ──────────────────────────────────────
 const MAX_TOTAL_WIDTH = 72;
@@ -146,11 +145,6 @@ interface SubmitDecisionResponse {
 
 interface AddTrustRuleResponse {
   accepted: boolean;
-}
-
-interface PendingInteractionsResponse {
-  pendingConfirmation: (PendingConfirmation & { requestId: string }) | null;
-  pendingSecret: (PendingSecret & { requestId?: string }) | null;
 }
 
 type TrustDecision = "always_allow" | "always_deny";
@@ -301,19 +295,104 @@ async function addTrustRule(
   );
 }
 
-async function pollPendingInteractions(
+// ── SSE event types ─────────────────────────────────────────────
+interface SseEvent {
+  type: string;
+  text?: string;
+  thinking?: string;
+  toolName?: string;
+  toolUseId?: string;
+  input?: Record<string, unknown>;
+  result?: string;
+  isError?: boolean;
+  content?: string;
+  chunk?: string;
+  message?: string;
+  conversationId?: string;
+  messageId?: string;
+  requestId?: string;
+  // confirmation_request fields
+  riskLevel?: string;
+  riskReason?: string;
+  executionTarget?: "sandbox" | "host";
+  allowlistOptions?: Array<{
+    label: string;
+    description: string;
+    pattern: string;
+  }>;
+  scopeOptions?: Array<{ label: string; scope: string }>;
+  persistentDecisionsAllowed?: boolean;
+  isContainerized?: boolean;
+  // secret_request fields
+  service?: string;
+  field?: string;
+  label?: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowOneTimeSend?: boolean;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  // message_complete fields
+  source?: "main" | "aux";
+  [key: string]: unknown;
+}
+
+/**
+ * Open an SSE stream to the assistant's /events endpoint.
+ * Yields parsed JSON objects from `data:` lines, skipping heartbeat comments.
+ */
+async function* streamEvents(
   baseUrl: string,
   assistantId: string,
+  conversationKey: string,
+  signal: AbortSignal,
   bearerToken?: string,
-): Promise<PendingInteractionsResponse> {
-  const params = new URLSearchParams({ conversationKey: assistantId });
-  return runtimeRequest<PendingInteractionsResponse>(
-    baseUrl,
-    assistantId,
-    `/pending-interactions?${params.toString()}`,
-    undefined,
-    bearerToken,
-  );
+): AsyncGenerator<SseEvent> {
+  const params = new URLSearchParams({ conversationKey });
+  const url = `${baseUrl}/v1/assistants/${assistantId}/events?${params.toString()}`;
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/event-stream",
+      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+      ...getClientRegistrationHeaders(),
+    },
+    signal,
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `SSE connection failed (${response.status}): ${body || response.statusText}`,
+    );
+  }
+  if (!response.body) {
+    throw new Error("No response body from SSE endpoint");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk as Uint8Array, { stream: true });
+    let boundary: number;
+    while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (!frame.trim() || frame.startsWith(":")) continue;
+      let data: string | undefined;
+      for (const line of frame.split("\n")) {
+        if (line.startsWith("data: ")) {
+          data = line.slice(6);
+        }
+      }
+      if (!data) continue;
+      try {
+        yield JSON.parse(data) as SseEvent;
+      } catch {
+        // skip malformed JSON
+      }
+    }
+  }
 }
 
 function formatConfirmationPreview(
@@ -1307,7 +1386,9 @@ function ChatApp({
   const connectingRef = useRef(false);
   const seenMessageIdsRef = useRef(new Set<string>());
   const chatLogRef = useRef<ChatLogEntry[]>([]);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sseAbortRef = useRef<AbortController | null>(null);
+  const streamingTextRef = useRef("");
+  const streamingToolCallsRef = useRef<ToolCallInfo[]>([]);
   const doctorSessionIdRef = useRef(randomUUID());
   const handleRef_ = useRef<ChatAppHandle | null>(null);
 
@@ -1535,9 +1616,9 @@ function ChatApp({
   }, []);
 
   const cleanup = useCallback(() => {
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
+    if (sseAbortRef.current) {
+      sseAbortRef.current.abort();
+      sseAbortRef.current = null;
     }
   }, []);
 
@@ -1595,25 +1676,168 @@ function ChatApp({
         h.hideSpinner();
       }
 
-      pollTimerRef.current = setInterval(async () => {
+      // Open SSE stream for real-time events
+      const sseAc = new AbortController();
+      sseAbortRef.current = sseAc;
+
+      // Process SSE events in the background
+      (async () => {
         try {
-          const response = await pollMessages(
+          for await (const event of streamEvents(
             runtimeUrl,
             assistantId,
+            assistantId,
+            sseAc.signal,
             bearerToken,
-          );
-          for (const msg of response.messages) {
-            if (!seenMessageIdsRef.current.has(msg.id)) {
-              seenMessageIdsRef.current.add(msg.id);
-              if (msg.role === "assistant") {
-                handleRef_.current?.addMessage(msg);
+          )) {
+            const hRef = handleRef_.current;
+            if (!hRef) continue;
+
+            switch (event.type) {
+              case "assistant_text_delta":
+                streamingTextRef.current += event.text ?? "";
+                break;
+
+              case "assistant_thinking_delta":
+                // Thinking deltas are suppressed in the TUI for now
+                break;
+
+              case "tool_use_start":
+                if (event.toolName) {
+                  streamingToolCallsRef.current.push({
+                    name: event.toolName,
+                    input: event.input ?? {},
+                  });
+                }
+                break;
+
+              case "tool_result":
+                if (event.toolName) {
+                  const tc = streamingToolCallsRef.current.find(
+                    (t) => t.name === event.toolName && t.result === undefined,
+                  );
+                  if (tc) {
+                    tc.result = event.result;
+                    tc.isError = event.isError;
+                  } else {
+                    streamingToolCallsRef.current.push({
+                      name: event.toolName,
+                      input: event.input ?? {},
+                      result: event.result,
+                      isError: event.isError,
+                    });
+                  }
+                }
+                break;
+
+              case "confirmation_request":
+                hRef.hideSpinner();
+                await handleConfirmationPrompt(
+                  runtimeUrl,
+                  assistantId,
+                  event.requestId ?? "",
+                  {
+                    toolName: event.toolName ?? "",
+                    toolUseId: event.toolUseId ?? "",
+                    input: event.input ?? {},
+                    riskLevel: event.riskLevel ?? "unknown",
+                    executionTarget: event.executionTarget,
+                    allowlistOptions: event.allowlistOptions?.map((o) => ({
+                      label: o.label,
+                      pattern: o.pattern,
+                    })),
+                    scopeOptions: event.scopeOptions,
+                    persistentDecisionsAllowed:
+                      event.persistentDecisionsAllowed,
+                  },
+                  hRef,
+                  bearerToken,
+                );
+                hRef.showSpinner("Working...");
+                break;
+
+              case "secret_request":
+                hRef.hideSpinner();
+                await hRef.handleSecretPrompt(
+                  {
+                    requestId: event.requestId ?? "",
+                    service: event.service ?? "",
+                    field: event.field ?? "",
+                    label: event.label ?? "",
+                    description: event.description,
+                    placeholder: event.placeholder,
+                    purpose: event.purpose,
+                    allowOneTimeSend: event.allowOneTimeSend,
+                  },
+                  async (value, delivery) => {
+                    await runtimeRequest(
+                      runtimeUrl,
+                      assistantId,
+                      "/secret",
+                      {
+                        method: "POST",
+                        body: JSON.stringify({
+                          requestId: event.requestId,
+                          value,
+                          delivery,
+                        }),
+                      },
+                      bearerToken,
+                    );
+                  },
+                );
+                hRef.showSpinner("Working...");
+                break;
+
+              case "message_complete": {
+                // Only finalize main turns (ignore aux events like call transcripts)
+                if (event.source === "aux") break;
+
+                const text = streamingTextRef.current;
+                const toolCalls = [...streamingToolCallsRef.current];
+                streamingTextRef.current = "";
+                streamingToolCallsRef.current = [];
+
+                if (text || toolCalls.length > 0) {
+                  const msg: RuntimeMessage = {
+                    id: event.messageId ?? `sse-${Date.now()}`,
+                    role: "assistant",
+                    content: text,
+                    timestamp: new Date().toISOString(),
+                    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                  };
+                  seenMessageIdsRef.current.add(msg.id);
+                  hRef.addMessage(msg);
+                  chatLogRef.current.push({
+                    role: "assistant",
+                    content: text,
+                  });
+                  process.stdout.write("\x07");
+                }
+
+                hRef.setBusy(false);
+                hRef.hideSpinner();
+                break;
               }
+
+              case "error":
+                hRef.hideSpinner();
+                hRef.showError(event.message ?? "Unknown error");
+                hRef.setBusy(false);
+                break;
+
+              default:
+                // Ignore events we don't handle (activity state, traces, etc.)
+                break;
             }
           }
         } catch {
-          // Poll failure; continue silently
+          // Stream ended — only report if not intentionally aborted
+          if (!sseAc.signal.aborted) {
+            handleRef_.current?.addStatus("SSE stream disconnected", "yellow");
+          }
         }
-      }, POLL_INTERVAL_MS);
+      })();
 
       connectedRef.current = true;
       connectingRef.current = false;
@@ -2049,135 +2273,42 @@ function ChatApp({
       h.showSpinner("Sending...");
       h.setBusy(true);
 
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
 
-        try {
-          const sendResult = await sendMessage(
-            runtimeUrl,
-            assistantId,
-            trimmed,
-            controller.signal,
-            bearerToken,
-          );
-          clearTimeout(timeoutId);
-          if (!sendResult.accepted) {
-            h.setBusy(false);
-            h.hideSpinner();
-            h.showError("Message was not accepted by the assistant");
-            return;
-          }
-        } catch (sendErr) {
-          clearTimeout(timeoutId);
+      try {
+        const sendResult = await sendMessage(
+          runtimeUrl,
+          assistantId,
+          trimmed,
+          controller.signal,
+          bearerToken,
+        );
+        clearTimeout(timeoutId);
+        if (!sendResult.accepted) {
           h.setBusy(false);
           h.hideSpinner();
-          const errorMsg =
-            sendErr instanceof Error ? sendErr.message : String(sendErr);
-          h.showError(errorMsg);
-          chatLogRef.current.push({ role: "error", content: errorMsg });
+          h.showError("Message was not accepted by the assistant");
           return;
         }
-
-        h.showSpinner("Working...");
-
-        while (true) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, RESPONSE_POLL_INTERVAL_MS),
-          );
-
-          // Check for pending confirmations/secrets
-          try {
-            const pending = await pollPendingInteractions(
-              runtimeUrl,
-              assistantId,
-              bearerToken,
-            );
-
-            if (pending.pendingConfirmation) {
-              h.hideSpinner();
-              await handleConfirmationPrompt(
-                runtimeUrl,
-                assistantId,
-                pending.pendingConfirmation.requestId,
-                pending.pendingConfirmation,
-                h,
-                bearerToken,
-              );
-              h.showSpinner("Working...");
-              continue;
-            }
-
-            if (pending.pendingSecret) {
-              const secretRequestId = pending.pendingSecret.requestId ?? "";
-              h.hideSpinner();
-              await h.handleSecretPrompt(
-                pending.pendingSecret,
-                async (value, delivery) => {
-                  await runtimeRequest(
-                    runtimeUrl,
-                    assistantId,
-                    "/secret",
-                    {
-                      method: "POST",
-                      body: JSON.stringify({
-                        requestId: secretRequestId,
-                        value,
-                        delivery,
-                      }),
-                    },
-                    bearerToken,
-                  );
-                },
-              );
-              h.showSpinner("Working...");
-              continue;
-            }
-          } catch {
-            // Pending interactions poll failure; fall through to message poll
-          }
-
-          // Poll for new messages to detect completion
-          try {
-            const pollResult = await pollMessages(
-              runtimeUrl,
-              assistantId,
-              bearerToken,
-            );
-            for (const msg of pollResult.messages) {
-              if (!seenMessageIdsRef.current.has(msg.id)) {
-                seenMessageIdsRef.current.add(msg.id);
-                if (msg.role === "assistant") {
-                  h.addMessage(msg);
-                  chatLogRef.current.push({
-                    role: "assistant",
-                    content: msg.content,
-                  });
-                  process.stdout.write("\x07");
-                  h.setBusy(false);
-                  h.hideSpinner();
-                  return;
-                }
-              }
-            }
-          } catch {
-            // Poll failure; retry
-          }
-        }
-      } catch (error) {
+      } catch (sendErr) {
+        clearTimeout(timeoutId);
         h.setBusy(false);
         h.hideSpinner();
-        const isTimeout = error instanceof Error && error.name === "AbortError";
-        if (isTimeout) {
-          const errorMsg = "Send timed out";
-          h.showError(errorMsg);
-          chatLogRef.current.push({ role: "error", content: errorMsg });
-        } else {
-          const errorMsg = `Failed to send: ${error instanceof Error ? error.message : error}`;
-          h.showError(errorMsg);
-          chatLogRef.current.push({ role: "error", content: errorMsg });
-        }
+        const errorMsg =
+          sendErr instanceof Error ? sendErr.message : String(sendErr);
+        h.showError(errorMsg);
+        chatLogRef.current.push({ role: "error", content: errorMsg });
+        return;
       }
+
+      // Reset streaming accumulators for this turn
+      streamingTextRef.current = "";
+      streamingToolCallsRef.current = [];
+
+      // SSE event loop handles response, confirmations, and secrets.
+      // Just show the spinner — message_complete will clear it.
+      h.showSpinner("Working...");
     },
     [
       runtimeUrl,
