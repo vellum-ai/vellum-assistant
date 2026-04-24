@@ -535,7 +535,10 @@ describe("OpenAIResponsesProvider", () => {
     expect(lastStreamParams!.reasoning).toBeUndefined();
   });
 
-  test('effort: "none" omits the reasoning param entirely', async () => {
+  test('effort: "none" is sent explicitly as reasoning: { effort: "none" }', async () => {
+    // The OpenAI Responses API defaults `reasoning.effort` to "medium" when
+    // the field is omitted, so the user's opt-out is only honored when we
+    // send the explicit "none" value on the wire.
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
@@ -545,7 +548,7 @@ describe("OpenAIResponsesProvider", () => {
       { config: { effort: "none" } },
     );
 
-    expect(lastStreamParams!.reasoning).toBeUndefined();
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "none" });
   });
 
   // -----------------------------------------------------------------------

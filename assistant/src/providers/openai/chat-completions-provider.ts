@@ -65,13 +65,17 @@ export interface OpenAIChatCompletionsProviderOptions {
 }
 
 /** Map our internal effort values to OpenAI's reasoning_effort parameter.
- *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". */
+ *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". `"none"` is
+ *  passed through explicitly because OpenAI defaults `reasoning_effort` to
+ *  "medium" when the field is omitted — the user's opt-out is only honored
+ *  when we send it on the wire. */
 const EFFORT_TO_REASONING_EFFORT: Record<
   string,
   NonNullable<
     OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"]
   >
 > = {
+  none: "none",
   low: "low",
   medium: "medium",
   high: "high",

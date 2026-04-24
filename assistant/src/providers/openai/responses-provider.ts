@@ -26,11 +26,15 @@ export interface OpenAIResponsesProviderOptions {
 }
 
 /** Map our internal effort values to the Responses API reasoning.effort parameter.
- *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". */
+ *  OpenAI caps at "xhigh", so our "max" tier collapses to "xhigh". `"none"` is
+ *  passed through explicitly because OpenAI defaults `reasoning.effort` to
+ *  "medium" when the field is omitted — the user's opt-out is only honored
+ *  when we send it on the wire. */
 const EFFORT_TO_REASONING_EFFORT: Record<
   string,
-  "low" | "medium" | "high" | "xhigh"
+  "none" | "low" | "medium" | "high" | "xhigh"
 > = {
+  none: "none",
   low: "low",
   medium: "medium",
   high: "high",

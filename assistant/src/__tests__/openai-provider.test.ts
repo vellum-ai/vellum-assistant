@@ -1360,11 +1360,14 @@ describe("OpenAIProvider reasoning_effort", () => {
     expect(lastCreateParams!.reasoning_effort).toBeUndefined();
   });
 
-  test('effort: "none" omits the reasoning_effort param', async () => {
+  test('effort: "none" is sent explicitly as reasoning_effort: "none"', async () => {
+    // OpenAI defaults `reasoning_effort` to "medium" when the field is
+    // omitted, so the user's opt-out is only honored when we send the
+    // explicit "none" value on the wire.
     await provider.sendMessage([userMsg("hi")], undefined, "system", {
       config: { effort: "none" },
     });
-    expect(lastCreateParams!.reasoning_effort).toBeUndefined();
+    expect(lastCreateParams!.reasoning_effort).toBe("none");
   });
 
   test("extraCreateParams reasoning_effort is not clobbered when no effort is set", async () => {
