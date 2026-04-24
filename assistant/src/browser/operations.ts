@@ -10,11 +10,6 @@
  *   - Dispatch to existing browser-execution.ts implementations.
  *   - Command-oriented metadata for CLI subcommand generation.
  *   - `wait_for_download` mode-constraint enforcement.
- *
- * Identifier-only exports (BROWSER_TOOL_NAMES, name mapping helpers)
- * live in `browser/identifiers.ts` to avoid pulling the browser
- * execution stack into policy/classification modules. This module
- * re-exports them for backwards compatibility.
  */
 
 import {
@@ -38,31 +33,7 @@ import {
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { normalizeBrowserMode } from "../tools/browser/browser-mode.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
-import {
-  BROWSER_OPERATIONS,
-  type BrowserOperation,
-  type BrowserOperationMeta,
-} from "./types.js";
-
-// ── Re-exports from identifiers.ts ───────────────────────────────────
-//
-// Identifier-only constants and helpers are defined in the lightweight
-// `browser/identifiers.ts` module so that policy/classification
-// consumers can import them without pulling in the browser execution
-// stack. Re-exported here for backwards compatibility with existing
-// callers that import from `browser/operations.js`.
-
-export {
-  BROWSER_TOOL_NAMES,
-  browserOperationToToolName,
-  browserToolNameToOperation,
-} from "./identifiers.js";
-
-/**
- * All canonical browser operation identifiers (re-exported from types).
- */
-export const BROWSER_OPERATION_NAMES: readonly BrowserOperation[] =
-  BROWSER_OPERATIONS;
+import type { BrowserOperation, BrowserOperationMeta } from "./types.js";
 
 // ── Dispatch handlers ────────────────────────────────────────────────
 
@@ -641,20 +612,3 @@ Examples:
   $ assistant browser --json status`,
   },
 ];
-
-// ── Lookup helper ────────────────────────────────────────────────────
-
-/** Index for O(1) metadata lookups by operation. */
-const META_BY_OPERATION = new Map<BrowserOperation, BrowserOperationMeta>(
-  BROWSER_OPERATION_META.map((m) => [m.operation, m]),
-);
-
-/**
- * Get metadata for a specific operation. Returns `undefined` if the
- * operation is not recognized.
- */
-export function getBrowserOperationMeta(
-  operation: BrowserOperation,
-): BrowserOperationMeta | undefined {
-  return META_BY_OPERATION.get(operation);
-}

@@ -2,43 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import {
   BROWSER_OPERATION_META,
-  BROWSER_OPERATION_NAMES,
   executeBrowserOperation,
-  getBrowserOperationMeta,
 } from "../operations.js";
 import { BROWSER_OPERATIONS, type BrowserOperation } from "../types.js";
 
 describe("browser operations contract", () => {
-  // ── Exactly 17 operations ──────────────────────────────────────────
-
-  test("defines exactly 17 operations", () => {
-    expect(BROWSER_OPERATION_NAMES).toHaveLength(17);
-  });
-
   // ── CLI subcommand / operation 1:1 parity ──────────────────────────
 
   test("CLI subcommand metadata is in 1:1 parity with BROWSER_OPERATIONS", () => {
     const metaOps = BROWSER_OPERATION_META.map((m) => m.operation).sort();
     const declaredOps = [...BROWSER_OPERATIONS].sort();
     expect(metaOps).toEqual(declaredOps);
-  });
-
-  test("BROWSER_OPERATION_NAMES matches BROWSER_OPERATIONS", () => {
-    expect([...BROWSER_OPERATION_NAMES].sort()).toEqual(
-      [...BROWSER_OPERATIONS].sort(),
-    );
-  });
-
-  // ── Every operation has metadata ───────────────────────────────────
-
-  test("every operation has command metadata", () => {
-    for (const op of BROWSER_OPERATIONS) {
-      const meta = getBrowserOperationMeta(op);
-      expect(meta).toBeDefined();
-      expect(meta!.operation).toBe(op);
-      expect(typeof meta!.description).toBe("string");
-      expect(meta!.description.length).toBeGreaterThan(0);
-    }
   });
 
   test("metadata count matches operation count", () => {
@@ -66,15 +40,6 @@ describe("browser operations contract", () => {
   });
 
   // ── wait_for_download mode constraints ─────────────────────────────
-
-  test("wait_for_download metadata restricts modes to auto and local", () => {
-    const meta = getBrowserOperationMeta("wait_for_download");
-    expect(meta).toBeDefined();
-    expect(meta!.allowedModes).toBeDefined();
-    expect(meta!.allowedModes).toContain("auto");
-    expect(meta!.allowedModes).toContain("local");
-    expect(meta!.allowedModes).toHaveLength(2);
-  });
 
   test("wait_for_download rejects extension mode", async () => {
     const result = await executeBrowserOperation(
