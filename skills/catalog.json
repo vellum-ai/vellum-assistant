@@ -271,6 +271,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "linear-app-setup",
+      "name": "linear-app-setup",
+      "description": "Create and configure a Linear agent app so the assistant can manage issues, projects, and workflows under its own identity",
+      "metadata": {
+        "emoji": "🔷",
+        "vellum": {
+          "display-name": "Linear App Setup",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "macos-automation",
       "name": "macos-automation",
       "description": "Automate native macOS apps and system interactions via osascript (AppleScript)",
