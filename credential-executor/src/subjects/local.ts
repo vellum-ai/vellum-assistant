@@ -7,7 +7,7 @@
  * operates independently — it never imports from the assistant daemon.
  *
  * Subject resolution is the first phase of credential materialisation:
- * 1. Parse the handle (via `@vellumai/ces-contracts`)
+ * 1. Parse the handle (via `@vellumai/service-contracts`)
  * 2. Look up the metadata/connection record in local storage
  * 3. Return a resolved subject that the materialiser can consume
  *
@@ -26,7 +26,7 @@ import {
   parseHandle,
   type LocalOAuthHandle,
   type LocalStaticHandle,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 // ---------------------------------------------------------------------------
 // Resolved subject types

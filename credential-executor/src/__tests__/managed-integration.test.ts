@@ -34,7 +34,7 @@ import {
   type DeleteCredentialResponse,
   type ListCredentialsResponse,
   type RpcEnvelope,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 import { PersistentGrantStore } from "../grants/persistent-store.js";
 import { TemporaryGrantStore } from "../grants/temporary-store.js";

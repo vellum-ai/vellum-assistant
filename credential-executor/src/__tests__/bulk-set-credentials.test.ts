@@ -7,7 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { CesRpcMethod } from "@vellumai/ces-contracts";
+import { CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 
 // ---------------------------------------------------------------------------

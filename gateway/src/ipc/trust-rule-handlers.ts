@@ -9,8 +9,8 @@
 
 import { z } from "zod";
 
-import type { TrustDecision } from "@vellumai/ces-contracts/trust-rules";
-import { SCOPED_TOOLS } from "@vellumai/ces-contracts/trust-rules";
+import type { TrustDecision } from "@vellumai/service-contracts/trust-rules";
+import { SCOPED_TOOLS } from "@vellumai/service-contracts/trust-rules";
 
 import {
   addRule,

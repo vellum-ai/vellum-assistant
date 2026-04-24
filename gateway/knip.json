@@ -4,6 +4,6 @@
   "ignoreDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
-    "@vellumai/ces-contracts"
+    "@vellumai/service-contracts"
   ]
 }

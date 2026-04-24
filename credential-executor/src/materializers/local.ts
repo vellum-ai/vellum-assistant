@@ -32,7 +32,7 @@ import {
   RefreshDeduplicator,
   persistRefreshedTokens,
 } from "@vellumai/credential-storage";
-import { HandleType } from "@vellumai/ces-contracts";
+import { HandleType } from "@vellumai/service-contracts/credential-rpc";
 
 import type {
   ResolvedLocalSubject,

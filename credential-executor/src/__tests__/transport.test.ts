@@ -21,7 +21,7 @@ import {
   CES_PROTOCOL_VERSION,
   type HandshakeAck,
   type RpcEnvelope,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 import { getCesDataRoot, getBootstrapSocketPath, getHealthPort } from "../paths.js";
 import { CesRpcServer, type RpcHandlerRegistry } from "../server.js";

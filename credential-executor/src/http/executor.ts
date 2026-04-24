@@ -26,8 +26,8 @@
 import type {
   MakeAuthenticatedRequest,
   MakeAuthenticatedRequestResponse,
-} from "@vellumai/ces-contracts";
-import { HandleType, parseHandle, hashProposal } from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
+import { HandleType, parseHandle, hashProposal } from "@vellumai/service-contracts/credential-rpc";
 import type { InjectionTemplate } from "@vellumai/credential-storage";
 
 import { evaluateHttpPolicy, type PolicyResult } from "./policy.js";
