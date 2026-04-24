@@ -853,7 +853,7 @@ fi
 # below. The 'binaries' subcommand handles this via build_binaries(), but
 # build|run|release|release-application fall through to direct invocations and
 # would otherwise fail to resolve transitive deps (e.g. zod) from
-# packages/ces-contracts on a fresh clone.
+# packages/service-contracts on a fresh clone.
 if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
     install_shared_packages
 fi

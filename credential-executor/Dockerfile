@@ -14,7 +14,6 @@ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy shared packages first (needed for repo-local dependencies)
-COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/service-contracts ./packages/service-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy

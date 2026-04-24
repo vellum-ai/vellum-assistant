@@ -3,17 +3,14 @@
  *
  * Rules enforced:
  *
- * 1. No new imports of `@vellumai/ces-contracts` outside the
- *    `packages/ces-contracts` shim. The shim re-exports everything from
- *    `@vellumai/service-contracts` for backwards compatibility; all other
- *    code must import from `@vellumai/service-contracts` directly.
+ * 1. No imports of `@vellumai/ces-contracts` anywhere in the codebase.
+ *    The compatibility shim package has been deleted; all code must import
+ *    from `@vellumai/service-contracts` directly using explicit subpaths.
  *
  * 2. `assistant/`, `gateway/`, and `credential-executor/` source files must
  *    not import the aggregate root `@vellumai/service-contracts` (i.e.
  *    `from "@vellumai/service-contracts"`). They must use explicit domain
  *    subpaths (e.g. `@vellumai/service-contracts/credential-rpc`).
- *    The aggregate root is an internal barrel consumed only by the
- *    `packages/ces-contracts` shim.
  *
  * See ARCHITECTURE.md (Credential Execution Service section) and
  * assistant/docs/credential-execution-service.md (Shared Private Packages)
@@ -40,44 +37,32 @@ function isTestFile(filePath: string): boolean {
 }
 
 /**
- * Paths that are permitted to reference `@vellumai/ces-contracts`.
- * Only the ces-contracts shim package itself is allowed.
+ * No files are permitted to reference `@vellumai/ces-contracts`.
+ * The compatibility shim package has been deleted; all code must import
+ * from `@vellumai/service-contracts` directly.
  */
-const CES_CONTRACTS_ALLOWLIST = new Set([
-  // The compatibility shim is the only file allowed to import from ces-contracts
-  // (it re-exports to ces-contracts consumers).
-  "packages/ces-contracts/src/index.ts",
-  "packages/ces-contracts/src/credential-rpc.ts",
-  "packages/ces-contracts/src/error.ts",
-  "packages/ces-contracts/src/grants.ts",
-  "packages/ces-contracts/src/handles.ts",
-  "packages/ces-contracts/src/rendering.ts",
-  "packages/ces-contracts/src/rpc.ts",
-  "packages/ces-contracts/src/trust-rules.ts",
-]);
+const CES_CONTRACTS_ALLOWLIST = new Set<string>([]);
 
 /**
- * Paths that are permitted to import the aggregate root
+ * No files are permitted to import the aggregate root
  * `@vellumai/service-contracts` (without a subpath).
- * Only the ces-contracts shim is allowed; all runtime code must use subpaths.
+ * All runtime code must use explicit domain subpaths.
  */
-const AGGREGATE_ROOT_ALLOWLIST = new Set([
-  // The ces-contracts shim re-exports the aggregate root by design.
-  "packages/ces-contracts/src/index.ts",
-]);
+const AGGREGATE_ROOT_ALLOWLIST = new Set<string>([]);
 
 describe("service-contracts import discipline", () => {
   // ---------------------------------------------------------------------------
-  // Rule 1: No @vellumai/ces-contracts outside the shim
+  // Rule 1: No @vellumai/ces-contracts anywhere (shim package deleted)
   // ---------------------------------------------------------------------------
 
-  test("no @vellumai/ces-contracts imports outside packages/ces-contracts shim", () => {
+  test("no @vellumai/ces-contracts imports anywhere in the codebase", () => {
     const repoRoot = getRepoRoot();
 
     let grepOutput = "";
     try {
-      // Scan all tracked TypeScript files for actual import/require statements
-      // referencing ces-contracts, excluding the ces-contracts shim itself.
+      // Scan all tracked TypeScript files for any import/require statements
+      // referencing ces-contracts. The compatibility shim has been deleted —
+      // there should be zero references.
       grepOutput = execFileSync(
         "git",
         [
@@ -86,7 +71,6 @@ describe("service-contracts import discipline", () => {
           'from\\s+["\']@vellumai/ces-contracts|require\\s*\\(\\s*["\']@vellumai/ces-contracts',
           "--",
           ":(glob)**/*.ts",
-          ":(exclude)packages/ces-contracts/**",
         ],
         { encoding: "utf-8", cwd: repoRoot },
       ).trim();
@@ -107,10 +91,10 @@ describe("service-contracts import discipline", () => {
 
     if (violations.length > 0) {
       const message = [
-        "Found files importing @vellumai/ces-contracts outside the packages/ces-contracts shim.",
+        "Found files importing @vellumai/ces-contracts.",
         "",
-        "The @vellumai/ces-contracts package is a backwards-compatibility shim.",
-        "New code must import from @vellumai/service-contracts using explicit subpaths:",
+        "The @vellumai/ces-contracts package has been deleted.",
+        "All code must import from @vellumai/service-contracts using explicit subpaths:",
         "  @vellumai/service-contracts/credential-rpc",
         "  @vellumai/service-contracts/trust-rules",
         "  @vellumai/service-contracts/handles",
@@ -124,8 +108,6 @@ describe("service-contracts import discipline", () => {
         "",
         "To fix: replace @vellumai/ces-contracts with the appropriate",
         "@vellumai/service-contracts/<subpath> import.",
-        "If this is an intentional exception, add it to CES_CONTRACTS_ALLOWLIST",
-        "in service-contracts-import-guard.test.ts.",
       ].join("\n");
 
       expect(violations, message).toEqual([]);
@@ -187,8 +169,6 @@ describe("service-contracts import discipline", () => {
         "  @vellumai/service-contracts/rpc",
         "  @vellumai/service-contracts/rendering",
         "  @vellumai/service-contracts/error",
-        "",
-        "The aggregate root is reserved for the packages/ces-contracts shim.",
         "",
         "Violations:",
         ...violations.map((f) => `  - ${f}`),
