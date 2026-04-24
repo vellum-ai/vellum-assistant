@@ -6,7 +6,6 @@
  * stored bot token.
  */
 
-import { callTelegramBotApi } from "./api.js";
 import type { TelegramGetMeResponse } from "./types.js";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
@@ -50,11 +49,15 @@ export interface TelegramSendResult {
 
 /**
  * Send a Telegram text message via the Bot API directly.
+ *
+ * Delegates to sendTelegramReply which handles text splitting (Telegram's
+ * sendMessage API has a 4096-char limit per call).
  */
 export async function sendMessage(
   chatId: string,
   text: string,
 ): Promise<TelegramSendResult> {
-  await callTelegramBotApi("sendMessage", { chat_id: chatId, text });
+  const { sendTelegramReply } = await import("./send.js");
+  await sendTelegramReply(chatId, text);
   return { ok: true };
 }
