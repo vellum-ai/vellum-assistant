@@ -154,6 +154,30 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     callerGlobs: ["gateway/src/http/routes/log-export.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
+  {
+    label: "Audio proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "none (audioId capability token)",
+    description:
+      "Gateway proxies Twilio TTS audio fetch requests to the assistant's /v1/audio/:audioId endpoint. The audioId is an unguessable UUID acting as a capability token.",
+    callerGlobs: ["gateway/src/http/routes/audio-proxy.ts"],
+    calleeGlobs: [
+      "assistant/src/runtime/routes/audio-routes.ts",
+    ],
+  },
+  {
+    label: "Health and readiness probes",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway forwards /healthz and /readyz probes to the assistant's /v1/health and /readyz endpoints to verify full-stack readiness.",
+    callerGlobs: ["gateway/src/index.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
 
   // =========================================================================
   // Gateway -> Assistant (WebSocket)
@@ -163,13 +187,52 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (edge relay token, query param)",
+    auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
     callerGlobs: [
       "gateway/src/http/routes/twilio-relay-websocket.ts",
     ],
     calleeGlobs: ["assistant/src/calls/relay-server.ts"],
+  },
+  {
+    label: "Browser relay WebSocket proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "websocket",
+    auth: "JWT Bearer (service token, query param)",
+    description:
+      "Gateway proxies Chrome extension browser-relay WebSocket frames to the assistant's /v1/browser-relay endpoint.",
+    callerGlobs: [
+      "gateway/src/http/routes/browser-relay-websocket.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Twilio MediaStream WebSocket proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "websocket",
+    auth: "JWT Bearer (service token, query param)",
+    description:
+      "Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.",
+    callerGlobs: [
+      "gateway/src/http/routes/twilio-media-websocket.ts",
+    ],
+    calleeGlobs: ["assistant/src/calls/media-stream-server.ts"],
+  },
+  {
+    label: "STT stream WebSocket proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "websocket",
+    auth: "JWT Bearer (service token, query param)",
+    description:
+      "Gateway proxies speech-to-text audio streams to the assistant's /v1/stt/stream WebSocket endpoint.",
+    callerGlobs: [
+      "gateway/src/http/routes/stt-stream-websocket.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
 
   // =========================================================================
@@ -227,7 +290,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
       "Assistant reads/writes trust rules via the gateway's /v1/trust-rules REST API (containerized mode).",
     callerGlobs: ["assistant/src/permissions/trust-client.ts"],
     calleeGlobs: [
-      "gateway/src/ipc/trust-rule-handlers.ts",
+      "gateway/src/http/routes/trust-rules.ts",
       "gateway/src/trust-store.ts",
     ],
   },
@@ -273,6 +336,23 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
       "Assistant classifies tool invocation risk via the persistent IPC connection to the gateway (classify_risk method).",
     callerGlobs: ["assistant/src/ipc/gateway-client.ts"],
     calleeGlobs: [
+      "gateway/src/ipc/risk-classification-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+  {
+    label: "Threshold IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant reads auto-approve threshold configuration from the gateway via IPC (get_global_thresholds, get_conversation_threshold methods).",
+    callerGlobs: [
+      "assistant/src/permissions/gateway-threshold-reader.ts",
+    ],
+    calleeGlobs: [
+      "gateway/src/ipc/threshold-handlers.ts",
       "gateway/src/ipc/server.ts",
     ],
   },
@@ -348,7 +428,10 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "CES_SERVICE_TOKEN Bearer",
     description:
       "Gateway reads credentials from the CES HTTP API (CES_CREDENTIAL_URL) in containerized mode for channel auth (Telegram bot token, Twilio SID, etc.).",
-    callerGlobs: ["gateway/src/credential-reader.ts"],
+    callerGlobs: [
+      "gateway/src/credential-reader.ts",
+      "gateway/src/credential-watcher.ts",
+    ],
     calleeGlobs: [
       "credential-executor/src/http/*.ts",
     ],
