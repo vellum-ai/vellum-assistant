@@ -100,6 +100,14 @@ import {
   createTrustRulesMatchHandler,
   createTrustRulesStarterBundleHandler,
 } from "./http/routes/trust-rules.js";
+import {
+  createTrustRuleV3sListHandler,
+  createTrustRuleV3sCreateHandler,
+  createTrustRuleV3sUpdateHandler,
+  createTrustRuleV3sDeleteHandler,
+  createTrustRuleV3sResetHandler,
+} from "./http/routes/trust-rules-v3.js";
+import { initTrustRuleV3Cache } from "./risk/trust-rule-v3-cache.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -242,6 +250,7 @@ async function main() {
   log.info("JWT signing key initialized");
 
   await initGatewayDb();
+  initTrustRuleV3Cache();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -399,6 +408,11 @@ async function main() {
   const handleTrustRulesClear = createTrustRulesClearHandler();
   const handleTrustRulesMatch = createTrustRulesMatchHandler();
   const handleTrustRulesStarterBundle = createTrustRulesStarterBundleHandler();
+  const handleTrustRuleV3sList = createTrustRuleV3sListHandler();
+  const handleTrustRuleV3sCreate = createTrustRuleV3sCreateHandler();
+  const handleTrustRuleV3sUpdate = createTrustRuleV3sUpdateHandler();
+  const handleTrustRuleV3sDelete = createTrustRuleV3sDeleteHandler();
+  const handleTrustRuleV3sReset = createTrustRuleV3sResetHandler();
 
   const audioProxy = createAudioProxyHandler(config);
 
@@ -1213,6 +1227,39 @@ async function main() {
       auth: "edge",
       handler: (req, params, getClientIp) =>
         handleLogExport(req, params, getClientIp),
+    },
+
+    // ── Trust rules v3 ──
+    {
+      path: "/v1/trust-rules-v3",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => handleTrustRuleV3sList(req),
+    },
+    {
+      path: "/v1/trust-rules-v3",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRuleV3sCreate(req),
+    },
+    {
+      // Reset must be registered before the /:id catch-all regex
+      path: /^\/v1\/trust-rules-v3\/([^/]+)\/reset$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => handleTrustRuleV3sReset(req, params[0]),
+    },
+    {
+      path: /^\/v1\/trust-rules-v3\/([^/]+)$/,
+      method: "PATCH",
+      auth: "edge",
+      handler: (req, params) => handleTrustRuleV3sUpdate(req, params[0]),
+    },
+    {
+      path: /^\/v1\/trust-rules-v3\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) => handleTrustRuleV3sDelete(req, params[0]),
     },
 
     // ── Trust rules ──
