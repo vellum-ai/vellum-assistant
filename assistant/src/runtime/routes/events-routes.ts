@@ -20,8 +20,17 @@
  * notification for other clients is driven by `handleSendMessage`'s
  * first-message check, so eager materialisation here is safe and does
  * not hide the first-message notification from other clients.
+ *
+ * Client registration:
+ *   Clients may send `X-Vellum-Client-Id` and `X-Vellum-Interface-Id`
+ *   request headers to register in the ClientRegistry on connect and
+ *   automatically unregister on disconnect. When both headers are present,
+ *   the client is registered immediately, touched on each heartbeat, and
+ *   unregistered when the stream closes. When either header is missing,
+ *   registration is skipped (backwards compat).
  */
 
+import { parseInterfaceId } from "../../channels/types.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
@@ -34,6 +43,7 @@ import {
 } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
+import { getClientRegistry } from "../client-registry.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -47,6 +57,13 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  *   conversationKey -- optional; when provided, scopes the stream to one
  *                      conversation. When omitted, the stream delivers events
  *                      from ALL conversations for this assistant.
+ *
+ * Headers (optional):
+ *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
+ *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "vellum").
+ *
+ *   When both are present the client is registered in the ClientRegistry on
+ *   connect and unregistered on disconnect.
  *
  * Options (for testing):
  *   hub               -- override the event hub (defaults to process singleton).
@@ -75,6 +92,27 @@ export function handleSubscribeAssistantEvents(
   const conversationKey = url.searchParams.get("conversationKey");
   if (url.searchParams.has("conversationKey") && !conversationKey?.trim()) {
     return httpError("BAD_REQUEST", "conversationKey must not be empty", 400);
+  }
+
+  // ── Client registration from headers ──────────────────────────────────
+  const rawClientId = req.headers.get("x-vellum-client-id");
+  const rawInterfaceId = req.headers.get("x-vellum-interface-id");
+  const clientId = rawClientId?.trim() || null;
+  const interfaceId = clientId
+    ? parseInterfaceId(rawInterfaceId?.trim())
+    : null;
+
+  if (clientId && !interfaceId) {
+    return httpError(
+      "BAD_REQUEST",
+      "X-Vellum-Interface-Id is required when X-Vellum-Client-Id is provided",
+      400,
+    );
+  }
+
+  const registry = getClientRegistry();
+  if (clientId && interfaceId) {
+    registry.register({ clientId, interfaceId });
   }
 
   const hub = options?.hub ?? assistantEventHub;
@@ -109,6 +147,9 @@ export function handleSubscribeAssistantEvents(
     if (heartbeatTimer) {
       clearInterval(heartbeatTimer);
       heartbeatTimer = null;
+    }
+    if (clientId) {
+      registry.unregister(clientId);
     }
     try {
       controllerRef?.close();
@@ -145,6 +186,10 @@ export function handleSubscribeAssistantEvents(
     );
   } catch (err) {
     if (err instanceof RangeError) {
+      // Clean up registration if we can't actually subscribe
+      if (clientId) {
+        registry.unregister(clientId);
+      }
       return httpError(
         "SERVICE_UNAVAILABLE",
         "Too many concurrent connections",
@@ -187,6 +232,12 @@ export function handleSubscribeAssistantEvents(
               sub.dispose();
               cleanup();
               return;
+            }
+            // Touch the client on each heartbeat to keep it fresh in the
+            // registry. Without this, long-idle SSE connections would be
+            // evicted by the staleness sweep despite being connected.
+            if (clientId) {
+              registry.touch(clientId);
             }
             controller.enqueue(encoder.encode(formatSseHeartbeat()));
           } catch {

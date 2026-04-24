@@ -91,7 +91,6 @@ Examples:
           "CAPABILITIES",
           "CONNECTED",
           "LAST ACTIVE",
-          "HOST",
         ];
         const rows: string[][] = entries.map((e: ClientEntryJSON) => [
           e.clientId.length > 20 ? `${e.clientId.slice(0, 17)}...` : e.clientId,
@@ -99,9 +98,6 @@ Examples:
           e.capabilities.length > 0 ? e.capabilities.join(", ") : "—",
           formatRelativeTime(e.connectedAt),
           formatRelativeTime(e.lastActiveAt),
-          e.hostUsername
-            ? `${e.hostUsername}${e.hostHomeDir ? ` (${e.hostHomeDir})` : ""}`
-            : "—",
         ]);
 
         // Calculate column widths
