@@ -63,7 +63,7 @@ public struct TrustRuleV3Client: TrustRuleV3ClientProtocol {
         var params: [String: String] = [:]
         if let origin { params["origin"] = origin }
         if let tool { params["tool"] = tool }
-        if let includeDeleted { params["includeDeleted"] = String(includeDeleted) }
+        if let includeDeleted { params["include_deleted"] = String(includeDeleted) }
 
         let response = try await GatewayHTTPClient.get(
             path: "trust-rules-v3", params: params, timeout: 10
