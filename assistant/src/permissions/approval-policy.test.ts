@@ -180,7 +180,7 @@ describe("allow rule", () => {
 describe("sandbox auto-approve", () => {
   test("bash + hasSandboxAutoApprove + containerized → allow", () => {
     const result = evaluate({
-      riskLevel: RiskLevel.Low,
+      riskLevel: RiskLevel.High,
       toolName: "bash",
       hasSandboxAutoApprove: true,
       isContainerized: true,
@@ -202,16 +202,17 @@ describe("sandbox auto-approve", () => {
     expect(result.reason).toContain("sandbox auto-approve");
   });
 
-  test("bash + hasSandboxAutoApprove + High risk → blocked by default threshold", () => {
+  test("bash + hasSandboxAutoApprove + not containerized + High risk → allow (path resolution validated upstream)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
       hasSandboxAutoApprove: true,
       isContainerized: false,
     });
-    // High risk is outside the default "low" threshold, so sandbox auto-approve
-    // does not fire. Falls through to risk-based evaluation → prompt.
-    expect(result.decision).toBe("prompt");
+    // Even at High risk, hasSandboxAutoApprove === true means the checker already
+    // validated that all path arguments are within the workspace root.
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("sandbox auto-approve");
   });
 
   test("host_bash + hasSandboxAutoApprove + containerized → falls through", () => {

@@ -173,8 +173,8 @@ export interface CommandRiskSpec {
   /** Human-readable reason for the base risk (shown when no arg rule matches). */
   reason?: string;
   /**
-   * When true, this command auto-approves in the assistant's workspace
-   * without consulting the user's autoApproveUpTo threshold.
+   * When true, this command auto-approves in the assistant's workspace.
+   * Suppressed when the user's autoApproveUpTo threshold is "none" (Strict).
    */
   sandboxAutoApprove?: boolean;
   /**
