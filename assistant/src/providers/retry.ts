@@ -35,6 +35,12 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
  */
 const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter"]);
 
+/**
+ * Providers that consume the `verbosity` config. Currently OpenAI (mapped to
+ * `text.verbosity` on the Responses API — a GPT-5-series parameter).
+ */
+const VERBOSITY_SUPPORTED_PROVIDERS = new Set(["openai"]);
+
 /** Patterns that indicate a transient streaming corruption from the SDK. */
 const RETRYABLE_STREAM_PATTERNS = [
   "Unexpected event order",
@@ -88,22 +94,22 @@ function isRetryableError(error: unknown): boolean {
  * Normalize per-call options before handing them to the wrapped provider.
  *
  * When `config.callSite` is set, resolves model/maxTokens/effort/speed/
- * temperature/thinking via `resolveCallSiteConfig` and writes them into
- * `nextConfig` using the wire-format names that downstream provider clients
- * consume (`max_tokens` snake-case for the token cap; camelCase for the rest,
- * which matches the resolver's shape). Per-call explicit overrides on the
- * original `config` object win over the resolved values, so callers can pin
- * a model or other parameter for a single request. `contextWindow` and
+ * verbosity/temperature/thinking via `resolveCallSiteConfig` and writes them
+ * into `nextConfig` using the wire-format names that downstream provider
+ * clients consume (`max_tokens` snake-case for the token cap; camelCase for
+ * the rest, which matches the resolver's shape). Per-call explicit overrides
+ * on the original `config` object win over the resolved values, so callers can
+ * pin a model or other parameter for a single request. `contextWindow` and
  * `provider` are intentionally excluded from the written fields — they are
  * server-side routing/overflow concerns, not provider request parameters,
  * and forwarding them would leak unknown fields into provider request bodies
  * (strict-schema clients like Anthropic reject the request).
  *
  * Whether or not `callSite` is set, this function applies per-provider
- * stripping (`thinking`/`effort`/`speed`) based on the wrapped provider's
- * name — agent-loop callers that pre-resolve provider/model still need this
- * stripping so they don't accidentally send Anthropic-only knobs to OpenAI
- * etc.
+ * stripping (`thinking`/`effort`/`speed`/`verbosity`) based on the wrapped
+ * provider's name — agent-loop callers that pre-resolve provider/model still
+ * need this stripping so they don't accidentally send Anthropic-only knobs to
+ * OpenAI etc.
  */
 function normalizeSendMessageOptions(
   providerName: string,
@@ -136,6 +142,9 @@ function normalizeSendMessageOptions(
     }
     if (nextConfig.speed === undefined) {
       nextConfig.speed = resolved.speed;
+    }
+    if (nextConfig.verbosity === undefined) {
+      nextConfig.verbosity = resolved.verbosity;
     }
     // `temperature` defaults to `null` in the LLM schema (meaning "no opinion
     // — let the provider pick its own default"). Only forward when the
@@ -231,6 +240,15 @@ function normalizeSendMessageOptions(
   // speed (fast mode) is Anthropic-specific; strip for other providers
   if (providerName !== "anthropic" && nextConfig.speed !== undefined) {
     delete nextConfig.speed;
+  }
+
+  // verbosity maps to OpenAI's `text.verbosity` (Responses API); strip for
+  // providers that don't accept it to avoid leaking unknown fields on the wire.
+  if (
+    !VERBOSITY_SUPPORTED_PROVIDERS.has(providerName) &&
+    nextConfig.verbosity !== undefined
+  ) {
+    delete nextConfig.verbosity;
   }
 
   // `openrouter.only` is OpenRouter-specific routing; strip for other

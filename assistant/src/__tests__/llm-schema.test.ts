@@ -74,6 +74,7 @@ describe("LLMSchema", () => {
       maxTokens: 64000,
       effort: "max",
       speed: "standard",
+      verbosity: "medium",
       temperature: null,
       thinking: { enabled: true, streamThinking: true },
       contextWindow: {

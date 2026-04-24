@@ -35,6 +35,9 @@ const EFFORT_TO_REASONING_EFFORT: Record<string, "low" | "medium" | "high"> = {
   max: "high",
 };
 
+/** Values accepted by the Responses API `text.verbosity` parameter. */
+const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
+
 /** Loosely-typed Responses stream event to avoid `any` while the SDK types settle. */
 interface ResponsesStreamEvent {
   type: string;
@@ -109,6 +112,7 @@ export class OpenAIResponsesProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
+    const verbosity = configObj?.verbosity as string | undefined;
 
     try {
       const input = this.toResponsesInput(messages);
@@ -135,6 +139,10 @@ export class OpenAIResponsesProvider implements Provider {
         : undefined;
       if (reasoningEffort) {
         params.reasoning = { effort: reasoningEffort };
+      }
+
+      if (verbosity && VALID_VERBOSITIES.has(verbosity)) {
+        params.text = { verbosity };
       }
 
       if (tools && tools.length > 0) {

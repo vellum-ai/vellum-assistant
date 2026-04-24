@@ -536,6 +536,61 @@ describe("OpenAIResponsesProvider", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Verbosity → text param
+  // -----------------------------------------------------------------------
+  test('verbosity: "low" maps to text: { verbosity: "low" }', async () => {
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "low" } },
+    );
+
+    expect(lastStreamParams!.text).toEqual({ verbosity: "low" });
+  });
+
+  test('verbosity: "high" maps to text: { verbosity: "high" }', async () => {
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "high" } },
+    );
+
+    expect(lastStreamParams!.text).toEqual({ verbosity: "high" });
+  });
+
+  test("no verbosity config means no text param", async () => {
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: {} },
+    );
+
+    expect(lastStreamParams!.text).toBeUndefined();
+  });
+
+  test("unrecognized verbosity value is ignored", async () => {
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "bogus" } },
+    );
+
+    expect(lastStreamParams!.text).toBeUndefined();
+  });
+
+  // -----------------------------------------------------------------------
   // Model override
   // -----------------------------------------------------------------------
   test("uses model from config when provided", async () => {

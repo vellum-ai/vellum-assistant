@@ -70,7 +70,7 @@ export const LLMCallSiteEnum = z.enum([
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
 // ---------------------------------------------------------------------------
-// Effort & Speed
+// Effort, Speed & Verbosity
 // ---------------------------------------------------------------------------
 
 export const EffortEnum = z.enum(["low", "medium", "high", "xhigh", "max"]);
@@ -78,6 +78,14 @@ export type Effort = z.infer<typeof EffortEnum>;
 
 export const SpeedEnum = z.enum(["standard", "fast"]);
 export type Speed = z.infer<typeof SpeedEnum>;
+
+/**
+ * Response verbosity. Currently consumed by OpenAI's Responses API as
+ * `text.verbosity` (low|medium|high). Providers that don't support this knob
+ * are stripped in `retry.ts` normalization.
+ */
+export const VerbosityEnum = z.enum(["low", "medium", "high"]);
+export type Verbosity = z.infer<typeof VerbosityEnum>;
 
 // ---------------------------------------------------------------------------
 // Leaf primitives (shared between LLMConfigBase and LLMConfigFragment)
@@ -248,6 +256,7 @@ export const LLMConfigBase = z.object({
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
   speed: SpeedEnum.default("standard"),
+  verbosity: VerbosityEnum.default("medium"),
   temperature: TemperatureSchema.default(null),
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
@@ -267,6 +276,7 @@ export const LLMConfigFragment = z.object({
   maxTokens: MaxTokensSchema.optional(),
   effort: EffortEnum.optional(),
   speed: SpeedEnum.optional(),
+  verbosity: VerbosityEnum.optional(),
   temperature: TemperatureSchema.optional(),
   thinking: ThinkingFragmentSchema.optional(),
   contextWindow: ContextWindowDeepPartialSchema.optional(),

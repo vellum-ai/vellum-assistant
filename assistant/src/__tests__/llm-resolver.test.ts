@@ -11,6 +11,7 @@ const fullDefault = {
   maxTokens: 64000,
   effort: "max" as const,
   speed: "standard" as const,
+  verbosity: "medium" as const,
   temperature: null,
   thinking: { enabled: true, streamThinking: true },
   contextWindow: {
