@@ -14,6 +14,7 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../../../providers/model-context.js";
 import type { RouteDefinition } from "../../http-router.js";
 import { conversationNotFoundResponse } from "./conversation-not-found.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
@@ -30,7 +31,7 @@ import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
 export function buildCompactionStateResponse(conversation: Conversation) {
   const messages = conversation.getMessages();
   const estimatedInputTokens = estimatePromptTokens(messages);
-  const cfg = getConfig().llm.default.contextWindow;
+  const cfg = resolveEffectiveDefaultContextWindowConfig(getConfig());
   const maxInputTokens = cfg.maxInputTokens;
   const compactThresholdRatio = cfg.compactThreshold;
   const thresholdTokens = Math.floor(maxInputTokens * compactThresholdRatio);

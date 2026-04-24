@@ -20,6 +20,7 @@ import { z } from "zod";
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../../../providers/model-context.js";
 import { httpError } from "../../http-errors.js";
 import type { RouteDefinition } from "../../http-router.js";
 import { conversationNotFoundResponse } from "./conversation-not-found.js";
@@ -131,7 +132,7 @@ export interface CompactionStateResponse {
 function buildCompactionState(
   conversation: Conversation,
 ): CompactionStateResponse {
-  const ctxConfig = getConfig().llm.default.contextWindow;
+  const ctxConfig = resolveEffectiveDefaultContextWindowConfig(getConfig());
   const maxInputTokens = ctxConfig.maxInputTokens;
   const compactThresholdRatio = ctxConfig.compactThreshold;
   const isCompactionEnabled = ctxConfig.enabled;
