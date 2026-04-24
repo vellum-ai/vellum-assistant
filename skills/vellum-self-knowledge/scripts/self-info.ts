@@ -20,6 +20,7 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "claude-opus-4-6": "Claude Opus 4.6",
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+  "gpt-5.5": "GPT-5.5",
   "gpt-5.2": "GPT-5.2",
   "gpt-5.4": "GPT-5.4",
   "gpt-5.4-nano": "GPT-5.4 Nano",

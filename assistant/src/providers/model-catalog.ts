@@ -133,6 +133,21 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "gpt-5.5",
+        displayName: "GPT-5.5",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5.0,
+          outputPer1mTokens: 30.0,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "gpt-5.4",
         displayName: "GPT-5.4",
         contextWindowTokens: 400000,

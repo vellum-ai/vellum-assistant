@@ -260,6 +260,7 @@ private let fallbackCatalog = LLMProviderCatalog(
             ),
             defaultModel: "gpt-5.4",
             models: [
+                LLMModelEntry(id: "gpt-5.5", displayName: "GPT-5.5"),
                 LLMModelEntry(id: "gpt-5.4", displayName: "GPT-5.4"),
                 LLMModelEntry(id: "gpt-5.2", displayName: "GPT-5.2"),
                 LLMModelEntry(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),

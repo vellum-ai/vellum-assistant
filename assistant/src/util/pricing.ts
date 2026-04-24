@@ -28,6 +28,7 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "claude-haiku-4": { inputPer1M: 1, outputPer1M: 5 },
   },
   openai: {
+    "gpt-5.5": { inputPer1M: 5, outputPer1M: 30 },
     "gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15 },
     "gpt-5.4-mini": { inputPer1M: 0.5, outputPer1M: 3 },
     "gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
