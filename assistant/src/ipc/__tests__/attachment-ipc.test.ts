@@ -6,12 +6,13 @@
  * the route handlers.
  */
 
-import { unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { initializeDb } from "../../memory/db.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { cliIpcCall } from "../cli-client.js";
 import { CliIpcServer } from "../cli-server.js";
 
@@ -28,8 +29,20 @@ initializeDb();
 let server: CliIpcServer | null = null;
 const tempFiles: string[] = [];
 
-function createTempFile(content: string, filename?: string): string {
+/** Create a temp file inside the workspace directory. */
+function createWorkspaceFile(content: string, filename?: string): string {
+  const dir = join(getWorkspaceDir(), "data", "test-attachments");
+  mkdirSync(dir, { recursive: true });
   const name = filename ?? `test-attachment-${Date.now()}.txt`;
+  const filePath = join(dir, name);
+  writeFileSync(filePath, content);
+  tempFiles.push(filePath);
+  return filePath;
+}
+
+/** Create a temp file outside the workspace directory (in system tmpdir). */
+function createOutsideFile(content: string, filename?: string): string {
+  const name = filename ?? `outside-attachment-${Date.now()}.txt`;
   const filePath = join(tmpdir(), name);
   writeFileSync(filePath, content);
   tempFiles.push(filePath);
@@ -79,7 +92,7 @@ describe("attachment IPC routes", () => {
   // -- attachment/register success ----------------------------------------
 
   test("attachment/register returns stored attachment for valid file", async () => {
-    const filePath = createTempFile("hello world");
+    const filePath = createWorkspaceFile("hello world");
 
     const result = await cliIpcCall<StoredAttachmentResult>(
       "attachment/register",
@@ -101,7 +114,7 @@ describe("attachment IPC routes", () => {
   });
 
   test("attachment/register uses custom filename when provided", async () => {
-    const filePath = createTempFile("custom name test");
+    const filePath = createWorkspaceFile("custom name test");
 
     const result = await cliIpcCall<StoredAttachmentResult>(
       "attachment/register",
@@ -118,11 +131,52 @@ describe("attachment IPC routes", () => {
     expect(result.result!.kind).toBe("image");
   });
 
+  // -- attachment/register workspace restriction --------------------------
+
+  test("attachment/register rejects paths outside workspace", async () => {
+    const filePath = createOutsideFile("sensitive data");
+
+    const result = await cliIpcCall("attachment/register", {
+      path: filePath,
+      mimeType: "text/plain",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("must be within the workspace directory");
+  });
+
+  test("attachment/register rejects absolute paths outside workspace", async () => {
+    const result = await cliIpcCall("attachment/register", {
+      path: "/etc/passwd",
+      mimeType: "text/plain",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("must be within the workspace directory");
+  });
+
+  test("attachment/register rejects traversal attempts", async () => {
+    const workspaceDir = getWorkspaceDir();
+    const traversalPath = join(workspaceDir, "..", "..", "etc", "passwd");
+
+    const result = await cliIpcCall("attachment/register", {
+      path: traversalPath,
+      mimeType: "text/plain",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("must be within the workspace directory");
+  });
+
   // -- attachment/register errors -----------------------------------------
 
   test("attachment/register errors when file does not exist", async () => {
+    const workspaceDir = getWorkspaceDir();
     const result = await cliIpcCall("attachment/register", {
-      path: "/tmp/nonexistent-file-that-should-not-exist-12345.txt",
+      path: join(
+        workspaceDir,
+        "nonexistent-file-that-should-not-exist-12345.txt",
+      ),
       mimeType: "text/plain",
     });
 
@@ -140,7 +194,7 @@ describe("attachment IPC routes", () => {
   });
 
   test("attachment/register rejects missing mimeType", async () => {
-    const filePath = createTempFile("missing mime type");
+    const filePath = createWorkspaceFile("missing mime type");
 
     const result = await cliIpcCall("attachment/register", {
       path: filePath,
@@ -150,11 +204,24 @@ describe("attachment IPC routes", () => {
     expect(result.error).toBeDefined();
   });
 
+  // -- attachment/lookup workspace restriction ----------------------------
+
+  test("attachment/lookup rejects paths outside workspace", async () => {
+    const result = await cliIpcCall("attachment/lookup", {
+      sourcePath: "/etc/passwd",
+      conversationId: "some-conversation-id",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("must be within the workspace directory");
+  });
+
   // -- attachment/lookup errors -------------------------------------------
 
   test("attachment/lookup errors when no attachment matches", async () => {
+    const workspaceDir = getWorkspaceDir();
     const result = await cliIpcCall("attachment/lookup", {
-      sourcePath: "/nonexistent/path/to/file.txt",
+      sourcePath: join(workspaceDir, "nonexistent", "path", "file.txt"),
       conversationId: "nonexistent-conversation-id",
     });
 
@@ -183,7 +250,7 @@ describe("attachment IPC routes", () => {
   // -- Underscore aliases -------------------------------------------------
 
   test("attachment_register alias works identically to attachment/register", async () => {
-    const filePath = createTempFile("alias test content");
+    const filePath = createWorkspaceFile("alias test content");
 
     const result = await cliIpcCall<StoredAttachmentResult>(
       "attachment_register",
@@ -202,8 +269,9 @@ describe("attachment IPC routes", () => {
   });
 
   test("attachment_lookup alias works identically to attachment/lookup", async () => {
+    const workspaceDir = getWorkspaceDir();
     const result = await cliIpcCall("attachment_lookup", {
-      sourcePath: "/nonexistent/path/to/file.txt",
+      sourcePath: join(workspaceDir, "nonexistent", "path", "file.txt"),
       conversationId: "nonexistent-conversation-id",
     });
 
