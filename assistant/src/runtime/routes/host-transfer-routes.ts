@@ -91,13 +91,14 @@ export async function handleTransferContentPut(
     sha256,
   );
 
-  // For to_sandbox transfers there is no subsequent /v1/host-transfer-result
-  // callback — the proxy already resolved its internal Promise inside
-  // receiveTransferContent(). Clean up the runtime-level pending interaction
-  // entry so it doesn't leak.  This must happen regardless of whether the
-  // transfer was accepted (receiveTransferContent always resolves the proxy's
-  // internal Promise, whether success or error).
-  pendingInteractions.resolve(match.interaction.requestId);
+  // Clean up the runtime-level pending interaction when the proxy has
+  // finished with the transfer (success, overwrite rejection, or write
+  // failure).  On SHA-256 mismatch the proxy intentionally keeps the
+  // transfer pending so the client can retry — do NOT consume the
+  // interaction in that case.
+  if (!match.proxy.hasPendingTransfer(transferId)) {
+    pendingInteractions.resolve(match.interaction.requestId);
+  }
 
   if (!result.accepted) {
     return httpError(

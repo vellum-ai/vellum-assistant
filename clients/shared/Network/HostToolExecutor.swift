@@ -727,42 +727,18 @@ public enum HostToolExecutor {
                 sourcePath: sourcePath
             )
             guard success else {
-                let result = HostTransferResultPayload(
-                    requestId: request.requestId,
-                    isError: true,
-                    bytesWritten: nil,
-                    errorMessage: "Failed to push transfer content"
-                )
-                if !isCancelledAndConsume(request.requestId) {
-                    _ = await HostProxyClient().postTransferResult(result)
-                }
+                log.error("Host transfer to_sandbox push failed — requestId=\(request.requestId, privacy: .public)")
                 return
             }
         } catch {
-            let result = HostTransferResultPayload(
-                requestId: request.requestId,
-                isError: true,
-                bytesWritten: nil,
-                errorMessage: "Failed to push transfer content: \(error.localizedDescription)"
-            )
-            if !isCancelledAndConsume(request.requestId) {
-                _ = await HostProxyClient().postTransferResult(result)
-            }
+            log.error("Host transfer to_sandbox push error — requestId=\(request.requestId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             return
         }
 
+        // No separate result POST needed for to_sandbox — the PUT response
+        // carries the status and the server consumes the pending interaction
+        // inside handleTransferContentPut.
         log.debug("Host transfer to_sandbox completed — requestId=\(request.requestId, privacy: .public) bytes=\(data.count)")
-
-        // Post success
-        let result = HostTransferResultPayload(
-            requestId: request.requestId,
-            isError: false,
-            bytesWritten: data.count,
-            errorMessage: nil
-        )
-        if !isCancelledAndConsume(request.requestId) {
-            _ = await HostProxyClient().postTransferResult(result)
-        }
     }
 
     // MARK: - SHA-256 Helper
