@@ -4,10 +4,10 @@
  *
  * Validates:
  *   - Help text renders for both `inference send` and `llm send`
- *   - Error when no LLM provider is configured
+ *   - Error when no LLM provider is configured (IPC returns error)
  *   - Error when no message is provided (no args, no stdin)
- *   - Success with mocked provider (response text on stdout)
- *   - `--system-prompt` is passed through to the provider call
+ *   - Success with mocked IPC (response text on stdout)
+ *   - `--system-prompt` is passed through to the IPC call
  *   - `--json` output format
  *   - `--model` override is passed through
  *   - `llm send` produces the same result as `inference send`
@@ -21,36 +21,25 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-  ToolDefinition,
-} from "../../../providers/types.js";
+import type { CliIpcCallResult } from "../../../ipc/cli-client.js";
+import type { InferenceSendResponse } from "../../../ipc/routes/inference-send.js";
 
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
 
-/** Whether `getConfiguredProvider` returns a mock provider or null. */
-let mockProviderAvailable = true;
-
-/** The response the mock provider will return. */
-let mockProviderResponse: ProviderResponse = {
-  content: [{ type: "text", text: "42" }],
-  model: "claude-test-1",
-  usage: { inputTokens: 10, outputTokens: 5 },
-  stopReason: "end_turn",
+/** The result cliIpcCall will return. */
+let mockIpcResult: CliIpcCallResult<InferenceSendResponse> = {
+  ok: true,
+  result: {
+    text: "42",
+    model: "claude-test-1",
+    usage: { inputTokens: 10, outputTokens: 5 },
+  },
 };
 
-/** Captures the last `sendMessage` call for assertions. */
-let lastSendMessageCall: {
-  messages: Message[];
-  tools?: ToolDefinition[];
-  systemPrompt?: string;
-  options?: SendMessageOptions;
-} | null = null;
+/** Captures the last cliIpcCall invocation params for assertions. */
+let lastIpcCallParams: Record<string, unknown> | null = null;
 
 /** Simulated stdin content for the next command run. */
 let mockStdinContent: string | null = null;
@@ -59,37 +48,11 @@ let mockStdinContent: string | null = null;
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockProvider: Provider = {
-  name: "mock-provider",
-  sendMessage: async (
-    messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
-    options?: SendMessageOptions,
-  ) => {
-    lastSendMessageCall = { messages, tools, systemPrompt, options };
-    return mockProviderResponse;
+mock.module("../../../ipc/cli-client.js", () => ({
+  cliIpcCall: async (_method: string, params?: Record<string, unknown>) => {
+    lastIpcCallParams = params ?? null;
+    return mockIpcResult;
   },
-};
-
-mock.module("../../../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: async () =>
-    mockProviderAvailable ? mockProvider : null,
-  extractAllText: (response: ProviderResponse) => {
-    return response.content
-      .filter(
-        (
-          b,
-        ): b is Extract<(typeof response.content)[number], { type: "text" }> =>
-          b.type === "text",
-      )
-      .map((b) => b.text)
-      .join(" ");
-  },
-  userMessage: (text: string): Message => ({
-    role: "user",
-    content: [{ type: "text", text }],
-  }),
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -193,14 +156,15 @@ async function runCommand(
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mockProviderAvailable = true;
-  mockProviderResponse = {
-    content: [{ type: "text", text: "42" }],
-    model: "claude-test-1",
-    usage: { inputTokens: 10, outputTokens: 5 },
-    stopReason: "end_turn",
+  mockIpcResult = {
+    ok: true,
+    result: {
+      text: "42",
+      model: "claude-test-1",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    },
   };
-  lastSendMessageCall = null;
+  lastIpcCallParams = null;
   mockStdinContent = null;
   process.exitCode = 0;
 });
@@ -249,7 +213,11 @@ describe("help text", () => {
 
 describe("no provider configured", () => {
   test("exits with code 1 and actionable error when no provider", async () => {
-    mockProviderAvailable = false;
+    mockIpcResult = {
+      ok: false,
+      error:
+        "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.",
+    };
 
     const { exitCode, stdout } = await runCommand([
       "inference",
@@ -316,11 +284,8 @@ describe("success with positional args", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("42");
-    expect(lastSendMessageCall).toBeDefined();
-    expect(lastSendMessageCall!.messages[0].content[0]).toEqual({
-      type: "text",
-      text: "What is 2+2?",
-    });
+    expect(lastIpcCallParams).toBeDefined();
+    expect(lastIpcCallParams!.message).toBe("What is 2+2?");
   });
 });
 
@@ -336,11 +301,8 @@ describe("success with stdin", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("42");
-    expect(lastSendMessageCall).toBeDefined();
-    expect(lastSendMessageCall!.messages[0].content[0]).toEqual({
-      type: "text",
-      text: "What is 2+2?",
-    });
+    expect(lastIpcCallParams).toBeDefined();
+    expect(lastIpcCallParams!.message).toBe("What is 2+2?");
   });
 });
 
@@ -349,7 +311,7 @@ describe("success with stdin", () => {
 // ---------------------------------------------------------------------------
 
 describe("--system-prompt", () => {
-  test("passes system prompt through to provider", async () => {
+  test("passes system prompt through to IPC call", async () => {
     await runCommand([
       "inference",
       "send",
@@ -358,8 +320,8 @@ describe("--system-prompt", () => {
       "Write a haiku",
     ]);
 
-    expect(lastSendMessageCall).toBeDefined();
-    expect(lastSendMessageCall!.systemPrompt).toBe("You are a poet");
+    expect(lastIpcCallParams).toBeDefined();
+    expect(lastIpcCallParams!.systemPrompt).toBe("You are a poet");
   });
 });
 
@@ -393,7 +355,7 @@ describe("--json output", () => {
 // ---------------------------------------------------------------------------
 
 describe("--model override", () => {
-  test("passes model override through to provider config", async () => {
+  test("passes model override through to IPC params", async () => {
     await runCommand([
       "inference",
       "send",
@@ -402,10 +364,8 @@ describe("--model override", () => {
       "Hello",
     ]);
 
-    expect(lastSendMessageCall).toBeDefined();
-    expect(lastSendMessageCall!.options?.config?.model).toBe(
-      "claude-sonnet-4-20250514",
-    );
+    expect(lastIpcCallParams).toBeDefined();
+    expect(lastIpcCallParams!.model).toBe("claude-sonnet-4-20250514");
   });
 });
 
@@ -414,11 +374,11 @@ describe("--model override", () => {
 // ---------------------------------------------------------------------------
 
 describe("--max-tokens", () => {
-  test("passes max tokens through to provider config", async () => {
+  test("passes max tokens through to IPC params", async () => {
     await runCommand(["inference", "send", "--max-tokens", "1024", "Hello"]);
 
-    expect(lastSendMessageCall).toBeDefined();
-    expect(lastSendMessageCall!.options?.config?.max_tokens).toBe(1024);
+    expect(lastIpcCallParams).toBeDefined();
+    expect(lastIpcCallParams!.maxTokens).toBe(1024);
   });
 
   test("errors on invalid max-tokens value", async () => {
@@ -452,7 +412,7 @@ describe("llm alias", () => {
     ]);
 
     // Reset for the second call
-    lastSendMessageCall = null;
+    lastIpcCallParams = null;
 
     const llmResult = await runCommand(["llm", "send", "--json", "Hello"]);
 

@@ -2,11 +2,8 @@ import { readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import {
-  extractAllText,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
+import type { InferenceSendResponse } from "../../ipc/routes/inference-send.js";
 import { log } from "../logger.js";
 
 /**
@@ -92,15 +89,17 @@ Examples:
           return;
         }
 
-        // Resolve provider.
-        const provider = await getConfiguredProvider("inference");
-        if (!provider) {
-          const msg =
-            "No LLM provider is configured. Run 'assistant config set llm.default.provider <provider>' to set one up.";
+        const ipcResult = await cliIpcCall<InferenceSendResponse>("inference_send", {
+          message: messageText,
+          systemPrompt,
+          model,
+          maxTokens,
+        });
+
+        if (!ipcResult.ok) {
+          const msg = ipcResult.error ?? "Unknown error occurred";
           if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
+            process.stdout.write(JSON.stringify({ ok: false, error: msg }) + "\n");
           } else {
             log.error(msg);
           }
@@ -108,48 +107,19 @@ Examples:
           return;
         }
 
-        try {
-          const response = await provider.sendMessage(
-            [userMessage(messageText)],
-            undefined,
-            systemPrompt,
-            {
-              config: {
-                callSite: "inference",
-                max_tokens: maxTokens,
-                model,
-              },
-            },
+        const { text, model: responseModel, usage } = ipcResult.result!;
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              response: text,
+              model: responseModel,
+              usage,
+            }) + "\n",
           );
-
-          const text = extractAllText(response);
-
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({
-                ok: true,
-                response: text,
-                model: response.model,
-                usage: {
-                  inputTokens: response.usage.inputTokens,
-                  outputTokens: response.usage.outputTokens,
-                },
-              }) + "\n",
-            );
-          } else {
-            process.stdout.write(text + "\n");
-          }
-        } catch (err) {
-          const msg =
-            err instanceof Error ? err.message : "Unknown error occurred";
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({ ok: false, error: msg }) + "\n",
-            );
-          } else {
-            log.error(msg);
-          }
-          process.exitCode = 1;
+        } else {
+          process.stdout.write(text + "\n");
         }
       },
     );
