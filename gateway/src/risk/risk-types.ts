@@ -55,6 +55,17 @@ export interface ScopeOption {
 }
 
 /**
+ * A directory-scope option presented alongside the pattern ladder. Emitted
+ * for filesystem ops (bash with filesystemOp=true) and file tools.
+ */
+export interface DirectoryScopeOption {
+  /** Path glob (e.g. "/workspace/scratch/*") or the sentinel "everywhere". */
+  scope: string;
+  /** Human-readable label (e.g. "In scratch/"). */
+  label: string;
+}
+
+/**
  * The output of a risk classifier. Tool-agnostic — every classifier
  * (bash, file_write, web_fetch, etc.) produces this same shape.
  */
@@ -74,6 +85,12 @@ export interface RiskAssessment {
    * directly instead of calling the per-tool strategy function.
    */
   allowlistOptions?: AllowlistOption[];
+  /**
+   * Directory scope ladder for filesystem-targeting invocations. Present when
+   * the classifier has resolved path args / workingDir / workspaceRoot; absent
+   * otherwise. Narrowest to broadest (exact → project → everywhere).
+   */
+  directoryScopeOptions?: DirectoryScopeOption[];
 }
 
 // ── Classifier interface ─────────────────────────────────────────────────────
@@ -177,6 +194,15 @@ export interface CommandRiskSpec {
    * Suppressed when the user's autoApproveUpTo threshold is "none" (Strict).
    */
   sandboxAutoApprove?: boolean;
+  /**
+   * When true, this command primarily operates on the filesystem and should
+   * receive a directory scope ladder in classification results. Set on
+   * read-only fs commands (ls, cat, grep, find, etc.) and mutating commands
+   * (cp, mv, rm, mkdir, chmod, tar, etc.). NOT set on commands that
+   * incidentally touch files (python, node) or whose primary target is the
+   * network/package registry (curl, npm, git).
+   */
+  filesystemOp?: boolean;
   /**
    * Arg-parsing schema for extracting structured argument information.
    * Used by `parseArgs()` to classify args into flags, positionals, and
