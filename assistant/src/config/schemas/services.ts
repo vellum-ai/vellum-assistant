@@ -84,6 +84,57 @@ export const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
 
+/**
+ * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
+ * skill process. Kept narrow: only the values the daemon reads before the
+ * meet-host child is spawned live here. Skill-internal configuration
+ * (avatar renderer, consent copy, proactive-chat keywords, etc.) lives in
+ * `skills/meet-join/config-schema.ts` and is sourced from the separate
+ * `<workspace>/config/meet.json` file the skill owns.
+ *
+ * `lazy_external` gates the manifest-driven lazy-spawn path. While the
+ * default is `false`, `external-skills-bootstrap.ts` keeps running the
+ * in-process `register(host)` path — identical to pre-isolation behavior.
+ * PR 32 flips the default to `true` after the remaining scaffolding lands.
+ */
+export const MeetHostConfigSchema = z
+  .object({
+    lazy_external: z
+      .boolean({
+        error: "services.meet.host.lazy_external must be a boolean",
+      })
+      .default(false)
+      .describe(
+        "When true, the daemon installs meet-join tools from the shipped manifest and spawns the meet-host child on first use instead of loading the skill in-process.",
+      ),
+    idle_timeout_ms: z
+      .number({
+        error: "services.meet.host.idle_timeout_ms must be a number",
+      })
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Idle window in milliseconds after the last active meet session closes before the meet-host child is shut down. Defaults to 5 minutes when unset.",
+      ),
+  })
+  .describe("Daemon-side configuration for the external meet-join skill host");
+export type MeetHostConfig = z.infer<typeof MeetHostConfigSchema>;
+
+/**
+ * Daemon-side `services.meet` block. Intentionally distinct from the
+ * skill-internal `MeetServiceSchema` in `skills/meet-join/config-schema.ts`,
+ * which validates the bot-facing `<workspace>/config/meet.json` file. This
+ * schema only describes the keys the assistant itself reads from its global
+ * `config.json` before the meet-host child process is spawned.
+ */
+export const MeetDaemonServiceSchema = z
+  .object({
+    host: MeetHostConfigSchema.default(MeetHostConfigSchema.parse({})),
+  })
+  .describe("meet-join skill daemon-side configuration");
+export type MeetDaemonService = z.infer<typeof MeetDaemonServiceSchema>;
+
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -116,6 +167,7 @@ export const ServicesSchema = z.object({
   "twitter-oauth": TwitterOAuthServiceSchema.default(
     TwitterOAuthServiceSchema.parse({}),
   ),
+  meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });
 export type Services = z.infer<typeof ServicesSchema>;
 

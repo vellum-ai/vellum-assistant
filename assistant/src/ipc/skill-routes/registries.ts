@@ -20,6 +20,7 @@
 
 import { z } from "zod";
 
+import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { registerSkillTools } from "../../tools/registry.js";
@@ -80,34 +81,75 @@ const ReportSessionParams = z.object({
   meetingId: z.string().min(1),
 });
 
-// ── Session counter (replaced by PR 27 MeetHostSupervisor) ────────────
+// ── Session counter ───────────────────────────────────────────────────
 
 /**
- * Active-session set. Keyed by meetingId so duplicate `report_session_started`
- * calls for the same meeting are idempotent and `report_session_ended` with
- * no prior start is a no-op. PR 27's `MeetHostSupervisor` takes over this
- * responsibility and this module delegates to it when it lands; the IPC wire
- * format does not change.
+ * Fallback active-session set. Keyed by meetingId so duplicate
+ * `report_session_started` calls are idempotent and `report_session_ended`
+ * for an unknown id is a no-op. Used when no {@link MeetHostSupervisor}
+ * has been registered (e.g. when the lazy-external flag is off, in the
+ * narrow window before `external-skills-bootstrap.ts` runs, and in tests
+ * that exercise the IPC routes in isolation). Also backs the test-only
+ * peek helper since the supervisor owns its own counter.
  */
 const activeSessions = new Set<string>();
 
-// TODO(skill-isolation PR 27): replace this helper with a call into
-// MeetHostSupervisor so idle-timeout tracking shares state with the rest
-// of the daemon's session accounting.
+/**
+ * Optional supervisor injected by `external-skills-bootstrap.ts` when the
+ * lazy-external path is enabled. When set, IPC session-report frames are
+ * forwarded to it so its active-session counter and idle-shutdown timer
+ * stay in sync with the routes. When unset, the fallback set above is
+ * mutated directly.
+ */
+type SessionSupervisor = Pick<
+  MeetHostSupervisor,
+  "reportSessionStarted" | "reportSessionEnded" | "activeSessionCount"
+>;
+
+let sessionSupervisor: SessionSupervisor | null = null;
+
+/**
+ * Install a {@link MeetHostSupervisor} as the session-report sink. The IPC
+ * routes still maintain their fallback {@link Set} for diagnostics, but
+ * the supervisor's counter is the source of truth for the `activeCount`
+ * returned to the skill. Passing `null` detaches the supervisor — used
+ * by tests that want to exercise the fallback path cleanly.
+ */
+export function setMeetHostSupervisorForSessionReports(
+  supervisor: SessionSupervisor | null,
+): void {
+  sessionSupervisor = supervisor;
+}
+
 function reportSessionStarted(meetingId: string): number {
+  if (sessionSupervisor) {
+    sessionSupervisor.reportSessionStarted(meetingId);
+    const count = sessionSupervisor.activeSessionCount;
+    log.info(
+      { meetingId, activeCount: count },
+      "Skill reported session started",
+    );
+    return count;
+  }
   activeSessions.add(meetingId);
   log.info(
     { meetingId, activeCount: activeSessions.size },
-    "Skill reported session started (supervisor stub)",
+    "Skill reported session started",
   );
   return activeSessions.size;
 }
 
 function reportSessionEnded(meetingId: string): number {
+  if (sessionSupervisor) {
+    sessionSupervisor.reportSessionEnded(meetingId);
+    const count = sessionSupervisor.activeSessionCount;
+    log.info({ meetingId, activeCount: count }, "Skill reported session ended");
+    return count;
+  }
   activeSessions.delete(meetingId);
   log.info(
     { meetingId, activeCount: activeSessions.size },
-    "Skill reported session ended (supervisor stub)",
+    "Skill reported session ended",
   );
   return activeSessions.size;
 }
@@ -115,6 +157,7 @@ function reportSessionEnded(meetingId: string): number {
 /** Test-only: drop all active sessions between test cases. */
 export function __resetActiveSessionsForTesting(): void {
   activeSessions.clear();
+  sessionSupervisor = null;
 }
 
 /** Test-only: peek at the current active set size. */
