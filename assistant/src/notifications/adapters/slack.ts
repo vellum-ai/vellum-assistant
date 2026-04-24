@@ -1,16 +1,9 @@
 /**
  * Slack channel adapter — delivers notifications to Slack DMs
- * via the gateway's channel-reply endpoint.
- *
- * Follows the same delivery pattern as the Telegram adapter: POST to
- * the gateway's `/deliver/slack` endpoint with a chat ID (the guardian's
- * Slack DM channel ID) and text payload. The gateway forwards the
- * message to the Slack Web API.
+ * by calling the Slack Web API directly.
  */
 
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
-import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
-import { deliverChannelReply } from "../../runtime/gateway-client.js";
+import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import { getLogger } from "../../util/logger.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import {
@@ -208,9 +201,6 @@ export class SlackAdapter implements ChannelAdapter {
       };
     }
 
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const deliverUrl = `${gatewayBase}/deliver/slack`;
-
     const messageText = resolveSlackMessageText(payload);
 
     // Build Block Kit blocks for access request notifications
@@ -221,17 +211,9 @@ export class SlackAdapter implements ChannelAdapter {
     try {
       if (isAccessRequest) {
         const blocks = buildAccessRequestBlocks(payload.contextPayload!);
-        await deliverChannelReply(
-          deliverUrl,
-          { chatId, text: messageText, blocks },
-          mintDaemonDeliveryToken(),
-        );
+        await sendSlackReply(chatId, messageText, { blocks });
       } else {
-        await deliverChannelReply(
-          deliverUrl,
-          { chatId, text: messageText, useBlocks: true },
-          mintDaemonDeliveryToken(),
-        );
+        await sendSlackReply(chatId, messageText, { useBlocks: true });
       }
 
       log.info(

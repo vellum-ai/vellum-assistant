@@ -58,7 +58,6 @@ export function checkAuthRateLimit(
 function isRateLimitedRoute(url: URL): boolean {
   return (
     url.pathname === "/integrations/status" ||
-    url.pathname === "/deliver/slack" ||
     url.pathname.startsWith("/pairing/") ||
     url.pathname === "/webhooks/oauth/callback" ||
     (url.pathname.startsWith("/v1/") && url.pathname !== "/v1/browser-relay")

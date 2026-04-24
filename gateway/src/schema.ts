@@ -3666,73 +3666,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/deliver/slack": {
-        post: {
-          summary: "Slack delivery (internal)",
-          description:
-            "Internal endpoint called by the assistant runtime to deliver outbound messages to a Slack channel via chat.postMessage. Not intended for external use.",
-          operationId: "slackDeliver",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/SlackDeliverRequest" },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Message delivered",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/SlackDeliverOk" },
-                },
-              },
-            },
-            "400": {
-              description:
-                "Invalid JSON, missing required fields, or unsupported attachments",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed (only POST accepted)",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to deliver via Slack API",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "503": {
-              description: "Slack integration not configured",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/v1/admin/upgrade-broadcast": {
         post: {
           summary: "Broadcast upgrade to connected clients",
@@ -4461,42 +4394,6 @@ export function buildSchema(): Record<string, unknown> {
                 },
               },
             },
-          },
-        },
-        SlackDeliverRequest: {
-          type: "object",
-          description:
-            "Request to deliver a message to a Slack channel. Accepts either `chatId` or `to` (alias) as the Slack channel ID.",
-          properties: {
-            chatId: {
-              type: "string",
-              description: "Slack channel ID to deliver the message to",
-            },
-            to: {
-              type: "string",
-              description:
-                "Alias for `chatId` — used by runtime channel callback payloads",
-            },
-            text: {
-              type: "string",
-              description: "Text content to send",
-              minLength: 1,
-            },
-            assistantId: {
-              type: "string",
-              description: "Optional assistant ID",
-            },
-          },
-          allOf: [
-            { anyOf: [{ required: ["chatId"] }, { required: ["to"] }] },
-            { required: ["text"] },
-          ],
-        },
-        SlackDeliverOk: {
-          type: "object",
-          required: ["ok"],
-          properties: {
-            ok: { type: "boolean" },
           },
         },
         IntegrationsStatusResponse: {
