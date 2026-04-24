@@ -1,3 +1,4 @@
+import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 
@@ -40,8 +41,12 @@ export function generateDirectoryScopeOptions(
   //   - Empty pathArgs: treat `workingDir` itself as the ancestor. Taking
   //     `dirname(workingDir)` here would widen the scope to the parent of the
   //     cwd, which is not what users expect from a bare command like `ls`.
-  //   - Single pathArg: resolve it and use its dirname (it's typically a file).
+  //   - Single pathArg: resolve it. If it's an existing directory, use it as
+  //     the ancestor directly; otherwise (file path or missing) fall back to
+  //     `dirname`.
   //   - Multiple pathArgs: resolve, dedupe, and walk the shared segment prefix.
+  //     If the shared prefix is an existing directory, keep it; otherwise
+  //     `dirname` the prefix to drop any partial-filename component.
   let ancestor: string;
   if (pathArgs.length === 0) {
     ancestor = workingDir;
@@ -113,8 +118,16 @@ function resolvePath(path: string, workingDir: string): string {
 
 /**
  * Compute the most specific common ancestor directory of a non-empty list of
- * absolute paths. For a single path this is its `dirname`; for multiple it
- * is the deepest directory whose path is a prefix of every input.
+ * absolute paths.
+ *
+ * For a single path, the result is the path itself when it resolves to an
+ * existing directory (so `ls src` where `src/` is a dir scopes to `src/*`,
+ * not `<parent>/*`) and its `dirname` otherwise (file path or missing —
+ * best-effort fallback). For multiple paths it is the deepest directory
+ * whose path is a prefix of every input; if that prefix is not an existing
+ * directory we `dirname` it to drop any partial-filename component (e.g.
+ * `/a/b/src` vs `/a/b/style` share the prefix `/a/b/s`, which is not a real
+ * directory, so we return `/a/b`).
  *
  * Duplicate paths are collapsed first so that `[p, p]` behaves identically
  * to `[p]` — otherwise the multi-path branch's segment-prefix walk would
@@ -123,7 +136,8 @@ function resolvePath(path: string, workingDir: string): string {
 function commonAncestor(paths: string[]): string {
   const unique = [...new Set(paths)];
   if (unique.length === 1) {
-    return dirname(unique[0]!);
+    const only = unique[0]!;
+    return pathIsExistingDirectory(only) ? only : dirname(only);
   }
 
   // Split each path into its segments. An absolute POSIX path like
@@ -149,7 +163,25 @@ function commonAncestor(paths: string[]): string {
   if (common.length === 1 && common[0] === "") return sep;
 
   const joined = common.join(sep);
-  return joined === "" ? sep : joined;
+  const prefix = joined === "" ? sep : joined;
+  // If the common prefix is already a real directory (e.g. `cp -r src dst`
+  // sharing `/a/b` as their prefix), keep it. Otherwise it's likely a
+  // partial filename — drop the last segment.
+  return pathIsExistingDirectory(prefix) ? prefix : dirname(prefix);
+}
+
+/**
+ * Best-effort sync check whether a path refers to an existing directory.
+ * Swallows all errors (most importantly ENOENT for paths that don't exist
+ * and EACCES for paths we can't stat) and returns false — callers then fall
+ * back to the file-path dirname heuristic.
+ */
+function pathIsExistingDirectory(p: string): boolean {
+  try {
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**

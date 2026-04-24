@@ -354,4 +354,106 @@ describe("generateDirectoryScopeOptions", () => {
       }),
     ).not.toThrow();
   });
+
+  test("single pathArg that is an existing directory scopes to that dir, not its parent", () => {
+    // Regression for Codex/Devin cycle 2: `ls src` where `src/` is an existing
+    // directory previously scoped to `<parent>/*` because commonAncestor always
+    // applied `dirname`. The narrowest scope should be the directory itself.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const subdir = join(projectRoot, "src");
+    mkdirSync(subdir, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [subdir],
+      workingDir: projectRoot,
+      workspaceRoot: root,
+    });
+
+    // The narrowest option must be `subdir/*`, not `projectRoot/*`.
+    expect(result[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+    expect(result).toContainEqual({
+      scope: `${projectRoot}${sep}*`,
+      label: "In project/",
+    });
+    expect(result[result.length - 1]).toEqual({
+      scope: "everywhere",
+      label: "Everywhere",
+    });
+  });
+
+  test("single pathArg that is an existing file still scopes to dirname", () => {
+    // File-path fallback: dirname is the narrowest legal scope for a file.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const subdir = join(projectRoot, "src");
+    mkdirSync(subdir, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+    const file = join(subdir, "file.ts");
+    writeFileSync(file, "");
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [file],
+      workingDir: subdir,
+      workspaceRoot: root,
+    });
+
+    expect(result[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+  });
+
+  test("single pathArg that does not exist falls back to dirname", () => {
+    // Missing-path fallback: statSync throws ENOENT → we return dirname.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const subdir = join(projectRoot, "src");
+    mkdirSync(subdir, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+
+    const missing = join(subdir, "does-not-exist.ts");
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [missing],
+      workingDir: subdir,
+      workspaceRoot: root,
+    });
+
+    // stat fails → dirname(missing) === subdir.
+    expect(result[0]).toEqual({
+      scope: `${subdir}${sep}*`,
+      label: "In src/",
+    });
+  });
+
+  test("multiple pathArgs whose common prefix is an existing directory keep the prefix", () => {
+    // Regression for Codex/Devin cycle 2 (multi-path variant): `cp -r
+    // /a/b/src /a/b/dst` yields `/a/b` as the common prefix, which is
+    // already a real directory — we must keep it, not dirname-it up to `/a`.
+    const root = mkdtempSync(join(tmpdir(), "dir-scope-"));
+    const projectRoot = join(root, "project");
+    const srcDir = join(projectRoot, "src");
+    const dstDir = join(projectRoot, "dst");
+    mkdirSync(srcDir, { recursive: true });
+    mkdirSync(dstDir, { recursive: true });
+    mkdirSync(join(projectRoot, ".git"));
+
+    const result = generateDirectoryScopeOptions({
+      pathArgs: [srcDir, dstDir],
+      workingDir: projectRoot,
+      workspaceRoot: root,
+    });
+
+    // The common prefix of srcDir and dstDir is projectRoot. That prefix
+    // is an existing directory, so the ancestor should remain projectRoot
+    // (not its dirname).
+    expect(result[0]).toEqual({
+      scope: `${projectRoot}${sep}*`,
+      label: "In project/",
+    });
+  });
 });
