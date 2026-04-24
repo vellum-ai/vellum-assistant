@@ -6,6 +6,27 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 
 const { HostTransferProxy } = await import("../daemon/host-transfer-proxy.js");
 
+/**
+ * Poll until `sentMessages` reaches the expected length.
+ * Avoids the flaky 50ms fixed sleep — CI runners under load can take longer
+ * for the async `readFile` inside `requestToHost` to resolve.
+ */
+async function waitForMessages(
+  msgs: unknown[],
+  expectedLength: number,
+  timeoutMs = 2000,
+): Promise<void> {
+  const start = Date.now();
+  while (msgs.length < expectedLength) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(
+        `Timed out waiting for ${expectedLength} message(s), got ${msgs.length}`,
+      );
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 describe("HostTransferProxy", () => {
   let proxy: InstanceType<typeof HostTransferProxy>;
   let sentMessages: unknown[];
@@ -44,8 +65,8 @@ describe("HostTransferProxy", () => {
         conversationId: "conv-123",
       });
 
-      // Wait for the file read to complete and message to be sent
-      await new Promise((r) => setTimeout(r, 50));
+      // Wait for the async file read to complete and message to be sent
+      await waitForMessages(sentMessages, 1);
 
       expect(sentMessages).toHaveLength(1);
       const sent = sentMessages[0] as Record<string, unknown>;
@@ -102,7 +123,7 @@ describe("HostTransferProxy", () => {
         conversationId: "conv-123",
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
@@ -242,7 +263,7 @@ describe("HostTransferProxy", () => {
         conversationId: "conv-123",
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const transferId = sent.transferId as string;
@@ -277,7 +298,7 @@ describe("HostTransferProxy", () => {
         conversationId: "conv-123",
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const transferId = sent.transferId as string;
@@ -326,8 +347,7 @@ describe("HostTransferProxy", () => {
         conversationId: "conv-123",
       });
 
-      // Wait for the async file read to complete and the message to be sent
-      await new Promise((r) => setTimeout(r, 50));
+      await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       expect(proxy.hasPendingTransfer(sent.transferId as string)).toBe(true);
@@ -376,8 +396,7 @@ describe("HostTransferProxy", () => {
         controller.signal,
       );
 
-      // Wait for file read
-      await new Promise((r) => setTimeout(r, 50));
+      await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const transferId = sent.transferId as string;
@@ -697,7 +716,7 @@ describe("HostTransferProxy", () => {
         conversationId: "conv-123",
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await waitForMessages(sentMessages, 1);
 
       const sent = sentMessages[0] as Record<string, unknown>;
       const requestId = sent.requestId as string;
