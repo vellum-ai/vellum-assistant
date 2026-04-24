@@ -25,6 +25,42 @@
  * The `s:` / `d:` id prefixes namespace the two directions so each side can
  * route inbound responses to its own pending-request map without collision.
  *
+ * ### Daemon-initiated dispatch handlers
+ *
+ * After the skill registers tools / routes / shutdown hooks via
+ * `registries.registerTools`, `registries.registerSkillRoute`, and
+ * `registries.registerShutdownHook`, the client also installs local
+ * handlers for the matching `skill.dispatch_*` methods so the daemon can
+ * invoke skill-side closures over the bidirectional RPC. The wire shapes
+ * are:
+ *
+ *   skill.dispatch_tool
+ *     daemon → skill: { name: string, input: Record<string, unknown>,
+ *                        context?: unknown }
+ *     skill → daemon: { result: unknown }
+ *     errors: throws "unknown tool: <name>" when the tool name is not in
+ *             the most recently registered provider's output.
+ *
+ *   skill.dispatch_route
+ *     daemon → skill: { patternSource: string,
+ *                        request: { method: string, url: string,
+ *                                   headers?: Record<string, string>,
+ *                                   body?: string } }
+ *     skill → daemon: { status: number,
+ *                        headers: Record<string, string>,
+ *                        body: string }
+ *     errors: throws "unknown route: <patternSource>" when no registered
+ *             route matches the patternSource, or "url did not match
+ *             pattern: <patternSource>" when the regex fails to match.
+ *
+ *   skill.shutdown
+ *     daemon → skill: { name?: string, reason?: string }
+ *     skill → daemon: { ok: true }
+ *     semantics: when `name` is set, runs only that hook; otherwise runs
+ *                all registered hooks in reverse-registration order. Per-
+ *                hook errors are swallowed (logged via the host logger if
+ *                `connect()` has populated one).
+ *
  * ### Sync-method bootstrap
  *
  * The `SkillHost` contract exposes a number of synchronous accessors
@@ -93,7 +129,7 @@ import type {
   TtsProvidersFacet,
   UserMessage,
 } from "./skill-host.js";
-import type { Tool } from "./tool-types.js";
+import type { Tool, ToolContext } from "./tool-types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -280,6 +316,30 @@ export class SkillHostClient implements SkillHost {
   private cachedWorkspaceDir: string | null = null;
   private cachedVellumRoot: string | null = null;
   private cachedRuntimeMode: DaemonRuntimeMode | null = null;
+
+  // ── Local dispatch state ────────────────────────────────────────────────
+  // Caches populated by `registries.register*` so the daemon can dispatch
+  // skill-owned closures back over the bidirectional RPC. Mirrors what the
+  // out-of-process skill installed in-process before the IPC split.
+
+  /** Most recently registered tool provider (last writer wins, matching the in-process semantics where a single skill module owns one provider). */
+  private cachedToolsProvider: (() => Tool[]) | null = null;
+  /**
+   * Routes keyed by `pattern.source`. Last writer wins on collision so
+   * re-registering the same regex source replaces the prior handler — mirrors
+   * how an in-process skill would re-`registerSkillRoute` on hot reload.
+   */
+  private readonly cachedRoutes = new Map<string, SkillRoute>();
+  /**
+   * Shutdown hooks ordered by registration time. We use an array (not a Map
+   * keyed by name) because the spec requires running hooks in reverse-
+   * registration order when no name is provided. Re-registering an existing
+   * name replaces the prior entry in place to keep the cache idempotent.
+   */
+  private readonly cachedShutdownHooks: Array<{
+    name: string;
+    hook: (reason: string) => Promise<void>;
+  }> = [];
 
   constructor(options: SkillHostClientOptions) {
     this.options = {
@@ -979,14 +1039,29 @@ export class SkillHostClient implements SkillHost {
             ownerSkillVersionHash: t.ownerSkillVersionHash,
           };
         });
+        // Cache the provider so `skill.dispatch_tool` can resolve a tool
+        // name back to its `execute` closure. Last writer wins.
+        this.cachedToolsProvider = provider;
+        this.ensureDaemonHandler(
+          "skill.dispatch_tool",
+          this.dispatchTool.bind(this),
+        );
         // Fire-and-forget; registration failures surface in the daemon log.
         this.call("host.registries.register_tools", { tools: manifests }).catch(
           swallow,
         );
       },
       registerSkillRoute: (route: SkillRoute): SkillRouteHandle => {
+        // Cache the route by its regex source — `skill.dispatch_route` uses
+        // the same key to find the handler closure. Re-registering the same
+        // source replaces the prior route, matching in-process hot-reload.
+        this.cachedRoutes.set(route.pattern.source, route);
+        this.ensureDaemonHandler(
+          "skill.dispatch_route",
+          this.dispatchRoute.bind(this),
+        );
         // The `handler` closure cannot cross IPC; the daemon side installs
-        // a proxy that dispatches back over `skill.dispatch_route` (PR 28).
+        // a proxy that dispatches back over `skill.dispatch_route` (PR D).
         this.call("host.registries.register_skill_route", {
           patternSource: route.pattern.source,
           methods: route.methods,
@@ -995,16 +1070,199 @@ export class SkillHostClient implements SkillHost {
         // return a structurally inert placeholder.
         return {} as SkillRouteHandle;
       },
-      registerShutdownHook: (name: string, _hook) => {
-        // The `hook` closure cannot cross IPC; PR 28 wires the
-        // reverse-direction dispatch so the daemon can invoke it at
-        // shutdown. For now, just register the hook name so the daemon
-        // logs its firing during teardown.
+      registerShutdownHook: (name: string, hook) => {
+        // Cache the hook so `skill.shutdown` can invoke it. If the same
+        // name is re-registered, replace in place to keep the array tidy
+        // without disturbing relative order of unrelated entries.
+        const existingIdx = this.cachedShutdownHooks.findIndex(
+          (h) => h.name === name,
+        );
+        const entry = { name, hook };
+        if (existingIdx >= 0) {
+          this.cachedShutdownHooks[existingIdx] = entry;
+        } else {
+          this.cachedShutdownHooks.push(entry);
+        }
+        this.ensureDaemonHandler(
+          "skill.shutdown",
+          this.dispatchShutdown.bind(this),
+        );
+        // Fire-and-forget; the daemon registers a proxy that fires the
+        // skill.shutdown dispatch at teardown (PR D).
         this.call("host.registries.register_shutdown_hook", { name }).catch(
           swallow,
         );
       },
     };
+  }
+
+  // ── Local dispatch helpers ──────────────────────────────────────────────
+
+  /**
+   * Install a daemon-initiated request handler exactly once per method.
+   * Idempotent so repeated `register*` calls don't churn the handler table
+   * — every dispatch is routed through the same bound method anyway.
+   */
+  private ensureDaemonHandler(
+    method: string,
+    handler: SkillHostRequestHandler,
+  ): void {
+    if (!this.daemonRequestHandlers.has(method)) {
+      this.daemonRequestHandlers.set(method, handler);
+    }
+  }
+
+  /**
+   * `skill.dispatch_tool` handler — resolves the tool by name from the
+   * cached provider and invokes its `execute(input, context)`. Returns
+   * `{ result }` so the daemon can distinguish the wrapper from the
+   * tool's own (potentially undefined) return value.
+   */
+  private async dispatchTool(params: unknown): Promise<{ result: unknown }> {
+    const { name, input, context } = (params ?? {}) as {
+      name?: unknown;
+      input?: unknown;
+      context?: unknown;
+    };
+    if (typeof name !== "string" || !name) {
+      throw new Error(
+        "skill.dispatch_tool: missing or invalid 'name' parameter",
+      );
+    }
+    const provider = this.cachedToolsProvider;
+    if (!provider) {
+      throw new Error(`unknown tool: ${name}`);
+    }
+    // Re-invoke the provider on each dispatch so feature-flag-gated tool
+    // lists stay live — matches the daemon's lazy-manifest semantics in
+    // `assistant/src/tools/registry.ts`.
+    const tools = provider();
+    const tool = tools.find((t) => t.name === name);
+    if (!tool) {
+      throw new Error(`unknown tool: ${name}`);
+    }
+    // The daemon-side `ToolContext` is opaque on the wire; the skill's
+    // `Tool.execute` runtime-validates any field it actually reads, so a
+    // structural cast is sufficient here. Missing required-on-paper fields
+    // are tolerated in practice — meet-host's tools only consult a small
+    // subset that the daemon serializes through.
+    const ctx = (context ?? {}) as ToolContext;
+    const result = await tool.execute(
+      (input ?? {}) as Record<string, unknown>,
+      ctx,
+    );
+    return { result };
+  }
+
+  /**
+   * `skill.dispatch_route` handler — looks up the route by patternSource,
+   * re-runs the regex against the inbound URL to recover match groups,
+   * invokes the handler, and serializes the `Response` to a
+   * JSON-friendly `{ status, headers, body }`.
+   */
+  private async dispatchRoute(params: unknown): Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  }> {
+    const { patternSource, request } = (params ?? {}) as {
+      patternSource?: unknown;
+      request?: unknown;
+    };
+    if (typeof patternSource !== "string" || !patternSource) {
+      throw new Error(
+        "skill.dispatch_route: missing or invalid 'patternSource' parameter",
+      );
+    }
+    const route = this.cachedRoutes.get(patternSource);
+    if (!route) {
+      throw new Error(`unknown route: ${patternSource}`);
+    }
+    const req = (request ?? {}) as {
+      method?: string;
+      url?: string;
+      headers?: Record<string, string>;
+      body?: string;
+    };
+    if (typeof req.url !== "string" || !req.url) {
+      throw new Error(
+        "skill.dispatch_route: missing or invalid 'request.url' parameter",
+      );
+    }
+    // Reset lastIndex so a global/sticky regex doesn't carry state across
+    // dispatches — `exec()` mutates lastIndex on g/y flags and the route's
+    // RegExp may be reused across requests.
+    if (route.pattern.global || route.pattern.sticky) {
+      route.pattern.lastIndex = 0;
+    }
+    const match = route.pattern.exec(req.url);
+    if (!match) {
+      throw new Error(`url did not match pattern: ${patternSource}`);
+    }
+    const init: RequestInit = {
+      method: req.method ?? "GET",
+      headers: req.headers ?? {},
+    };
+    // GET/HEAD requests cannot carry a body in the standard fetch `Request`
+    // constructor; only attach when the verb permits.
+    if (
+      req.body !== undefined &&
+      init.method !== "GET" &&
+      init.method !== "HEAD"
+    ) {
+      init.body = req.body;
+    }
+    const response = await route.handler(new Request(req.url, init), match);
+    const headers: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    const body = await response.text();
+    return { status: response.status, headers, body };
+  }
+
+  /**
+   * `skill.shutdown` handler — runs cached shutdown hooks. With `name`
+   * set, runs only that hook; otherwise runs all hooks in reverse-
+   * registration order. Per-hook errors are logged via the host logger
+   * and otherwise swallowed so one misbehaving hook can't block the
+   * daemon's overall teardown.
+   */
+  private async dispatchShutdown(params: unknown): Promise<{ ok: true }> {
+    const { name, reason } = (params ?? {}) as {
+      name?: unknown;
+      reason?: unknown;
+    };
+    const reasonStr = typeof reason === "string" ? reason : "shutdown";
+    const log = this.buildLogger(this.options.skillId);
+    const runOne = async (entry: {
+      name: string;
+      hook: (reason: string) => Promise<void>;
+    }): Promise<void> => {
+      try {
+        await entry.hook(reasonStr);
+      } catch (err) {
+        log.warn(`shutdown hook '${entry.name}' threw`, {
+          error: errorMessage(err),
+        });
+      }
+    };
+    if (typeof name === "string" && name) {
+      const entry = this.cachedShutdownHooks.find((h) => h.name === name);
+      if (entry) await runOne(entry);
+      // Silently no-op for unknown names — the daemon may call shutdown
+      // for a hook that was never registered (e.g. a stale registration
+      // leftover from a previous skill load), which shouldn't fail the
+      // overall teardown.
+      return { ok: true };
+    }
+    // Reverse-registration order so later-registered hooks (which often
+    // depend on earlier ones) tear down first.
+    for (let i = this.cachedShutdownHooks.length - 1; i >= 0; i--) {
+      const entry = this.cachedShutdownHooks[i];
+      if (entry) await runOne(entry);
+    }
+    return { ok: true };
   }
 
   private buildSpeakersFacet(): SpeakersFacet {

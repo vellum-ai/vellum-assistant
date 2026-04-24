@@ -64,6 +64,15 @@ class StubServer {
   methods = new Map<string, Handler>();
   streamMethods = new Map<string, StreamHandler>();
   observedRequests: Request[] = [];
+  /** Pending daemon-initiated requests, keyed by `d:<n>` id. */
+  daemonPending = new Map<
+    string,
+    {
+      resolve: (value: unknown) => void;
+      reject: (err: Error) => void;
+    }
+  >();
+  private nextDaemonSeq = 1;
 
   constructor(private socketPath: string) {
     this.server = createServer((socket) => {
@@ -95,6 +104,23 @@ class StubServer {
       socket.on("error", () => {
         /* ignore */
       });
+    });
+  }
+
+  /**
+   * Send a daemon-initiated request frame to the most recently connected
+   * client and resolve with the client's response. Mirrors what
+   * `SkillIpcServer.sendRequest` does on the daemon side.
+   */
+  sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    const socket = [...this.clients][this.clients.size - 1];
+    if (!socket) {
+      return Promise.reject(new Error("StubServer: no connected client"));
+    }
+    const id = `d:${this.nextDaemonSeq++}`;
+    return new Promise<unknown>((resolve, reject) => {
+      this.daemonPending.set(id, { resolve, reject });
+      socket.write(JSON.stringify({ id, method, params }) + "\n");
     });
   }
 
@@ -134,6 +160,27 @@ class StubServer {
       req = JSON.parse(line) as Request;
     } catch {
       this.send(socket, { id: "unknown", error: "bad json" });
+      return;
+    }
+
+    // Frames whose id starts with `d:` are responses to daemon-initiated
+    // requests we sent via `sendRequest()`. They have either `result` or
+    // `error` set and no `method`. Route them into the pending-request map
+    // and bail out — they are not new requests for the server to handle.
+    if (
+      req.id?.startsWith("d:") &&
+      typeof (req as unknown as { method?: unknown }).method !== "string"
+    ) {
+      const pending = this.daemonPending.get(req.id);
+      if (pending) {
+        this.daemonPending.delete(req.id);
+        const frame = req as unknown as {
+          result?: unknown;
+          error?: string;
+        };
+        if (frame.error !== undefined) pending.reject(new Error(frame.error));
+        else pending.resolve(frame.result);
+      }
       return;
     }
     this.observedRequests.push(req);
@@ -488,6 +535,289 @@ describe("SkillHostClient: registries", () => {
     });
     await new Promise((r) => setTimeout(r, 30));
     expect(capturedName).toBe("demo-shutdown");
+  });
+});
+
+describe("SkillHostClient: daemon-initiated dispatch", () => {
+  test("skill.dispatch_tool routes to the registered tool's execute", async () => {
+    server!.register("host.registries.register_tools", () => ({
+      registered: ["demo.tool"],
+    }));
+    client = await openClient();
+    let observedInput: unknown;
+    let observedContext: unknown;
+    client.registries.registerTools(() => [
+      {
+        name: "demo.tool",
+        description: "demo",
+        category: "misc",
+        defaultRiskLevel: "low" as never,
+        getDefinition: () => ({
+          name: "demo.tool",
+          description: "demo",
+          input_schema: { type: "object" },
+        }),
+        execute: async (input, ctx) => {
+          observedInput = input;
+          observedContext = ctx;
+          return { ok: true } as never;
+        },
+      },
+    ]);
+    // Allow the register_tools fire-and-forget to flush so the client has
+    // installed the dispatch handler before we drive the daemon side.
+    await new Promise((r) => setTimeout(r, 30));
+
+    const result = await server!.sendRequest("skill.dispatch_tool", {
+      name: "demo.tool",
+      input: { foo: "bar" },
+      context: { workingDir: "/tmp", trustClass: "guardian" },
+    });
+    expect(result).toEqual({ result: { ok: true } });
+    expect(observedInput).toEqual({ foo: "bar" });
+    expect(observedContext).toMatchObject({
+      workingDir: "/tmp",
+      trustClass: "guardian",
+    });
+  });
+
+  test("skill.dispatch_tool surfaces unknown tool name as a remote error", async () => {
+    server!.register("host.registries.register_tools", () => ({
+      registered: ["demo.tool"],
+    }));
+    client = await openClient();
+    client.registries.registerTools(() => [
+      {
+        name: "demo.tool",
+        description: "demo",
+        category: "misc",
+        defaultRiskLevel: "low" as never,
+        getDefinition: () => ({
+          name: "demo.tool",
+          description: "demo",
+          input_schema: { type: "object" },
+        }),
+        execute: async () => ({ content: "", isError: false }),
+      },
+    ]);
+    await new Promise((r) => setTimeout(r, 30));
+
+    await expect(
+      server!.sendRequest("skill.dispatch_tool", {
+        name: "missing.tool",
+        input: {},
+      }),
+    ).rejects.toThrow(/unknown tool: missing\.tool/);
+  });
+
+  test("skill.dispatch_route invokes the matching route handler", async () => {
+    server!.register("host.registries.register_skill_route", () => ({
+      patternSource: "/api/echo/(\\w+)",
+      methods: ["GET"],
+    }));
+    client = await openClient();
+    let receivedReq: Request | null = null;
+    let receivedMatch: RegExpMatchArray | null = null;
+    const pattern = /\/api\/echo\/(\w+)/;
+    client.registries.registerSkillRoute({
+      pattern,
+      methods: ["GET"],
+      handler: async (req, match) => {
+        receivedReq = req;
+        receivedMatch = match;
+        return new Response("hello " + match[1], {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        });
+      },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const response = await server!.sendRequest("skill.dispatch_route", {
+      patternSource: pattern.source,
+      request: {
+        method: "GET",
+        url: "http://localhost/api/echo/world",
+        headers: { "x-test": "1" },
+      },
+    });
+    expect(response).toMatchObject({
+      status: 200,
+      body: "hello world",
+    });
+    expect(
+      (response as { headers: Record<string, string> }).headers["content-type"],
+    ).toBe("text/plain");
+    expect(receivedReq).not.toBeNull();
+    expect(receivedReq!.method).toBe("GET");
+    expect(receivedMatch![1]).toBe("world");
+  });
+
+  test("skill.dispatch_route surfaces unknown route as a remote error", async () => {
+    server!.register("host.registries.register_skill_route", () => ({
+      patternSource: "/api/known",
+      methods: ["GET"],
+    }));
+    client = await openClient();
+    client.registries.registerSkillRoute({
+      pattern: /\/api\/known/,
+      methods: ["GET"],
+      handler: async () => new Response("ok"),
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    await expect(
+      server!.sendRequest("skill.dispatch_route", {
+        patternSource: "/api/missing",
+        request: { method: "GET", url: "http://localhost/api/missing" },
+      }),
+    ).rejects.toThrow(/unknown route/);
+  });
+
+  test("skill.shutdown without name runs all hooks in reverse order", async () => {
+    server!.register("host.registries.register_shutdown_hook", (params) => ({
+      name: (params as { name: string }).name,
+    }));
+    client = await openClient();
+    const calls: string[] = [];
+    client.registries.registerShutdownHook("first", async () => {
+      calls.push("first");
+    });
+    client.registries.registerShutdownHook("second", async () => {
+      calls.push("second");
+    });
+    client.registries.registerShutdownHook("third", async () => {
+      calls.push("third");
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const result = await server!.sendRequest("skill.shutdown", {
+      reason: "test",
+    });
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual(["third", "second", "first"]);
+  });
+
+  test("skill.shutdown with name runs only the targeted hook", async () => {
+    server!.register("host.registries.register_shutdown_hook", (params) => ({
+      name: (params as { name: string }).name,
+    }));
+    client = await openClient();
+    const calls: string[] = [];
+    client.registries.registerShutdownHook("alpha", async () => {
+      calls.push("alpha");
+    });
+    client.registries.registerShutdownHook("beta", async () => {
+      calls.push("beta");
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const result = await server!.sendRequest("skill.shutdown", {
+      name: "alpha",
+      reason: "test",
+    });
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual(["alpha"]);
+  });
+
+  test("skill.shutdown swallows per-hook errors and runs remaining hooks", async () => {
+    // Stub host.log so the swallowed error doesn't surface as an
+    // unhandled rejection — the client logs hook failures via the host
+    // logger.
+    server!.register("host.log", () => ({ ok: true }));
+    server!.register("host.registries.register_shutdown_hook", (params) => ({
+      name: (params as { name: string }).name,
+    }));
+    client = await openClient();
+    const calls: string[] = [];
+    client.registries.registerShutdownHook("first", async () => {
+      calls.push("first");
+    });
+    client.registries.registerShutdownHook("boom", async () => {
+      throw new Error("hook failure");
+    });
+    client.registries.registerShutdownHook("third", async () => {
+      calls.push("third");
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const result = await server!.sendRequest("skill.shutdown", {});
+    expect(result).toEqual({ ok: true });
+    // 'boom' threw and was logged; 'first' and 'third' still ran in
+    // reverse order around it.
+    expect(calls).toEqual(["third", "first"]);
+  });
+
+  test("re-registering tools/routes/hooks does not duplicate dispatch handlers", async () => {
+    server!.register("host.registries.register_tools", () => ({
+      registered: [],
+    }));
+    server!.register("host.registries.register_skill_route", () => ({
+      patternSource: "^/x$",
+      methods: ["GET"],
+    }));
+    server!.register("host.registries.register_shutdown_hook", (params) => ({
+      name: (params as { name: string }).name,
+    }));
+    client = await openClient();
+
+    const provider1 = (): never[] => [];
+    const provider2 = () => [
+      {
+        name: "v2.tool",
+        description: "v2",
+        category: "misc",
+        defaultRiskLevel: "low" as never,
+        getDefinition: () => ({
+          name: "v2.tool",
+          description: "v2",
+          input_schema: { type: "object" },
+        }),
+        execute: async () => ({ ok: "v2" } as never),
+      },
+    ];
+    client.registries.registerTools(provider1);
+    client.registries.registerTools(provider2);
+
+    const routePattern = /\/route/;
+    client.registries.registerSkillRoute({
+      pattern: routePattern,
+      methods: ["GET"],
+      handler: async () => new Response("v1"),
+    });
+    client.registries.registerSkillRoute({
+      pattern: routePattern,
+      methods: ["GET"],
+      handler: async () => new Response("v2"),
+    });
+
+    const calls: string[] = [];
+    client.registries.registerShutdownHook("repeat", async () => {
+      calls.push("first");
+    });
+    client.registries.registerShutdownHook("repeat", async () => {
+      calls.push("second");
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Latest provider wins for tools.
+    const toolResult = await server!.sendRequest("skill.dispatch_tool", {
+      name: "v2.tool",
+      input: {},
+    });
+    expect(toolResult).toEqual({ result: { ok: "v2" } });
+
+    // Latest route handler wins for the same patternSource.
+    const routeResult = await server!.sendRequest("skill.dispatch_route", {
+      patternSource: routePattern.source,
+      request: { method: "GET", url: "http://localhost/route" },
+    });
+    expect((routeResult as { body: string }).body).toBe("v2");
+
+    // Re-registering the same hook name keeps a single entry — running
+    // shutdown should fire 'second' once, not both closures.
+    await server!.sendRequest("skill.shutdown", {});
+    expect(calls).toEqual(["second"]);
   });
 });
 
