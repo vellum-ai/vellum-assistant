@@ -29,19 +29,19 @@ const log = getLogger("guardian-bootstrap");
 // ---------------------------------------------------------------------------
 
 /** Access token TTL: 30 days in seconds. */
-const ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+export const ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /** Access token TTL in ms. */
-const ACCESS_TOKEN_TTL_MS = ACCESS_TOKEN_TTL_SECONDS * 1000;
+export const ACCESS_TOKEN_TTL_MS = ACCESS_TOKEN_TTL_SECONDS * 1000;
 
 /** Refresh token absolute expiry: 365 days. */
-const REFRESH_ABSOLUTE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+export const REFRESH_ABSOLUTE_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
 /** Refresh token inactivity expiry: 90 days. */
-const REFRESH_INACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+export const REFRESH_INACTIVITY_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 /** Suggest refresh at 80% of access token TTL. */
-const REFRESH_AFTER_FRACTION = 0.8;
+export const REFRESH_AFTER_FRACTION = 0.8;
 
 /** The daemon's internal assistant scope identifier. */
 const DAEMON_INTERNAL_ASSISTANT_ID = "self";
@@ -79,7 +79,7 @@ function getAssistantDbPath(): string {
  * both processes are running). Once the migration is complete, this will
  * be replaced with a gateway-owned database.
  */
-function getAssistantDb(): Database {
+export function getAssistantDb(): Database {
   if (assistantDb) return assistantDb;
 
   const dbPath = getAssistantDbPath();
@@ -114,7 +114,7 @@ export function closeAssistantDb(): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
@@ -122,7 +122,7 @@ function uuid(): string {
   return crypto.randomUUID();
 }
 
-function getExternalAssistantId(): string {
+export function getExternalAssistantId(): string {
   return (
     process.env.VELLUM_ASSISTANT_NAME?.trim() || DAEMON_INTERNAL_ASSISTANT_ID
   );

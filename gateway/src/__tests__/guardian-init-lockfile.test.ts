@@ -17,7 +17,7 @@ import { closeAssistantDb } from "../auth/guardian-bootstrap.js";
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-// fetchMock retained for proxyToRuntime calls (refresh, verification, etc.)
+// fetchMock retained for proxyToRuntime calls (verification, etc.)
 type FetchFn = (
   input: string | URL | Request,
   init?: RequestInit,

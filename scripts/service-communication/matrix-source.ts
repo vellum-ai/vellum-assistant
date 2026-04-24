@@ -326,7 +326,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway proxies channel verification session routes (/v1/channel-verification-sessions) and guardian bootstrap endpoints (/v1/guardian/init, /v1/guardian/refresh) to the assistant. Guardian init enforces a one-time-use bootstrap secret guard before forwarding.",
+      "Gateway proxies channel verification session routes (/v1/channel-verification-sessions) to the assistant. Guardian endpoints (/v1/guardian/init, /v1/guardian/refresh) are handled gateway-native — they operate directly on the assistant's SQLite database via the shared workspace volume.",
     callerGlobs: [
       "gateway/src/http/routes/channel-verification-session-proxy.ts",
     ],

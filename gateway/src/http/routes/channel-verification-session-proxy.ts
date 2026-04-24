@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
 import { bootstrapGuardian } from "../../auth/guardian-bootstrap.js";
+import { rotateCredentials } from "../../auth/guardian-refresh.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getGatewaySecurityDir } from "../../paths.js";
@@ -344,7 +345,80 @@ export function createChannelVerificationSessionProxyHandler(
     },
 
     async handleGuardianRefresh(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/guardian/refresh", "");
+      try {
+        const body = (await req.json()) as Record<string, unknown>;
+        const platform =
+          typeof body.platform === "string" ? body.platform.trim() : "";
+        const deviceId =
+          typeof body.deviceId === "string" ? body.deviceId.trim() : "";
+        const refreshToken =
+          typeof body.refreshToken === "string" ? body.refreshToken : "";
+
+        if (!platform || !deviceId || !refreshToken) {
+          return Response.json(
+            {
+              error: {
+                code: "BAD_REQUEST",
+                message:
+                  "Missing required fields: platform, deviceId, refreshToken",
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        if (
+          platform !== "ios" &&
+          platform !== "macos" &&
+          platform !== "cli" &&
+          platform !== "web"
+        ) {
+          return Response.json(
+            {
+              error: {
+                code: "BAD_REQUEST",
+                message:
+                  'Invalid platform. Must be "ios", "macos", "cli", or "web".',
+              },
+            },
+            { status: 400 },
+          );
+        }
+
+        const result = rotateCredentials({ refreshToken, platform, deviceId });
+
+        if (!result.ok) {
+          const statusCode =
+            result.error === "refresh_reuse_detected"
+              ? 403
+              : result.error === "device_binding_mismatch"
+                ? 403
+                : result.error === "revoked"
+                  ? 403
+                  : 401;
+
+          log.warn(
+            { error: result.error, platform },
+            "Refresh token rotation failed",
+          );
+          return Response.json({ error: result.error }, { status: statusCode });
+        }
+
+        log.info(
+          {
+            platform,
+            guardianPrincipalId: result.result.guardianPrincipalId,
+          },
+          "Refresh token rotation succeeded",
+        );
+        return Response.json(result.result);
+      } catch (err) {
+        log.error({ err }, "Guardian refresh failed");
+        return Response.json(
+          { error: "Internal server error" },
+          { status: 500 },
+        );
+      }
     },
 
     async handleResetBootstrap(clientIp?: string): Promise<Response> {

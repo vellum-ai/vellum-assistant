@@ -174,7 +174,6 @@ import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
-import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
 import { homeStateRouteDefinitions } from "./routes/home-state-routes.js";
@@ -1051,13 +1050,6 @@ export class RuntimeHttpServer {
     // native messaging helper to bootstrap a scoped token.
     if (path === "/v1/browser-extension-pair") {
       return await handleBrowserExtensionPair(req, server);
-    }
-
-    // Guardian refresh endpoint — before JWT auth because refresh needs
-    // to work when the access token is expired. Secured by the refresh
-    // token in the request body (32 random bytes, hash-only storage).
-    if (path === "/v1/guardian/refresh" && req.method === "POST") {
-      return await handleGuardianRefresh(req);
     }
 
     // Skill-registered routes (e.g. meet-bot event ingress). Handled before

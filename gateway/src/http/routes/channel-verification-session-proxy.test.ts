@@ -28,13 +28,37 @@ mock.module("../../paths.js", () => ({
 mock.module("../../auth/guardian-bootstrap.js", () => ({
   bootstrapGuardian: () => ({
     guardianPrincipalId: "vellum-principal-test",
-    accessToken: "test-jwt",
+    accessToken: "test-at",
     accessTokenExpiresAt: Date.now() + 86400_000,
     refreshToken: "test-rt",
     refreshTokenExpiresAt: Date.now() + 86400_000 * 30,
     refreshAfter: Date.now() + 86400_000 * 15,
     isNew: true,
   }),
+  closeAssistantDb: () => {},
+  getAssistantDb: () => null,
+  getExternalAssistantId: () => "test-assistant",
+  hashToken: (t: string) => t,
+  ACCESS_TOKEN_TTL_SECONDS: 30 * 24 * 60 * 60,
+  ACCESS_TOKEN_TTL_MS: 30 * 24 * 60 * 60 * 1000,
+  REFRESH_ABSOLUTE_TTL_MS: 365 * 24 * 60 * 60 * 1000,
+  REFRESH_INACTIVITY_TTL_MS: 90 * 24 * 60 * 60 * 1000,
+  REFRESH_AFTER_FRACTION: 0.8,
+}));
+
+mock.module("../../auth/guardian-refresh.js", () => ({
+  rotateCredentials: () => ({
+    ok: true,
+    result: {
+      guardianPrincipalId: "vellum-principal-test",
+      accessToken: "test-new-at",
+      accessTokenExpiresAt: Date.now() + 86400_000,
+      refreshToken: "test-new-rt",
+      refreshTokenExpiresAt: Date.now() + 86400_000 * 30,
+      refreshAfter: Date.now() + 86400_000 * 15,
+    },
+  }),
+  closeAssistantDb: () => {},
 }));
 
 // Import after mocks are registered
