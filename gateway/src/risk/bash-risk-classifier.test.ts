@@ -858,12 +858,12 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("assistant oauth connect → medium", async () => {
+  test("assistant oauth connect → low", async () => {
     const result = await classifier.classify({
       command: "assistant oauth connect",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("low");
   });
 
   test("assistant credentials reveal → high", async () => {
@@ -914,20 +914,20 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("assistant config set → medium", async () => {
+  test("assistant config set → low", async () => {
     const result = await classifier.classify({
       command: "assistant config set key value",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("low");
   });
 
-  test("assistant conversations clear → high", async () => {
+  test("assistant conversations clear → medium", async () => {
     const result = await classifier.classify({
       command: "assistant conversations clear --confirm",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("high");
+    expect(result.riskLevel).toBe("medium");
   });
 
   test("assistant oauth providers register → medium", async () => {
@@ -938,12 +938,12 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("assistant email send → medium", async () => {
+  test("assistant email send → high", async () => {
     const result = await classifier.classify({
       command: "assistant email send user@example.com -s hi -b hello",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("high");
   });
 
   test("assistant domain register → medium", async () => {

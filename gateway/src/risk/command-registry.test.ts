@@ -420,8 +420,8 @@ describe("command-registry", () => {
         expect(oauthSpec.subcommands!.request.baseRisk).toBe("medium");
       });
 
-      test("assistant oauth connect is medium risk", () => {
-        expect(oauthSpec.subcommands!.connect.baseRisk).toBe("medium");
+      test("assistant oauth connect is low risk", () => {
+        expect(oauthSpec.subcommands!.connect.baseRisk).toBe("low");
       });
 
       test("assistant oauth disconnect is medium risk", () => {
@@ -593,13 +593,13 @@ describe("command-registry", () => {
     });
 
     test("expanded assistant operations have expected risk levels", () => {
-      expect(getAssistantPath("config set").baseRisk).toBe("medium");
+      expect(getAssistantPath("config set").baseRisk).toBe("low");
       expect(getAssistantPath("oauth providers register").baseRisk).toBe(
         "medium",
       );
-      expect(getAssistantPath("email send").baseRisk).toBe("medium");
+      expect(getAssistantPath("email send").baseRisk).toBe("high");
       expect(getAssistantPath("domain register").baseRisk).toBe("medium");
-      expect(getAssistantPath("conversations clear").baseRisk).toBe("high");
+      expect(getAssistantPath("conversations clear").baseRisk).toBe("medium");
       expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
       expect(getAssistantPath("backup restore").baseRisk).toBe("high");
     });
