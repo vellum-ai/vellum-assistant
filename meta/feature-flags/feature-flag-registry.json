@@ -374,7 +374,7 @@
       "scope": "macos",
       "key": "message-height-cache",
       "label": "Message Height Cache",
-      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
+      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned \u2014 the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout \u2014 every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
       "defaultEnabled": true
     },
     {
@@ -391,6 +391,14 @@
       "key": "compaction-playground",
       "label": "Compaction Playground",
       "description": "Expose the developer-only Compaction Playground tab in macOS Settings and enable the /playground/* HTTP endpoints for exercising compaction conditions. Dev-only; default off.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "app-builder-web",
+      "scope": "assistant",
+      "key": "app-builder-web",
+      "label": "App Builder for Web",
+      "description": "Enable app builder support on the web client: vellum.fetch proxy, vellum.theme bridge, design system injection, persistent app panel, app_open handler, and client support declaration",
       "defaultEnabled": false
     }
   ]
