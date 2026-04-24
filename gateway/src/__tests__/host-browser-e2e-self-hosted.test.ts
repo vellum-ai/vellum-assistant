@@ -5,7 +5,7 @@
  * This test exercises the full flow at the subprocess boundary:
  *
  *   1. A minimal Bun HTTP server mounts the real
- *      `handleBrowserExtensionPair` route from the assistant runtime.
+ *      `handleBrowserExtensionPair` route from the gateway.
  *   2. The compiled native helper binary
  *      (`clients/chrome-extension/native-host/dist/index.js`) is spawned as
  *      a child process and pointed at that server via the `--assistant-port`
@@ -40,15 +40,15 @@ import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import {
-  getAllowedExtensionOrigins,
-  handleBrowserExtensionPair,
-} from "../../../gateway/src/http/routes/browser-extension-pair.js";
-import {
   mintHostBrowserCapability,
   resetCapabilityTokenSecretForTests,
   setCapabilityTokenSecretForTests,
   verifyHostBrowserCapability,
-} from "../runtime/capability-tokens.js";
+} from "../auth/capability-tokens.js";
+import {
+  getAllowedExtensionOrigins,
+  handleBrowserExtensionPair,
+} from "../http/routes/browser-extension-pair.js";
 
 // ---------------------------------------------------------------------------
 // Native helper binary discovery + skip guard
@@ -57,11 +57,11 @@ import {
 /**
  * Resolve the path to the compiled native helper. The helper lives in a
  * sibling package under `clients/chrome-extension/native-host/`, so we
- * walk up from `assistant/src/__tests__/` to the repo root and then back
+ * walk up from `gateway/src/__tests__/` to the repo root and then back
  * down into the native-host package.
  */
 function resolveHelperBinary(): string {
-  // `import.meta.dir` gives us `.../assistant/src/__tests__`. The repo
+  // `import.meta.dir` gives us `.../gateway/src/__tests__`. The repo
   // root is three levels up. Past that, the native host lives at
   // `clients/chrome-extension/native-host/dist/index.js`.
   return resolve(

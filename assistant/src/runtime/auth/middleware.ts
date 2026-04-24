@@ -238,9 +238,9 @@ function buildCapabilityAuthContext(guardianId: string): AuthContext {
  * `authenticateRequest` — we delegate to it directly to pick up the
  * shared synthetic dev-bypass context.
  */
-export function authenticateHostBrowserResultRequest(
+export async function authenticateHostBrowserResultRequest(
   req: Request,
-): AuthenticateResult {
+): Promise<AuthenticateResult> {
   if (isHttpAuthDisabled()) {
     return { ok: true, context: buildDevBypassContext() };
   }
@@ -270,7 +270,7 @@ export function authenticateHostBrowserResultRequest(
   //    messaging pair flow. We derive `actorPrincipalId` from the
   //    capability claims directly — the claims are HMAC-signed by the
   //    same daemon so there is no cross-tenant risk.
-  const capabilityClaims = verifyHostBrowserCapability(rawToken);
+  const capabilityClaims = await verifyHostBrowserCapability(rawToken);
   if (capabilityClaims) {
     return {
       ok: true,

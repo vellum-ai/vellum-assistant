@@ -112,7 +112,7 @@ Chrome assigns each extension a unique 32-character ID. The assistant needs to k
 | Source | Purpose |
 |---|---|
 | `gateway/chrome-extension-allowlist.json` | Committed canonical config (contains the published CWS extension ID) |
-| `~/.vellum/chrome-extension-allowlist.local.json` | Per-machine overrides — add your unpacked dev extension ID here |
+| `$GATEWAY_SECURITY_DIR/chrome-extension-allowlist.local.json` | Per-machine overrides — add your unpacked dev extension ID here |
 | `VELLUM_CHROME_EXTENSION_IDS` env var | Comma-separated IDs, useful for CI or one-off testing |
 
 This means the CWS extension and your local dev build work side-by-side with no conflict. You just need to add your dev ID to the local allowlist.
@@ -124,8 +124,8 @@ This means the CWS extension and your local dev build work side-by-side with no 
 2. Create (or edit) the local allowlist:
 
 ```bash
-mkdir -p "$HOME/.vellum"
-cat > "$HOME/.vellum/chrome-extension-allowlist.local.json" <<JSON
+# GATEWAY_SECURITY_DIR defaults to ~/.vellum/protected when running locally
+cat > "$GATEWAY_SECURITY_DIR/chrome-extension-allowlist.local.json" <<JSON
 {
   "version": 1,
   "allowedExtensionIds": ["<id from chrome://extensions>"]

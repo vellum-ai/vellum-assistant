@@ -2,25 +2,26 @@
  * Capability token verification for scoped, short-lived tokens issued to the
  * chrome extension (and other thin clients).
  *
- * Minting is handled by the gateway (`gateway/src/auth/capability-tokens.ts`).
- * The daemon reads the shared secret from GATEWAY_SECURITY_DIR (or the legacy
- * protected dir fallback) so it can verify tokens presented on the
- * `/v1/browser-relay` WebSocket handshake and `/v1/host-browser-result` route.
+ * Both minting and verification are owned by the gateway
+ * (`gateway/src/auth/capability-tokens.ts`). The daemon delegates
+ * verification to the gateway via IPC so it never needs to read the
+ * HMAC secret from the filesystem.
  *
- * The encoded token format is `<base64url(payload)>.<base64url(sig)>`.
+ * Test-only helpers (`mintHostBrowserCapability`,
+ * `setCapabilityTokenSecretForTests`, `resetCapabilityTokenSecretForTests`)
+ * implement the same HMAC logic in-process so assistant tests can create
+ * and verify tokens without a live gateway.
  */
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
+import { ipcCall } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("capability-tokens");
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (mirror the gateway's types for consumer convenience)
 // ---------------------------------------------------------------------------
 
 /** Capability identifiers that can be bound to a capability token. */
@@ -43,103 +44,10 @@ export interface CapabilityToken {
 }
 
 // ---------------------------------------------------------------------------
-// Secret lifecycle
+// In-process HMAC helpers (shared between test mint/verify and IPC verify)
 // ---------------------------------------------------------------------------
 
-let _secret: Buffer | undefined;
-
-const CAPABILITY_TOKEN_SECRET_FILENAME = "capability-token-secret";
-
-/**
- * Resolve the path to the capability-token secret. The gateway owns the
- * secret and writes it to GATEWAY_SECURITY_DIR. The daemon reads the
- * same file for token verification.
- */
-function getSecretPath(): string {
-  const secDir = process.env.GATEWAY_SECURITY_DIR?.trim();
-  if (secDir) return join(secDir, CAPABILITY_TOKEN_SECRET_FILENAME);
-  // Non-containerized fallback: same location the gateway resolves to.
-  const home = process.env.HOME || homedir();
-  return join(home, ".vellum", "protected", CAPABILITY_TOKEN_SECRET_FILENAME);
-}
-
-/**
- * Read the capability-token secret from GATEWAY_SECURITY_DIR. The gateway
- * is responsible for creating it — the daemon only reads.
- *
- * Returns `undefined` if the secret file does not exist yet (gateway
- * hasn't started or hasn't created it).
- */
-export function loadCapabilityTokenSecret(): Buffer | undefined {
-  const keyPath = getSecretPath();
-  if (!existsSync(keyPath)) {
-    log.warn(
-      { keyPath },
-      "Capability token secret not found — gateway may not have started yet",
-    );
-    return undefined;
-  }
-  try {
-    const raw = readFileSync(keyPath);
-    if (raw.length === 32) {
-      return raw;
-    }
-    log.warn(
-      { keyPath, length: raw.length },
-      "capability token secret has unexpected length",
-    );
-    return undefined;
-  } catch (err) {
-    log.warn(
-      { err, keyPath },
-      "Failed to read capability token secret",
-    );
-    return undefined;
-  }
-}
-
-/**
- * Initialize the module-level secret. Called once at daemon startup.
- */
-export function initCapabilityTokenSecret(secret: Buffer): void {
-  if (secret.length !== 32) {
-    throw new Error(
-      `capability token secret must be 32 bytes, got ${secret.length}`,
-    );
-  }
-  _secret = secret;
-}
-
-/**
- * Test-only helper to inject a deterministic secret.
- */
-export function setCapabilityTokenSecretForTests(secret: Buffer): void {
-  _secret = secret;
-}
-
-/**
- * Reset the cached secret. Test-only.
- */
-export function resetCapabilityTokenSecretForTests(): void {
-  _secret = undefined;
-}
-
-function getSecret(): Buffer | undefined {
-  if (_secret) return _secret;
-  if (process.env.NODE_ENV === "test") {
-    _secret = randomBytes(32);
-    return _secret;
-  }
-  const loaded = loadCapabilityTokenSecret();
-  if (loaded) {
-    _secret = loaded;
-  }
-  return _secret;
-}
-
-// ---------------------------------------------------------------------------
-// Mint / verify
-// ---------------------------------------------------------------------------
+let _testSecret: Buffer | undefined;
 
 function base64urlEncode(buf: Buffer): string {
   return buf
@@ -159,47 +67,55 @@ function sign(payload: string, secret: Buffer): string {
   return base64urlEncode(createHmac("sha256", secret).update(payload).digest());
 }
 
+// ---------------------------------------------------------------------------
+// Verify (production: gateway IPC, test: in-process)
+// ---------------------------------------------------------------------------
+
 /**
- * Mint a capability token. In production, minting is done by the gateway
- * (`gateway/src/auth/capability-tokens.ts`). This function is retained
- * for test code that needs to create tokens for verification testing.
+ * Verify a capability token.
+ *
+ * In production, delegates to the gateway via IPC. In tests (when a
+ * secret has been injected via `setCapabilityTokenSecretForTests`),
+ * verifies in-process so tests don't need a live gateway.
+ *
+ * Returns the decoded claims on success or null on any failure.
  */
-export function mintHostBrowserCapability(
-  guardianId: string,
-  ttlMs: number = 30 * 60 * 1000,
-): CapabilityToken {
-  const secret = getSecret();
-  if (!secret) {
-    throw new Error("capability token secret not available — cannot mint");
+export async function verifyHostBrowserCapability(
+  token: string,
+): Promise<CapabilityClaims | null> {
+  if (typeof token !== "string" || token.length === 0) return null;
+
+  // Test path: in-process verification with the injected secret.
+  if (_testSecret) {
+    return verifyInProcess(token, _testSecret);
   }
-  const expiresAt = Date.now() + ttlMs;
-  const nonce = randomBytes(16).toString("hex");
-  const claims: CapabilityClaims = {
-    capability: "host_browser_command",
-    guardianId,
-    nonce,
-    expiresAt,
-  };
-  const payload = base64urlEncode(Buffer.from(JSON.stringify(claims), "utf8"));
-  const sig = sign(payload, secret);
-  return { token: `${payload}.${sig}`, expiresAt };
+
+  // Production path: delegate to the gateway.
+  try {
+    const result = await ipcCall("verify_capability_token", { token });
+    if (!result || typeof result !== "object") return null;
+
+    const claims = result as Record<string, unknown>;
+    if (claims.valid === false) return null;
+    if (claims.capability !== "host_browser_command") return null;
+    if (
+      typeof claims.guardianId !== "string" ||
+      claims.guardianId.length === 0
+    ) {
+      return null;
+    }
+
+    return claims as unknown as CapabilityClaims;
+  } catch (err) {
+    log.warn({ err }, "Failed to verify capability token via gateway IPC");
+    return null;
+  }
 }
 
-/**
- * Verify a capability token minted by the gateway.
- *
- * Returns the decoded claims on success or null if the secret is
- * unavailable, the signature is invalid, the payload is malformed,
- * the token has expired, or the bound capability is not
- * `host_browser_command`.
- */
-export function verifyHostBrowserCapability(
+function verifyInProcess(
   token: string,
+  secret: Buffer,
 ): CapabilityClaims | null {
-  if (typeof token !== "string") return null;
-  const secret = getSecret();
-  if (!secret) return null;
-
   const dot = token.indexOf(".");
   if (dot < 0) return null;
   const payload = token.slice(0, dot);
@@ -226,11 +142,49 @@ export function verifyHostBrowserCapability(
   if (typeof claims.guardianId !== "string" || claims.guardianId.length === 0) {
     return null;
   }
-  if (typeof claims.nonce !== "string" || claims.nonce.length === 0) {
-    return null;
-  }
   if (typeof claims.expiresAt !== "number" || claims.expiresAt <= Date.now()) {
     return null;
   }
   return claims;
+}
+
+// ---------------------------------------------------------------------------
+// Test-only helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a capability token in-process. Test-only — production minting is
+ * done by the gateway.
+ */
+export function mintHostBrowserCapability(
+  guardianId: string,
+  ttlMs: number = 30 * 60 * 1000,
+): CapabilityToken {
+  const secret = _testSecret;
+  if (!secret) {
+    throw new Error(
+      "capability token secret not set — call setCapabilityTokenSecretForTests() first",
+    );
+  }
+  const expiresAt = Date.now() + ttlMs;
+  const nonce = randomBytes(16).toString("hex");
+  const claims: CapabilityClaims = {
+    capability: "host_browser_command",
+    guardianId,
+    nonce,
+    expiresAt,
+  };
+  const payload = base64urlEncode(Buffer.from(JSON.stringify(claims), "utf8"));
+  const sig = sign(payload, secret);
+  return { token: `${payload}.${sig}`, expiresAt };
+}
+
+/** Inject a deterministic secret for tests. */
+export function setCapabilityTokenSecretForTests(secret: Buffer): void {
+  _testSecret = secret;
+}
+
+/** Reset the test secret. */
+export function resetCapabilityTokenSecretForTests(): void {
+  _testSecret = undefined;
 }

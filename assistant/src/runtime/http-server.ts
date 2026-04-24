@@ -1071,7 +1071,7 @@ export class RuntimeHttpServer {
     const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
     const authResult =
       normalizedPath === "/v1/host-browser-result" && req.method === "POST"
-        ? authenticateHostBrowserResultRequest(req)
+        ? await authenticateHostBrowserResultRequest(req)
         : authenticateRequest(req);
     if (!authResult.ok) {
       return authResult.response;
@@ -1145,10 +1145,10 @@ export class RuntimeHttpServer {
     return routerResponse ?? httpError("NOT_FOUND", "Not found", 404);
   }
 
-  private handleBrowserRelayUpgrade(
+  private async handleBrowserRelayUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
-  ): Response {
+  ): Promise<Response> {
     if (
       !isLoopbackHost(new URL(req.url).hostname) &&
       !isPrivateNetworkPeer(server, req)
@@ -1214,7 +1214,7 @@ export class RuntimeHttpServer {
       //    messaging pair flow. We derive `guardianId` from the
       //    capability claims directly — the claims are HMAC-signed by
       //    the same daemon so there is no cross-tenant risk.
-      const capabilityClaims = verifyHostBrowserCapability(token);
+      const capabilityClaims = await verifyHostBrowserCapability(token);
       if (capabilityClaims) {
         guardianId = capabilityClaims.guardianId;
       } else {

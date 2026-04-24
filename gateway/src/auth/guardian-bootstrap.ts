@@ -500,6 +500,30 @@ function mintRefreshToken(
  *
  * All operations run against the assistant's SQLite database.
  */
+
+/**
+ * Ensure a vellum guardian binding exists. If one already exists, returns
+ * its principalId. Otherwise creates a new binding with a fresh principal
+ * and dual-writes to both the assistant and gateway DBs.
+ *
+ * Called during gateway startup to backfill existing installations.
+ */
+export function ensureVellumGuardianBinding(): string {
+  const db = getAssistantDb();
+  const existing = findVellumGuardian(db);
+  if (existing) {
+    log.debug(
+      { guardianPrincipalId: existing.principalId },
+      "Vellum guardian binding already exists",
+    );
+    return existing.principalId;
+  }
+
+  const guardianPrincipalId = `vellum-principal-${uuid()}`;
+  createVellumGuardianBinding(db, guardianPrincipalId);
+  return guardianPrincipalId;
+}
+
 export function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;

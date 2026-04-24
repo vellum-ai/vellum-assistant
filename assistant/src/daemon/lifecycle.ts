@@ -80,11 +80,6 @@ import {
   mintPairingBearerToken,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
-import {
-  initCapabilityTokenSecret,
-  loadCapabilityTokenSecret,
-} from "../runtime/capability-tokens.js";
-import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { startScheduler } from "../schedule/scheduler.js";
@@ -312,24 +307,7 @@ export async function runDaemon(): Promise<void> {
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 
-    // Load the capability-token HMAC secret from GATEWAY_SECURITY_DIR.
-    // The gateway owns the secret; the daemon reads it for token
-    // verification. If the secret isn't available yet (gateway hasn't
-    // started), the verify function handles the missing-secret case
-    // gracefully (returns null).
-    try {
-      const capSecret = loadCapabilityTokenSecret();
-      if (capSecret) {
-        initCapabilityTokenSecret(capSecret);
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to pre-load capability token secret — verify will lazy-load on demand",
-      );
-    }
-
-    // Pre-populate the feature flag cache from the gateway so all
+    // Pre-populate
     // subsequent sync isAssistantFeatureFlagEnabled() calls have data.
     // Fired non-blocking so a slow or unreachable gateway doesn't delay
     // daemon startup (the IPC call has a 3s connect + 5s call timeout
@@ -510,19 +488,6 @@ export async function runDaemon(): Promise<void> {
           `Expired ${expiredCount} stale canonical request(s) from previous process`,
         );
       }
-
-      // Ensure a vellum guardian binding exists so the identity system works
-      // without requiring a manual bootstrap step.
-      try {
-        ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
-      } catch (err) {
-        log.warn(
-          { err },
-          "Vellum guardian binding backfill failed — continuing startup",
-        );
-      }
-
-
 
       // Recover orphaned work items that were left in 'running' state when the
       // daemon previously crashed or was killed mid-task.

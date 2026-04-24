@@ -7,6 +7,7 @@ import {
   initSigningKey,
 } from "./auth/token-service.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
+import { ensureVellumGuardianBinding } from "./auth/guardian-bootstrap.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
@@ -147,6 +148,7 @@ import {
   getMergedFeatureFlags,
 } from "./ipc/feature-flag-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
+import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { trustRuleRoutes } from "./ipc/trust-rule-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
@@ -1569,6 +1571,18 @@ async function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
+  // Ensure a vellum guardian binding exists so the identity system works
+  // without requiring a manual bootstrap step. Dual-writes to both the
+  // assistant and gateway DBs.
+  try {
+    ensureVellumGuardianBinding();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Vellum guardian binding backfill failed — continuing startup",
+    );
+  }
+
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
   whatsappDedupCache.startCleanup();
@@ -1988,6 +2002,7 @@ async function main() {
     ...thresholdRoutes,
     ...trustRuleRoutes,
     ...riskClassificationRoutes,
+    ...capabilityTokenRoutes,
   ]);
   ipcServer.start();
 
