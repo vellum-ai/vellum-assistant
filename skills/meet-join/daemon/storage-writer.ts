@@ -629,11 +629,14 @@ export class MeetStorageWriter {
  */
 export function createStorageWriter(
   host: SkillHost,
+  resolveWorkspaceDir?: () => string,
 ): (meetingId: string, overrides?: MeetStorageWriterDeps) => MeetStorageWriter {
   const logger = host.logger.get("meet-storage-writer");
+  const getWorkspaceDir =
+    resolveWorkspaceDir ?? (() => host.platform.workspaceDir());
   return (meetingId, overrides = {}) =>
     new MeetStorageWriter(meetingId, {
-      getWorkspaceDir: () => host.platform.workspaceDir(),
+      getWorkspaceDir,
       logger,
       ...overrides,
     });
