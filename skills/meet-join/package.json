@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "emit-manifest": "bun run scripts/emit-manifest.ts"
+    "emit-manifest": "bun run scripts/emit-manifest.ts",
+    "meet-host": "bun run entrypoint.ts"
   },
   "dependencies": {
     "@vellumai/skill-host-contracts": "file:../../packages/skill-host-contracts",
