@@ -2200,8 +2200,8 @@ jobs:
           rm -f "$NOTES_FILE"
 
   merge-release-branch:
-    needs: [extract-version, release]
-    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.release.result == 'success' }}
+    needs: [extract-version, release, register-release]
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.release.result == 'success' && needs.register-release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
