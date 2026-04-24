@@ -170,14 +170,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "settings-schedules",
-      "scope": "assistant",
-      "key": "settings-schedules",
-      "label": "Schedules Settings Tab",
-      "description": "Show the Schedules tab in Settings for viewing and managing schedules",
-      "defaultEnabled": false
-    },
-    {
       "id": "multi-platform-assistant",
       "scope": "assistant",
       "key": "multi-platform-assistant",

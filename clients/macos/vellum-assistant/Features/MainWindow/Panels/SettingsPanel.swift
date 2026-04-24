@@ -33,14 +33,14 @@ enum SettingsTab: String {
     }
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false, debugEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, debugEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general, .modelsAndServices, .integrations]
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
         if billingEnabled { tabs.append(.billing) }
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
-        if schedulesEnabled { tabs.append(.schedules) }
+        tabs.append(.schedules)
         if debugEnabled { tabs.append(.debug) }
         return tabs
     }
@@ -109,7 +109,7 @@ struct SettingsPanel: View {
             // this synchronously via `isCurrentAssistantManaged` which is set
             // in `ConnectionSetup` before the settings view is presented.
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
-            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: soundsEnabled, schedulesEnabled: false, debugEnabled: debugEnabled)
+            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: soundsEnabled, debugEnabled: debugEnabled)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else {
@@ -139,7 +139,6 @@ struct SettingsPanel: View {
     /// Re-evaluated after loadFeatureFlags() completes.
     @State private var deferredDeepLinkTab: SettingsTab?
     @State private var isBillingEnabled: Bool = false
-    @State private var isSchedulesEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
@@ -150,7 +149,6 @@ struct SettingsPanel: View {
     @State private var devUnlockMonitor: Any?
     @State private var bootstrapGeneration: Int = 0
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
-    private static let schedulesFeatureFlagKey = "settings-schedules"
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
     private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
@@ -213,7 +211,6 @@ struct SettingsPanel: View {
         .onAppear {
             isBillingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
             isSoundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
-            isSchedulesEnabled = assistantFeatureFlagStore.isEnabled(Self.schedulesFeatureFlagKey)
             // The init already consumed pendingSettingsTab into selectedTab.
             // Clear the store value so it doesn't leak into future navigations.
             if store.pendingSettingsTab != nil {
@@ -228,7 +225,7 @@ struct SettingsPanel: View {
                 // the flag manager directly avoids a stale billingVisible.
                 let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
                 let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
-                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, debugEnabled: isDebugVisible)
+                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, debugEnabled: isDebugVisible)
                     + (isDeveloperEnabled ? [.developer] : [])
                 if visibleTabs.contains(tab) {
                     selectedTab = tab
@@ -275,11 +272,6 @@ struct SettingsPanel: View {
                 } else if key == Self.soundsFeatureFlagKey {
                     isSoundsEnabled = enabled
                     if !enabled && selectedTab == .sounds {
-                        selectedTab = .general
-                    }
-                } else if key == Self.schedulesFeatureFlagKey {
-                    isSchedulesEnabled = enabled
-                    if !enabled && selectedTab == .schedules {
                         selectedTab = .general
                     }
                 }
@@ -361,7 +353,7 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, debugEnabled: isDebugVisible)
+        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, debugEnabled: isDebugVisible)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -384,7 +376,7 @@ struct SettingsPanel: View {
 
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, debugEnabled: isDebugVisible), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, debugEnabled: isDebugVisible), id: \.self) { tab in
                 VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -714,9 +706,6 @@ struct SettingsPanel: View {
                 if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
                     isSoundsEnabled = soundsFlag.enabled
                 }
-                if let schedulesFlag = flags.first(where: { $0.key == Self.schedulesFeatureFlagKey }) {
-                    isSchedulesEnabled = schedulesFlag.enabled
-                }
                 consumeDeferredDeepLinkIfVisible()
                 return
             } catch {
@@ -742,9 +731,6 @@ struct SettingsPanel: View {
         }
         if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
             isSoundsEnabled = soundsEnabled
-        }
-        if let schedulesEnabled = resolved[Self.schedulesFeatureFlagKey] {
-            isSchedulesEnabled = schedulesEnabled
         }
         consumeDeferredDeepLinkIfVisible()
     }
