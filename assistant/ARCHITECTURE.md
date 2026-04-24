@@ -813,7 +813,7 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 
 | File                                            | Purpose                                                                                                                                                                   |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader                                                               |
+| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, registry loader                                                                                                   |
 | `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
 | `src/memory/graph/capability-seed.ts`           | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |

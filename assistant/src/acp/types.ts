@@ -25,10 +25,6 @@ export type {
   ToolCallId,
   ToolCallStatus,
 } from "@agentclientprotocol/sdk";
-export {
-  AgentSideConnection,
-  ClientSideConnection,
-} from "@agentclientprotocol/sdk";
 
 /**
  * Configuration for a single ACP agent process.

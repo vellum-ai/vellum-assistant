@@ -150,7 +150,7 @@ export function upsertActiveCallLease(params: {
   return nextLease;
 }
 
-export function removeActiveCallLease(callSessionId: string): boolean {
+function removeActiveCallLease(callSessionId: string): boolean {
   const current = loadLeaseFile().leases;
   const next = current.filter((lease) => lease.callSessionId !== callSessionId);
   if (next.length === current.length) {

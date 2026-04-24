@@ -143,13 +143,3 @@ export function isToolAllowedInChannel(
   return true;
 }
 
-/**
- * Get the effective trust level for a channel.
- * Returns "standard" if no profile or no override is configured.
- */
-export function getChannelTrustLevel(
-  channelId: string,
-): "restricted" | "standard" {
-  const profile = getChannelPermissionProfile(channelId);
-  return profile?.trustLevel ?? "standard";
-}

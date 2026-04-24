@@ -1,7 +1,7 @@
 import { getConfig } from "../config/loader.js";
 
 // Emergency/high-risk numbers that should never be called
-export const DENIED_NUMBERS = new Set([
+const DENIED_NUMBERS = new Set([
   "911",
   "112",
   "999",

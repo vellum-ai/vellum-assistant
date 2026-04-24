@@ -240,7 +240,7 @@ export function estimateMessagesTokens(
 }
 
 /** Estimate token cost for a single tool definition. */
-export function estimateToolDefinitionTokens(tool: ToolDefinition): number {
+function estimateToolDefinitionTokens(tool: ToolDefinition): number {
   return (
     TOOL_DEFINITION_OVERHEAD_TOKENS +
     estimateTextTokens(tool.name) +

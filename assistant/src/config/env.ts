@@ -87,10 +87,6 @@ export function getRuntimeHttpHost(): string {
   return str("RUNTIME_HTTP_HOST") || "127.0.0.1";
 }
 
-export function getRuntimeGatewayOriginSecret(): string | undefined {
-  return str("RUNTIME_GATEWAY_ORIGIN_SECRET");
-}
-
 /**
  * True when HTTP API auth is disabled via DISABLE_HTTP_AUTH=true AND the
  * safety gate VELLUM_UNSAFE_AUTH_BYPASS=1 is also set. Without the safety

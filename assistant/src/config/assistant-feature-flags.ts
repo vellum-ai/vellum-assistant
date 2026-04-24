@@ -367,10 +367,3 @@ export function isAssistantFeatureFlagEnabled(
   // 4. Undeclared keys with no persisted override default to enabled
   return true;
 }
-
-/**
- * Return the loaded defaults registry (for introspection/tooling).
- */
-export function getAssistantFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
-  return loadDefaultsRegistry();
-}
