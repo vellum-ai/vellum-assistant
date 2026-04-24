@@ -145,6 +145,7 @@ jobs:
             # test-preload.ts guard blocks `bun test` invocations there.
             REPO_ROOT="$(pwd)"
             (cd assistant && bun install --frozen-lockfile)
+            (cd packages/service-contracts && bun install --frozen-lockfile)
             (cd packages/ces-contracts && bun install --frozen-lockfile)
             (cd assistant && bun run -b ../meta/feature-flags/sync-bundled-copies.ts || true)
             TEST_FILES=$(find "$SKILL_DIR" \
