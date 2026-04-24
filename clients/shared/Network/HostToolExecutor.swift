@@ -727,17 +727,38 @@ public enum HostToolExecutor {
                 sourcePath: sourcePath
             )
             guard success else {
-                log.error("Host transfer to_sandbox push failed — requestId=\(request.requestId, privacy: .public)")
+                // PUT returned a non-success HTTP status (e.g. SHA-256
+                // mismatch, write failure). Report the error so the server
+                // can resolve the pending interaction immediately instead
+                // of waiting 120 s for the timeout.
+                let result = HostTransferResultPayload(
+                    requestId: request.requestId,
+                    isError: true,
+                    bytesWritten: nil,
+                    errorMessage: "Failed to push transfer content"
+                )
+                if !isCancelledAndConsume(request.requestId) {
+                    _ = await HostProxyClient().postTransferResult(result)
+                }
                 return
             }
         } catch {
-            log.error("Host transfer to_sandbox push error — requestId=\(request.requestId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            // Network error (timeout, connection refused, etc.). Report
+            // so the server doesn't hang for 120 s.
+            let result = HostTransferResultPayload(
+                requestId: request.requestId,
+                isError: true,
+                bytesWritten: nil,
+                errorMessage: "Failed to push transfer content: \(error.localizedDescription)"
+            )
+            if !isCancelledAndConsume(request.requestId) {
+                _ = await HostProxyClient().postTransferResult(result)
+            }
             return
         }
 
-        // No separate result POST needed for to_sandbox — the PUT response
-        // carries the status and the server consumes the pending interaction
-        // inside handleTransferContentPut.
+        // On success the PUT response handler on the server already resolved
+        // the pending interaction — no separate result POST needed.
         log.debug("Host transfer to_sandbox completed — requestId=\(request.requestId, privacy: .public) bytes=\(data.count)")
     }
 
