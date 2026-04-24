@@ -211,7 +211,7 @@ async function showStats() {
 }
 
 async function showContextLoad() {
-  const { loadContextMemory } = await import("./retriever.js");
+  const { loadContextMemory } = await import("../src/memory/graph/retriever.js");
 
   console.log("\n  Simulating context load (conversation start)...\n");
 
@@ -227,7 +227,7 @@ async function showContextLoad() {
   console.log(`  Triggered: ${result.triggeredNodes.length} triggers fired`);
 
   // Show assembled context
-  const { assembleContextBlock } = await import("./injection.js");
+  const { assembleContextBlock } = await import("../src/memory/graph/injection.js");
   const block = assembleContextBlock(result.nodes, {
     serendipityNodes: result.serendipityNodes,
   });
@@ -244,9 +244,9 @@ async function showContextLoad() {
 }
 
 async function showQuery(query: string) {
-  const { embedWithRetry } = await import("../embed.js");
-  const { searchGraphNodes } = await import("./graph-search.js");
-  const { getNodesByIds } = await import("./store.js");
+  const { embedWithRetry } = await import("../src/memory/embed.js");
+  const { searchGraphNodes } = await import("../src/memory/graph/graph-search.js");
+  const { getNodesByIds } = await import("../src/memory/graph/store.js");
 
   console.log(`\n  Searching: "${query}"\n`);
 
@@ -367,9 +367,9 @@ function showNode(nodeId: string) {
 }
 
 async function showTurn(userMessage: string) {
-  const { retrieveForTurn } = await import("./retriever.js");
-  const { InContextTracker } = await import("./injection.js");
-  const { assembleInjectionBlock } = await import("./injection.js");
+  const { retrieveForTurn } = await import("../src/memory/graph/retriever.js");
+  const { InContextTracker } = await import("../src/memory/graph/injection.js");
+  const { assembleInjectionBlock } = await import("../src/memory/graph/injection.js");
 
   const tracker = new InContextTracker();
 
@@ -399,7 +399,7 @@ async function showTurn(userMessage: string) {
 
 async function runBootstrap() {
   const { bootstrapFromHistory, resetBootstrapCheckpoint } =
-    await import("./bootstrap.js");
+    await import("../src/memory/graph/bootstrap.js");
 
   const limitIdx = args.indexOf("--limit");
   const limit = limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) : undefined;
@@ -440,7 +440,7 @@ async function runBootstrap() {
 }
 
 async function runJournalBootstrap() {
-  const { bootstrapFromJournal } = await import("./bootstrap.js");
+  const { bootstrapFromJournal } = await import("../src/memory/graph/bootstrap.js");
 
   console.log("\n  Extracting from journal files...\n");
   const result = await bootstrapFromJournal();
@@ -450,7 +450,7 @@ async function runJournalBootstrap() {
 }
 
 async function runConsolidate() {
-  const { runConsolidation } = await import("./consolidation.js");
+  const { runConsolidation } = await import("../src/memory/graph/consolidation.js");
   console.log("\n  Running consolidation...\n");
   const result = await runConsolidation("default", config);
   console.log(
@@ -469,7 +469,7 @@ async function runConsolidate() {
 }
 
 async function runPatterns() {
-  const { runPatternScan } = await import("./pattern-scan.js");
+  const { runPatternScan } = await import("../src/memory/graph/pattern-scan.js");
   console.log("\n  Running pattern scan...\n");
   const result = await runPatternScan("default", config);
   console.log(
@@ -481,7 +481,7 @@ async function runPatterns() {
 }
 
 async function runNarrative() {
-  const { runNarrativeRefinement } = await import("./narrative.js");
+  const { runNarrativeRefinement } = await import("../src/memory/graph/narrative.js");
   console.log("\n  Running narrative refinement...\n");
   const result = await runNarrativeRefinement("default", config);
   console.log(
@@ -502,7 +502,7 @@ async function runNarrative() {
 
 function runDecay() {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { runDecayTick } = require("./decay.js") as typeof import("./decay.js");
+  const { runDecayTick } = require("../src/memory/graph/decay.js") as typeof import("../src/memory/graph/decay.js");
   console.log("\n  Running decay tick...\n");
   const result = runDecayTick("default");
   console.log(`  Nodes processed: ${result.nodesProcessed}`);
