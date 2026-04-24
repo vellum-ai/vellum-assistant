@@ -6,6 +6,8 @@ import { createBackup, pruneOldBackups, restoreBackup } from "./backup-ops.js";
 import { emitCliError } from "./cli-error.js";
 import {
   captureImageRefs,
+  dockerExec,
+  dockerExecOutput,
   DOCKER_READY_TIMEOUT_MS,
   dockerResourceNames,
   GATEWAY_INTERNAL_PORT,
@@ -15,7 +17,7 @@ import {
 import { loadGuardianToken } from "./guardian-token.js";
 import { getPlatformUrl } from "./platform-client.js";
 import { resolveImageRefs } from "./platform-releases.js";
-import { exec, execOutput } from "./step-runner.js";
+
 import { compareVersions } from "./version-compat.js";
 
 // ---------------------------------------------------------------------------
@@ -106,7 +108,7 @@ export async function captureContainerEnv(
 ): Promise<Record<string, string>> {
   const captured: Record<string, string> = {};
   try {
-    const raw = await execOutput("docker", [
+    const raw = await dockerExecOutput([
       "inspect",
       "--format",
       "{{json .Config.Env}}",
@@ -596,7 +598,7 @@ export async function performDockerRollback(
   try {
     for (const [service, image] of pullImages) {
       console.log(`   Pulling ${service}: ${image}`);
-      await exec("docker", ["pull", image]);
+      await dockerExec(["pull", image]);
     }
   } catch (pullErr) {
     const detail = pullErr instanceof Error ? pullErr.message : String(pullErr);

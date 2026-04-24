@@ -8,7 +8,7 @@ import {
 } from "../lib/assistant-config";
 import { loadGuardianToken } from "../lib/guardian-token";
 import { checkHealth, checkManagedHealth } from "../lib/health-check";
-import { dockerResourceNames } from "../lib/docker";
+import { dockerExecOutput, dockerResourceNames } from "../lib/docker";
 import { existsSync } from "fs";
 import {
   classifyProcess,
@@ -255,7 +255,7 @@ async function getDockerContainerState(
   containerName: string,
 ): Promise<string | null> {
   try {
-    const output = await execOutput("docker", [
+    const output = await dockerExecOutput([
       "inspect",
       "--format",
       "{{.State.Status}}",

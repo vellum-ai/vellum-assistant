@@ -11,6 +11,7 @@ import {
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
+  dockerExec,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
   startContainers,
@@ -28,7 +29,7 @@ import {
   restoreBackup,
 } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
-import { exec } from "../lib/step-runner.js";
+
 import {
   broadcastUpgradeEvent,
   buildCompleteEvent,
@@ -325,7 +326,7 @@ async function upgradeDocker(
   try {
     for (const [service, image] of pullImages) {
       console.log(`   Pulling ${service}: ${image}`);
-      await exec("docker", ["pull", image]);
+      await dockerExec(["pull", image]);
     }
   } catch (pullErr) {
     const detail = pullErr instanceof Error ? pullErr.message : String(pullErr);

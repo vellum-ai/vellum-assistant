@@ -39,6 +39,33 @@ import { emitProgress } from "./desktop-progress.js";
 
 export type ServiceName = "assistant" | "credential-executor" | "gateway";
 
+/**
+ * Prepend `--context <name>` to a Docker CLI argument list when a context
+ * override is configured via `DOCKER_CONTEXT`. This ensures every Docker
+ * call the CLI makes targets a deterministic engine endpoint regardless of
+ * the user's active shell context.
+ */
+function contextArgs(args: string[]): string[] {
+  const ctx = process.env.DOCKER_CONTEXT;
+  return ctx ? ["--context", ctx, ...args] : args;
+}
+
+/** Run a Docker CLI command, injecting `--context` when configured. */
+export function dockerExec(
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<void> {
+  return exec("docker", contextArgs(args), options);
+}
+
+/** Run a Docker CLI command and capture stdout, injecting `--context` when configured. */
+export function dockerExecOutput(
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<string> {
+  return execOutput("docker", contextArgs(args), options);
+}
+
 const DOCKERHUB_ORG = "vellumai";
 export const DOCKERHUB_IMAGES: Record<ServiceName, string> = {
   assistant: `${DOCKERHUB_ORG}/vellum-assistant`,
@@ -308,7 +335,7 @@ async function ensureDockerInstalled(): Promise<void> {
   // On macOS, we also need Colima and Lima to provide a Linux VM.
   const toolchainComplete = await (async () => {
     try {
-      await execOutput("docker", ["--version"]);
+      await dockerExecOutput(["--version"]);
       if (!isLinux) {
         await execOutput("colima", ["version"]);
         await execOutput("limactl", ["--version"]);
@@ -325,7 +352,7 @@ async function ensureDockerInstalled(): Promise<void> {
     ensureLocalBinOnPath();
 
     try {
-      await execOutput("docker", ["--version"]);
+      await dockerExecOutput(["--version"]);
     } catch {
       throw new Error(
         "Docker was installed but is still not available on PATH. " +
@@ -336,7 +363,7 @@ async function ensureDockerInstalled(): Promise<void> {
 
   // Verify the Docker daemon is reachable.
   try {
-    await exec("docker", ["info"]);
+    await dockerExec(["info"]);
   } catch {
     // On Linux, the daemon must already be running (systemd, etc.).
     if (isLinux) {
@@ -419,12 +446,12 @@ export function dockerResourceNames(instanceName: string) {
 /** Silently attempt to stop and remove a Docker container. */
 export async function removeContainer(containerName: string): Promise<void> {
   try {
-    await exec("docker", ["stop", containerName]);
+    await dockerExec(["stop", containerName]);
   } catch {
     // container may not exist or already stopped
   }
   try {
-    await exec("docker", ["rm", containerName]);
+    await dockerExec(["rm", containerName]);
   } catch {
     // container may not exist or already removed
   }
@@ -458,7 +485,7 @@ export async function retireDocker(name: string): Promise<void> {
 
   // Remove network and volumes
   try {
-    await exec("docker", ["network", "rm", res.network]);
+    await dockerExec(["network", "rm", res.network]);
   } catch {
     // network may not exist
   }
@@ -470,7 +497,7 @@ export async function retireDocker(name: string): Promise<void> {
     res.dockerdDataVolume,
   ]) {
     try {
-      await exec("docker", ["volume", "rm", vol]);
+      await dockerExec(["volume", "rm", vol]);
     } catch {
       // volume may not exist
     }
@@ -874,12 +901,12 @@ export async function startContainers(
   // explicitly keeps volume provenance consistent across fresh and upgraded
   // instances. `docker volume create` is idempotent for an existing volume
   // of the same name, so this is safe to run on every start.
-  await exec("docker", ["volume", "create", opts.res.dockerdDataVolume]);
+  await dockerExec(["volume", "create", opts.res.dockerdDataVolume]);
 
   const runArgs = serviceDockerRunArgs(opts);
   for (const service of SERVICE_START_ORDER) {
     log(`🚀 Starting ${service} container...`);
-    await exec("docker", runArgs[service]());
+    await dockerExec(runArgs[service]());
   }
 }
 
@@ -902,7 +929,7 @@ export async function sleepContainers(
     res.assistantContainer,
   ]) {
     try {
-      await exec("docker", ["stop", container]);
+      await dockerExec(["stop", container]);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message.toLowerCase() : String(err);
@@ -927,7 +954,7 @@ export async function wakeContainers(
     res.gatewayContainer,
     res.cesContainer,
   ]) {
-    await exec("docker", ["start", container]);
+    await dockerExec(["start", container]);
   }
 }
 
@@ -969,7 +996,7 @@ export async function captureImageRefs(
   for (const [service, container] of Object.entries(containerForService)) {
     try {
       const imageRef = (
-        await execOutput("docker", [
+        await dockerExecOutput([
           "inspect",
           "--format",
           "{{.Image}}",
@@ -1104,7 +1131,7 @@ function startFileWatcher(opts: {
         const container = containerForService[service];
         console.log(`🔄 Restarting ${container}...`);
         await removeContainer(container);
-        await exec("docker", runArgs[service]());
+        await dockerExec(runArgs[service]());
       }
 
       console.log("✅ Rebuild complete — watching for changes...\n");
@@ -1271,9 +1298,9 @@ export async function hatchDocker(
       log("");
 
       log("📦 Pulling Docker images...");
-      await exec("docker", ["pull", imageTags.assistant]);
-      await exec("docker", ["pull", imageTags.gateway]);
-      await exec("docker", ["pull", imageTags["credential-executor"]]);
+      await dockerExec(["pull", imageTags.assistant]);
+      await dockerExec(["pull", imageTags.gateway]);
+      await dockerExec(["pull", imageTags["credential-executor"]]);
       log("✅ Docker images pulled");
     }
 
@@ -1281,15 +1308,15 @@ export async function hatchDocker(
 
     emitProgress(3, 6, "Creating volumes...");
     log("📁 Creating network and volumes...");
-    await exec("docker", ["network", "create", res.network]);
-    await exec("docker", ["volume", "create", res.socketVolume]);
-    await exec("docker", ["volume", "create", res.workspaceVolume]);
-    await exec("docker", ["volume", "create", res.cesSecurityVolume]);
-    await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
-    await exec("docker", ["volume", "create", res.dockerdDataVolume]);
+    await dockerExec(["network", "create", res.network]);
+    await dockerExec(["volume", "create", res.socketVolume]);
+    await dockerExec(["volume", "create", res.workspaceVolume]);
+    await dockerExec(["volume", "create", res.cesSecurityVolume]);
+    await dockerExec(["volume", "create", res.gatewaySecurityVolume]);
+    await dockerExec(["volume", "create", res.dockerdDataVolume]);
 
     // Set workspace volume ownership so non-root containers (UID 1001) can write.
-    await exec("docker", [
+    await dockerExec([
       "run",
       "--rm",
       "-v",
