@@ -199,17 +199,39 @@ function toolToEntry(tool: Tool): ToolManifestEntry {
 // ---------------------------------------------------------------------------
 
 /**
- * Walk `root` recursively and return every `.ts` file path (relative
- * to `root`). `node_modules`, `__tests__`, and dotfiles are excluded —
- * tests are not part of the shipped skill surface, and node_modules
- * content depends on install-time resolution rather than source.
+ * Top-level paths under `skills/meet-join/` that are copied into the
+ * assistant Docker image. Mirrors the `!skills/meet-join/...` whitelist
+ * in the repo-root `.dockerignore`. If that whitelist changes, update
+ * this set too — the two must stay in sync or the CI-emitted source
+ * hash will not match the tree the daemon sees inside the container.
+ *
+ * Only `.ts`-bearing entries are listed; non-TS whitelisted files
+ * (`package.json`, `bun.lock`) are not included in the hash.
+ */
+const SHIPPED_TS_SOURCES: ReadonlySet<string> = new Set([
+  "register.ts",
+  "config-schema.ts",
+  "meet-config.ts",
+  "contracts",
+  "daemon",
+  "tools",
+  "routes",
+  "shared",
+  "scripts",
+]);
+
+/**
+ * Walk `root` and return every `.ts` file shipped in the assistant
+ * image (relative to `root`). Only entries listed in
+ * `SHIPPED_TS_SOURCES` are traversed; `__tests__` directories and
+ * `*.test.ts` files are excluded to match the `.dockerignore` test
+ * exclusions.
  *
  * Paths are returned sorted by their POSIX-normalized form so the
  * hash is deterministic across platforms.
  */
 async function listSkillSourceFiles(root: string): Promise<string[]> {
   const results: string[] = [];
-  const skipDirs = new Set(["node_modules", "__tests__", "scripts"]);
 
   async function walk(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -217,15 +239,31 @@ async function listSkillSourceFiles(root: string): Promise<string[]> {
       if (entry.name.startsWith(".")) continue;
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (skipDirs.has(entry.name)) continue;
+        if (entry.name === "__tests__" || entry.name === "node_modules") {
+          continue;
+        }
         await walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      } else if (
+        entry.isFile() &&
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".test.ts")
+      ) {
         results.push(full);
       }
     }
   }
 
-  await walk(root);
+  const rootEntries = await readdir(root, { withFileTypes: true });
+  for (const entry of rootEntries) {
+    if (!SHIPPED_TS_SOURCES.has(entry.name)) continue;
+    const full = join(root, entry.name);
+    if (entry.isDirectory()) {
+      await walk(full);
+    } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      results.push(full);
+    }
+  }
+
   return results
     .map((p) => relative(root, p).split("\\").join("/"))
     .sort();
