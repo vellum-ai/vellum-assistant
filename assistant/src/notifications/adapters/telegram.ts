@@ -1,21 +1,15 @@
 /**
  * Telegram channel adapter — delivers notifications to Telegram chats
- * via the gateway's channel-reply endpoint.
- *
- * Follows the same delivery pattern used by guardian-dispatch: POST to
- * the gateway's `/deliver/telegram` endpoint with a chat ID and text
- * payload. The gateway forwards the message to the Telegram Bot API.
+ * by calling the Telegram Bot API directly.
  *
  * For access request notifications, inline keyboard buttons ("Approve once",
- * "Reject") are attached via the approval payload so the guardian can act
- * without typing a command. If the rich delivery fails, the adapter falls
- * back to plain text with typed-command instructions.
+ * "Reject") are attached so the guardian can act without typing a command.
+ * If the rich delivery fails, the adapter falls back to plain text with
+ * typed-command instructions.
  */
 
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
-import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
+import { sendTelegramReply } from "../../messaging/providers/telegram-bot/send.js";
 import type { ApprovalUIMetadata } from "../../runtime/channel-approval-types.js";
-import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import { getLogger } from "../../util/logger.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import { buildAccessRequestContractText, nonEmpty } from "../copy-composer.js";
@@ -47,7 +41,7 @@ function resolveTelegramMessageText(payload: ChannelDeliveryPayload): string {
 }
 
 /**
- * Build an {@link ApprovalUIMetadata} for an access request so the gateway
+ * Build an {@link ApprovalUIMetadata} for an access request so the delivery
  * renders inline keyboard buttons in the Telegram message.
  *
  * Returns `undefined` when the context payload is missing the required
@@ -93,15 +87,8 @@ export class TelegramAdapter implements ChannelAdapter {
       };
     }
 
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const deliverUrl = `${gatewayBase}/deliver/telegram`;
-
-    // Telegram is a chat surface, not a native popup. Use channel-native
-    // delivery copy when available and avoid deterministic label prefixes.
     const messageText = resolveTelegramMessageText(payload);
 
-    // For access requests, attach inline keyboard buttons so the guardian
-    // can approve/reject with a single tap.
     const isAccessRequest =
       payload.sourceEventName === "ingress.access_request" &&
       payload.contextPayload != null;
@@ -115,11 +102,7 @@ export class TelegramAdapter implements ChannelAdapter {
         // Attempt rich delivery with inline keyboard buttons.
         // On failure, fall back to plain text below.
         try {
-          await deliverChannelReply(
-            deliverUrl,
-            { chatId, text: messageText, approval },
-            mintDaemonDeliveryToken(),
-          );
+          await sendTelegramReply(chatId, messageText, approval);
 
           log.info(
             { sourceEventName: payload.sourceEventName, chatId },
@@ -143,11 +126,7 @@ export class TelegramAdapter implements ChannelAdapter {
           ? `${messageText}\n\n${approval.plainTextFallback}`
           : messageText;
 
-      await deliverChannelReply(
-        deliverUrl,
-        { chatId, text: fallbackText },
-        mintDaemonDeliveryToken(),
-      );
+      await sendTelegramReply(chatId, fallbackText);
 
       log.info(
         { sourceEventName: payload.sourceEventName, chatId },

@@ -1,8 +1,18 @@
 import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
-import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import { getLogger } from "../logger.js";
+
+export type ApprovalAction = {
+  id: string;
+  label: string;
+};
+
+export type ApprovalPayload = {
+  requestId: string;
+  actions: ApprovalAction[];
+  plainTextFallback: string;
+};
 import {
   downloadAttachment,
   type RuntimeAttachmentMeta,

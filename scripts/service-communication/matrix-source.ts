@@ -65,9 +65,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway forwards normalized channel messages (Telegram, WhatsApp, Slack, email) to the assistant's /v1/channels/inbound endpoint.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
-    calleeGlobs: [
-      "assistant/src/runtime/routes/inbound-stages/*.ts",
-    ],
+    calleeGlobs: ["assistant/src/runtime/routes/inbound-stages/*.ts"],
   },
   {
     label: "Conversation reset",
@@ -78,9 +76,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway resets a channel conversation via DELETE /v1/channels/conversation on the assistant.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
-    calleeGlobs: [
-      "assistant/src/runtime/routes/inbound-message-handler.ts",
-    ],
+    calleeGlobs: ["assistant/src/runtime/routes/inbound-message-handler.ts"],
   },
   {
     label: "Attachment upload",
@@ -91,9 +87,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway uploads channel attachments to the assistant via POST /v1/attachments.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
-    calleeGlobs: [
-      "assistant/src/runtime/routes/inbound-message-handler.ts",
-    ],
+    calleeGlobs: ["assistant/src/runtime/routes/inbound-message-handler.ts"],
   },
   {
     label: "Attachment download",
@@ -104,9 +98,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway downloads attachment metadata and content from the assistant for channel delivery.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
-    calleeGlobs: [
-      "assistant/src/runtime/routes/inbound-message-handler.ts",
-    ],
+    calleeGlobs: ["assistant/src/runtime/routes/inbound-message-handler.ts"],
   },
   {
     label: "Twilio voice webhook forwarding",
@@ -128,9 +120,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway forwards OAuth callback codes to the assistant's internal OAuth endpoint.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
-    calleeGlobs: [
-      "assistant/src/runtime/routes/inbound-message-handler.ts",
-    ],
+    calleeGlobs: ["assistant/src/runtime/routes/inbound-message-handler.ts"],
   },
   {
     label: "Runtime proxy",
@@ -163,9 +153,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway proxies Twilio TTS audio fetch requests to the assistant's /v1/audio/:audioId endpoint. The audioId is an unguessable UUID acting as a capability token.",
     callerGlobs: ["gateway/src/http/routes/audio-proxy.ts"],
-    calleeGlobs: [
-      "assistant/src/runtime/routes/audio-routes.ts",
-    ],
+    calleeGlobs: ["assistant/src/runtime/routes/audio-routes.ts"],
   },
   {
     label: "Health probe (migration state)",
@@ -344,9 +332,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
-    callerGlobs: [
-      "gateway/src/http/routes/twilio-relay-websocket.ts",
-    ],
+    callerGlobs: ["gateway/src/http/routes/twilio-relay-websocket.ts"],
     calleeGlobs: ["assistant/src/calls/relay-server.ts"],
   },
   {
@@ -357,9 +343,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies Chrome extension browser-relay WebSocket frames to the assistant's /v1/browser-relay endpoint.",
-    callerGlobs: [
-      "gateway/src/http/routes/browser-relay-websocket.ts",
-    ],
+    callerGlobs: ["gateway/src/http/routes/browser-relay-websocket.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
   {
@@ -370,9 +354,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.",
-    callerGlobs: [
-      "gateway/src/http/routes/twilio-media-websocket.ts",
-    ],
+    callerGlobs: ["gateway/src/http/routes/twilio-media-websocket.ts"],
     calleeGlobs: ["assistant/src/calls/media-stream-server.ts"],
   },
   {
@@ -383,43 +365,19 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies speech-to-text audio streams to the assistant's /v1/stt/stream WebSocket endpoint.",
-    callerGlobs: [
-      "gateway/src/http/routes/stt-stream-websocket.ts",
-    ],
+    callerGlobs: ["gateway/src/http/routes/stt-stream-websocket.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
 
   // =========================================================================
   // Assistant -> Gateway (HTTP)
   // =========================================================================
-  {
-    label: "Channel reply delivery (Telegram)",
-    caller: "assistant",
-    callee: "gateway",
-    protocol: "http",
-    auth: "JWT Bearer (daemon delivery token)",
-    description:
-      "Assistant delivers reply messages to Telegram chats via the gateway's /deliver/telegram endpoint.",
-    callerGlobs: [
-      "assistant/src/runtime/gateway-client.ts",
-      "assistant/src/notifications/adapters/telegram.ts",
-    ],
-    calleeGlobs: ["gateway/src/http/routes/telegram-deliver.ts"],
-  },
-  {
-    label: "Channel reply delivery (WhatsApp)",
-    caller: "assistant",
-    callee: "gateway",
-    protocol: "http",
-    auth: "JWT Bearer (daemon delivery token)",
-    description:
-      "Assistant delivers reply messages to WhatsApp via the gateway's /deliver/whatsapp endpoint.",
-    callerGlobs: [
-      "assistant/src/runtime/gateway-client.ts",
-      "assistant/src/messaging/providers/whatsapp/adapter.ts",
-    ],
-    calleeGlobs: ["gateway/src/http/routes/whatsapp-deliver.ts"],
-  },
+  // Telegram reply delivery is now a direct Bot API call from the assistant
+  // (assistant/src/messaging/providers/telegram-bot/{api,send}.ts → api.telegram.org).
+  // Not modeled here — the matrix tracks inter-service edges, not external APIs.
+  // WhatsApp reply delivery is now a direct Meta API call from the assistant
+  // (assistant/src/messaging/providers/whatsapp/{api,send}.ts → graph.facebook.com).
+  // Not modeled here — the matrix tracks inter-service edges, not external APIs.
   {
     label: "Channel reply delivery (Slack)",
     caller: "assistant",
@@ -502,9 +460,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "none (local socket)",
     description:
       "Assistant reads auto-approve threshold configuration from the gateway via IPC (get_global_thresholds, get_conversation_threshold methods).",
-    callerGlobs: [
-      "assistant/src/permissions/gateway-threshold-reader.ts",
-    ],
+    callerGlobs: ["assistant/src/permissions/gateway-threshold-reader.ts"],
     calleeGlobs: [
       "gateway/src/ipc/threshold-handlers.ts",
       "gateway/src/ipc/server.ts",
@@ -543,9 +499,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "none (bootstrap socket)",
     description:
       "Assistant connects to the CES sidecar's bootstrap Unix socket (CES_BOOTSTRAP_SOCKET) for RPC in managed/Docker mode.",
-    callerGlobs: [
-      "assistant/src/credential-execution/process-manager.ts",
-    ],
+    callerGlobs: ["assistant/src/credential-execution/process-manager.ts"],
     calleeGlobs: [
       "credential-executor/src/managed-main.ts",
       "credential-executor/src/server.ts",
@@ -563,12 +517,8 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     auth: "CES_SERVICE_TOKEN Bearer",
     description:
       "Assistant performs credential CRUD via the CES HTTP API (CES_CREDENTIAL_URL) in containerized mode.",
-    callerGlobs: [
-      "assistant/src/security/ces-credential-client.ts",
-    ],
-    calleeGlobs: [
-      "credential-executor/src/http/*.ts",
-    ],
+    callerGlobs: ["assistant/src/security/ces-credential-client.ts"],
+    calleeGlobs: ["credential-executor/src/http/*.ts"],
   },
 
   // =========================================================================
@@ -586,9 +536,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
       "gateway/src/credential-reader.ts",
       "gateway/src/credential-watcher.ts",
     ],
-    calleeGlobs: [
-      "credential-executor/src/http/*.ts",
-    ],
+    calleeGlobs: ["credential-executor/src/http/*.ts"],
   },
   {
     label: "Gateway CES log export (HTTP)",
@@ -599,8 +547,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     description:
       "Gateway fetches CES audit logs during log export via GET /v1/logs/export on the CES HTTP API.",
     callerGlobs: ["gateway/src/http/routes/log-export.ts"],
-    calleeGlobs: [
-      "credential-executor/src/http/*.ts",
-    ],
+    calleeGlobs: ["credential-executor/src/http/*.ts"],
   },
 ];

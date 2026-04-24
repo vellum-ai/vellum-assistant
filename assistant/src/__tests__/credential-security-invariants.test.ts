@@ -181,6 +181,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
       "cli/lib/daemon-credential-client.ts", // CLI-to-daemon credential routing intermediary
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
+      "messaging/providers/telegram-bot/api.ts", // Telegram Bot API client (bot token for direct sends)
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "messaging/providers/whatsapp/api.ts", // WhatsApp Cloud API client (bot token for direct sends)

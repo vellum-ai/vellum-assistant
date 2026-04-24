@@ -12,6 +12,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { startVerificationCall } from "../calls/call-domain.js";
 import type { ChannelId } from "../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { sendTelegramReply } from "../messaging/providers/telegram-bot/send.js";
 import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
@@ -129,8 +130,8 @@ export interface OutboundActionResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Deliver a verification Telegram message via the gateway's /deliver/telegram
- * endpoint. Fire-and-forget with error logging.
+ * Deliver a verification Telegram message via the Bot API directly.
+ * Fire-and-forget with error logging.
  */
 export function deliverVerificationTelegram(
   chatId: string,
@@ -139,29 +140,11 @@ export function deliverVerificationTelegram(
 ): void {
   (async () => {
     try {
-      const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = mintDaemonDeliveryToken();
-      const url = `${gatewayUrl}/deliver/telegram`;
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearerToken}`,
-        },
-        body: JSON.stringify({ chatId, text, assistantId }),
-      });
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => "<unreadable>");
-        log.error(
-          { chatId, assistantId, status: resp.status, body },
-          "Gateway /deliver/telegram failed for verification",
-        );
-      } else {
-        log.info(
-          { chatId, assistantId },
-          "Verification Telegram message delivered",
-        );
-      }
+      await sendTelegramReply(chatId, text);
+      log.info(
+        { chatId, assistantId },
+        "Verification Telegram message delivered",
+      );
     } catch (err) {
       log.error(
         { err, chatId, assistantId },
