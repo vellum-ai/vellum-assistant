@@ -163,4 +163,79 @@ describe("service communication matrix", () => {
       expect(output).toContain(heading);
     }
   });
+
+  test("all gateway route files that proxy to assistant are covered by a matrix callerGlob", async () => {
+    /**
+     * Patterns that identify a gateway route file as an assistant-upstream
+     * callsite. Any non-test .ts file in gateway/src/http/routes/ that
+     * contains one of these strings must appear in at least one callerGlob
+     * of a gateway->assistant matrix entry.
+     */
+    const PROXY_PATTERNS = [
+      "assistantRuntimeBaseUrl",
+      "proxyForward",
+      "proxyForwardToResponse",
+      "buildWsUpstreamUrl",
+    ];
+
+    /**
+     * Files in gateway/src/http/routes/ that reference assistant upstream
+     * patterns for reasons other than proxying (e.g., they are gateway-native
+     * endpoints that share utility helpers or type imports). Excluded from the
+     * coverage assertion with an explanation.
+     *
+     * Add to this list — with a comment — whenever a new file legitimately
+     * matches the proxy patterns but is NOT a callsite.
+     */
+    const ALLOWLIST = new Set<string>([
+      // Reads/writes config.json locally; never proxies to assistant.
+      "gateway/src/http/routes/privacy-config.ts",
+    ]);
+
+    // Collect all callerGlobs from gateway->assistant entries.
+    const gatewayToAssistantEntries = MATRIX_ENTRIES.filter(
+      (e) => e.caller === "gateway" && e.callee === "assistant",
+    );
+    const coveredFiles = new Set<string>();
+    for (const entry of gatewayToAssistantEntries) {
+      for (const pattern of entry.callerGlobs) {
+        const glob = new Glob(pattern);
+        for (const match of glob.scanSync({ cwd: REPO_ROOT })) {
+          coveredFiles.add(match);
+        }
+      }
+    }
+
+    // Scan all non-test .ts files in gateway/src/http/routes/ for proxy patterns.
+    const routeGlob = new Glob("gateway/src/http/routes/*.ts");
+    const uncovered: string[] = [];
+
+    for (const relPath of routeGlob.scanSync({ cwd: REPO_ROOT })) {
+      // Skip test files — they import proxy helpers for mocking, not for calling assistant.
+      if (relPath.endsWith(".test.ts")) continue;
+
+      const fullPath = join(REPO_ROOT, relPath);
+      const content = await Bun.file(fullPath).text();
+      const isCallsite = PROXY_PATTERNS.some((p) => content.includes(p));
+
+      if (!isCallsite) continue;
+      if (ALLOWLIST.has(relPath)) continue;
+
+      if (!coveredFiles.has(relPath)) {
+        uncovered.push(relPath);
+      }
+    }
+
+    if (uncovered.length > 0) {
+      throw new Error(
+        [
+          "The following gateway route files proxy to assistant but have no matrix entry:",
+          ...uncovered.map((f) => `  ${f}`),
+          "",
+          "Add a Gateway -> Assistant entry in matrix-source.ts with a callerGlob",
+          "that matches each file, or add it to ALLOWLIST if it is not a true callsite.",
+        ].join("\n"),
+      );
+    }
+  });
 });

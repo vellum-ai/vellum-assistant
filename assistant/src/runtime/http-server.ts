@@ -1317,6 +1317,23 @@ export class RuntimeHttpServer {
       );
     }
 
+    // Verify the gateway service token before accepting the upgrade.
+    if (!isHttpAuthDisabled()) {
+      const wsUrl = new URL(req.url);
+      const token = wsUrl.searchParams.get("token");
+      if (!token) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      const jwtResult = verifyToken(token, "vellum-daemon");
+      if (!jwtResult.ok) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      const subResult = parseSub(jwtResult.claims.sub);
+      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+    }
+
     const wsUrl = new URL(req.url);
     const callSessionId = wsUrl.searchParams.get("callSessionId");
     if (!callSessionId) {
@@ -1340,6 +1357,23 @@ export class RuntimeHttpServer {
         "Direct media-stream access disabled — only private network peers allowed",
         403,
       );
+    }
+
+    // Verify the gateway service token before accepting the upgrade.
+    if (!isHttpAuthDisabled()) {
+      const wsUrl = new URL(req.url);
+      const token = wsUrl.searchParams.get("token");
+      if (!token) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      const jwtResult = verifyToken(token, "vellum-daemon");
+      if (!jwtResult.ok) {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
+      const subResult = parseSub(jwtResult.claims.sub);
+      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
+        return httpError("UNAUTHORIZED", "Unauthorized", 401);
+      }
     }
 
     const wsUrl = new URL(req.url);

@@ -21,23 +21,35 @@ This document enumerates every observed communication permutation between the th
 | 9 | Gateway -> Assistant | `http` | none (audioId capability token) | Audio proxy |
 | 10 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health probe (migration state) |
 | 11 | Gateway -> Assistant | `http` | none | Readiness probe |
-| 12 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param; unverified) | Twilio ConversationRelay WebSocket proxy |
-| 13 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
-| 14 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param; unverified) | Twilio MediaStream WebSocket proxy |
-| 15 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
-| 16 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
-| 17 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
-| 18 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
-| 19 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
-| 20 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 21 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 22 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 23 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 24 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 25 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 26 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 27 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 28 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 12 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime health proxy |
+| 13 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Brain graph proxy |
+| 14 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel readiness proxy |
+| 15 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Contacts control-plane proxy |
+| 16 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration proxy (export/import) |
+| 17 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Migration rollback proxy |
+| 18 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Workspace commit proxy |
+| 19 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Upgrade broadcast proxy |
+| 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Pairing proxy |
+| 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
+| 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
+| 23 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
+| 24 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio ConversationRelay WebSocket proxy |
+| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
+| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
+| 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
+| 28 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
+| 29 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
+| 30 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
+| 31 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 34 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 35 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 36 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 37 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 38 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 39 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 40 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -173,10 +185,158 @@ This document enumerates every observed communication permutation between the th
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
 
+### Runtime health proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway even when the broad runtime proxy is disabled.
+
+**Caller files:**
+- `gateway/src/http/routes/runtime-health-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Brain graph proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies GET /v1/brain-graph and GET /v1/brain-graph-ui to the assistant's knowledge-graph visualizer endpoints.
+
+**Caller files:**
+- `gateway/src/http/routes/brain-graph-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Channel readiness proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies /v1/channels/readiness (GET probe and POST refresh) to the assistant's channel readiness control-plane.
+
+**Caller files:**
+- `gateway/src/http/routes/channel-readiness-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Contacts control-plane proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies contacts and invites CRUD (/v1/contacts, /v1/contact-channels, /v1/contacts/invites) to the assistant's ingress contacts control-plane.
+
+**Caller files:**
+- `gateway/src/http/routes/contacts-control-plane-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Migration proxy (export/import)
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies /v1/migrations/export, /v1/migrations/import (sync bytes and async URL-based), and GCS teleport endpoints to the assistant's migration control-plane.
+
+**Caller files:**
+- `gateway/src/http/routes/migration-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Migration rollback proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies POST /v1/admin/rollback-migrations to the assistant's admin migration rollback endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/migration-rollback-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Workspace commit proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies POST /v1/admin/workspace-commit to the assistant's workspace commit admin endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/workspace-commit-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Upgrade broadcast proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies POST /v1/admin/upgrade-broadcast to the assistant's upgrade-broadcast admin endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/upgrade-broadcast-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Pairing proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies /v1/pairing/* (register, request, status) to the assistant's pairing endpoints. The gateway ingress is unauthenticated — secured by a pairingSecret in the request body — while the gateway→assistant hop uses a service token.
+
+**Caller files:**
+- `gateway/src/http/routes/pairing-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Channel integration control-plane proxies
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies Slack, Telegram, Twilio, and Vercel integration control-plane routes (/v1/integrations/*) to the assistant's integration management endpoints.
+
+**Caller files:**
+- `gateway/src/http/routes/slack-control-plane-proxy.ts`
+- `gateway/src/http/routes/telegram-control-plane-proxy.ts`
+- `gateway/src/http/routes/twilio-control-plane-proxy.ts`
+- `gateway/src/http/routes/vercel-control-plane-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### OAuth control-plane proxies
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies OAuth app/connection management (/v1/oauth/apps, /v1/oauth/connections) and provider discovery (/v1/oauth/providers) to the assistant's OAuth control-plane.
+
+**Caller files:**
+- `gateway/src/http/routes/oauth-apps-proxy.ts`
+- `gateway/src/http/routes/oauth-providers-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Channel verification session proxy
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway proxies channel verification session routes (/v1/channel-verification-sessions) and guardian bootstrap endpoints (/v1/guardian/init, /v1/guardian/refresh) to the assistant. Guardian init enforces a one-time-use bootstrap secret guard before forwarding.
+
+**Caller files:**
+- `gateway/src/http/routes/channel-verification-session-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
 ### Twilio ConversationRelay WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param; unverified)
+- **Auth:** JWT Bearer (service token, query param)
 - **Description:** Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.
 
 **Caller files:**
@@ -200,7 +360,7 @@ This document enumerates every observed communication permutation between the th
 ### Twilio MediaStream WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param; unverified)
+- **Auth:** JWT Bearer (service token, query param)
 - **Description:** Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.
 
 **Caller files:**

@@ -190,6 +190,149 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },
 
+  {
+    label: "Runtime health proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway forwards GET /v1/health to the assistant's runtime health endpoint, exposing it through the gateway even when the broad runtime proxy is disabled.",
+    callerGlobs: ["gateway/src/http/routes/runtime-health-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Brain graph proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies GET /v1/brain-graph and GET /v1/brain-graph-ui to the assistant's knowledge-graph visualizer endpoints.",
+    callerGlobs: ["gateway/src/http/routes/brain-graph-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Channel readiness proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies /v1/channels/readiness (GET probe and POST refresh) to the assistant's channel readiness control-plane.",
+    callerGlobs: ["gateway/src/http/routes/channel-readiness-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Contacts control-plane proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies contacts and invites CRUD (/v1/contacts, /v1/contact-channels, /v1/contacts/invites) to the assistant's ingress contacts control-plane.",
+    callerGlobs: ["gateway/src/http/routes/contacts-control-plane-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Migration proxy (export/import)",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies /v1/migrations/export, /v1/migrations/import (sync bytes and async URL-based), and GCS teleport endpoints to the assistant's migration control-plane.",
+    callerGlobs: ["gateway/src/http/routes/migration-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Migration rollback proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies POST /v1/admin/rollback-migrations to the assistant's admin migration rollback endpoint.",
+    callerGlobs: ["gateway/src/http/routes/migration-rollback-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Workspace commit proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies POST /v1/admin/workspace-commit to the assistant's workspace commit admin endpoint.",
+    callerGlobs: ["gateway/src/http/routes/workspace-commit-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Upgrade broadcast proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies POST /v1/admin/upgrade-broadcast to the assistant's upgrade-broadcast admin endpoint.",
+    callerGlobs: ["gateway/src/http/routes/upgrade-broadcast-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Pairing proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies /v1/pairing/* (register, request, status) to the assistant's pairing endpoints. The gateway ingress is unauthenticated — secured by a pairingSecret in the request body — while the gateway→assistant hop uses a service token.",
+    callerGlobs: ["gateway/src/http/routes/pairing-proxy.ts"],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Channel integration control-plane proxies",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies Slack, Telegram, Twilio, and Vercel integration control-plane routes (/v1/integrations/*) to the assistant's integration management endpoints.",
+    callerGlobs: [
+      "gateway/src/http/routes/slack-control-plane-proxy.ts",
+      "gateway/src/http/routes/telegram-control-plane-proxy.ts",
+      "gateway/src/http/routes/twilio-control-plane-proxy.ts",
+      "gateway/src/http/routes/vercel-control-plane-proxy.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "OAuth control-plane proxies",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies OAuth app/connection management (/v1/oauth/apps, /v1/oauth/connections) and provider discovery (/v1/oauth/providers) to the assistant's OAuth control-plane.",
+    callerGlobs: [
+      "gateway/src/http/routes/oauth-apps-proxy.ts",
+      "gateway/src/http/routes/oauth-providers-proxy.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+  {
+    label: "Channel verification session proxy",
+    caller: "gateway",
+    callee: "assistant",
+    protocol: "http",
+    auth: "JWT Bearer (service token)",
+    description:
+      "Gateway proxies channel verification session routes (/v1/channel-verification-sessions) and guardian bootstrap endpoints (/v1/guardian/init, /v1/guardian/refresh) to the assistant. Guardian init enforces a one-time-use bootstrap secret guard before forwarding.",
+    callerGlobs: [
+      "gateway/src/http/routes/channel-verification-session-proxy.ts",
+    ],
+    calleeGlobs: ["assistant/src/runtime/http-server.ts"],
+  },
+
   // =========================================================================
   // Gateway -> Assistant (WebSocket)
   // =========================================================================
@@ -198,7 +341,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (service token, query param; unverified)",
+    auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
     callerGlobs: [
@@ -224,7 +367,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     caller: "gateway",
     callee: "assistant",
     protocol: "websocket",
-    auth: "JWT Bearer (service token, query param; unverified)",
+    auth: "JWT Bearer (service token, query param)",
     description:
       "Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.",
     callerGlobs: [
