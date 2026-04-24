@@ -314,7 +314,7 @@ export async function handleClassifyRisk(
               } else if (p.startsWith("~/")) {
                 fsPathArgs.add(join(homedir(), p.slice(2)));
               } else if (isAbsolute(p)) {
-                fsPathArgs.add(p);
+                fsPathArgs.add(resolve(p));
               } else {
                 fsPathArgs.add(resolve(trackedCwd, p));
               }
@@ -438,7 +438,10 @@ export async function handleClassifyRisk(
         allowlistOptions: assessment.allowlistOptions,
         directoryScopeOptions,
         resolvedPaths: filePath
-          ? [isAbsolute(filePath) ? resolve(filePath) : resolve(workingDir, filePath)]
+          ? [filePath === "~" ? homedir()
+             : filePath.startsWith("~/") ? join(homedir(), filePath.slice(2))
+             : isAbsolute(filePath) ? resolve(filePath)
+             : resolve(workingDir, filePath)]
           : undefined,
         matchType: assessment.matchType,
       };
