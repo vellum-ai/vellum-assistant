@@ -18,7 +18,7 @@ import {
 import {
   __clearExternalToolProvidersForTesting,
   __clearRegistryForTesting,
-  getExternalTools,
+  getTool,
 } from "../../../tools/registry.js";
 import {
   __getActiveSessionCountForTesting,
@@ -69,11 +69,11 @@ describe("host.registries.register_tools", () => {
     })) as { registered: string[] };
 
     expect(result.registered).toEqual(["skill_demo_tool"]);
-    const installed = getExternalTools();
-    expect(installed.map((t) => t.name)).toEqual(["skill_demo_tool"]);
-    expect(installed[0]!.origin).toBe("skill");
-    expect(installed[0]!.ownerSkillId).toBe("demo-skill");
-    expect(installed[0]!.executionMode).toBe("proxy");
+    const installed = getTool("skill_demo_tool");
+    expect(installed).toBeDefined();
+    expect(installed!.origin).toBe("skill");
+    expect(installed!.ownerSkillId).toBe("demo-skill");
+    expect(installed!.executionMode).toBe("proxy");
   });
 
   test("proxy execute throws not-implemented until PR 28 dispatch lands", async () => {
@@ -89,10 +89,10 @@ describe("host.registries.register_tools", () => {
       ],
     });
 
-    const installed = getExternalTools();
-    expect(installed).toHaveLength(1);
+    const installed = getTool("skill_stub_tool");
+    expect(installed).toBeDefined();
     await expect(
-      installed[0]!.execute(
+      installed!.execute(
         {},
         {
           workingDir: "/tmp",

@@ -123,7 +123,6 @@ import type {
   DockerRunner,
   DockerRunResult,
   DockerWaitResult,
-  ReaperLogger,
 } from "./docker-runner.js";
 import {
   meetEventDispatcher,
@@ -848,7 +847,7 @@ class MeetSessionManagerImpl {
     const resolveWorkspaceDir =
       deps.getWorkspaceDir ?? (() => host.platform.workspaceDir());
     const dockerRunnerSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => DockerRunner
+      (host: SkillHost, resolveWorkspaceDir?: () => string) => DockerRunner
     >(DOCKER_RUNNER_MODULE);
     const audioIngestSubModule = resolveSubModuleFactory<
       (host: SkillHost) => () => MeetAudioIngest
@@ -868,7 +867,10 @@ class MeetSessionManagerImpl {
       ) => MeetConversationBridge
     >("conversation-bridge");
     const storageWriterSubModule = resolveSubModuleFactory<
-      (host: SkillHost) => (meetingId: string) => MeetStorageWriter
+      (
+        host: SkillHost,
+        resolveWorkspaceDir?: () => string,
+      ) => (meetingId: string) => MeetStorageWriter
     >("storage-writer");
     const chatOpportunityDetectorSubModule = resolveSubModuleFactory<
       (
@@ -886,11 +888,11 @@ class MeetSessionManagerImpl {
     >("barge-in-watcher");
 
     const dockerRunnerBuilder = (): DockerRunner =>
-      dockerRunnerSubModule(host);
+      dockerRunnerSubModule(host, resolveWorkspaceDir);
     const audioIngestBuilder = audioIngestSubModule(host);
     const consentMonitorBuilder = consentMonitorSubModule(host);
     const conversationBridgeBuilder = conversationBridgeSubModule(host);
-    const storageWriterBuilder = storageWriterSubModule(host);
+    const storageWriterBuilder = storageWriterSubModule(host, resolveWorkspaceDir);
     const chatOpportunityDetectorBuilder = chatOpportunityDetectorSubModule(host);
     const ttsBridgeBuilder = ttsBridgeSubModule(host);
     const ttsLipsyncBuilder = ttsLipsyncSubModule(host);
@@ -1020,7 +1022,7 @@ class MeetSessionManagerImpl {
         },
         instanceHash: getMeetBotInstanceHash(),
         createdBefore: daemonStartEpochSeconds,
-        logger: adaptContractLoggerToReaperLogger(reaperLog),
+        logger: reaperLog,
       }).catch((err: unknown) => {
         reaperLog.warn(
           "Startup orphan-reaper sweep threw — continuing",
@@ -2728,21 +2730,6 @@ function resolveSubModuleFactory<F extends SubModuleFactory>(name: string): F {
     );
   }
   return factory as F;
-}
-
-/**
- * Adapter: wrap a skill-host-contracts {@link Logger} (contract shape
- * `(msg, meta)`) so it satisfies the pino-style {@link ReaperLogger}
- * shape (`(obj, msg)`) consumed by {@link reapOrphanedMeetBots}. Keeping
- * the reaper's pino shape avoids churn in the docker-runner module.
- */
-function adaptContractLoggerToReaperLogger(log: Logger): ReaperLogger {
-  return {
-    info: (obj, msg) => log.info(msg ?? "", obj),
-    warn: (obj, msg) => log.warn(msg ?? "", obj),
-    error: (obj, msg) => log.error(msg ?? "", obj),
-    debug: (obj, msg) => log.debug(msg ?? "", obj),
-  };
 }
 
 /**

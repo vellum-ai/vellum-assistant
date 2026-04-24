@@ -80,7 +80,7 @@ async function handleLlmComplete(params?: Record<string, unknown>) {
     messages as Message[],
     tools as ToolDefinition[] | undefined,
     systemPrompt,
-    config ? { config: config as SendMessageConfig } : undefined,
+    { config: { ...((config as SendMessageConfig) ?? {}), callSite } },
   );
 }
 

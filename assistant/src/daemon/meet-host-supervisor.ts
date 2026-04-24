@@ -230,7 +230,7 @@ export class MeetHostSupervisor {
       const err = new Error(
         `meet-join source hash mismatch: handshake reported ${payload.sourceHash} ` +
           `but manifest expects ${this.manifest.sourceHash}. ` +
-          "Regenerate the meet-join manifest or rebuild the daemon to match.",
+          "Regenerate the meet-join manifest or rebuild the assistant to match.",
       );
       this.handshakeReject(err);
       return;
@@ -376,12 +376,24 @@ export class MeetHostSupervisor {
   /**
    * Drop references to the current child and any handshake waiters.
    * Called on `exit`, on hash-mismatch rejection, and during shutdown.
+   * If the child is still live (e.g. hash-mismatch path aborts before
+   * stopChild runs), SIGKILL it so we don't leak an orphan process on
+   * respawn.
    */
   private teardownChild(): void {
+    const child = this.child;
+    if (child && !child.killed && child.exitCode == null) {
+      try {
+        child.kill("SIGKILL");
+      } catch (err) {
+        log.warn({ err }, "SIGKILL during teardown failed");
+      }
+    }
     this.child = null;
     this.spawnPromise = null;
     this.handshakeResolve = null;
     this.handshakeReject = null;
+    this.activeSessions.clear();
   }
 
   private armIdleTimer(): void {

@@ -84,6 +84,7 @@ beforeEach(() => {
   sttSupportsBoundarySpy.mockClear();
   getTtsProviderSpy.mockClear();
   resolveTtsConfigSpy.mockClear();
+  getConfigSpy.mockClear();
   getProviderKeyAsyncSpy.mockClear();
 });
 
@@ -143,7 +144,10 @@ describe("host.providers.llm.complete", () => {
     ];
     expect(Array.isArray(call[1])).toBe(true);
     expect((call[1] as unknown[]).length).toBe(1);
-    expect(call[3]?.config).toEqual({ model: "override-model" });
+    expect(call[3]?.config).toEqual({
+      model: "override-model",
+      callSite: "mainAgent",
+    });
   });
 
   test("rejects an unknown callSite", async () => {

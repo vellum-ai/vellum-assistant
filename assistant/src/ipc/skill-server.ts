@@ -27,9 +27,14 @@
  */
 
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
+import {
+  type SkillRouteHandle,
+  unregisterSkillRoute,
+} from "../runtime/skill-route-registry.js";
+import { unregisterSkillTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import type {
   IpcMethodHandler,
@@ -87,6 +92,86 @@ export type SkillIpcStreamingRoute = {
 };
 
 // ---------------------------------------------------------------------------
+// Per-connection context
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-connection state threaded into skill-IPC method handlers as their
+ * second argument. Lets `host.registries.*` handlers attach route handles
+ * and skill-tool owner IDs to the live connection so the server can tear
+ * them down when the connection closes — without this, a skill process
+ * that disconnects (crash or reconnect) would leak its contributions into
+ * the daemon's in-memory registries.
+ *
+ * Mirrors the plugin-bootstrap pattern (`external-plugins-bootstrap.ts`),
+ * which retains the opaque {@link SkillRouteHandle} returned from
+ * `registerSkillRoute` and unregisters by identity during teardown.
+ */
+export interface SkillIpcConnection {
+  readonly connectionId: string;
+  /**
+   * Store a route handle under the given skill id so disconnect can
+   * revoke exactly the routes this connection contributed. Pattern-text
+   * is not a stable key — two owners may legitimately register the same
+   * regex.
+   */
+  addRouteHandle(skillId: string, handle: SkillRouteHandle): void;
+  /**
+   * Mark a skill id as having registered tools on this connection. On
+   * disconnect the server calls `unregisterSkillTools(skillId)` once per
+   * tracked id so the ref-counted tool registry drops the contribution.
+   */
+  addSkillToolsOwner(skillId: string): void;
+}
+
+class SkillIpcConnectionState implements SkillIpcConnection {
+  readonly connectionId: string;
+  private routeHandlesBySkill = new Map<string, SkillRouteHandle[]>();
+  private skillToolOwners = new Set<string>();
+
+  constructor(connectionId: string) {
+    this.connectionId = connectionId;
+  }
+
+  addRouteHandle(skillId: string, handle: SkillRouteHandle): void {
+    const list = this.routeHandlesBySkill.get(skillId) ?? [];
+    list.push(handle);
+    this.routeHandlesBySkill.set(skillId, list);
+  }
+
+  addSkillToolsOwner(skillId: string): void {
+    this.skillToolOwners.add(skillId);
+  }
+
+  dispose(): void {
+    for (const handles of this.routeHandlesBySkill.values()) {
+      for (const handle of handles) {
+        try {
+          unregisterSkillRoute(handle);
+        } catch (err) {
+          log.warn(
+            { err, connectionId: this.connectionId },
+            "skill IPC disconnect: failed to unregister skill route",
+          );
+        }
+      }
+    }
+    this.routeHandlesBySkill.clear();
+    for (const skillId of this.skillToolOwners) {
+      try {
+        unregisterSkillTools(skillId);
+      } catch (err) {
+        log.warn(
+          { err, connectionId: this.connectionId, skillId },
+          "skill IPC disconnect: failed to unregister skill tools",
+        );
+      }
+    }
+    this.skillToolOwners.clear();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
 
@@ -106,6 +191,13 @@ export class SkillIpcServer {
    * locate the matching dispose callback.
    */
   private subscriptions = new WeakMap<Socket, Map<string, () => void>>();
+  /**
+   * Per-socket connection state threaded into `host.registries.*` handlers.
+   * Holds route handles + skill-tool owner ids the connection contributed
+   * so `teardownConnection` can revoke them on disconnect.
+   */
+  private connections = new WeakMap<Socket, SkillIpcConnectionState>();
+  private nextConnectionId = 1;
   private socketPath: string;
 
   constructor(options: SkillIpcServerOptions = {}) {
@@ -148,25 +240,30 @@ export class SkillIpcServer {
   }
 
   /** Start listening on the Unix domain socket. */
-  start(): void {
+  async start(): Promise<void> {
     // Ensure the parent directory exists before listening.
     const socketDir = dirname(this.socketPath);
     if (!existsSync(socketDir)) {
       mkdirSync(socketDir, { recursive: true, mode: 0o700 });
     }
 
-    // Clean up stale socket file from a previous run
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore — may already be gone
-      }
-    }
+    // Probe-connect before unlinking: Unix sockets can be unlinked while still
+    // bound, so a blind `unlinkSync` on a live path would silently orphan
+    // another daemon's listener. Only unlink when the connect fails with
+    // ECONNREFUSED (stale file from a previous crash) / ENOENT (race with
+    // removal) — fail fast on a successful connect.
+    await ensureSocketPathFree(this.socketPath);
 
     this.server = createServer((socket) => {
       this.clients.add(socket);
-      log.debug("Skill IPC client connected");
+      const connection = new SkillIpcConnectionState(
+        `skill-ipc-${this.nextConnectionId++}`,
+      );
+      this.connections.set(socket, connection);
+      log.debug(
+        { connectionId: connection.connectionId },
+        "Skill IPC client connected",
+      );
 
       let buffer = "";
 
@@ -185,13 +282,21 @@ export class SkillIpcServer {
       socket.on("close", () => {
         this.clients.delete(socket);
         this.teardownSubscriptions(socket);
-        log.debug("Skill IPC client disconnected");
+        this.teardownConnection(socket);
+        log.debug(
+          { connectionId: connection.connectionId },
+          "Skill IPC client disconnected",
+        );
       });
 
       socket.on("error", (err) => {
-        log.warn({ err }, "Skill IPC client socket error");
+        log.warn(
+          { err, connectionId: connection.connectionId },
+          "Skill IPC client socket error",
+        );
         this.clients.delete(socket);
         this.teardownSubscriptions(socket);
+        this.teardownConnection(socket);
       });
     });
 
@@ -208,6 +313,7 @@ export class SkillIpcServer {
   stop(): void {
     for (const client of this.clients) {
       this.teardownSubscriptions(client);
+      this.teardownConnection(client);
       if (!client.destroyed) client.destroy();
     }
     this.clients.clear();
@@ -288,7 +394,8 @@ export class SkillIpcServer {
     }
 
     try {
-      const result = handler(req.params);
+      const connection = this.connections.get(socket);
+      const result = handler(req.params, connection);
       if (result instanceof Promise) {
         result
           .then((value) => {
@@ -408,6 +515,13 @@ export class SkillIpcServer {
     });
   }
 
+  private teardownConnection(socket: Socket): void {
+    const connection = this.connections.get(socket);
+    if (!connection) return;
+    connection.dispose();
+    this.connections.delete(socket);
+  }
+
   private teardownSubscriptions(socket: Socket): void {
     const map = this.subscriptions.get(socket);
     if (!map) return;
@@ -427,4 +541,35 @@ export class SkillIpcServer {
       socket.write(JSON.stringify(response) + "\n");
     }
   }
+}
+
+/**
+ * Probe-connect to `socketPath`. If a live listener answers, reject so the
+ * caller can surface `EADDRINUSE`-style errors instead of silently hijacking
+ * the path. If the connect fails with `ECONNREFUSED`/`ENOENT`, the file is a
+ * stale leftover and we unlink it. Any other error propagates.
+ */
+async function ensureSocketPathFree(socketPath: string): Promise<void> {
+  if (!existsSync(socketPath)) return;
+  await new Promise<void>((resolve, reject) => {
+    const client = connect(socketPath);
+    client.once("connect", () => {
+      client.end();
+      reject(
+        new Error(`EADDRINUSE: another daemon is listening at ${socketPath}`),
+      );
+    });
+    client.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
+        try {
+          unlinkSync(socketPath);
+        } catch {
+          // Ignore — may already be gone
+        }
+        resolve();
+      } else {
+        reject(err);
+      }
+    });
+  });
 }

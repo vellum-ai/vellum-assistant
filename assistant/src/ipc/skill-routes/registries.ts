@@ -20,9 +20,10 @@
 
 import { z } from "zod";
 
+import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
-import { registerExternalTools } from "../../tools/registry.js";
+import { registerSkillTools } from "../../tools/registry.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -31,6 +32,7 @@ import type {
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { IpcRoute } from "../cli-server.js";
+import type { SkillIpcConnection } from "../skill-server.js";
 
 const log = getLogger("skill-routes-registries");
 
@@ -64,7 +66,11 @@ const RegisterToolsParams = z.object({
 
 const RegisterSkillRouteParams = z.object({
   patternSource: z.string().min(1),
+  // `new RegExp(patternSource)` alone silently drops i/m/g/s/u/y flags from
+  // the skill-side RegExp — keep them as a separate field to survive IPC.
+  patternFlags: z.string().default(""),
   methods: z.array(z.string().min(1)).min(1),
+  skillId: z.string().min(1).optional(),
 });
 
 const RegisterShutdownHookParams = z.object({
@@ -75,34 +81,75 @@ const ReportSessionParams = z.object({
   meetingId: z.string().min(1),
 });
 
-// ── Session counter (replaced by PR 27 MeetHostSupervisor) ────────────
+// ── Session counter ───────────────────────────────────────────────────
 
 /**
- * Active-session set. Keyed by meetingId so duplicate `report_session_started`
- * calls for the same meeting are idempotent and `report_session_ended` with
- * no prior start is a no-op. PR 27's `MeetHostSupervisor` takes over this
- * responsibility and this module delegates to it when it lands; the IPC wire
- * format does not change.
+ * Fallback active-session set. Keyed by meetingId so duplicate
+ * `report_session_started` calls are idempotent and `report_session_ended`
+ * for an unknown id is a no-op. Used when no {@link MeetHostSupervisor}
+ * has been registered (e.g. when the lazy-external flag is off, in the
+ * narrow window before `external-skills-bootstrap.ts` runs, and in tests
+ * that exercise the IPC routes in isolation). Also backs the test-only
+ * peek helper since the supervisor owns its own counter.
  */
 const activeSessions = new Set<string>();
 
-// TODO(skill-isolation PR 27): replace this helper with a call into
-// MeetHostSupervisor so idle-timeout tracking shares state with the rest
-// of the daemon's session accounting.
+/**
+ * Optional supervisor injected by `external-skills-bootstrap.ts` when the
+ * lazy-external path is enabled. When set, IPC session-report frames are
+ * forwarded to it so its active-session counter and idle-shutdown timer
+ * stay in sync with the routes. When unset, the fallback set above is
+ * mutated directly.
+ */
+type SessionSupervisor = Pick<
+  MeetHostSupervisor,
+  "reportSessionStarted" | "reportSessionEnded" | "activeSessionCount"
+>;
+
+let sessionSupervisor: SessionSupervisor | null = null;
+
+/**
+ * Install a {@link MeetHostSupervisor} as the session-report sink. The IPC
+ * routes still maintain their fallback {@link Set} for diagnostics, but
+ * the supervisor's counter is the source of truth for the `activeCount`
+ * returned to the skill. Passing `null` detaches the supervisor — used
+ * by tests that want to exercise the fallback path cleanly.
+ */
+export function setMeetHostSupervisorForSessionReports(
+  supervisor: SessionSupervisor | null,
+): void {
+  sessionSupervisor = supervisor;
+}
+
 function reportSessionStarted(meetingId: string): number {
+  if (sessionSupervisor) {
+    sessionSupervisor.reportSessionStarted(meetingId);
+    const count = sessionSupervisor.activeSessionCount;
+    log.info(
+      { meetingId, activeCount: count },
+      "Skill reported session started",
+    );
+    return count;
+  }
   activeSessions.add(meetingId);
   log.info(
     { meetingId, activeCount: activeSessions.size },
-    "Skill reported session started (supervisor stub)",
+    "Skill reported session started",
   );
   return activeSessions.size;
 }
 
 function reportSessionEnded(meetingId: string): number {
+  if (sessionSupervisor) {
+    sessionSupervisor.reportSessionEnded(meetingId);
+    const count = sessionSupervisor.activeSessionCount;
+    log.info({ meetingId, activeCount: count }, "Skill reported session ended");
+    return count;
+  }
   activeSessions.delete(meetingId);
   log.info(
     { meetingId, activeCount: activeSessions.size },
-    "Skill reported session ended (supervisor stub)",
+    "Skill reported session ended",
   );
   return activeSessions.size;
 }
@@ -110,6 +157,7 @@ function reportSessionEnded(meetingId: string): number {
 /** Test-only: drop all active sessions between test cases. */
 export function __resetActiveSessionsForTesting(): void {
   activeSessions.clear();
+  sessionSupervisor = null;
 }
 
 /** Test-only: peek at the current active set size. */
@@ -157,34 +205,49 @@ function buildProxyTool(manifest: ToolManifest): Tool {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleRegisterTools(
-  params?: Record<string, unknown>,
+  params: Record<string, unknown> | undefined,
+  connection?: unknown,
 ): Promise<{ registered: string[] }> {
   const { tools } = RegisterToolsParams.parse(params);
   const proxies = tools.map(buildProxyTool);
-  // `registerExternalTools` takes a provider closure so the tool list is
-  // resolved lazily inside `initializeTools()`; wrap the already-built
-  // proxies in an arrow so registration is observable immediately.
-  registerExternalTools(() => proxies);
+  // `registerExternalTools` is only consumed inside `initializeTools()` at
+  // daemon boot; IPC children connect after boot, so route through
+  // `registerSkillTools` into the live registry the agent-loop reads from.
+  const accepted = registerSkillTools(proxies);
+
+  const conn = connection as SkillIpcConnection | undefined;
+  if (conn) {
+    const ownerIds = new Set<string>();
+    for (const tool of accepted) {
+      if (tool.ownerSkillId) ownerIds.add(tool.ownerSkillId);
+    }
+    for (const skillId of ownerIds) {
+      conn.addSkillToolsOwner(skillId);
+    }
+  }
+
   log.info(
-    { count: proxies.length, names: proxies.map((t) => t.name) },
+    { count: accepted.length, names: accepted.map((t) => t.name) },
     "Registered skill proxy tools via IPC",
   );
-  return { registered: proxies.map((t) => t.name) };
+  return { registered: accepted.map((t) => t.name) };
 }
 
 async function handleRegisterSkillRoute(
-  params?: Record<string, unknown>,
+  params: Record<string, unknown> | undefined,
+  connection?: unknown,
 ): Promise<{ patternSource: string; methods: string[] }> {
-  const { patternSource, methods } = RegisterSkillRouteParams.parse(params);
+  const { patternSource, patternFlags, methods, skillId } =
+    RegisterSkillRouteParams.parse(params);
   let pattern: RegExp;
   try {
-    pattern = new RegExp(patternSource);
+    pattern = new RegExp(patternSource, patternFlags);
   } catch (err) {
     throw new Error(
-      `Invalid skill-route pattern "${patternSource}": ${String(err)}`,
+      `Invalid skill-route pattern "${patternSource}" (flags "${patternFlags}"): ${String(err)}`,
     );
   }
-  registerSkillRoute({
+  const handle = registerSkillRoute({
     pattern,
     methods,
     handler: async () => {
@@ -197,8 +260,13 @@ async function handleRegisterSkillRoute(
       );
     },
   });
+  // Retain the handle on the connection so disconnect revokes this route;
+  // without it, reconnects accumulate routes with no owner to unregister them.
+  const conn = connection as SkillIpcConnection | undefined;
+  conn?.addRouteHandle(skillId ?? conn.connectionId, handle);
+
   log.info(
-    { patternSource, methods },
+    { patternSource, patternFlags, methods, skillId },
     "Registered skill proxy HTTP route via IPC",
   );
   return { patternSource, methods };
