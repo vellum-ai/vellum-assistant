@@ -10,7 +10,7 @@ import {
   riskOrd,
   scopeOptionsToAllowlistOptions,
 } from "./bash-risk-classifier.js";
-import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
+import { DEFAULT_COMMAND_REGISTRY } from "./command-registry/index.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
 import { riskToRiskLevel, RiskLevel } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
@@ -912,6 +912,62 @@ describe("assistant subcommand classification", () => {
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant config set → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant config set key value",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant conversations clear → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant conversations clear --confirm",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant oauth providers register → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant oauth providers register",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant email send → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant email send user@example.com -s hi -b hello",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant domain register → medium", async () => {
+    const result = await classifier.classify({
+      command: "assistant domain register mybot",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("assistant bash ls → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant bash ls",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant bash --help → low", async () => {
+    const result = await classifier.classify({
+      command: "assistant bash --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
   });
 });
 
