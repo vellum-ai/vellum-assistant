@@ -71,6 +71,50 @@ export async function checkManagedHealth(
   }
 }
 
+export interface ManagedConnectionStatus {
+  state: string;
+  is_awake: boolean;
+  pod_status: string | null;
+  detail: string | null;
+}
+
+export async function checkManagedConnectionStatus(
+  runtimeUrl: string,
+  assistantId: string,
+): Promise<ManagedConnectionStatus | null> {
+  const { readPlatformToken, authHeaders } =
+    await import("./platform-client.js");
+  const token = readPlatformToken();
+  if (!token) return null;
+
+  let headers: Record<string, string>;
+  try {
+    headers = await authHeaders(token, runtimeUrl);
+  } catch {
+    return null;
+  }
+
+  try {
+    const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/connection-status/`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+
+    return (await response.json()) as ManagedConnectionStatus;
+  } catch {
+    return null;
+  }
+}
+
 export async function checkHealth(
   runtimeUrl: string,
   bearerToken?: string,
