@@ -224,12 +224,7 @@ private struct V3TrustRuleRow: View {
         }
         .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.lg, bottom: VSpacing.sm, trailing: VSpacing.lg))
         .contentShape(Rectangle())
-        .background {
-            Button("") { onEdit() }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityHidden(true)
-        }
+        .onTapGesture { onEdit() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(rule.description)
         .accessibilityAddTraits(.isButton)
