@@ -1,0 +1,28 @@
+{
+  "name": "@vellumai/service-contracts",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./credential-rpc": "./src/credential-rpc.ts",
+    "./trust-rules": "./src/trust-rules.ts",
+    "./handles": "./src/handles.ts",
+    "./grants": "./src/grants.ts",
+    "./rpc": "./src/rpc.ts",
+    "./rendering": "./src/rendering.ts",
+    "./error": "./src/error.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test src/"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/bun": "1.2.4",
+    "typescript": "5.7.3"
+  }
+}
