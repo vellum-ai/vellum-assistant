@@ -305,12 +305,14 @@ export async function handleClassifyRisk(
             fsPathArgs.add(trackedCwd);
           } else {
             for (const p of parsedArgs.pathArgs) {
-              // Pre-resolve relative path args against the current tracked
-              // cwd so scope ladder ancestors reflect cd-induced dir changes.
-              // Keep `~` / `~/...` as-is — `generateDirectoryScopeOptions`
-              // expands them itself and the tracked cwd doesn't affect that.
-              if (p === "~" || p.startsWith("~/")) {
-                fsPathArgs.add(p);
+              // Pre-resolve all path args to absolute paths so that
+              // resolvedPaths (used by directory-scoped rule matching)
+              // always contains absolute paths that can be compared
+              // against scope prefixes.
+              if (p === "~") {
+                fsPathArgs.add(homedir());
+              } else if (p.startsWith("~/")) {
+                fsPathArgs.add(join(homedir(), p.slice(2)));
               } else if (isAbsolute(p)) {
                 fsPathArgs.add(p);
               } else {
@@ -435,7 +437,9 @@ export async function handleClassifyRisk(
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,
         directoryScopeOptions,
-        resolvedPaths: filePath ? [filePath] : undefined,
+        resolvedPaths: filePath
+          ? [isAbsolute(filePath) ? resolve(filePath) : resolve(workingDir, filePath)]
+          : undefined,
         matchType: assessment.matchType,
       };
     }
