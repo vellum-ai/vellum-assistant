@@ -1180,6 +1180,7 @@ final class ChatActionHandler {
             diff: msg.diff,
             allowlistOptions: msg.allowlistOptions,
             scopeOptions: msg.scopeOptions,
+            directoryScopeOptions: msg.directoryScopeOptions ?? [],
             executionTarget: msg.executionTarget,
             persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true,
             temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? [],
@@ -1198,6 +1199,10 @@ final class ChatActionHandler {
                     .first(where: { $0.scope != "everywhere" })?.scope
             }
             vm.messages[msgIdx].toolCalls[tcIdx].isContainerized = msg.isContainerized ?? false
+            let dirOpts = confirmation.directoryScopeOptions
+            if !dirOpts.isEmpty {
+                vm.messages[msgIdx].toolCalls[tcIdx].riskDirectoryScopeOptions = dirOpts
+            }
         }
         let confirmMsg = ChatMessage(
             role: .assistant,
