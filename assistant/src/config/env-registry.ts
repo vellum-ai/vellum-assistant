@@ -52,28 +52,6 @@ export function getIsContainerized(): boolean {
 }
 
 /**
- * VELLUM_CLOUD — string, default: undefined
- * Identifies the deployment topology when running containerized.
- * Known values: "docker" (CLI-spawned Docker stack), "apple-container"
- * (macOS Apple-container pod), "platform" (managed cloud).
- */
-export function getVellumCloud(): string | undefined {
-  return str("VELLUM_CLOUD");
-}
-
-/**
- * True iff this assistant is running under the Docker topology where the
- * runtime HTTP port is published on the host (`-p host:container`). This is
- * the only mode where host-local processes can reach the runtime endpoint
- * directly, bypassing the gateway — so Docker mode requires the additional
- * x-bootstrap-secret gate. Other containerized topologies (Apple containers,
- * platform pods) keep the runtime port inside the pod network.
- */
-export function isDockerCloud(): boolean {
-  return getVellumCloud() === "docker";
-}
-
-/**
  * IS_PLATFORM — boolean, default: false
  * When true, indicates the assistant is running as a platform-managed
  * remote instance. Controls platform-specific behaviors like webhook
