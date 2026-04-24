@@ -31,10 +31,16 @@ const TMP_PATHS = String.raw`^(?:/tmp|/var/tmp|\./|\.\.\/)`;
 
 export const DEFAULT_COMMAND_REGISTRY = {
   // ── Read-only filesystem commands ──────────────────────────────────────────
-  ls: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  ls: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
   cat: {
     baseRisk: "low",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {},
     argRules: [
       {
@@ -45,17 +51,72 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  head: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  tail: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  less: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  more: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  wc: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  file: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  stat: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  du: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  df: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  diff: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  tree: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  head: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  tail: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  less: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  more: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  wc: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  file: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  stat: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  du: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  df: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  diff: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  tree: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
   pwd: {
     baseRisk: "low",
     sandboxAutoApprove: true,
@@ -64,12 +125,18 @@ export const DEFAULT_COMMAND_REGISTRY = {
   realpath: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   basename: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   dirname: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  readlink: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  readlink: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
 
   // ── Search / filter / text processing ──────────────────────────────────────
   grep: {
     baseRisk: "low",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {
       positionals: [{ role: "pattern" }, { role: "path", rest: true }],
     },
@@ -98,6 +165,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   sort: {
     baseRisk: "low",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {
       valueFlags: ["-o", "--output"],
       pathFlags: { "-o": true, "--output": true },
@@ -114,6 +182,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
     baseRisk: "medium",
     reason: "Can write files or execute commands via sed scripts",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {
       positionals: [{ role: "script" }, { role: "path", rest: true }],
     },
@@ -165,8 +234,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
   info: { baseRisk: "low" },
 
   // ── Checksum / hex tools ───────────────────────────────────────────────────
-  sha256sum: { baseRisk: "low" },
-  md5sum: { baseRisk: "low" },
+  sha256sum: { baseRisk: "low", filesystemOp: true },
+  md5sum: { baseRisk: "low", filesystemOp: true },
   xxd: { baseRisk: "low" },
   hexdump: { baseRisk: "low" },
 
@@ -179,6 +248,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // registry adds arg rules for -exec/-execdir/-delete which escalate to high.
   find: {
     baseRisk: "low",
+    filesystemOp: true,
     argSchema: {
       valueFlags: [
         "-name",
@@ -218,6 +288,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   cp: {
     baseRisk: "medium",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {
       valueFlags: ["-t", "--target-directory"],
       pathFlags: { "-t": true, "--target-directory": true },
@@ -234,6 +305,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   mv: {
     baseRisk: "medium",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {},
     argRules: [
       {
@@ -244,11 +316,22 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  mkdir: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
-  touch: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  mkdir: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  touch: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
   ln: {
     baseRisk: "medium",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {
       valueFlags: ["-t", "--target-directory"],
       pathFlags: { "-t": true, "--target-directory": true },
@@ -256,12 +339,18 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   // DIVERGENCE: checker.ts lists `tee` as LOW_RISK. Our registry classifies
   // it as medium because it writes to files.
-  tee: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  tee: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
 
   // ── Delete commands ────────────────────────────────────────────────────────
   rm: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {},
     argRules: [
       {
@@ -296,7 +385,12 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  rmdir: { baseRisk: "high", sandboxAutoApprove: true, argSchema: {} },
+  rmdir: {
+    baseRisk: "high",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
 
   // ── Network commands ───────────────────────────────────────────────────────
   curl: {
@@ -739,12 +833,14 @@ export const DEFAULT_COMMAND_REGISTRY = {
   chmod: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {},
     reason: "Changes file permissions",
   },
   chown: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {},
     reason: "Changes file ownership",
   },
@@ -896,6 +992,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   tar: {
     baseRisk: "medium",
     sandboxAutoApprove: true,
+    filesystemOp: true,
     argSchema: {
       valueFlags: ["-C", "--directory", "-f", "--file"],
       pathFlags: {
@@ -907,10 +1004,30 @@ export const DEFAULT_COMMAND_REGISTRY = {
     },
     complexSyntax: true,
   },
-  zip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
-  unzip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
-  gzip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
-  gunzip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  zip: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  unzip: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  gzip: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
+  gunzip: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    filesystemOp: true,
+    argSchema: {},
+  },
 
   // ── Version control tools ──────────────────────────────────────────────────
   gh: {
