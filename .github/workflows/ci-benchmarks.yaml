@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'assistant/**'
+      - 'packages/service-contracts/**'
       - '.github/workflows/ci-benchmarks.yaml'
 
 concurrency:
