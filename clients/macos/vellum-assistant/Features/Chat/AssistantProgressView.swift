@@ -844,7 +844,7 @@ private struct ToolCallStepDetailRow: View {
                     commandDescription: tc.reasonDescription ?? "",
                     riskLevel: tc.riskLevel ?? "medium",
                     scopeOptions: Self.v3ScopeOptions(from: tc),
-                    directoryScopeOptions: [],
+                    directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                     onSave: { rule in
                         Task {
                             try? await Self.trustRuleV3Client.createRule(
