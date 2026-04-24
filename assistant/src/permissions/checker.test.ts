@@ -582,6 +582,41 @@ describe("Permission Checker (gateway IPC)", () => {
         label: "everywhere",
       });
     });
+
+    test("preserves directoryScopeOptions from gateway result in cached assessment", async () => {
+      mockIpcClassifyRiskResult = {
+        risk: "medium",
+        reason: "Filesystem write",
+        matchType: "registry",
+        scopeOptions: [],
+        allowlistOptions: [],
+        directoryScopeOptions: [
+          { scope: "/workspace/scratch/*", label: "In scratch/" },
+          { scope: "/workspace/*", label: "In workspace/" },
+          { scope: "everywhere", label: "everywhere" },
+        ],
+      };
+
+      await classifyRisk("file_write", { path: "/workspace/scratch/out.txt" });
+
+      const assessment = getCachedAssessment("file_write", {
+        path: "/workspace/scratch/out.txt",
+      });
+      expect(assessment).toBeDefined();
+      expect(assessment!.directoryScopeOptions).toHaveLength(3);
+      expect(assessment!.directoryScopeOptions![0]).toEqual({
+        scope: "/workspace/scratch/*",
+        label: "In scratch/",
+      });
+      expect(assessment!.directoryScopeOptions![1]).toEqual({
+        scope: "/workspace/*",
+        label: "In workspace/",
+      });
+      expect(assessment!.directoryScopeOptions![2]).toEqual({
+        scope: "everywhere",
+        label: "everywhere",
+      });
+    });
   });
 
   // ── generateScopeOptions (kept in checker.ts) ─────────────────────────────

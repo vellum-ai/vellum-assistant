@@ -641,6 +641,7 @@ export async function classifyRisk(
     scopeOptions: gatewayResult.scopeOptions ?? [],
     matchType: gatewayResult.matchType ?? "unknown",
     allowlistOptions: gatewayResult.allowlistOptions,
+    directoryScopeOptions: gatewayResult.directoryScopeOptions,
   };
   const aKey = assessmentCacheKey(toolName, input);
   if (assessmentCache.size >= RISK_CACHE_MAX) {
