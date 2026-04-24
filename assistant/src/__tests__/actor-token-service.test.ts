@@ -29,10 +29,7 @@ import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createActorTokenRecord,
-  findActiveByDeviceBinding,
-  findActiveByTokenHash,
   revokeByDeviceBinding,
-  revokeByTokenHash,
 } from "../runtime/actor-token-store.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import {
@@ -86,28 +83,15 @@ describe("actor-token store (hash-only)", () => {
 
     expect(record.tokenHash).toBe(tokenHash);
     expect(record.status).toBe("active");
-    const found = findActiveByTokenHash(tokenHash);
+
+    const db = getSqlite();
+    const found = db
+      .query(
+        "SELECT * FROM actor_token_records WHERE token_hash = ? AND status = 'active'",
+      )
+      .get(tokenHash) as { token_hash: string } | null;
     expect(found).not.toBeNull();
-    expect(found!.tokenHash).toBe(tokenHash);
-  });
-
-  test("findActiveByDeviceBinding returns matching record", () => {
-    const tokenHash = hashToken("test-token-for-binding");
-
-    createActorTokenRecord({
-      tokenHash,
-      guardianPrincipalId: "principal-bind",
-      hashedDeviceId: "hashed-dev-bind",
-      platform: "ios",
-      issuedAt: Date.now(),
-    });
-
-    const found = findActiveByDeviceBinding(
-      "principal-bind",
-      "hashed-dev-bind",
-    );
-    expect(found).not.toBeNull();
-    expect(found!.platform).toBe("ios");
+    expect(found!.token_hash).toBe(tokenHash);
   });
 
   test("revokeByDeviceBinding marks tokens as revoked", () => {
@@ -127,23 +111,13 @@ describe("actor-token store (hash-only)", () => {
     );
     expect(count).toBe(1);
 
-    const found = findActiveByTokenHash(tokenHash);
+    const db = getSqlite();
+    const found = db
+      .query(
+        "SELECT * FROM actor_token_records WHERE token_hash = ? AND status = 'active'",
+      )
+      .get(tokenHash);
     expect(found).toBeNull();
-  });
-
-  test("revokeByTokenHash revokes a single token", () => {
-    const tokenHash = hashToken("test-token-for-single-revoke");
-
-    createActorTokenRecord({
-      tokenHash,
-      guardianPrincipalId: "principal-single",
-      hashedDeviceId: "hashed-dev-single",
-      platform: "macos",
-      issuedAt: Date.now(),
-    });
-
-    expect(revokeByTokenHash(tokenHash)).toBe(true);
-    expect(findActiveByTokenHash(tokenHash)).toBeNull();
   });
 });
 
