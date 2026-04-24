@@ -33,10 +33,10 @@ describe("resolveIpcSocketPath", () => {
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
     delete process.env.BASE_DATA_DIR;
 
-    const resolved = resolveIpcSocketPath("assistant-cli.sock");
+    const resolved = resolveIpcSocketPath("assistant.sock");
 
     expect(resolved.source).toBe("workspace");
-    expect(resolved.path).toBe("/tmp/vellum-workspace-test/assistant-cli.sock");
+    expect(resolved.path).toBe("/tmp/vellum-workspace-test/assistant.sock");
     expect(Buffer.byteLength(resolved.path, "utf8")).toBeLessThanOrEqual(
       resolved.maxPathBytes,
     );
@@ -46,11 +46,11 @@ describe("resolveIpcSocketPath", () => {
     process.env.VELLUM_WORKSPACE_DIR = LONG_WORKSPACE_DIR;
     process.env.BASE_DATA_DIR = "/tmp/vellum-instance-test";
 
-    const resolved = resolveIpcSocketPath("assistant-cli.sock");
+    const resolved = resolveIpcSocketPath("assistant.sock");
 
     expect(resolved.source).toBe("base-data-dir");
     expect(resolved.path).toBe(
-      "/tmp/vellum-instance-test/ipc/assistant-cli.sock",
+      "/tmp/vellum-instance-test/ipc/assistant.sock",
     );
     expect(Buffer.byteLength(resolved.path, "utf8")).toBeLessThanOrEqual(
       resolved.maxPathBytes,
@@ -61,11 +61,11 @@ describe("resolveIpcSocketPath", () => {
     process.env.VELLUM_WORKSPACE_DIR = LONG_WORKSPACE_DIR;
     delete process.env.BASE_DATA_DIR;
 
-    const resolved = resolveIpcSocketPath("assistant-cli.sock");
+    const resolved = resolveIpcSocketPath("assistant.sock");
 
     expect(resolved.source).toBe("tmp-hash");
     expect(resolved.path.startsWith(join(tmpdir(), "vellum-ipc"))).toBe(true);
-    expect(resolved.path.endsWith("assistant-cli.sock")).toBe(true);
+    expect(resolved.path.endsWith("assistant.sock")).toBe(true);
     expect(Buffer.byteLength(resolved.path, "utf8")).toBeLessThanOrEqual(
       resolved.maxPathBytes,
     );

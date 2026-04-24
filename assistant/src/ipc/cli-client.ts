@@ -5,14 +5,14 @@
  * Returns a typed result object so callers can distinguish success
  * from connection failures and method errors.
  *
- * The preferred socket path is `{workspaceDir}/assistant-cli.sock`, with a
+ * The preferred socket path is `{workspaceDir}/assistant.sock`, with a
  * deterministic fallback for long AF_UNIX paths.
  */
 
 import { connect, type Socket } from "node:net";
 
 import { getLogger } from "../util/logger.js";
-import { getCliSocketPath } from "./cli-server.js";
+import { getAssistantSocketPath } from "./cli-server.js";
 
 const log = getLogger("cli-ipc-client");
 
@@ -57,7 +57,7 @@ export async function cliIpcCall<T = unknown>(
   params?: Record<string, unknown>,
   options?: { timeoutMs?: number },
 ): Promise<CliIpcCallResult<T>> {
-  const socketPath = getCliSocketPath();
+  const socketPath = getAssistantSocketPath();
   const callTimeoutMs = options?.timeoutMs ?? DEFAULT_CALL_TIMEOUT_MS;
 
   return new Promise<CliIpcCallResult<T>>((resolve) => {

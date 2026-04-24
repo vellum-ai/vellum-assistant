@@ -314,7 +314,7 @@ Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Nod
 
 ## CLI ↔ Daemon Communication
 
-**The Unix domain socket IPC (`assistant-cli.sock`) is the preferred method
+**The Unix domain socket IPC (`assistant.sock`) is the preferred method
 of inter-process communication between CLI commands and the running daemon.**
 Both file-based signals (`signals/` directory + `ConfigWatcher`) and the
 daemon HTTP port are deprecated for new CLI-to-daemon interactions.
