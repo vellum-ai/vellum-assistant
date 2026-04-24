@@ -821,8 +821,10 @@ export class AnthropicProvider implements Provider {
         // "xhigh" is an intermediate tier between "high" and "max" supported
         // by newer Anthropic models (e.g. Opus 4.7). The SDK's OutputConfig
         // type doesn't yet include it, so we widen to the internal effort
-        // union and cast when building mergedOutputConfig.
-        effort?: "low" | "medium" | "high" | "xhigh" | "max";
+        // union and cast when building mergedOutputConfig. "none" is a
+        // Vellum-wide value meaning "omit the effort param entirely" — we
+        // skip the output_config.effort field in that case.
+        effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
         speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
       };
@@ -836,7 +838,7 @@ export class AnthropicProvider implements Provider {
       const supportsEffort = !isHaiku;
       const mergedOutputConfig = {
         ...(output_config ?? {}),
-        ...(effort && supportsEffort
+        ...(effort && effort !== "none" && supportsEffort
           ? { effort: effort as Anthropic.OutputConfig["effort"] }
           : {}),
       };

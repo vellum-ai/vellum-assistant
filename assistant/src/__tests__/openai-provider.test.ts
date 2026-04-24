@@ -1360,6 +1360,13 @@ describe("OpenAIProvider reasoning_effort", () => {
     expect(lastCreateParams!.reasoning_effort).toBeUndefined();
   });
 
+  test('effort: "none" omits the reasoning_effort param', async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "none" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBeUndefined();
+  });
+
   test("extraCreateParams reasoning_effort is not clobbered when no effort is set", async () => {
     const providerWithExtra = new OpenAIProvider("test-key", "gpt-5", {
       extraCreateParams: { reasoning_effort: "medium" },

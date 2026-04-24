@@ -73,7 +73,22 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 // Effort, Speed & Verbosity
 // ---------------------------------------------------------------------------
 
-export const EffortEnum = z.enum(["low", "medium", "high", "xhigh", "max"]);
+/**
+ * Reasoning/thinking effort tier. `"none"` is a Vellum-specific value meaning
+ * "omit the provider's effort/reasoning parameter entirely" — providers
+ * translate it to skipping the relevant field on the wire (no `reasoning` on
+ * OpenAI Responses, no `reasoning_effort` on Chat Completions, no
+ * `output_config.effort` on Anthropic). All other values map to
+ * provider-specific tiers via each provider's own mapping table.
+ */
+export const EffortEnum = z.enum([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 export type Effort = z.infer<typeof EffortEnum>;
 
 export const SpeedEnum = z.enum(["standard", "fast"]);

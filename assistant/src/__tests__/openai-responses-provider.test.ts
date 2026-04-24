@@ -535,6 +535,19 @@ describe("OpenAIResponsesProvider", () => {
     expect(lastStreamParams!.reasoning).toBeUndefined();
   });
 
+  test('effort: "none" omits the reasoning param entirely', async () => {
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { effort: "none" } },
+    );
+
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+  });
+
   // -----------------------------------------------------------------------
   // Verbosity → text param
   // -----------------------------------------------------------------------
