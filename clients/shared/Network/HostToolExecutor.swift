@@ -727,6 +727,10 @@ public enum HostToolExecutor {
                 sourcePath: sourcePath
             )
             guard success else {
+                // PUT returned a non-success HTTP status (e.g. SHA-256
+                // mismatch, write failure). Report the error so the server
+                // can resolve the pending interaction immediately instead
+                // of waiting 120 s for the timeout.
                 let result = HostTransferResultPayload(
                     requestId: request.requestId,
                     isError: true,
@@ -739,6 +743,8 @@ public enum HostToolExecutor {
                 return
             }
         } catch {
+            // Network error (timeout, connection refused, etc.). Report
+            // so the server doesn't hang for 120 s.
             let result = HostTransferResultPayload(
                 requestId: request.requestId,
                 isError: true,
@@ -751,18 +757,9 @@ public enum HostToolExecutor {
             return
         }
 
+        // On success the PUT response handler on the server already resolved
+        // the pending interaction — no separate result POST needed.
         log.debug("Host transfer to_sandbox completed — requestId=\(request.requestId, privacy: .public) bytes=\(data.count)")
-
-        // Post success
-        let result = HostTransferResultPayload(
-            requestId: request.requestId,
-            isError: false,
-            bytesWritten: data.count,
-            errorMessage: nil
-        )
-        if !isCancelledAndConsume(request.requestId) {
-            _ = await HostProxyClient().postTransferResult(result)
-        }
     }
 
     // MARK: - SHA-256 Helper

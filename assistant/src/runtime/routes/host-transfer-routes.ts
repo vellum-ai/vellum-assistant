@@ -91,12 +91,10 @@ export async function handleTransferContentPut(
     sha256,
   );
 
-  // For to_sandbox transfers there is no subsequent /v1/host-transfer-result
-  // callback — the proxy already resolved its internal Promise inside
-  // receiveTransferContent(). Clean up the runtime-level pending interaction
-  // entry so it doesn't leak.  This must happen regardless of whether the
-  // transfer was accepted (receiveTransferContent always resolves the proxy's
-  // internal Promise, whether success or error).
+  // For to_sandbox transfers there is no separate /v1/host-transfer-result
+  // callback — the PUT handler is the terminal event. Always clean up the
+  // pending interaction so it doesn't leak. (SHA-256 retry is a future
+  // enhancement that requires matching client-side retry logic.)
   pendingInteractions.resolve(match.interaction.requestId);
 
   if (!result.accepted) {
