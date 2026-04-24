@@ -250,6 +250,26 @@ if [ -n "$CHANGED_FILES" ]; then
     done <<< "$CHANGED_FILES"
 
     if [ $ASSISTANT_TS_CHANGED -eq 1 ]; then
+        # assistant/src/daemon/external-skills-bootstrap.ts statically imports
+        # skills/meet-join/register.ts, so `tsc --noEmit` in assistant/ follows
+        # the import and type-checks the skill. The skill's own imports
+        # (`@vellumai/skill-host-contracts`, `zod`) resolve via
+        # skills/meet-join/node_modules — which the shared worktree script does
+        # not symlink (its find runs at -maxdepth 2, but skills/meet-join lives
+        # at depth 3). Self-heal by installing on first run so worktrees don't
+        # produce false-positive type errors.
+        for skill_dir in "${REPO_ROOT}"/skills/*/; do
+            [ -f "${skill_dir}package.json" ] || continue
+            [ -d "${skill_dir}node_modules" ] && continue
+            skill_name="$(basename "$skill_dir")"
+            echo "  Installing skills/${skill_name}/ dependencies (missing node_modules)..."
+            _debug_log "skills/${skill_name}: bun install start"
+            (cd "$skill_dir" && "$BUN" install --frozen-lockfile >/dev/null 2>&1) || {
+                echo -e "  ${YELLOW}⚠️  bun install failed in skills/${skill_name}/ — tsc may produce false positives${NC}"
+            }
+            _debug_log "skills/${skill_name}: bun install done"
+        done
+
         echo ""
         echo "🔍 Type-checking assistant/..."
         _debug_log "tsc --noEmit start"
