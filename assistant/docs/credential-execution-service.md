@@ -174,13 +174,13 @@ CES and the assistant share contract definitions and credential-storage abstract
 
 | Package                          | Purpose                                                                                                                                                                                                                    | Consumers                            |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| `@vellumai/service-contracts`    | RPC protocol types, method names, protocol version constant, grant shapes, credential handle types, and rendering helpers. Consumed via explicit domain subpaths (e.g. `@vellumai/service-contracts/credential-rpc`). The legacy `@vellumai/ces-contracts` package is a thin compatibility shim re-exporting this package. | `assistant/`, `credential-executor/` |
+| `@vellumai/service-contracts`    | RPC protocol types, method names, protocol version constant, grant shapes, credential handle types, and rendering helpers. Consumed via explicit domain subpaths (e.g. `@vellumai/service-contracts/credential-rpc`). | `assistant/`, `credential-executor/` |
 | `@vellumai/credential-storage`   | Credential store read API (static secrets and OAuth runtime), unified credential handle abstraction                                                                                                                         | `assistant/`, `credential-executor/` |
 | `@vellumai/egress-proxy`         | Session-scoped egress proxy lifecycle (create, start, stop, env-var injection)                                                                                                                                             | `assistant/`, `credential-executor/` |
 
 These packages are the **only** allowed shared-code path between the assistant and CES. Direct source imports between `assistant/` and `credential-executor/` remain banned. The packages are built locally via `workspace:*` references and copied into the CES Docker image at build time (`COPY packages/ ...` in `credential-executor/Dockerfile`).
 
-New code must import from `@vellumai/service-contracts` using explicit subpaths (e.g. `@vellumai/service-contracts/credential-rpc`, `@vellumai/service-contracts/trust-rules`). The aggregate root import (`@vellumai/service-contracts`) and the legacy `@vellumai/ces-contracts` package are reserved for the shim — do not use them in `assistant/`, `gateway/`, or `credential-executor/` source.
+New code must import from `@vellumai/service-contracts` using explicit subpaths (e.g. `@vellumai/service-contracts/credential-rpc`, `@vellumai/service-contracts/trust-rules`). The aggregate root import (`@vellumai/service-contracts`) must not be used in `assistant/`, `gateway/`, or `credential-executor/` source — always use explicit domain subpaths.
 
 ## Secure Command Auth Adapters
 

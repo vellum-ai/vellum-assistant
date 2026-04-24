@@ -18,7 +18,6 @@ ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy shared packages needed by assistant's repo-local dependencies
 COPY packages/ces-client ./packages/ces-client
-COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/service-contracts ./packages/service-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
