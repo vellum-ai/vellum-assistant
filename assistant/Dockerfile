@@ -23,6 +23,14 @@ COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
 COPY packages/gateway-client ./packages/gateway-client
 COPY packages/skill-host-contracts ./packages/skill-host-contracts
+
+# Install deps for shared packages that have their own file: dependencies.
+# Without this, bun's module resolution at runtime walks up from e.g.
+# packages/ces-client/src/ and never finds the transitive dependency
+# (ces-contracts) because only assistant/node_modules gets populated.
+RUN cd /app/packages/ces-client && bun install --frozen-lockfile
+RUN cd /app/packages/gateway-client && bun install --frozen-lockfile
+
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile

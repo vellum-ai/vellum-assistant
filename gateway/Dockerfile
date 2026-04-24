@@ -13,6 +13,9 @@ COPY packages/assistant-client ./packages/assistant-client
 COPY packages/ces-client ./packages/ces-client
 COPY packages/ces-contracts ./packages/ces-contracts
 
+# Install deps for shared packages that have their own file: dependencies.
+RUN cd /app/packages/ces-client && bun install --frozen-lockfile
+
 # Install gateway dependencies first for cache reuse
 COPY gateway/package.json gateway/bun.lock ./gateway/
 RUN cd /app/gateway && bun install --frozen-lockfile --production
