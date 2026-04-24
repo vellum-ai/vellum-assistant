@@ -18,19 +18,26 @@ This document enumerates every observed communication permutation between the th
 | 6 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth callback forwarding |
 | 7 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Runtime proxy |
 | 8 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Log export (daemon logs) |
-| 9 | Gateway -> Assistant | `websocket` | JWT Bearer (edge relay token, query param) | Twilio ConversationRelay WebSocket proxy |
-| 10 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
-| 11 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
-| 12 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
-| 13 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
-| 14 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 15 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 16 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 17 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 18 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 19 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 20 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 21 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 9 | Gateway -> Assistant | `http` | none (audioId capability token) | Audio proxy |
+| 10 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Health probe (migration state) |
+| 11 | Gateway -> Assistant | `http` | none | Readiness probe |
+| 12 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only) | Twilio ConversationRelay WebSocket proxy |
+| 13 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
+| 14 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only) | Twilio MediaStream WebSocket proxy |
+| 15 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
+| 16 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Telegram) |
+| 17 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (WhatsApp) |
+| 18 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
+| 19 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 20 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 21 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 22 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 23 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 24 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 25 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 26 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 27 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 28 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -130,10 +137,46 @@ This document enumerates every observed communication permutation between the th
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
 
+### Audio proxy
+
+- **Protocol:** `http`
+- **Auth:** none (audioId capability token)
+- **Description:** Gateway proxies Twilio TTS audio fetch requests to the assistant's /v1/audio/:audioId endpoint. The audioId is an unguessable UUID acting as a capability token.
+
+**Caller files:**
+- `gateway/src/http/routes/audio-proxy.ts`
+
+**Callee files:**
+- `assistant/src/runtime/routes/audio-routes.ts`
+
+### Health probe (migration state)
+
+- **Protocol:** `http`
+- **Auth:** JWT Bearer (service token)
+- **Description:** Gateway forwards /healthz?include=migrations to the assistant's /v1/health endpoint to surface migration state.
+
+**Caller files:**
+- `gateway/src/index.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Readiness probe
+
+- **Protocol:** `http`
+- **Auth:** none
+- **Description:** Gateway forwards /readyz to the assistant's /readyz endpoint for full-stack readiness checks.
+
+**Caller files:**
+- `gateway/src/index.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
 ### Twilio ConversationRelay WebSocket proxy
 
 - **Protocol:** `websocket`
-- **Auth:** JWT Bearer (edge relay token, query param)
+- **Auth:** JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)
 - **Description:** Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.
 
 **Caller files:**
@@ -141,6 +184,42 @@ This document enumerates every observed communication permutation between the th
 
 **Callee files:**
 - `assistant/src/calls/relay-server.ts`
+
+### Browser relay WebSocket proxy
+
+- **Protocol:** `websocket`
+- **Auth:** JWT Bearer (service token, query param)
+- **Description:** Gateway proxies Chrome extension browser-relay WebSocket frames to the assistant's /v1/browser-relay endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/browser-relay-websocket.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
+
+### Twilio MediaStream WebSocket proxy
+
+- **Protocol:** `websocket`
+- **Auth:** JWT Bearer (service token, query param — sent, not verified by callee; private-network guard only)
+- **Description:** Gateway proxies Twilio MediaStream WebSocket frames to the assistant's /v1/calls/media-stream endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/twilio-media-websocket.ts`
+
+**Callee files:**
+- `assistant/src/calls/media-stream-server.ts`
+
+### STT stream WebSocket proxy
+
+- **Protocol:** `websocket`
+- **Auth:** JWT Bearer (service token, query param)
+- **Description:** Gateway proxies speech-to-text audio streams to the assistant's /v1/stt/stream WebSocket endpoint.
+
+**Caller files:**
+- `gateway/src/http/routes/stt-stream-websocket.ts`
+
+**Callee files:**
+- `assistant/src/runtime/http-server.ts`
 
 ## Assistant -> Gateway
 
@@ -193,7 +272,7 @@ This document enumerates every observed communication permutation between the th
 - `assistant/src/permissions/trust-client.ts`
 
 **Callee files:**
-- `gateway/src/ipc/trust-rule-handlers.ts`
+- `gateway/src/http/routes/trust-rules.ts`
 - `gateway/src/trust-store.ts`
 
 ### Feature flags IPC
@@ -232,6 +311,20 @@ This document enumerates every observed communication permutation between the th
 - `assistant/src/ipc/gateway-client.ts`
 
 **Callee files:**
+- `gateway/src/ipc/risk-classification-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Threshold IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant reads auto-approve threshold configuration from the gateway via IPC (get_global_thresholds, get_conversation_threshold methods).
+
+**Caller files:**
+- `assistant/src/permissions/gateway-threshold-reader.ts`
+
+**Callee files:**
+- `gateway/src/ipc/threshold-handlers.ts`
 - `gateway/src/ipc/server.ts`
 
 ## Assistant -> CES
@@ -285,6 +378,7 @@ This document enumerates every observed communication permutation between the th
 
 **Caller files:**
 - `gateway/src/credential-reader.ts`
+- `gateway/src/credential-watcher.ts`
 
 **Callee files:**
 - `credential-executor/src/http/*.ts`
