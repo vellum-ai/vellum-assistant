@@ -84,6 +84,7 @@ beforeEach(() => {
   sttSupportsBoundarySpy.mockClear();
   getTtsProviderSpy.mockClear();
   resolveTtsConfigSpy.mockClear();
+  getConfigSpy.mockClear();
   getProviderKeyAsyncSpy.mockClear();
 });
 
