@@ -123,7 +123,6 @@ import type {
   DockerRunner,
   DockerRunResult,
   DockerWaitResult,
-  ReaperLogger,
 } from "./docker-runner.js";
 import {
   meetEventDispatcher,
@@ -1020,7 +1019,7 @@ class MeetSessionManagerImpl {
         },
         instanceHash: getMeetBotInstanceHash(),
         createdBefore: daemonStartEpochSeconds,
-        logger: adaptContractLoggerToReaperLogger(reaperLog),
+        logger: reaperLog,
       }).catch((err: unknown) => {
         reaperLog.warn(
           "Startup orphan-reaper sweep threw — continuing",
@@ -2722,21 +2721,6 @@ function resolveSubModuleFactory<F extends SubModuleFactory>(name: string): F {
     );
   }
   return factory as F;
-}
-
-/**
- * Adapter: wrap a skill-host-contracts {@link Logger} (contract shape
- * `(msg, meta)`) so it satisfies the pino-style {@link ReaperLogger}
- * shape (`(obj, msg)`) consumed by {@link reapOrphanedMeetBots}. Keeping
- * the reaper's pino shape avoids churn in the docker-runner module.
- */
-function adaptContractLoggerToReaperLogger(log: Logger): ReaperLogger {
-  return {
-    info: (obj, msg) => log.info(msg ?? "", obj),
-    warn: (obj, msg) => log.warn(msg ?? "", obj),
-    error: (obj, msg) => log.error(msg ?? "", obj),
-    debug: (obj, msg) => log.debug(msg ?? "", obj),
-  };
 }
 
 /**

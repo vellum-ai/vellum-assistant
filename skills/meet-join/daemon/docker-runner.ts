@@ -1109,16 +1109,20 @@ export const REAPER_TERM_KILL_GRACE_MS = 10_000;
  *   `docker rm` it manually once.
  */
 /**
- * Structural subset of a pino-style structured logger — the reaper only
- * emits info/warn/debug lines and doesn't want a hard dep on pino's type
- * export from this module. The daemon's real logger (`pino.Logger`) is
- * assignable to this shape.
+ * Structural subset of the SkillHost `Logger` contract — the reaper only
+ * emits info/warn/debug lines and doesn't want a hard dep on the full
+ * contract re-export from this module. Signature matches
+ * `@vellumai/skill-host-contracts` `Logger`: `(msg: string, meta?: unknown)`.
+ *
+ * Do not restore pino-style `(obj, msg?)` here: TypeScript's bivariant
+ * method checking would accept a `Logger` in this slot and silently swap
+ * the arguments at runtime.
  */
 export interface ReaperLogger {
-  info(obj: Record<string, unknown>, msg?: string): void;
-  warn(obj: Record<string, unknown>, msg?: string): void;
-  error?(obj: Record<string, unknown>, msg?: string): void;
-  debug(obj: Record<string, unknown>, msg?: string): void;
+  info(msg: string, meta?: unknown): void;
+  warn(msg: string, meta?: unknown): void;
+  error?(msg: string, meta?: unknown): void;
+  debug(msg: string, meta?: unknown): void;
 }
 
 export async function reapOrphanedMeetBots(opts: {
@@ -1150,7 +1154,7 @@ export async function reapOrphanedMeetBots(opts: {
       all: false,
     });
   } catch (err) {
-    logger.warn({ err }, "reapOrphanedMeetBots: listContainers failed");
+    logger.warn("reapOrphanedMeetBots: listContainers failed", { err });
     return { killed, kept, skippedUnlabeled };
   }
 
@@ -1167,8 +1171,8 @@ export async function reapOrphanedMeetBots(opts: {
     // container is actually stale.
     if (containerInstance === undefined) {
       logger.debug(
-        { containerId, meetingId },
         "reapOrphanedMeetBots: skipping pre-label container (missing vellum.meet.instance)",
+        { containerId, meetingId },
       );
       skippedUnlabeled.push(containerId);
       continue;
@@ -1207,21 +1211,23 @@ export async function reapOrphanedMeetBots(opts: {
       setTimeout(() => {
         docker.kill(containerId, "SIGKILL").catch((err: unknown) => {
           logger.debug(
-            { err, containerId, meetingId },
             "reapOrphanedMeetBots: delayed SIGKILL failed (container likely already dead)",
+            { err, containerId, meetingId },
           );
         });
       }, REAPER_TERM_KILL_GRACE_MS).unref?.();
-      logger.info(
-        { containerId, meetingId, reason: "orphan" },
-        "orphan meet-bot reaped",
-      );
+      logger.info("orphan meet-bot reaped", {
+        containerId,
+        meetingId,
+        reason: "orphan",
+      });
       killed.push(containerId);
     } catch (err) {
-      logger.warn(
-        { err, containerId, meetingId },
-        "reapOrphanedMeetBots: kill failed — continuing sweep",
-      );
+      logger.warn("reapOrphanedMeetBots: kill failed — continuing sweep", {
+        err,
+        containerId,
+        meetingId,
+      });
     }
   }
 
