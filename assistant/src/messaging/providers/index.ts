@@ -14,6 +14,7 @@ import type {
 } from "@vellumai/gateway-client";
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
+import { ipcCall } from "../../ipc/gateway-client.js";
 import { getLogger } from "../../util/logger.js";
 import {
   sendSlackAssistantThreadStatus,
@@ -182,6 +183,7 @@ async function deliverSlack(
   }
 
   // Text + blocks delivery
+  let sentTs: string | undefined;
   if (text) {
     const result = await sendSlackReply(chatId, text, {
       threadTs,
@@ -192,11 +194,9 @@ async function deliverSlack(
       user: payload.user,
       messageTs: payload.messageTs,
     });
-    if (result.ts) {
-      // Return ts so callers can use it for updates
-    }
+    sentTs = result.ts;
   } else if (payload.approval) {
-    await sendSlackReply(
+    const result = await sendSlackReply(
       chatId,
       payload.approval.plainTextFallback || "Approval required",
       {
@@ -204,6 +204,7 @@ async function deliverSlack(
         approval: payload.approval,
       },
     );
+    sentTs = result.ts;
   }
 
   // Attachments
@@ -218,7 +219,17 @@ async function deliverSlack(
   }
 
   log.info({ chatId, hasText: !!text }, "Slack reply delivered (direct)");
-  return { ok: true };
+
+  // Notify the gateway about thread activity so its socket-mode event
+  // filter forwards follow-up replies (without @mention) in this thread.
+  const activeThreadTs = sentTs ?? threadTs;
+  if (activeThreadTs) {
+    ipcCall("slack_track_thread", { threadTs: activeThreadTs }).catch(() => {
+      // Best-effort — gateway may not be running (e.g. non-containerized mode)
+    });
+  }
+
+  return { ok: true, ts: sentTs };
 }
 
 // ---------------------------------------------------------------------------

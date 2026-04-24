@@ -3,8 +3,7 @@
  *
  * Calls the Slack Web API directly using bot_token from the secure store,
  * eliminating the gateway HTTP proxy hop. Rate-limit retries, error
- * classification, and payload shapes mirror the gateway's slack-deliver.ts
- * so behavior is identical.
+ * classification, and payload shapes follow Slack Web API conventions.
  */
 
 import { credentialKey } from "../../../security/credential-key.js";

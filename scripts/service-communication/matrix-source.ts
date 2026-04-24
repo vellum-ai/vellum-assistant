@@ -372,16 +372,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   // =========================================================================
   // Assistant -> Gateway (HTTP)
   // =========================================================================
-  // Telegram reply delivery is now a direct Bot API call from the assistant
-  // (assistant/src/messaging/providers/telegram-bot/{api,send}.ts → api.telegram.org).
-  // Not modeled here — the matrix tracks inter-service edges, not external APIs.
-  // WhatsApp reply delivery is now a direct Meta API call from the assistant
-  // (assistant/src/messaging/providers/whatsapp/{api,send}.ts → graph.facebook.com).
-  // Not modeled here — the matrix tracks inter-service edges, not external APIs.
-  // Channel reply delivery (Slack) — ELIMINATED.
-  // Assistant now calls the Slack Web API directly via
-  // assistant/src/messaging/providers/slack/{api,send}.ts.
-  // No gateway hop required.
   {
     label: "Trust rules CRUD",
     caller: "assistant",
@@ -453,6 +443,21 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     callerGlobs: ["assistant/src/permissions/gateway-threshold-reader.ts"],
     calleeGlobs: [
       "gateway/src/ipc/threshold-handlers.ts",
+      "gateway/src/ipc/server.ts",
+    ],
+  },
+
+  {
+    label: "Slack thread tracking IPC",
+    caller: "assistant",
+    callee: "gateway",
+    protocol: "ipc-unix-ndjson",
+    auth: "none (local socket)",
+    description:
+      "Assistant notifies the gateway of Slack thread activity via IPC (slack_track_thread method) so the socket-mode event filter forwards follow-up replies.",
+    callerGlobs: ["assistant/src/messaging/providers/index.ts"],
+    calleeGlobs: [
+      "gateway/src/ipc/slack-thread-handlers.ts",
       "gateway/src/ipc/server.ts",
     ],
   },

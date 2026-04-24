@@ -365,7 +365,11 @@ export async function sendSlackAttachments(
   if (failures.length > 0) {
     const notice = `${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
-      await sendSlackReply(channelId, notice);
+      await sendSlackReply(
+        channelId,
+        notice,
+        threadTs ? { threadTs } : undefined,
+      );
     } catch (err) {
       log.error({ err, channelId }, "Failed to send attachment failure notice");
     }

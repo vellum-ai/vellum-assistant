@@ -42,11 +42,12 @@ This document enumerates every observed communication permutation between the th
 | 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
 | 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
 | 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 33 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 34 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 35 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Slack thread tracking IPC |
+| 34 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 35 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 36 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 38 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -443,6 +444,19 @@ This document enumerates every observed communication permutation between the th
 
 **Callee files:**
 - `gateway/src/ipc/threshold-handlers.ts`
+- `gateway/src/ipc/server.ts`
+
+### Slack thread tracking IPC
+
+- **Protocol:** `ipc-unix-ndjson`
+- **Auth:** none (local socket)
+- **Description:** Assistant notifies the gateway of Slack thread activity via IPC (slack_track_thread method) so the socket-mode event filter forwards follow-up replies.
+
+**Caller files:**
+- `assistant/src/messaging/providers/index.ts`
+
+**Callee files:**
+- `gateway/src/ipc/slack-thread-handlers.ts`
 - `gateway/src/ipc/server.ts`
 
 ## Assistant -> CES
