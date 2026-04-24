@@ -2,27 +2,27 @@
 // Memory Graph — CLI inspection tool for testing
 //
 // Usage (from assistant/):
-//   bun run src/memory/graph/inspect.ts --stats
-//   bun run src/memory/graph/inspect.ts --context-load
-//   bun run src/memory/graph/inspect.ts --query "what does the user think about X"
-//   bun run src/memory/graph/inspect.ts --node <id>
-//   bun run src/memory/graph/inspect.ts --turn "user said this"
-//   bun run src/memory/graph/inspect.ts --bootstrap [--limit N] [--dry-run]
-//   bun run src/memory/graph/inspect.ts --bootstrap-journal
-//   bun run src/memory/graph/inspect.ts --decay
+//   bun run scripts/memory-inspect.ts --stats
+//   bun run scripts/memory-inspect.ts --context-load
+//   bun run scripts/memory-inspect.ts --query "what does the user think about X"
+//   bun run scripts/memory-inspect.ts --node <id>
+//   bun run scripts/memory-inspect.ts --turn "user said this"
+//   bun run scripts/memory-inspect.ts --bootstrap [--limit N] [--dry-run]
+//   bun run scripts/memory-inspect.ts --bootstrap-journal
+//   bun run scripts/memory-inspect.ts --decay
 // ---------------------------------------------------------------------------
 
-import { getConfig } from "../../config/loader.js";
-import { initializeDb } from "../db-init.js";
-import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
+import { getConfig } from "../src/config/loader.js";
+import { initializeDb } from "../src/memory/db-init.js";
 import {
   countNodes,
   getEdgesForNode,
   getNode,
   getTriggersForNode,
   queryNodes,
-} from "./store.js";
-import type { ScoredNode } from "./types.js";
+} from "../src/memory/graph/store.js";
+import type { ScoredNode } from "../src/memory/graph/types.js";
+import { initQdrantClient, resolveQdrantUrl } from "../src/memory/qdrant-client.js";
 
 // Initialize DB and Qdrant before anything else
 initializeDb();

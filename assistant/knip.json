@@ -3,10 +3,7 @@
     "src/**/*.test.ts",
     "src/**/__tests__/**/*.ts",
     "scripts/**/*.ts",
-    "src/daemon/main.ts!",
-    "src/messaging/providers/*/types.ts!",
-    "src/messaging/providers/*/client.ts!",
-    "src/memory/graph/inspect.ts!"
+    "src/daemon/main.ts!"
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
   "ignoreDependencies": [
