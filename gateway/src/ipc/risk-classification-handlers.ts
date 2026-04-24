@@ -264,12 +264,15 @@ export async function handleClassifyRisk(
         let effectiveProgram = seg.program;
         let effectiveArgs = seg.args;
         let effectiveSpec = lookupSpec(effectiveProgram);
-        const visited = new Set<string>();
+        // Use a depth guard instead of a visited set so repeated wrappers
+        // (e.g. `sudo sudo rm foo`, `env env cp a b`) are fully unwrapped.
+        const MAX_WRAPPER_DEPTH = 10;
+        let depth = 0;
         while (
           effectiveSpec?.isWrapper &&
-          !visited.has(effectiveProgram)
+          depth < MAX_WRAPPER_DEPTH
         ) {
-          visited.add(effectiveProgram);
+          depth++;
           const isNonExecMode =
             effectiveSpec.nonExecFlags !== undefined &&
             effectiveArgs.length > 0 &&

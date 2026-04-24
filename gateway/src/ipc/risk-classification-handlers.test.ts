@@ -455,6 +455,38 @@ describe("directoryScopeOptions", () => {
     expect(scopes).toContain("everywhere");
   });
 
+  test("bash 'sudo sudo rm foo' unwraps repeated wrappers and emits directoryScopeOptions", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "sudo sudo rm foo",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
+  test("bash 'env sudo rm -rf bar' unwraps mixed repeated wrappers", async () => {
+    const result = await classify({
+      tool: "bash",
+      command: "env sudo rm -rf bar",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    expect(opts.length).toBeGreaterThan(0);
+    const scopes = opts.map((o) => o.scope);
+    expect(scopes).toContain("everywhere");
+  });
+
   test("bash 'cd /tmp && rm foo' resolves 'foo' under the cd-tracked cwd", async () => {
     const result = await classify({
       tool: "bash",
