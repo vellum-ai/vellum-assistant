@@ -21,11 +21,11 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 /** Resolve the repo root from the assistant test directory. */
 function getRepoRoot(): string {
-  const { join } = require("node:path");
   return join(import.meta.dir, "..", "..", "..");
 }
 
