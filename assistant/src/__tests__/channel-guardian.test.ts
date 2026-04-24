@@ -36,34 +36,23 @@ mock.module("../calls/call-domain.js", () => ({
   },
 }));
 
-// Track Telegram deliveries via fetch mock
+// Track Telegram deliveries via mock of the direct send module
 const telegramDeliverCalls: Array<{
   chatId: string;
   text: string;
   assistantId?: string;
 }> = [];
-const originalFetch = globalThis.fetch;
-globalThis.fetch = (async (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => {
-  const url =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
-  if (url.includes("/deliver/telegram") && init?.method === "POST") {
-    const body = JSON.parse(init.body as string) as {
-      chatId: string;
-      text: string;
-      assistantId?: string;
-    };
-    telegramDeliverCalls.push(body);
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  }
-  return originalFetch(input, init as never);
-}) as unknown as typeof fetch;
+mock.module("../messaging/providers/telegram-bot/send.js", () => ({
+  sendTelegramReply: async (chatId: string, text: string) => {
+    telegramDeliverCalls.push({ chatId, text });
+  },
+  sendTelegramAttachments: async () => ({
+    allFailed: false,
+    failureCount: 0,
+    totalCount: 0,
+  }),
+  sendTelegramTypingIndicator: async () => true,
+}));
 import { eq } from "drizzle-orm";
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
@@ -129,7 +118,6 @@ import {
 initializeDb();
 
 afterAll(() => {
-  globalThis.fetch = originalFetch;
   resetDb();
 });
 

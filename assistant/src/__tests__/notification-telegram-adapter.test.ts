@@ -1,30 +1,39 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const deliveryCalls: Array<{
-  url: string;
-  payload: Record<string, unknown>;
-  bearerToken?: string;
+const sendCalls: Array<{
+  chatId: string;
+  text: string;
+  approval?: {
+    requestId: string;
+    actions: Array<{ id: string; label: string }>;
+    plainTextFallback: string;
+  };
 }> = [];
 
-/** When true, deliverChannelReply throws if the payload contains an approval field. */
+/** When true, sendTelegramReply throws if an approval argument is present. */
 let rejectRichDelivery = false;
 
-mock.module("../config/env.js", () => ({
-  isHttpAuthDisabled: () => true,
-  getGatewayInternalBaseUrl: () => "http://gateway.internal",
-}));
-
-mock.module("../runtime/gateway-client.js", () => ({
-  deliverChannelReply: async (
-    url: string,
-    payload: Record<string, unknown>,
-    bearerToken?: string,
+mock.module("../messaging/providers/telegram-bot/send.js", () => ({
+  sendTelegramReply: async (
+    chatId: string,
+    text: string,
+    approval?: unknown,
   ) => {
-    if (rejectRichDelivery && payload.approval) {
+    if (rejectRichDelivery && approval) {
       throw new Error("Telegram API error: buttons not supported");
     }
-    deliveryCalls.push({ url, payload, bearerToken });
+    sendCalls.push({
+      chatId,
+      text,
+      approval: approval as (typeof sendCalls)[0]["approval"],
+    });
   },
+  sendTelegramAttachments: async () => ({
+    allFailed: false,
+    failureCount: 0,
+    totalCount: 0,
+  }),
+  sendTelegramTypingIndicator: async () => true,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -65,7 +74,7 @@ function makeDestination(
 
 describe("TelegramAdapter", () => {
   beforeEach(() => {
-    deliveryCalls.length = 0;
+    sendCalls.length = 0;
     rejectRichDelivery = false;
   });
 
@@ -83,12 +92,10 @@ describe("TelegramAdapter", () => {
     const result = await adapter.send(payload, makeDestination());
 
     expect(result.success).toBe(true);
-    expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0]?.url).toBe(
-      "http://gateway.internal/deliver/telegram",
-    );
-    expect(deliveryCalls[0]?.payload.text).toBe("Check the oven now!");
-    expect(deliveryCalls[0]?.payload.text as string).not.toContain("Thread:");
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]?.chatId).toBe("chat-123");
+    expect(sendCalls[0]?.text).toBe("Check the oven now!");
+    expect(sendCalls[0]?.text).not.toContain("Thread:");
   });
 
   test("falls back to conversationSeedMessage when deliveryText is absent", async () => {
@@ -103,8 +110,8 @@ describe("TelegramAdapter", () => {
 
     await adapter.send(payload, makeDestination());
 
-    expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0]?.payload.text).toBe("Please check the oven now.");
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]?.text).toBe("Please check the oven now.");
   });
 
   test("uses recipient-facing fallback text without channel or meta-send phrasing", async () => {
@@ -118,7 +125,7 @@ describe("TelegramAdapter", () => {
 
     await adapter.send(payload, makeDestination());
 
-    const text = deliveryCalls[0]?.payload.text as string;
+    const text = sendCalls[0]?.text as string;
     expect(text).toBe("Check the oven now!");
     expect(text).not.toMatch(/via telegram/i);
     expect(text).not.toMatch(/may i go ahead/i);
@@ -138,7 +145,7 @@ describe("TelegramAdapter", () => {
       }),
       makeDestination(),
     );
-    expect(deliveryCalls[0]?.payload.text).toBe("Check the oven now!");
+    expect(sendCalls[0]?.text).toBe("Check the oven now!");
 
     await adapter.send(
       makePayload({
@@ -149,7 +156,7 @@ describe("TelegramAdapter", () => {
       }),
       makeDestination(),
     );
-    expect(deliveryCalls[1]?.payload.text).toBe("Reminder");
+    expect(sendCalls[1]?.text).toBe("Reminder");
 
     await adapter.send(
       makePayload({
@@ -161,7 +168,7 @@ describe("TelegramAdapter", () => {
       }),
       makeDestination(),
     );
-    expect(deliveryCalls[2]?.payload.text).toBe("watcher escalation");
+    expect(sendCalls[2]?.text).toBe("watcher escalation");
   });
 
   // ── Access request inline keyboard tests ──────────────────────────────
@@ -186,27 +193,21 @@ describe("TelegramAdapter", () => {
     const result = await adapter.send(payload, makeDestination());
 
     expect(result.success).toBe(true);
-    expect(deliveryCalls).toHaveLength(1);
+    expect(sendCalls).toHaveLength(1);
 
-    const call = deliveryCalls[0]!;
-    expect(call.payload.text).toBe(
-      "Someone is requesting access to the assistant.",
-    );
+    const call = sendCalls[0]!;
+    expect(call.text).toBe("Someone is requesting access to the assistant.");
 
-    const approval = call.payload.approval as {
-      requestId: string;
-      actions: Array<{ id: string; label: string }>;
-      plainTextFallback: string;
-    };
+    const approval = call.approval;
     expect(approval).toBeDefined();
-    expect(approval.requestId).toBe("req-abc-123");
-    expect(approval.actions).toHaveLength(2);
-    expect(approval.actions[0]).toEqual({
+    expect(approval!.requestId).toBe("req-abc-123");
+    expect(approval!.actions).toHaveLength(2);
+    expect(approval!.actions[0]).toEqual({
       id: "approve_once",
       label: "Approve once",
     });
-    expect(approval.actions[1]).toEqual({ id: "reject", label: "Reject" });
-    expect(approval.plainTextFallback).toContain("XYZW");
+    expect(approval!.actions[1]).toEqual({ id: "reject", label: "Reject" });
+    expect(approval!.plainTextFallback).toContain("XYZW");
   });
 
   test("sends plain text without approval when contextPayload is missing", async () => {
@@ -222,8 +223,8 @@ describe("TelegramAdapter", () => {
     const result = await adapter.send(payload, makeDestination());
 
     expect(result.success).toBe(true);
-    expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0]?.payload.approval).toBeUndefined();
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]?.approval).toBeUndefined();
   });
 
   test("sends plain text without approval when requestId is missing from contextPayload", async () => {
@@ -244,8 +245,8 @@ describe("TelegramAdapter", () => {
     const result = await adapter.send(payload, makeDestination());
 
     expect(result.success).toBe(true);
-    expect(deliveryCalls).toHaveLength(1);
-    expect(deliveryCalls[0]?.payload.approval).toBeUndefined();
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]?.approval).toBeUndefined();
   });
 
   test("falls back to plain text with instructions when rich delivery fails", async () => {
@@ -271,14 +272,15 @@ describe("TelegramAdapter", () => {
 
     expect(result.success).toBe(true);
     // Rich delivery threw, so only the plain-text fallback should be recorded.
-    expect(deliveryCalls).toHaveLength(1);
-    const call = deliveryCalls[0]!;
+    expect(sendCalls).toHaveLength(1);
+    const call = sendCalls[0]!;
     // No approval payload in the fallback delivery.
-    expect(call.payload.approval).toBeUndefined();
+    expect(call.approval).toBeUndefined();
     // The fallback text should include the original message AND the
     // typed-command instructions from plainTextFallback.
-    const text = call.payload.text as string;
-    expect(text).toContain("Someone is requesting access to the assistant.");
-    expect(text).toContain("XYZW");
+    expect(call.text).toContain(
+      "Someone is requesting access to the assistant.",
+    );
+    expect(call.text).toContain("XYZW");
   });
 });
