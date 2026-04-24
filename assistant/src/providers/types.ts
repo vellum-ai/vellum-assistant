@@ -142,7 +142,7 @@ export interface SendMessageConfig {
    * `llm.default` when no callSite-specific entry is present.
    */
   callSite?: LLMCallSite;
-  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   [key: string]: unknown;
 }
