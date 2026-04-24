@@ -489,6 +489,82 @@ describe("directoryScopeOptions", () => {
     });
     expect(result.directoryScopeOptions).toBeUndefined();
   });
+
+  test("bash 'ls && cd /tmp' anchors scope to original workingDir, not /tmp", async () => {
+    // The bare `ls` runs in workingDir, and the later `cd /tmp` must not
+    // shift the emitted scope away from where `ls` actually ran.
+    // Use /ws/project (not /home/user) so the ancestor doesn't get widened
+    // up to `/home`, which `generateDirectoryScopeOptions` skips because
+    // the test runner's $HOME sits under it.
+    const result = await classify({
+      tool: "bash",
+      command: "ls && cd /tmp",
+      workingDir: "/ws/project",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    const nonEverywhere = opts.filter((o) => o.scope !== "everywhere");
+    expect(nonEverywhere.length).toBeGreaterThan(0);
+    // Scope must reference /ws (the dirname of /ws/project since it does
+    // not exist) — explicitly NOT /tmp.
+    for (const opt of nonEverywhere) {
+      expect(opt.scope.startsWith("/tmp")).toBe(false);
+    }
+    expect(
+      nonEverywhere.some(
+        (o) => o.scope === "/ws/*" || o.scope.startsWith("/ws/"),
+      ),
+    ).toBe(true);
+  });
+
+  test("bash 'cd /tmp && ls' anchors scope to /tmp (forward direction)", async () => {
+    // `ls` runs after the cd, so its effective cwd is /tmp — the scope
+    // should reflect that.
+    const result = await classify({
+      tool: "bash",
+      command: "cd /tmp && ls",
+      workingDir: "/ws/project",
+    });
+    expect(result.directoryScopeOptions).toBeArray();
+    const opts = result.directoryScopeOptions as Array<{
+      scope: string;
+      label: string;
+    }>;
+    const nonEverywhere = opts.filter((o) => o.scope !== "everywhere");
+    expect(nonEverywhere.length).toBeGreaterThan(0);
+    for (const opt of nonEverywhere) {
+      expect(opt.scope.startsWith("/ws")).toBe(false);
+    }
+    expect(
+      nonEverywhere.some(
+        (o) => o.scope === "/tmp/*" || o.scope.startsWith("/tmp/"),
+      ),
+    ).toBe(true);
+  });
+
+  test("bash 'command -v rm' has no directoryScopeOptions (non-exec wrapper)", async () => {
+    // `command -v` is a lookup, not an exec — the inner `rm` is not actually
+    // invoked, so no filesystem op occurs and no directory scope should surface.
+    const result = await classify({
+      tool: "bash",
+      command: "command -v rm",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
+
+  test("bash 'command -V rm' has no directoryScopeOptions (non-exec wrapper, -V variant)", async () => {
+    // Same as `-v` — both flags are in `command`'s nonExecFlags list.
+    const result = await classify({
+      tool: "bash",
+      command: "command -V rm",
+      workingDir: "/ws/scratch",
+    });
+    expect(result.directoryScopeOptions).toBeUndefined();
+  });
 });
 
 // ── Route registration ──────────────────────────────────────────────────────

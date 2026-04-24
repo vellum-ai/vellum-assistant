@@ -235,9 +235,18 @@ export async function handleClassifyRisk(
       // the right directory (e.g. `cd /tmp && rm foo` scopes `foo` to
       // `/tmp/foo`, not `<initial workingDir>/foo`).
       //
+      // For bare filesystem-op segments (filesystemOp=true with no resolved
+      // pathArgs, e.g. a lone `ls`), capture the segment's current cwd as a
+      // pathArg so the emitted scope reflects where that segment actually
+      // ran — not where a later `cd` segment moved to. This keeps
+      // `ls && cd /tmp` scoped to the original workingDir rather than /tmp.
+      //
       // Wrapper segments (e.g. `sudo rm -rf foo`, `env cp a b`) are unwrapped
       // before the filesystem-op check so the inner command's spec and
-      // argSchema are used.
+      // argSchema are used. Wrappers in non-exec modes (e.g. `command -v rm`,
+      // `timeout --help rm`) are NOT unwrapped — they look up or print help
+      // for the inner program rather than executing it, so the inner
+      // program's filesystemOp flag must not apply.
       const parsed = await cachedParse(command);
       let isComplexSyntax = false;
       let hasFilesystemOp = false;
@@ -246,6 +255,12 @@ export async function handleClassifyRisk(
       for (const seg of parsed.segments) {
         // Unwrap wrappers iteratively so `sudo sudo rm foo` and
         // `env sudo rm foo` both resolve to the innermost `rm`.
+        //
+        // Mirror `classifySegment` in bash-risk-classifier.ts: if the
+        // wrapper's first arg is in its `nonExecFlags`, the wrapper is in
+        // lookup/help mode and does NOT execute the inner command — stop
+        // unwrapping so the inner program's spec (and filesystemOp flag)
+        // does not bleed through.
         let effectiveProgram = seg.program;
         let effectiveArgs = seg.args;
         let effectiveSpec = lookupSpec(effectiveProgram);
@@ -255,6 +270,11 @@ export async function handleClassifyRisk(
           !visited.has(effectiveProgram)
         ) {
           visited.add(effectiveProgram);
+          const isNonExecMode =
+            effectiveSpec.nonExecFlags !== undefined &&
+            effectiveArgs.length > 0 &&
+            effectiveSpec.nonExecFlags.includes(effectiveArgs[0]!);
+          if (isNonExecMode) break;
           const inner = getWrappedProgramWithArgs({
             program: effectiveProgram,
             args: effectiveArgs,
@@ -274,17 +294,24 @@ export async function handleClassifyRisk(
             effectiveArgs,
             effectiveSpec.argSchema ?? {},
           );
-          for (const p of parsedArgs.pathArgs) {
-            // Pre-resolve relative path args against the current tracked
-            // cwd so scope ladder ancestors reflect cd-induced dir changes.
-            // Keep `~` / `~/...` as-is — `generateDirectoryScopeOptions`
-            // expands them itself and the tracked cwd doesn't affect that.
-            if (p === "~" || p.startsWith("~/") || p.startsWith("~")) {
-              fsPathArgs.add(p);
-            } else if (isAbsolute(p)) {
-              fsPathArgs.add(p);
-            } else {
-              fsPathArgs.add(resolve(trackedCwd, p));
+          if (parsedArgs.pathArgs.length === 0) {
+            // Bare filesystem-op segment (e.g. `ls`, `pwd`). Anchor the
+            // scope to the cwd AS-OF THIS SEGMENT so a later `cd` doesn't
+            // shift the scope away from where the segment actually ran.
+            fsPathArgs.add(trackedCwd);
+          } else {
+            for (const p of parsedArgs.pathArgs) {
+              // Pre-resolve relative path args against the current tracked
+              // cwd so scope ladder ancestors reflect cd-induced dir changes.
+              // Keep `~` / `~/...` as-is — `generateDirectoryScopeOptions`
+              // expands them itself and the tracked cwd doesn't affect that.
+              if (p === "~" || p.startsWith("~/") || p.startsWith("~")) {
+                fsPathArgs.add(p);
+              } else if (isAbsolute(p)) {
+                fsPathArgs.add(p);
+              } else {
+                fsPathArgs.add(resolve(trackedCwd, p));
+              }
             }
           }
         }
@@ -308,15 +335,17 @@ export async function handleClassifyRisk(
       }
 
       // Emit directory scope ladder only when at least one segment is a
-      // filesystem op. Empty pathArgs is still valid — PR 5 falls back to
-      // workingDir as the ancestor. Use the final trackedCwd so the
-      // bare-command fallback and project-boundary walk reflect any
-      // cd-induced directory changes.
+      // filesystem op. Pass the ORIGINAL `workingDir` (not the final
+      // `trackedCwd`) — each filesystem-op segment has already contributed
+      // its effective cwd into `fsPathArgs` (bare segments pushed their
+      // at-the-time cwd; non-bare segments pre-resolved relative args against
+      // their at-the-time cwd), so the generator does not need the final
+      // trackedCwd to reflect per-segment cd progress.
       let directoryScopeOptions: DirectoryScopeOption[] | undefined;
       if (hasFilesystemOp) {
         directoryScopeOptions = generateDirectoryScopeOptions({
           pathArgs: [...fsPathArgs],
-          workingDir: trackedCwd,
+          workingDir,
           workspaceRoot: params.workspaceRoot,
         });
       }
