@@ -15,7 +15,9 @@
  *
  * Consumers:
  *   - `assistant clients list` CLI command (via `list_clients` IPC route)
- *   - Future: deferred host tool routing (Phase 2)
+ *   - Deferred host tool routing — `isToolActiveForContext` and proxy wiring
+ *     check the registry for capable clients when the originating interface
+ *     doesn't support the required capability.
  */
 
 import type { HostProxyCapability, InterfaceId } from "../channels/types.js";
@@ -26,8 +28,8 @@ const log = getLogger("client-registry");
 
 /**
  * Default staleness threshold: entries not refreshed within this window are
- * evicted on the next read. 30 minutes is generous — messages refresh the
- * entry on every turn, so any actively used client stays well within this.
+ * evicted on the next read. 30 minutes is generous — SSE heartbeats refresh
+ * the entry every 30 seconds, so any connected client stays well within this.
  */
 const DEFAULT_STALE_AGE_MS = 30 * 60 * 1000;
 
@@ -174,6 +176,23 @@ export class ClientRegistry {
     capability: HostProxyCapability,
   ): ClientEntry | undefined {
     return this.listByCapability(capability)[0];
+  }
+
+  /**
+   * Lightweight check: is there at least one registered client that supports
+   * the given capability? Used by `isToolActiveForContext` to decide whether
+   * to expose host tools when the originating interface doesn't support them
+   * but a capable client is connected elsewhere (deferred host routing).
+   *
+   * Runs `evictStale()` first so disconnected clients don't cause false
+   * positives.
+   */
+  hasCapableClient(capability: HostProxyCapability): boolean {
+    this.evictStale();
+    for (const entry of this.clients.values()) {
+      if (entry.capabilities.includes(capability)) return true;
+    }
+    return false;
   }
 
   /**

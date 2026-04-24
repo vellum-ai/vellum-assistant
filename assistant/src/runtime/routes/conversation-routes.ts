@@ -96,6 +96,7 @@ import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
+import { getClientRegistry } from "../client-registry.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
@@ -1661,13 +1662,17 @@ export async function handleSendMessage(
     conversation,
   );
   const isInteractive = isInteractiveInterface(sourceInterface);
-  // Only create each host proxy for interfaces that support the matching
-  // capability. macOS supports all four; the chrome-extension interface only
-  // supports host_browser. Non-desktop conversations (CLI, channels, headless)
-  // fall back to local execution.
+  // Create each host proxy for interfaces that support the matching
+  // capability natively OR when a capable client is connected elsewhere
+  // (deferred host routing). The hub publisher delivers host tool request
+  // frames to the capable client's unfiltered SSE subscription.
   // Set the proxy BEFORE updateClient so updateClient's call to
   // hostBashProxy.updateSender targets the correct (new) proxy.
-  if (supportsHostProxy(sourceInterface, "host_bash")) {
+  const registry = getClientRegistry();
+  const canHostBash =
+    supportsHostProxy(sourceInterface, "host_bash") ||
+    registry.hasCapableClient("host_bash");
+  if (canHostBash) {
     // Reuse the existing proxy if the conversation is actively processing a
     // host bash request to avoid orphaning in-flight requests.
     if (!conversation.isProcessing() || !conversation.hostBashProxy) {
@@ -1714,7 +1719,8 @@ export async function handleSendMessage(
   // For chrome-extension, the registry sender is always used.
   const shouldProvisionBrowserProxy =
     supportsHostProxy(sourceInterface, "host_browser") ||
-    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
+    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted) ||
+    registry.hasCapableClient("host_browser");
   if (shouldProvisionBrowserProxy) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
       const browserProxy = new HostBrowserProxy(
@@ -1728,7 +1734,10 @@ export async function handleSendMessage(
   } else if (!conversation.isProcessing()) {
     conversation.setHostBrowserProxy(undefined);
   }
-  if (supportsHostProxy(sourceInterface, "host_file")) {
+  const canHostFile =
+    supportsHostProxy(sourceInterface, "host_file") ||
+    registry.hasCapableClient("host_file");
+  if (canHostFile) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);
@@ -1745,7 +1754,10 @@ export async function handleSendMessage(
     conversation.setHostFileProxy(undefined);
     conversation.setHostTransferProxy(undefined);
   }
-  if (supportsHostProxy(sourceInterface, "host_cu")) {
+  const canHostCu =
+    supportsHostProxy(sourceInterface, "host_cu") ||
+    registry.hasCapableClient("host_cu");
+  if (canHostCu) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       const cuProxy = new HostCuProxy(onEvent, (requestId) => {
         pendingInteractions.resolve(requestId);

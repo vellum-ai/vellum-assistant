@@ -60,6 +60,7 @@ import {
 } from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { getClientRegistry } from "../runtime/client-registry.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
@@ -1339,67 +1340,97 @@ export class DaemonServer {
           "wiring in conversation-routes.ts into a shared helper.",
       );
     }
-    // Only create each host proxy for interfaces that support the matching
-    // capability. macOS supports all four; the chrome-extension interface only
-    // supports host_browser. Non-desktop conversations (CLI, channels, headless)
-    // fall back to local execution.
+    // Create each host proxy for interfaces that support the matching
+    // capability natively OR when a capable client is connected elsewhere
+    // (deferred host routing). macOS supports all four; the chrome-extension
+    // interface only supports host_browser. Non-desktop conversations (CLI,
+    // channels, headless) create proxies when the registry has a capable
+    // client so tool requests are published to the hub and delivered to that
+    // client's unfiltered SSE subscription.
     // Guard: don't replace an active proxy during concurrent turn races —
     // another request may have started processing between the isProcessing()
     // check above and the await on ensureActorScopedHistory().
-    if (supportsHostProxy(resolvedInterface, "host_bash")) {
+    const registry = getClientRegistry();
+    const canHostBash =
+      supportsHostProxy(resolvedInterface, "host_bash") ||
+      registry.hasCapableClient("host_bash");
+    const canHostBrowser =
+      supportsHostProxy(resolvedInterface, "host_browser") ||
+      registry.hasCapableClient("host_browser");
+    const canHostFile =
+      supportsHostProxy(resolvedInterface, "host_file") ||
+      registry.hasCapableClient("host_file");
+    const canHostCu =
+      supportsHostProxy(resolvedInterface, "host_cu") ||
+      registry.hasCapableClient("host_cu");
+
+    // When a proxy is created via deferred routing (the originating interface
+    // doesn't support the capability but a registry client does), the proxy's
+    // clientConnected flag must be explicitly set to true. The HostBashProxy
+    // constructor defaults clientConnected=false, and for non-interactive
+    // channel messages (Telegram, Slack, wake), updateClient() is either not
+    // called or sets hasNoClient=true — neither path would flip the flag.
+    const sender = conversation.getCurrentSender();
+    const isDeferredBash =
+      canHostBash && !supportsHostProxy(resolvedInterface, "host_bash");
+    const isDeferredBrowser =
+      canHostBrowser && !supportsHostProxy(resolvedInterface, "host_browser");
+    const isDeferredFile =
+      canHostFile && !supportsHostProxy(resolvedInterface, "host_file");
+    const isDeferredCu =
+      canHostCu && !supportsHostProxy(resolvedInterface, "host_cu");
+
+    if (canHostBash) {
       if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-        conversation.setHostBashProxy(
-          new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
+        const proxy = new HostBashProxy(sender, (requestId) => {
+          pendingInteractions.resolve(requestId);
+        });
+        if (isDeferredBash) proxy.updateSender(sender, true);
+        conversation.setHostBashProxy(proxy);
       }
     } else if (!conversation.isProcessing()) {
       conversation.setHostBashProxy(undefined);
     }
-    if (supportsHostProxy(resolvedInterface, "host_browser")) {
+    if (canHostBrowser) {
       if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
-        conversation.setHostBrowserProxy(
-          new HostBrowserProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
+        const proxy = new HostBrowserProxy(sender, (requestId) => {
+          pendingInteractions.resolve(requestId);
+        });
+        if (isDeferredBrowser) proxy.updateSender(sender, true);
+        conversation.setHostBrowserProxy(proxy);
       }
     } else if (!conversation.isProcessing()) {
       conversation.setHostBrowserProxy(undefined);
     }
-    if (supportsHostProxy(resolvedInterface, "host_file")) {
+    if (canHostFile) {
       if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-        conversation.setHostFileProxy(
-          new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
+        const proxy = new HostFileProxy(sender, (requestId) => {
+          pendingInteractions.resolve(requestId);
+        });
+        if (isDeferredFile) proxy.updateSender(sender, true);
+        conversation.setHostFileProxy(proxy);
       }
       if (
         !conversation.isProcessing() ||
         !conversation.getHostTransferProxy()
       ) {
-        conversation.setHostTransferProxy(
-          new HostTransferProxy(
-            conversation.getCurrentSender(),
-            (requestId) => {
-              pendingInteractions.resolve(requestId);
-            },
-          ),
-        );
+        const proxy = new HostTransferProxy(sender, (requestId) => {
+          pendingInteractions.resolve(requestId);
+        });
+        if (isDeferredFile) proxy.updateSender(sender, true);
+        conversation.setHostTransferProxy(proxy);
       }
     } else if (!conversation.isProcessing()) {
       conversation.setHostFileProxy(undefined);
       conversation.setHostTransferProxy(undefined);
     }
-    if (supportsHostProxy(resolvedInterface, "host_cu")) {
+    if (canHostCu) {
       if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-        conversation.setHostCuProxy(
-          new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
+        const proxy = new HostCuProxy(sender, (requestId) => {
+          pendingInteractions.resolve(requestId);
+        });
+        if (isDeferredCu) proxy.updateSender(sender, true);
+        conversation.setHostCuProxy(proxy);
       }
       conversation.addPreactivatedSkillId("computer-use");
     } else if (!conversation.isProcessing()) {

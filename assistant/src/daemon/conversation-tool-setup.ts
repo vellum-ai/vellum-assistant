@@ -30,6 +30,7 @@ import { isAllowDecision } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import { getClientRegistry } from "../runtime/client-registry.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
@@ -617,10 +618,15 @@ export function isToolActiveForContext(
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
     const transport = ctx.transportInterface;
 
-    // Per-capability check is authoritative for structural support: if the
-    // transport cannot service this capability, the tool is filtered out.
+    // Per-capability check: if the originating transport supports this
+    // capability natively, the tool is active (subject to client presence).
+    // If not, fall back to the client registry to check whether a *different*
+    // connected client can service the capability (deferred host routing).
     if (transport && capability && !supportsHostProxy(transport, capability)) {
-      return false;
+      // Deferred routing: check the registry for a capable client elsewhere.
+      if (!getClientRegistry().hasCapableClient(capability)) {
+        return false;
+      }
     }
 
     // chrome-extension is its own executor — the extension's popup gates
