@@ -6,25 +6,9 @@
     "src/daemon/main.ts!",
     "src/messaging/providers/*/types.ts!",
     "src/messaging/providers/*/client.ts!",
-    "src/memory/graph/inspect.ts!",
-    "../skills/meet-join/**/*.test.ts",
-    "../skills/meet-join/**/__tests__/**/*.ts",
-    "!../skills/meet-join/bot/**",
-    "../skills/meet-join/contracts/**/__tests__/**/*.ts",
-    "../skills/meet-join/meet-controller-ext/scripts/build.ts!",
-    "../skills/meet-join/meet-controller-ext/src/background.ts!",
-    "../skills/meet-join/meet-controller-ext/src/content.ts!",
-    "../skills/meet-join/meet-controller-ext/src/avatar/avatar.ts!",
-    "../skills/meet-join/meet-controller-ext/src/messaging/content-bridge.ts!",
-    "../skills/meet-join/scripts/emit-manifest.ts!"
+    "src/memory/graph/inspect.ts!"
   ],
-  "project": [
-    "src/**/*.ts!",
-    "src/**/*.tsx!",
-    "scripts/**/*.ts",
-    "../skills/meet-join/**/*.ts!",
-    "!../skills/meet-join/bot/**"
-  ],
+  "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
   "ignoreDependencies": [
     "@vellumai/ces-client",
     "@vellumai/ces-contracts",
