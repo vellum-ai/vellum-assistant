@@ -188,6 +188,20 @@ const RM_BENIGN_FLAGS = new Set([
   "--verbose",
 ]);
 
+/**
+ * Returns true when the command arguments include a top-level `--help` flag.
+ *
+ * This intentionally ignores any `--help` token that appears after `--`
+ * because those are positional arguments, not options.
+ */
+function hasHelpFlag(args: string[]): boolean {
+  for (const arg of args) {
+    if (arg === "--") return false;
+    if (arg === "--help" || arg.startsWith("--help=")) return true;
+  }
+  return false;
+}
+
 // ── Segment classification ───────────────────────────────────────────────────
 
 /**
@@ -266,10 +280,30 @@ export function classifySegment(
   }
 
   if (!spec) {
+    // Unknown command with --help is just viewing help → low risk
+    if (hasHelpFlag(segment.args)) {
+      return {
+        risk: "low",
+        reason: `${segment.program} help output`,
+        matchType: "registry",
+      };
+    }
     return {
       risk: "unknown",
       reason: `Unknown command: ${segment.program}`,
       matchType: "unknown",
+    };
+  }
+
+  // 2b. Help-mode fast path for simple commands (no subcommand tree).
+  //     Commands WITH subcommands (e.g. `assistant`) skip this — their
+  //     subcommand resolution may assign elevated risk that --help must
+  //     not bypass.
+  if (!spec.subcommands && !spec.isWrapper && hasHelpFlag(segment.args)) {
+    return {
+      risk: "low",
+      reason: `${segment.program} help output`,
+      matchType: "registry",
     };
   }
 

@@ -55,6 +55,8 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["cat file | grep pattern | wc -l", RiskLevel.Low],
   ["command -v rm", RiskLevel.Low],
   ["command -V sudo", RiskLevel.Low],
+  ["rm --help", RiskLevel.Low],
+  ["mycustomtool --help", RiskLevel.Low],
 
   // Medium risk
   ["git push origin main", RiskLevel.Medium],

@@ -199,6 +199,14 @@ describe("basic command classification", () => {
     });
     expect(result.riskLevel).toBe("low");
   });
+
+  test("rm --help → low", async () => {
+    const result = await classifier.classify({
+      command: "rm --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
 });
 
 // ── Arg rule matching in classification ──────────────────────────────────────
@@ -755,6 +763,23 @@ describe("unknown commands", () => {
     });
     expect(result.riskLevel).toBe("low");
     expect(result.matchType).toBe("registry");
+  });
+
+  test("unknown command with --help → low risk", async () => {
+    const result = await classifier.classify({
+      command: "mycustomtool --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+    expect(result.matchType).toBe("registry");
+  });
+
+  test("--help after -- is positional, not help mode", async () => {
+    const result = await classifier.classify({
+      command: "rm -- --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
   });
 });
 
