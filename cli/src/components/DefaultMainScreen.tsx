@@ -340,7 +340,10 @@ interface SseEvent {
 
 /**
  * Open an SSE stream to the assistant's /events endpoint.
- * Yields parsed JSON objects from `data:` lines, skipping heartbeat comments.
+ * Yields unwrapped message payloads from `data:` lines, skipping
+ * heartbeat comments. The /events endpoint emits AssistantEvent
+ * envelopes (`{ id, assistantId, message: { type, ... } }`); this
+ * generator unwraps the envelope so callers switch on `.type` directly.
  */
 async function* streamEvents(
   baseUrl: string,
@@ -387,7 +390,14 @@ async function* streamEvents(
       }
       if (!data) continue;
       try {
-        yield JSON.parse(data) as SseEvent;
+        const envelope = JSON.parse(data) as {
+          message?: SseEvent;
+          [key: string]: unknown;
+        };
+        // Unwrap the AssistantEvent envelope
+        if (envelope.message && typeof envelope.message.type === "string") {
+          yield envelope.message;
+        }
       } catch {
         // skip malformed JSON
       }
@@ -587,6 +597,7 @@ export interface ToolCallInfo {
   input: Record<string, unknown>;
   result?: string;
   isError?: boolean;
+  toolUseId?: string;
 }
 
 export interface RuntimeMessage {
@@ -1707,28 +1718,36 @@ function ChatApp({
                   streamingToolCallsRef.current.push({
                     name: event.toolName,
                     input: event.input ?? {},
+                    toolUseId: event.toolUseId,
                   });
                 }
                 break;
 
-              case "tool_result":
-                if (event.toolName) {
-                  const tc = streamingToolCallsRef.current.find(
-                    (t) => t.name === event.toolName && t.result === undefined,
-                  );
-                  if (tc) {
-                    tc.result = event.result;
-                    tc.isError = event.isError;
-                  } else {
-                    streamingToolCallsRef.current.push({
-                      name: event.toolName,
-                      input: event.input ?? {},
-                      result: event.result,
-                      isError: event.isError,
-                    });
-                  }
+              case "tool_result": {
+                // Match by toolUseId first (robust for parallel/same-name calls),
+                // fall back to name + missing result for backwards compat.
+                const tc = event.toolUseId
+                  ? streamingToolCallsRef.current.find(
+                      (t) => t.toolUseId === event.toolUseId,
+                    )
+                  : streamingToolCallsRef.current.find(
+                      (t) =>
+                        t.name === event.toolName && t.result === undefined,
+                    );
+                if (tc) {
+                  tc.result = event.result;
+                  tc.isError = event.isError;
+                } else if (event.toolName) {
+                  streamingToolCallsRef.current.push({
+                    name: event.toolName,
+                    input: event.input ?? {},
+                    result: event.result,
+                    isError: event.isError,
+                    toolUseId: event.toolUseId,
+                  });
                 }
                 break;
+              }
 
               case "confirmation_request":
                 hRef.hideSpinner();
@@ -1834,7 +1853,13 @@ function ChatApp({
         } catch {
           // Stream ended — only report if not intentionally aborted
           if (!sseAc.signal.aborted) {
-            handleRef_.current?.addStatus("SSE stream disconnected", "yellow");
+            handleRef_.current?.addStatus(
+              "SSE stream disconnected — will reconnect on next message",
+              "yellow",
+            );
+            handleRef_.current?.setBusy(false);
+            handleRef_.current?.hideSpinner();
+            connectedRef.current = false;
           }
         }
       })();
@@ -2302,12 +2327,8 @@ function ChatApp({
         return;
       }
 
-      // Reset streaming accumulators for this turn
-      streamingTextRef.current = "";
-      streamingToolCallsRef.current = [];
-
-      // SSE event loop handles response, confirmations, and secrets.
-      // Just show the spinner — message_complete will clear it.
+      // Accumulators are reset by message_complete; no reset here to avoid
+      // racing with SSE events that may arrive during the sendMessage await.
       h.showSpinner("Working...");
     },
     [
