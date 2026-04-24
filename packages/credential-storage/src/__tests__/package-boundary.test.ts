@@ -3,8 +3,13 @@
  *
  * Ensures the package:
  * 1. Does NOT import from the assistant daemon or CES modules.
- * 2. Exposes only local storage/runtime abstractions.
- * 3. Remains portable and self-contained.
+ * 2. Does NOT import from x-client packages (@vellumai/assistant-client,
+ *    @vellumai/ces-client, @vellumai/gateway-client).
+ * 3. Does NOT import from @vellumai/service-contracts runtime/internal modules
+ *    (the aggregate root or any subpath beyond what credential-storage needs
+ *    for pure type definitions is not required at all).
+ * 4. Exposes only local storage/runtime abstractions.
+ * 5. Remains portable and self-contained.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -59,6 +64,21 @@ const FORBIDDEN_IMPORT_PATTERNS = [
   /from\s+["'].*\/tools\//,
   /from\s+["'].*\/oauth\/oauth-store/,
   /from\s+["'].*\/security\/secure-keys/,
+
+  // x-client packages (must not depend on any typed service client)
+  /from\s+["']@vellumai\/assistant-client(?:\/|["'])/,
+  /require\s*\(\s*["']@vellumai\/assistant-client(?:\/|["'])/,
+  /from\s+["']@vellumai\/ces-client(?:\/|["'])/,
+  /require\s*\(\s*["']@vellumai\/ces-client(?:\/|["'])/,
+  /from\s+["']@vellumai\/gateway-client(?:\/|["'])/,
+  /require\s*\(\s*["']@vellumai\/gateway-client(?:\/|["'])/,
+
+  // service-contracts aggregate root or internal subpaths
+  // credential-storage is a lower-layer package and must not depend on
+  // service-contracts (which sits at the same layer but deals with RPC
+  // protocol types, not storage abstractions).
+  /from\s+["']@vellumai\/service-contracts(?:\/|["'])/,
+  /require\s*\(\s*["']@vellumai\/service-contracts(?:\/|["'])/,
 ];
 
 describe("package boundary", () => {
@@ -68,7 +88,7 @@ describe("package boundary", () => {
     expect(sourceFiles.length).toBeGreaterThan(0);
   });
 
-  test("does not import from assistant or CES modules", () => {
+  test("does not import from assistant, CES, x-client, or service-contracts modules", () => {
     const violations: string[] = [];
 
     for (const file of sourceFiles) {
@@ -101,7 +121,7 @@ describe("package boundary", () => {
     expect(pkg.private).toBe(true);
   });
 
-  test("package.json does not depend on assistant or CES packages", () => {
+  test("package.json does not depend on assistant, CES, x-client, or service-contracts packages", () => {
     const pkg = JSON.parse(
       readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8"),
     );
@@ -113,8 +133,14 @@ describe("package boundary", () => {
     const forbidden = Object.keys(allDeps).filter(
       (dep) =>
         dep.includes("assistant") ||
-        dep.includes("ces") ||
-        dep.includes("daemon"),
+        dep.includes("daemon") ||
+        [
+          "@vellumai/ces-client",
+          "@vellumai/ces-contracts",
+          "@vellumai/service-contracts",
+          "@vellumai/assistant-client",
+          "@vellumai/gateway-client",
+        ].includes(dep),
     );
     expect(forbidden).toEqual([]);
   });
