@@ -13,7 +13,7 @@ import {
   parseTrustRule,
   ruleScope,
   SCOPED_TOOLS,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/trust-rules";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 

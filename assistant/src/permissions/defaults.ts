@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
-import type { ScopedTrustRule, TrustRuleBase } from "@vellumai/ces-contracts";
-import { MANAGED_SKILL_TOOLS, SKILL_LOAD_TOOL } from "@vellumai/ces-contracts";
+import type { ScopedTrustRule, TrustRuleBase } from "@vellumai/service-contracts/trust-rules";
+import { MANAGED_SKILL_TOOLS, SKILL_LOAD_TOOL } from "@vellumai/service-contracts/trust-rules";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";

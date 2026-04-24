@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { HandleType, localStaticHandle, parseHandle } from "@vellumai/ces-contracts";
+import { HandleType, localStaticHandle, parseHandle } from "@vellumai/service-contracts/credential-rpc";
 
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "../managed-errors.js";
 

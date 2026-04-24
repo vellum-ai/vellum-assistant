@@ -6,11 +6,11 @@
  * the outbound request internally and returns the sanitised response.
  *
  * The input schema matches the `MakeAuthenticatedRequestSchema` from
- * `@vellumai/ces-contracts` exactly so the LLM-produced parameters pass
+ * `@vellumai/service-contracts/credential-rpc` exactly so the LLM-produced parameters pass
  * straight through to the CES RPC call with no transformation.
  */
 
-import { GrantProposalSchema, renderProposal } from "@vellumai/ces-contracts";
+import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts/credential-rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";

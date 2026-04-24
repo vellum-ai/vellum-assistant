@@ -7,7 +7,7 @@
  * graceful fallback.
  */
 
-import { CesRpcMethod } from "@vellumai/ces-contracts";
+import { CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 
 import type { CesClient } from "../credential-execution/client.js";
 import { getLogger } from "../util/logger.js";

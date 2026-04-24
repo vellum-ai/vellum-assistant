@@ -12,7 +12,7 @@
  * classifications, interface IDs, content blocks, CES `ApprovalRequired`)
  * are held as opaque `unknown` / broadened-`string` placeholders on this
  * side so the contracts package never reaches into the assistant or the
- * ces-contracts runtime. The assistant redeclares `Tool`, `ToolContext`,
+ * service-contracts runtime. The assistant redeclares `Tool`, `ToolContext`,
  * `ToolExecutionResult`, `ToolExecutedEvent`, `ToolLifecycleEvent`,
  * `ToolLifecycleEventHandler`, and `ProxyToolResolver` in
  * `assistant/src/tools/types.ts` with the concrete types in place, so
@@ -154,9 +154,9 @@ export interface ToolExecutionResult {
    * returning a textual error so the executor can intercept and handle the
    * approval flow transparently.
    *
-   * Declared as `unknown` here to keep this package free of
-   * `@vellumai/ces-contracts` imports; the assistant narrows it back to the
-   * concrete `ApprovalRequired` shape via intersection.
+   * Declared as `unknown` here to keep this package free of CES runtime
+   * imports; the assistant narrows it back to the concrete `ApprovalRequired`
+   * shape via intersection.
    */
   cesApprovalRequired?: unknown;
 }

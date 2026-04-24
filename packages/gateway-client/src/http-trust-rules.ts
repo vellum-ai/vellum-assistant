@@ -14,8 +14,8 @@
  * or untyped raw rule objects.
  */
 
-import type { TrustRule } from "@vellumai/ces-contracts";
-import { parseTrustRule } from "@vellumai/ces-contracts";
+import type { TrustRule } from "@vellumai/service-contracts/trust-rules";
+import { parseTrustRule } from "@vellumai/service-contracts/trust-rules";
 
 import type { Logger } from "./types.js";
 import { noopLogger } from "./types.js";

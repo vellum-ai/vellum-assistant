@@ -19,7 +19,7 @@ import {
   type ListGrantsResponse,
   type PersistentGrantRecord,
   type RevokeGrantResponse,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 import type { Command } from "commander";
 
 import { getConfig } from "../../config/loader.js";

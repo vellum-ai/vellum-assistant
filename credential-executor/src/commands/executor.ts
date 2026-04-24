@@ -74,7 +74,7 @@ import {
   type WorkspaceOutput,
   type CopybackResult,
 } from "./workspace.js";
-import { hashProposal, type AuditRecordSummary, type CommandGrantProposal } from "@vellumai/ces-contracts";
+import { hashProposal, type AuditRecordSummary, type CommandGrantProposal } from "@vellumai/service-contracts/credential-rpc";
 
 import type { AuditStore } from "../audit/store.js";
 import type { PersistentGrantStore } from "../grants/persistent-store.js";
@@ -737,7 +737,7 @@ function checkGrant(
 
   // Check temporary grants — build the same proposal shape that the
   // approval bridge produces, then hash with the canonical algorithm
-  // from `@vellumai/ces-contracts` so the hashes align.
+  // from `@vellumai/service-contracts` so the hashes align.
   const tempProposal: CommandGrantProposal = {
     type: "command",
     credentialHandle: request.credentialHandle,

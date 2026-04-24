@@ -11,7 +11,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 # Copy shared packages needed by gateway's repo-local dependencies
 COPY packages/assistant-client ./packages/assistant-client
 COPY packages/ces-client ./packages/ces-client
-COPY packages/ces-contracts ./packages/ces-contracts
+COPY packages/service-contracts ./packages/service-contracts
 
 # Install deps for shared packages that have their own file: dependencies.
 RUN cd /app/packages/ces-client && bun install --frozen-lockfile
@@ -41,13 +41,9 @@ RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
 
 COPY --from=builder --chown=gateway:gateway /app/gateway /app
-# `bun install` materializes `file:../packages/ces-contracts` as a
-# `node_modules/@vellumai/ces-contracts/` directory whose files are symlinks
-# pointing at absolute `/app/packages/ces-contracts/...` source paths in
-# the builder. Those absolute targets have to exist in the runner too, or
-# every `@vellumai/ces-contracts[/…]` import resolves to a dangling link
-# and the gateway crashes with "Cannot find module ..." at first use.
-# Copy the sibling package into the runner so the symlinks resolve.
+# `bun install` materializes repo-local file: dependencies as symlinks in
+# node_modules pointing at absolute paths in the builder stage.
+# Copy the sibling packages into the runner so the symlinks resolve.
 COPY --from=builder --chown=gateway:gateway /app/packages /app/packages
 
 RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security

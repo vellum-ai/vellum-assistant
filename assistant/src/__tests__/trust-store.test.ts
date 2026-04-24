@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ruleScope } from "@vellumai/ces-contracts";
+import { ruleScope } from "@vellumai/service-contracts/trust-rules";
 
 // Create a temp directory for the trust file
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;

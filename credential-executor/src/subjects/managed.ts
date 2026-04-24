@@ -24,7 +24,7 @@ import {
   HandleType,
   parseHandle,
   type PlatformOAuthHandle,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 // ---------------------------------------------------------------------------
 // Common subject interface

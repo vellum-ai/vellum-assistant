@@ -2528,7 +2528,7 @@ describe("Permission Checker", () => {
   // ── Family-aware rule shape regression ─────────────────────────
   //
   // Validates that trust rules conform to canonical family-aware shapes
-  // after disk round-trips. The canonical parser in ces-contracts strips
+  // after disk round-trips. The canonical parser in service-contracts strips
   // fields that are invalid for a rule's tool family (for example,
   // executionTarget on non-scoped tools).
   //

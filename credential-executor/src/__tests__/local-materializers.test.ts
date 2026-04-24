@@ -19,7 +19,7 @@ import {
   localStaticHandle,
   localOAuthHandle,
   platformOAuthHandle,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 import {
   type OAuthConnectionRecord,
   type SecureKeyBackend,

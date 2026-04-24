@@ -11,7 +11,7 @@
  * URL-tool rule) are silently stripped before persistence.
  */
 
-import { SCOPED_TOOLS } from "@vellumai/ces-contracts/trust-rules";
+import { SCOPED_TOOLS } from "@vellumai/service-contracts/trust-rules";
 
 import { getLogger } from "../../logger.js";
 import {

@@ -19,7 +19,7 @@ import { SEEDS } from "../lib/environments/seeds.js";
 // CLI's SEEDS.
 //
 // FOLLOW-UP: split the env name list into a shared `packages/environments`
-// package (mirroring `packages/ces-contracts`, `credential-storage`) so
+// package (mirroring `packages/service-contracts`, `credential-storage`) so
 // all three sites can `import { KNOWN_ENVIRONMENTS }` from one place and
 // this drift guard becomes a compile-time check. Planned alongside CLI-
 // driven context support — see the "Environments" design doc.

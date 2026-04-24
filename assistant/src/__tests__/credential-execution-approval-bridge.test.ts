@@ -20,7 +20,7 @@ import type {
   PersistentGrantRecord,
   RecordGrant,
   RecordGrantResponse,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";

@@ -1,5 +1,5 @@
 /**
- * Tests for @vellumai/ces-contracts
+ * Tests for @vellumai/service-contracts
  *
  * These tests verify:
  * 1. The package can be consumed independently (no assistant/ or CES imports).
@@ -30,6 +30,10 @@ describe("package independence", () => {
     "../grants.ts",
     "../rpc.ts",
     "../rendering.ts",
+    "../transport.ts",
+    "../credential-rpc.ts",
+    "../trust-rules.ts",
+    "../error.ts",
   ];
 
   for (const file of sourceFiles) {

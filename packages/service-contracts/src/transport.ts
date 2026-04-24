@@ -1,10 +1,9 @@
 /**
- * @vellumai/ces-contracts
+ * Transport-level handshake and envelope schemas.
  *
- * Neutral wire-protocol contracts for communication between the assistant
- * daemon and the Credential Execution Service (CES). This package is
- * intentionally free of imports from `assistant/` or any CES implementation
- * module so that both sides can depend on it without circular references.
+ * Extracted from the aggregate index to allow credential-rpc.ts to import
+ * the full transport surface without creating a circular dependency through
+ * index.ts.
  */
 
 import { z } from "zod";
@@ -76,16 +75,6 @@ export const RpcEnvelopeSchema = z.object({
 export type RpcEnvelope = z.infer<typeof RpcEnvelopeSchema>;
 
 // ---------------------------------------------------------------------------
-// RPC error (defined in error.ts to avoid circular deps with rpc.ts)
-// ---------------------------------------------------------------------------
-
-export {
-  RpcErrorSchema,
-  type RpcError,
-  MANAGED_LOCAL_STATIC_REJECTION_ERROR,
-} from "./error.js";
-
-// ---------------------------------------------------------------------------
 // Tool request / response base shapes
 // ---------------------------------------------------------------------------
 
@@ -143,13 +132,3 @@ export const TransportMessageSchema = z.discriminatedUnion("type", [
   RpcEnvelopeSchema.extend({ type: z.literal("rpc") }),
 ]);
 export type TransportMessage = z.infer<typeof TransportMessageSchema>;
-
-// ---------------------------------------------------------------------------
-// Re-exports from sub-modules
-// ---------------------------------------------------------------------------
-
-export * from "./handles.js";
-export * from "./grants.js";
-export * from "./rpc.js";
-export * from "./rendering.js";
-export * from "./trust-rules.js";

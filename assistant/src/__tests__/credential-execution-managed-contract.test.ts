@@ -51,7 +51,7 @@ import {
   platformOAuthHandle,
   UpdateManagedCredentialResponseSchema,
   UpdateManagedCredentialSchema,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 import type { AssistantConfig } from "../config/schema.js";
 import {

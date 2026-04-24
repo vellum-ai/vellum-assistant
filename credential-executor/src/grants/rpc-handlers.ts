@@ -23,7 +23,7 @@ import type {
   ListAuditRecords,
   ListAuditRecordsResponse,
   PersistentGrantRecord,
-} from "@vellumai/ces-contracts";
+} from "@vellumai/service-contracts/credential-rpc";
 
 import type { PersistentGrantStore, PersistentGrant } from "./persistent-store.js";
 import type { TemporaryGrantStore } from "./temporary-store.js";

@@ -15,7 +15,7 @@
  * verification, and installation inside the CES sandbox.
  */
 
-import type { ManageSecureCommandTool } from "@vellumai/ces-contracts/rpc";
+import type { ManageSecureCommandTool } from "@vellumai/service-contracts/rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";

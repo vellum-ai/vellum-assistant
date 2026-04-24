@@ -23,7 +23,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/ces-contracts";
+import { CES_PROTOCOL_VERSION, CesRpcMethod } from "@vellumai/service-contracts/credential-rpc";
 import { StaticCredentialMetadataStore } from "@vellumai/credential-storage";
 
 import { AuditStore } from "./audit/store.js";

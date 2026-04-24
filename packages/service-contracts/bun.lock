@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@vellumai/ces-contracts",
+      "name": "@vellumai/service-contracts",
       "dependencies": {
         "zod": "4.3.6",
       },
