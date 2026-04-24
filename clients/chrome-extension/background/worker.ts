@@ -2,9 +2,8 @@
  * Chrome MV3 service worker — browser-relay bridge.
  *
  * Connects to the local assistant's browser-relay endpoint
- * (`ws://127.0.0.1:<port>/v1/browser-relay`) for self-hosted assistants.
- * Cloud-managed (platform-hosted) assistants are not yet supported by
- * the extension — see ATL-239–243 for the SSE+WorkOS transport work.
+ * (`ws://127.0.0.1:<port>/v1/browser-relay`) for self-hosted assistants,
+ * or to the SSE `/events` endpoint for vellum-cloud assistants.
  *
  * The worker owns the full connect lifecycle:
  *   - **One-click Connect**: When the popup sends `connect` with
@@ -66,6 +65,7 @@ import {
   postHostBrowserSessionInvalidated,
   type RelayMode,
 } from './relay-connection.js';
+import { SseConnection, type SseMode } from './sse-connection.js';
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -412,6 +412,7 @@ function setConnectionHealth(
 let currentAuthProfile: AssistantAuthProfile | null = null;
 
 let relayConnection: RelayConnection | null = null;
+let sseConnection: SseConnection | null = null;
 let shouldConnect = false;
 
 // ── Host browser dispatcher ────────────────────────────────────────
@@ -473,6 +474,22 @@ async function dispatchHostBrowserResult(
     return postHostBrowserResult(currentMode, relayConnection, result);
   }
 
+  // Cloud SSE path: POST the result to the cloud assistant's runtime
+  // URL. The SSE stream is read-only so results must go via HTTP.
+  if (sseConnection && sseConnection.isOpen()) {
+    // The SSE connection's mode carries the runtime URL — use it
+    // to build a relay-compatible mode for the HTTP POST helper.
+    const { selected } = await getAssistantCatalogAndSelection();
+    if (selected?.runtimeUrl) {
+      const cloudMode: RelayMode = {
+        kind: 'self-hosted',
+        baseUrl: selected.runtimeUrl,
+        token: null,
+      };
+      return postHostBrowserResult(cloudMode, null, result);
+    }
+  }
+
   // Fallback path: no active connection (e.g. a stale result arriving
   // after `disconnect()`).
   // Self-hosted fallback: POST directly to the local assistant using the
@@ -493,7 +510,7 @@ async function dispatchHostBrowserResult(
     return postHostBrowserResult(fallbackMode, null, result);
   }
   console.warn(
-    '[vellum-relay] host_browser_result dropped: self-hosted relay not paired',
+    '[vellum-relay] host_browser_result dropped: no active connection',
   );
 }
 
@@ -743,6 +760,76 @@ function createRelayConnection(
 }
 
 /**
+ * Wire an SseConnection up with the worker's message/open/close
+ * callbacks for vellum-cloud assistants. Does NOT start it.
+ */
+function createSseConnection(mode: SseMode): SseConnection {
+  return new SseConnection({
+    mode,
+    onOpen: () => {
+      console.log('[vellum-sse] Connected to cloud assistant');
+      setConnectionHealth('connected');
+      void clearRelayAuthError();
+    },
+    onMessage: (data) => {
+      void handleSseMessage(data).catch((err) => {
+        console.warn('[vellum-sse] handleSseMessage failed', err);
+      });
+    },
+    onClose: (authError) => {
+      console.log(
+        `[vellum-sse] Disconnected${authError ? ` (auth: ${authError})` : ''}`,
+      );
+      if (authError) {
+        shouldConnect = false;
+        setConnectionHealth('auth_required', {
+          lastErrorMessage: authError,
+        });
+        void setRelayAuthError({
+          message: authError,
+          mode: 'self-hosted',
+          at: Date.now(),
+        });
+        sseConnection = null;
+      } else if (shouldConnect) {
+        setConnectionHealth('reconnecting');
+      }
+    },
+  });
+}
+
+/**
+ * Handle an incoming SSE event payload from a vellum-cloud assistant.
+ * The /events endpoint emits AssistantEvent envelopes; the
+ * `host_browser_request` / `host_browser_cancel` events are dispatched
+ * to the CDP proxy dispatcher, matching the relay WebSocket behavior.
+ */
+async function handleSseMessage(data: unknown): Promise<void> {
+  if (!data || typeof data !== 'object') return;
+
+  // The /events SSE endpoint wraps messages in an AssistantEvent envelope:
+  // { id, assistantId, message: { type, ... } }
+  const envelope = data as { message?: unknown };
+  const message = envelope.message;
+  if (!message || typeof message !== 'object') return;
+
+  const typed = message as { type?: unknown };
+  if (typeof typed.type !== 'string') return;
+
+  if (typed.type === 'host_browser_request') {
+    await hostBrowserDispatcher.handle(message as HostBrowserRequestEnvelope);
+    return;
+  }
+  if (typed.type === 'host_browser_cancel') {
+    hostBrowserDispatcher.cancel(message as HostBrowserCancelEnvelope);
+    return;
+  }
+
+  // Other event types (text deltas, tool calls, etc.) are not handled
+  // by the extension — they're consumed by the chat UI clients.
+}
+
+/**
  * Thrown by `connect()` when the selected assistant's auth profile
  * has no usable token and the interactive bootstrap also failed, or
  * when the topology is unsupported. Callers (e.g. the popup connect
@@ -766,7 +853,7 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
     return "Automatic local pairing failed \u2014 use 'Re-pair' in Advanced, then turn Connection on again";
   }
   if (profile === 'vellum-cloud') {
-    return 'Vellum cloud auth is not yet supported by the extension. Please update or use a local assistant.';
+    return 'Vellum cloud session expired or unavailable. Sign in again to reconnect.';
   }
   if (profile === 'unsupported') {
     return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
@@ -872,8 +959,18 @@ async function connect(options: ConnectOptions = { interactive: false }): Promis
   }
 }
 
+/**
+ * Helper: is any transport (relay WebSocket or SSE) currently open?
+ */
+function isAnyConnectionOpen(): boolean {
+  return (
+    (relayConnection !== null && relayConnection.isOpen()) ||
+    (sseConnection !== null && sseConnection.isOpen())
+  );
+}
+
 async function doConnect(options: ConnectOptions): Promise<void> {
-  if (relayConnection && relayConnection.isOpen()) return;
+  if (isAnyConnectionOpen()) return;
   setConnectionHealth('connecting');
 
   // A fresh connect attempt supersedes any previously persisted
@@ -895,18 +992,32 @@ async function doConnect(options: ConnectOptions): Promise<void> {
     throw new MissingTokenError(msg);
   }
 
+  // Tear down any stale connections before constructing new ones.
+  teardownConnections();
+
+  // vellum-cloud: connect via SSE /events endpoint.
+  if (authProfile === 'vellum-cloud') {
+    if (!selected) {
+      throw new MissingTokenError('Select an assistant before connecting');
+    }
+    const sseMode: SseMode = {
+      kind: 'vellum-cloud',
+      runtimeUrl: selected.runtimeUrl,
+      assistantId: selected.assistantId,
+      token: null, // WorkOS session auth deferred — gateway handles auth via cookies/session
+    };
+    sseConnection = createSseConnection(sseMode);
+    sseConnection.start();
+    return;
+  }
+
+  // local-pair: connect via WebSocket relay.
   const rawMode = await buildRelayModeForAssistant(selected);
   // Run the preflight to resolve/bootstrap credentials. When
   // interactive=true the preflight auto-pairs or auto-signs-in;
   // when interactive=false it either refreshes non-interactively or
   // throws MissingTokenError.
   const mode = await connectPreflight(selected, authProfile, rawMode, options);
-  // Tear down any stale instance before constructing a new one. This
-  // keeps the close/reconnect lifecycle simple — one RelayConnection
-  // per live socket, no hidden state carried across mode switches.
-  if (relayConnection) {
-    relayConnection.close(1000, 'reconfigured');
-  }
   // Resolve the stable per-install id up front so every handshake
   // (including reconnects on the freshly constructed RelayConnection)
   // sends the same value. The call is cached after the first lookup.
@@ -915,10 +1026,30 @@ async function doConnect(options: ConnectOptions): Promise<void> {
   relayConnection.start();
 }
 
+/**
+ * Tear down all active connections without resetting `shouldConnect`.
+ * Used by `doConnect` to clean up stale instances before constructing
+ * a new connection.
+ */
+function teardownConnections(): void {
+  if (relayConnection) {
+    relayConnection.close(1000, 'reconfigured');
+    relayConnection = null;
+  }
+  if (sseConnection) {
+    sseConnection.close();
+    sseConnection = null;
+  }
+}
+
 function disconnect(): void {
   if (relayConnection) {
     relayConnection.close(1000, 'User disconnected');
     relayConnection = null;
+  }
+  if (sseConnection) {
+    sseConnection.close();
+    sseConnection = null;
   }
 }
 
@@ -1020,7 +1151,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
   }
   if (message.type === 'get_status') {
     sendResponseFn({
-      connected: relayConnection !== null && relayConnection.isOpen(),
+      connected: isAnyConnectionOpen(),
       authProfile: currentAuthProfile,
       health: connectionHealth,
       healthDetail: connectionHealthDetail,
@@ -1121,7 +1252,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         // When connected and the user switches assistants, tear down
         // the current connection so the next connect targets the new
         // assistant's relay endpoint and token.
-        if (shouldConnect && relayConnection) {
+        if (shouldConnect && (relayConnection || sseConnection)) {
           disconnect();
           // Attempt a reconnect to the newly selected assistant.
           // Interactive since the user is actively switching.
