@@ -19,6 +19,18 @@ public enum MultipartPart {
 public enum GatewayHTTPClient {
     private static let sseAcceptHeader = "text/event-stream, application/json"
 
+    /// Platform-specific interface identifier sent as `X-Vellum-Interface-Id`
+    /// on streaming connections so the assistant can register the client.
+    private static var clientInterfaceId: String {
+        #if os(macOS)
+        return "macos"
+        #elseif os(iOS)
+        return "ios"
+        #else
+        return "unknown"
+        #endif
+    }
+
     /// Response from a gateway HTTP request.
     public struct Response {
         public let data: Data
@@ -474,6 +486,8 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
+        request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
+        request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {
@@ -501,6 +515,8 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
+        request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
+        request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
         request.httpBody = body
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
@@ -533,6 +549,8 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
+        request.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
+        request.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
         request.httpBody = body
         logOutgoing(request, quiet: false)
 
@@ -560,6 +578,8 @@ public enum GatewayHTTPClient {
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
+        retryRequest.setValue(DeviceIdStore.getOrCreate(), forHTTPHeaderField: "X-Vellum-Client-Id")
+        retryRequest.setValue(clientInterfaceId, forHTTPHeaderField: "X-Vellum-Interface-Id")
         retryRequest.httpBody = body
         logOutgoing(retryRequest, quiet: false)
         let (retryBytes, retryResponse) = try await session.bytes(for: retryRequest)
