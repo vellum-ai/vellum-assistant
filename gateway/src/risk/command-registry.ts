@@ -1,7 +1,7 @@
 /**
  * Default command registry for the bash risk classifier.
  *
- * A data-driven registry of ~100 commands with base risk levels, subcommand
+ * A data-driven registry of 200+ commands with base risk levels, subcommand
  * overrides, and arg-level rules. This is the "smart defaults" layer — users
  * can override any entry via their personal rule store.
  *
@@ -26,6 +26,9 @@ const SYSTEM_PATHS = String.raw`^/(?:usr|bin|sbin|lib|boot|dev|proc|sys)\b`;
 
 /** Matches temp/relative paths (/tmp, /var/tmp, ./, ../). */
 const TMP_PATHS = String.raw`^(?:/tmp|/var/tmp|\./|\.\.\/)`;
+
+/** Matches localhost URLs (localhost, 127.0.0.1, ::1). */
+const LOCALHOST_URL = String.raw`^https?://(localhost|127\.0\.0\.1|\[::1\])`;
 
 // ── Default command registry ──────────────────────────────────────────────────
 
@@ -131,6 +134,15 @@ export const DEFAULT_COMMAND_REGISTRY = {
     filesystemOp: true,
     argSchema: {},
   },
+  dir: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  vdir: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  locate: { baseRisk: "low" },
+  plocate: { baseRisk: "low" },
+  cmp: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  comm: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  nl: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  od: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  strings: { baseRisk: "low", filesystemOp: true, argSchema: {} },
 
   // ── Search / filter / text processing ──────────────────────────────────────
   grep: {
@@ -170,9 +182,53 @@ export const DEFAULT_COMMAND_REGISTRY = {
       valueFlags: ["-o", "--output"],
       pathFlags: { "-o": true, "--output": true },
     },
+    argRules: [
+      {
+        id: "sort:output",
+        flags: ["-o", "--output"],
+        risk: "medium",
+        reason: "Writes sorted output to file",
+      },
+      {
+        id: "sort:output-sensitive",
+        flags: ["-o", "--output"],
+        valuePattern: SENSITIVE_PATHS,
+        risk: "high",
+        reason: "Writes sorted output to sensitive path",
+      },
+    ],
+  },
+  egrep: {
+    baseRisk: "low",
+    filesystemOp: true,
+    argSchema: {
+      positionals: [{ role: "pattern" }, { role: "path", rest: true }],
+    },
+  },
+  fgrep: {
+    baseRisk: "low",
+    filesystemOp: true,
+    argSchema: {
+      positionals: [{ role: "pattern" }, { role: "path", rest: true }],
+    },
   },
   uniq: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   cut: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  paste: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  join: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  column: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  fold: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  fmt: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  pr: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  expand: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  unexpand: { baseRisk: "low", filesystemOp: true, argSchema: {} },
+  rev: { baseRisk: "low", argSchema: {} },
+  shuf: { baseRisk: "low", argSchema: {} },
+  iconv: { baseRisk: "low", argSchema: {} },
+  split: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  csplit: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  dos2unix: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  unix2dos: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
   tr: {
     baseRisk: "low",
     sandboxAutoApprove: true,
@@ -223,19 +279,69 @@ export const DEFAULT_COMMAND_REGISTRY = {
   cal: { baseRisk: "low" },
   id: { baseRisk: "low" },
   ps: { baseRisk: "low" },
+  pgrep: { baseRisk: "low" },
+  pstree: { baseRisk: "low" },
+  top: { baseRisk: "low" },
+  htop: { baseRisk: "low" },
+  lsof: { baseRisk: "low" },
   free: { baseRisk: "low" },
+  vmstat: { baseRisk: "low" },
+  iostat: { baseRisk: "low" },
   which: { baseRisk: "low" },
   where: { baseRisk: "low" },
   whereis: { baseRisk: "low" },
   type: { baseRisk: "low" },
+  groups: { baseRisk: "low" },
+  users: { baseRisk: "low" },
+  who: { baseRisk: "low" },
+  w: { baseRisk: "low" },
+  last: { baseRisk: "low" },
   printenv: { baseRisk: "low" },
   man: { baseRisk: "low" },
   help: { baseRisk: "low" },
   info: { baseRisk: "low" },
+  sw_vers: { baseRisk: "low" },
+  dmesg: {
+    baseRisk: "medium",
+    argRules: [
+      {
+        id: "dmesg:clear",
+        flags: ["-C", "--clear", "-c"],
+        risk: "high",
+        reason: "Clears kernel ring buffer",
+      },
+    ],
+  },
+  sysctl: {
+    baseRisk: "medium",
+    argSchema: {
+      valueFlags: ["-w", "--write", "-p", "--load"],
+    },
+    argRules: [
+      {
+        id: "sysctl:write",
+        flags: ["-w", "--write"],
+        risk: "high",
+        reason: "Writes kernel parameters",
+      },
+      {
+        id: "sysctl:load",
+        flags: ["-p", "--load", "--system"],
+        risk: "high",
+        reason: "Loads kernel parameter settings",
+      },
+    ],
+  },
 
   // ── Checksum / hex tools ───────────────────────────────────────────────────
+  sha1sum: { baseRisk: "low", filesystemOp: true },
   sha256sum: { baseRisk: "low", filesystemOp: true },
+  sha512sum: { baseRisk: "low", filesystemOp: true },
+  b2sum: { baseRisk: "low", filesystemOp: true },
+  cksum: { baseRisk: "low", filesystemOp: true },
   md5sum: { baseRisk: "low", filesystemOp: true },
+  md5: { baseRisk: "low", filesystemOp: true },
+  base64: { baseRisk: "low", argSchema: {} },
   xxd: { baseRisk: "low" },
   hexdump: { baseRisk: "low" },
 
@@ -337,6 +443,24 @@ export const DEFAULT_COMMAND_REGISTRY = {
       pathFlags: { "-t": true, "--target-directory": true },
     },
   },
+  install: {
+    baseRisk: "medium",
+    filesystemOp: true,
+    argSchema: {
+      valueFlags: ["-t", "--target-directory"],
+      pathFlags: { "-t": true, "--target-directory": true },
+    },
+    argRules: [
+      {
+        id: "install:system",
+        valuePattern: SYSTEM_PATHS,
+        risk: "high",
+        reason: "Installs files into system path",
+      },
+    ],
+  },
+  truncate: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  mktemp: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
   // DIVERGENCE: checker.ts lists `tee` as LOW_RISK. Our registry classifies
   // it as medium because it writes to files.
   tee: {
@@ -391,6 +515,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
     filesystemOp: true,
     argSchema: {},
   },
+  unlink: { baseRisk: "high", filesystemOp: true, argSchema: {} },
+  shred: { baseRisk: "high", filesystemOp: true, argSchema: {} },
 
   // ── Network commands ───────────────────────────────────────────────────────
   curl: {
@@ -452,22 +578,92 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
       {
         id: "curl:localhost",
-        valuePattern: String.raw`^https?://(localhost|127\.0\.0\.1|\[::1\])`,
+        valuePattern: LOCALHOST_URL,
         risk: "low",
         reason: "Local request",
       },
     ],
   },
-  wget: { baseRisk: "medium" },
+  wget: {
+    baseRisk: "medium",
+    argSchema: {
+      valueFlags: [
+        "-O",
+        "--output-document",
+        "-o",
+        "--output-file",
+        "--post-file",
+        "--method",
+        "--body-data",
+        "--header",
+      ],
+      positionals: "none",
+    },
+    argRules: [
+      {
+        id: "wget:post-file",
+        flags: ["--post-file"],
+        risk: "high",
+        reason: "Uploads file contents",
+      },
+      {
+        id: "wget:output-sensitive",
+        flags: ["-O", "--output-document"],
+        valuePattern: SENSITIVE_PATHS,
+        risk: "high",
+        reason: "Writes response to sensitive path",
+      },
+      {
+        id: "wget:localhost",
+        valuePattern: LOCALHOST_URL,
+        risk: "low",
+        reason: "Local request",
+      },
+    ],
+  },
   // DIVERGENCE: checker.ts lists `http` (httpie) as LOW_RISK. Our registry
   // classifies it as medium because it can make network requests with side effects.
   http: { baseRisk: "medium" },
   ping: { baseRisk: "low" },
   dig: { baseRisk: "low" },
   nslookup: { baseRisk: "low" },
+  host: { baseRisk: "low" },
+  traceroute: { baseRisk: "low" },
+  tracepath: { baseRisk: "low" },
+  mtr: { baseRisk: "low" },
+  netstat: { baseRisk: "low" },
+  ss: { baseRisk: "low" },
+  nc: { baseRisk: "medium", reason: "Opens arbitrary network connections" },
+  netcat: { baseRisk: "medium", reason: "Opens arbitrary network connections" },
+  telnet: { baseRisk: "medium", reason: "Opens remote terminal connection" },
+  ftp: { baseRisk: "medium", reason: "Transfers files over network" },
   ssh: { baseRisk: "high", reason: "Opens remote shell" },
   scp: { baseRisk: "high", reason: "Remote file transfer" },
+  sftp: { baseRisk: "high", reason: "Remote file transfer" },
   rsync: { baseRisk: "high", reason: "Remote file sync" },
+  "ssh-keygen": {
+    baseRisk: "medium",
+    filesystemOp: true,
+    argSchema: {},
+    reason: "Generates and can overwrite SSH keys",
+  },
+  "ssh-add": {
+    baseRisk: "high",
+    reason: "Adds private keys to authentication agent",
+  },
+  "ssh-copy-id": {
+    baseRisk: "high",
+    reason: "Modifies remote authorized_keys",
+  },
+  nmap: { baseRisk: "medium", reason: "Performs active network scanning" },
+  ifconfig: {
+    baseRisk: "medium",
+    reason: "Can reconfigure network interfaces",
+  },
+  ip: { baseRisk: "high", reason: "Can reconfigure networking and routing" },
+  route: { baseRisk: "high", reason: "Modifies network routing" },
+  nmcli: { baseRisk: "high", reason: "Controls NetworkManager settings" },
+  openssl: { baseRisk: "medium", reason: "Performs cryptographic operations" },
 
   // ── Git ────────────────────────────────────────────────────────────────────
   // Every subcommand in checker.ts's LOW_RISK_GIT_SUBCOMMANDS must appear here.
@@ -491,7 +687,29 @@ export const DEFAULT_COMMAND_REGISTRY = {
       log: { baseRisk: "low" },
       diff: { baseRisk: "low" },
       show: { baseRisk: "low" },
-      branch: { baseRisk: "low" },
+      branch: {
+        baseRisk: "low",
+        argRules: [
+          {
+            id: "git-branch:delete",
+            flags: ["-d", "-D", "--delete"],
+            risk: "medium",
+            reason: "Deletes local branch",
+          },
+          {
+            id: "git-branch:move",
+            flags: ["-m", "-M", "--move"],
+            risk: "medium",
+            reason: "Renames local branch",
+          },
+          {
+            id: "git-branch:copy",
+            flags: ["-c", "-C", "--copy"],
+            risk: "medium",
+            reason: "Copies local branch",
+          },
+        ],
+      },
       tag: {
         baseRisk: "low",
         argRules: [
@@ -503,7 +721,18 @@ export const DEFAULT_COMMAND_REGISTRY = {
           },
         ],
       },
-      remote: { baseRisk: "low" },
+      remote: {
+        baseRisk: "low",
+        subcommands: {
+          show: { baseRisk: "low" },
+          "get-url": { baseRisk: "low" },
+          add: { baseRisk: "medium", reason: "Adds git remote" },
+          "set-url": { baseRisk: "medium", reason: "Changes remote URL" },
+          rename: { baseRisk: "medium", reason: "Renames git remote" },
+          remove: { baseRisk: "medium", reason: "Removes git remote" },
+          prune: { baseRisk: "medium", reason: "Prunes stale remote refs" },
+        },
+      },
       // DIVERGENCE: checker.ts lists `stash` as LOW_RISK. Our registry classifies
       // the base stash command as medium (it modifies working tree), with read-only
       // subcommands (list, show) as low and destructive ones (drop) as high.
@@ -527,11 +756,35 @@ export const DEFAULT_COMMAND_REGISTRY = {
       "cat-file": { baseRisk: "low" },
       reflog: { baseRisk: "low" },
       // Write operations:
+      init: { baseRisk: "medium" },
+      clone: { baseRisk: "medium" },
       add: { baseRisk: "medium" },
       commit: { baseRisk: "medium" },
+      config: {
+        baseRisk: "medium",
+        argRules: [
+          {
+            id: "git-config:global",
+            flags: ["--global"],
+            risk: "high",
+            reason: "Modifies global git configuration",
+          },
+          {
+            id: "git-config:system",
+            flags: ["--system"],
+            risk: "high",
+            reason: "Modifies system git configuration",
+          },
+        ],
+      },
       checkout: { baseRisk: "medium" },
+      restore: { baseRisk: "medium" },
       switch: { baseRisk: "medium" },
       merge: { baseRisk: "medium" },
+      "cherry-pick": { baseRisk: "medium" },
+      revert: { baseRisk: "medium" },
+      rm: { baseRisk: "medium" },
+      mv: { baseRisk: "medium" },
       rebase: {
         baseRisk: "medium",
         argRules: [
@@ -555,7 +808,17 @@ export const DEFAULT_COMMAND_REGISTRY = {
         ],
       },
       pull: { baseRisk: "medium" },
-      fetch: { baseRisk: "low" },
+      fetch: {
+        baseRisk: "low",
+        argRules: [
+          {
+            id: "git-fetch:prune",
+            flags: ["-p", "--prune"],
+            risk: "medium",
+            reason: "Prunes stale remote-tracking refs",
+          },
+        ],
+      },
       reset: {
         baseRisk: "medium",
         argRules: [
@@ -570,6 +833,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
       clean: { baseRisk: "high", reason: "Removes untracked files" },
       bisect: { baseRisk: "low" },
       worktree: { baseRisk: "medium" },
+      submodule: { baseRisk: "medium" },
     },
   },
 
@@ -596,14 +860,24 @@ export const DEFAULT_COMMAND_REGISTRY = {
         baseRisk: "medium",
         reason: "Clean install, runs lifecycle scripts",
       },
+      uninstall: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary package scripts" },
       run: { baseRisk: "high", reason: "Executes arbitrary package scripts" },
+      exec: { baseRisk: "high", reason: "Executes package binaries" },
       publish: { baseRisk: "high", reason: "Publishes package to registry" },
     },
   },
   // DIVERGENCE: checker.ts lists `npx` as LOW_RISK. Our registry classifies it
   // as high because it downloads and executes arbitrary packages.
   npx: {
+    baseRisk: "high",
+    reason: "Downloads and executes arbitrary packages",
+  },
+  bunx: {
+    baseRisk: "high",
+    reason: "Downloads and executes arbitrary packages",
+  },
+  pnpx: {
     baseRisk: "high",
     reason: "Downloads and executes arbitrary packages",
   },
@@ -615,8 +889,10 @@ export const DEFAULT_COMMAND_REGISTRY = {
       why: { baseRisk: "low" },
       install: { baseRisk: "medium" },
       add: { baseRisk: "medium" },
+      remove: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary package scripts" },
       run: { baseRisk: "high", reason: "Executes arbitrary package scripts" },
+      dlx: { baseRisk: "high", reason: "Downloads and executes package" },
     },
   },
   pnpm: {
@@ -625,8 +901,11 @@ export const DEFAULT_COMMAND_REGISTRY = {
       list: { baseRisk: "low" },
       install: { baseRisk: "medium" },
       add: { baseRisk: "medium" },
+      remove: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary package scripts" },
       run: { baseRisk: "high", reason: "Executes arbitrary package scripts" },
+      exec: { baseRisk: "high", reason: "Executes package binaries" },
+      dlx: { baseRisk: "high", reason: "Downloads and executes package" },
     },
   },
   // DIVERGENCE: checker.ts lists `bun` as LOW_RISK. Our registry classifies it
@@ -636,6 +915,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
     subcommands: {
       install: { baseRisk: "medium" },
       add: { baseRisk: "medium" },
+      update: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary test code" },
       run: { baseRisk: "high", reason: "Executes arbitrary scripts" },
     },
@@ -645,7 +925,9 @@ export const DEFAULT_COMMAND_REGISTRY = {
     subcommands: {
       list: { baseRisk: "low" },
       show: { baseRisk: "low" },
+      freeze: { baseRisk: "low" },
       install: { baseRisk: "medium" },
+      uninstall: { baseRisk: "medium" },
     },
   },
   pip3: {
@@ -653,7 +935,9 @@ export const DEFAULT_COMMAND_REGISTRY = {
     subcommands: {
       list: { baseRisk: "low" },
       show: { baseRisk: "low" },
+      freeze: { baseRisk: "low" },
       install: { baseRisk: "medium" },
+      uninstall: { baseRisk: "medium" },
     },
   },
   brew: {
@@ -663,6 +947,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
       info: { baseRisk: "low" },
       search: { baseRisk: "low" },
       install: { baseRisk: "medium" },
+      update: { baseRisk: "medium" },
+      upgrade: { baseRisk: "medium" },
       uninstall: { baseRisk: "high" },
     },
   },
@@ -670,13 +956,85 @@ export const DEFAULT_COMMAND_REGISTRY = {
     baseRisk: "medium",
     subcommands: {
       build: { baseRisk: "medium" },
+      check: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary test code" },
       run: { baseRisk: "high", reason: "Compiles and executes code" },
+      install: { baseRisk: "medium" },
+      uninstall: { baseRisk: "medium" },
+    },
+  },
+  uv: {
+    baseRisk: "medium",
+    subcommands: {
+      sync: { baseRisk: "medium" },
+      add: { baseRisk: "medium" },
+      remove: { baseRisk: "medium" },
+      run: { baseRisk: "high", reason: "Executes arbitrary commands" },
+      tool: {
+        baseRisk: "medium",
+        subcommands: {
+          run: { baseRisk: "high", reason: "Executes installed tool" },
+        },
+      },
+    },
+  },
+  pipx: {
+    baseRisk: "medium",
+    subcommands: {
+      list: { baseRisk: "low" },
+      install: { baseRisk: "medium" },
+      uninstall: { baseRisk: "medium" },
+      run: { baseRisk: "high", reason: "Executes package entrypoint" },
+    },
+  },
+  poetry: {
+    baseRisk: "medium",
+    subcommands: {
+      show: { baseRisk: "low" },
+      install: { baseRisk: "medium" },
+      add: { baseRisk: "medium" },
+      remove: { baseRisk: "medium" },
+      run: { baseRisk: "high", reason: "Executes arbitrary commands" },
+    },
+  },
+  gem: {
+    baseRisk: "medium",
+    subcommands: {
+      list: { baseRisk: "low" },
+      search: { baseRisk: "low" },
+      install: { baseRisk: "medium" },
+      uninstall: { baseRisk: "medium" },
+    },
+  },
+  composer: {
+    baseRisk: "medium",
+    subcommands: {
+      show: { baseRisk: "low" },
+      install: { baseRisk: "medium" },
+      update: { baseRisk: "medium" },
+      remove: { baseRisk: "medium" },
+      "run-script": { baseRisk: "high", reason: "Executes arbitrary scripts" },
     },
   },
 
   // ── Build tools (inherently opaque) ────────────────────────────────────────
   make: { baseRisk: "high", reason: "Executes arbitrary Makefile targets" },
+  cmake: {
+    baseRisk: "high",
+    reason: "Evaluates CMake scripts and can execute commands",
+  },
+  ninja: { baseRisk: "high", reason: "Executes build graph commands" },
+  meson: {
+    baseRisk: "high",
+    reason: "Configures builds and can execute project-defined commands",
+  },
+  mvn: { baseRisk: "high", reason: "Executes Maven plugins and build scripts" },
+  gradle: {
+    baseRisk: "high",
+    reason: "Executes Gradle build scripts and plugins",
+  },
+  ant: { baseRisk: "high", reason: "Executes Ant targets and tasks" },
+  bazel: { baseRisk: "high", reason: "Executes project-defined build actions" },
 
   // ── Language runtimes ──────────────────────────────────────────────────────
   // DIVERGENCE: checker.ts lists `node` as LOW_RISK. Our registry classifies it
@@ -729,6 +1087,76 @@ export const DEFAULT_COMMAND_REGISTRY = {
     ],
   },
   ruby: { baseRisk: "high", reason: "Executes arbitrary Ruby code" },
+  perl: {
+    baseRisk: "high",
+    reason: "Executes arbitrary Perl code",
+    argRules: [
+      {
+        id: "perl:version",
+        flags: ["--version", "-v"],
+        risk: "low",
+        reason: "Prints version",
+      },
+    ],
+  },
+  php: {
+    baseRisk: "high",
+    reason: "Executes arbitrary PHP code",
+    argRules: [
+      {
+        id: "php:version",
+        flags: ["--version", "-v"],
+        risk: "low",
+        reason: "Prints version",
+      },
+    ],
+  },
+  lua: {
+    baseRisk: "high",
+    reason: "Executes arbitrary Lua code",
+    argRules: [
+      {
+        id: "lua:version",
+        flags: ["-v", "--version"],
+        risk: "low",
+        reason: "Prints version",
+      },
+    ],
+  },
+  java: {
+    baseRisk: "high",
+    reason: "Executes Java bytecode",
+    argRules: [
+      {
+        id: "java:version",
+        flags: ["-version", "--version"],
+        risk: "low",
+        reason: "Prints version",
+      },
+    ],
+  },
+  javac: {
+    baseRisk: "high",
+    reason: "Compilation can run annotation processors",
+  },
+  R: { baseRisk: "high", reason: "Executes arbitrary R code" },
+  Rscript: { baseRisk: "high", reason: "Executes arbitrary R code" },
+  "ts-node": { baseRisk: "high", reason: "Executes TypeScript code" },
+  tsx: { baseRisk: "high", reason: "Executes TypeScript/JavaScript code" },
+  pwsh: { baseRisk: "high", reason: "Executes arbitrary PowerShell code" },
+  powershell: {
+    baseRisk: "high",
+    reason: "Executes arbitrary PowerShell code",
+  },
+  swift: {
+    baseRisk: "low",
+    subcommands: {
+      package: { baseRisk: "low" },
+      build: { baseRisk: "medium" },
+      test: { baseRisk: "high", reason: "Executes arbitrary test code" },
+      run: { baseRisk: "high", reason: "Compiles and executes Swift code" },
+    },
+  },
   go: {
     // baseRisk is low (unlike npm's medium) because bare `go` prints help.
     // Dangerous subcommands (run, test, generate, get) are handled individually.
@@ -765,9 +1193,66 @@ export const DEFAULT_COMMAND_REGISTRY = {
       logs: { baseRisk: "low" },
       info: { baseRisk: "low" },
       version: { baseRisk: "low" },
+      login: { baseRisk: "medium" },
+      logout: { baseRisk: "medium" },
       build: { baseRisk: "medium" },
       pull: { baseRisk: "medium" },
       push: { baseRisk: "high", reason: "Pushes image to registry" },
+      cp: { baseRisk: "medium" },
+      restart: { baseRisk: "medium" },
+      kill: { baseRisk: "high", reason: "Forcefully stops container" },
+      prune: { baseRisk: "high", reason: "Deletes unused docker resources" },
+      system: {
+        baseRisk: "medium",
+        subcommands: {
+          df: { baseRisk: "low" },
+          prune: {
+            baseRisk: "high",
+            reason: "Deletes unused docker resources",
+          },
+        },
+      },
+      network: {
+        baseRisk: "medium",
+        subcommands: {
+          ls: { baseRisk: "low" },
+          inspect: { baseRisk: "low" },
+          create: { baseRisk: "medium" },
+          rm: { baseRisk: "medium" },
+          prune: { baseRisk: "high", reason: "Deletes docker networks" },
+        },
+      },
+      volume: {
+        baseRisk: "medium",
+        subcommands: {
+          ls: { baseRisk: "low" },
+          inspect: { baseRisk: "low" },
+          create: { baseRisk: "medium" },
+          rm: { baseRisk: "medium" },
+          prune: { baseRisk: "high", reason: "Deletes docker volumes" },
+        },
+      },
+      compose: {
+        baseRisk: "medium",
+        subcommands: {
+          ps: { baseRisk: "low" },
+          logs: { baseRisk: "low" },
+          config: { baseRisk: "low" },
+          pull: { baseRisk: "medium" },
+          build: { baseRisk: "medium" },
+          up: { baseRisk: "medium" },
+          down: { baseRisk: "medium" },
+          start: { baseRisk: "medium" },
+          stop: { baseRisk: "medium" },
+          restart: { baseRisk: "medium" },
+          rm: { baseRisk: "medium" },
+          run: { baseRisk: "high", reason: "Runs one-off container command" },
+          exec: {
+            baseRisk: "high",
+            reason: "Executes command in service container",
+          },
+        },
+      },
       run: {
         baseRisk: "high",
         argSchema: {
@@ -818,6 +1303,73 @@ export const DEFAULT_COMMAND_REGISTRY = {
     },
   },
 
+  // ── Infrastructure / orchestration CLIs ────────────────────────────────────
+  kubectl: {
+    baseRisk: "medium",
+    subcommands: {
+      get: { baseRisk: "low" },
+      describe: { baseRisk: "low" },
+      logs: { baseRisk: "low" },
+      top: { baseRisk: "low" },
+      version: { baseRisk: "low" },
+      "cluster-info": { baseRisk: "low" },
+      config: { baseRisk: "medium" },
+      apply: {
+        baseRisk: "high",
+        reason: "Applies changes to cluster resources",
+      },
+      patch: { baseRisk: "high", reason: "Mutates cluster resources" },
+      edit: { baseRisk: "high", reason: "Mutates cluster resources" },
+      delete: { baseRisk: "high", reason: "Deletes cluster resources" },
+      replace: { baseRisk: "high", reason: "Replaces cluster resources" },
+      scale: { baseRisk: "high", reason: "Scales workloads in cluster" },
+      exec: {
+        baseRisk: "high",
+        reason: "Executes commands in running cluster workloads",
+      },
+      cp: { baseRisk: "high", reason: "Copies files to/from workloads" },
+      "port-forward": {
+        baseRisk: "medium",
+        reason: "Opens local network tunnel",
+      },
+    },
+  },
+  helm: {
+    baseRisk: "medium",
+    subcommands: {
+      list: { baseRisk: "low" },
+      search: { baseRisk: "low" },
+      status: { baseRisk: "low" },
+      get: { baseRisk: "low" },
+      template: { baseRisk: "low" },
+      install: { baseRisk: "high", reason: "Installs workloads to cluster" },
+      upgrade: { baseRisk: "high", reason: "Upgrades workloads in cluster" },
+      rollback: { baseRisk: "high", reason: "Rolls back workloads in cluster" },
+      uninstall: { baseRisk: "high", reason: "Removes workloads from cluster" },
+    },
+  },
+  terraform: {
+    baseRisk: "medium",
+    subcommands: {
+      fmt: { baseRisk: "low" },
+      validate: { baseRisk: "low" },
+      plan: { baseRisk: "medium" },
+      apply: {
+        baseRisk: "high",
+        reason: "Applies infrastructure changes",
+      },
+      destroy: {
+        baseRisk: "high",
+        reason: "Destroys managed infrastructure",
+      },
+      import: { baseRisk: "high", reason: "Mutates Terraform state" },
+      state: { baseRisk: "medium", reason: "Reads or mutates Terraform state" },
+    },
+  },
+  aws: { baseRisk: "high", reason: "Can mutate cloud infrastructure" },
+  gcloud: { baseRisk: "high", reason: "Can mutate cloud infrastructure" },
+  az: { baseRisk: "high", reason: "Can mutate cloud infrastructure" },
+
   // ── Privilege / system ─────────────────────────────────────────────────────
   sudo: {
     baseRisk: "high",
@@ -852,19 +1404,35 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   mount: { baseRisk: "high", reason: "Mounts filesystem" },
   umount: { baseRisk: "high", reason: "Unmounts filesystem" },
+  chroot: { baseRisk: "high", reason: "Changes root directory for command" },
   systemctl: { baseRisk: "high", reason: "Controls system services" },
   service: { baseRisk: "high", reason: "Controls system services" },
   launchctl: { baseRisk: "high", reason: "Controls macOS services" },
+  loginctl: { baseRisk: "high", reason: "Controls system logind sessions" },
+  passwd: { baseRisk: "high", reason: "Changes account credentials" },
+  visudo: { baseRisk: "high", reason: "Edits sudo policy" },
+  crontab: {
+    baseRisk: "high",
+    reason: "Schedules privileged command execution",
+  },
+  at: { baseRisk: "high", reason: "Schedules command execution" },
+  networksetup: { baseRisk: "high", reason: "Modifies macOS network settings" },
+  defaults: { baseRisk: "medium", reason: "Modifies macOS preference domains" },
 
   // ── User management ────────────────────────────────────────────────────────
   useradd: { baseRisk: "high", reason: "Creates system user" },
+  adduser: { baseRisk: "high", reason: "Creates system user" },
   userdel: { baseRisk: "high", reason: "Deletes system user" },
+  deluser: { baseRisk: "high", reason: "Deletes system user" },
   usermod: { baseRisk: "high", reason: "Modifies system user" },
   groupadd: { baseRisk: "high", reason: "Creates system group" },
   groupdel: { baseRisk: "high", reason: "Deletes system group" },
+  groupmod: { baseRisk: "high", reason: "Modifies system group" },
 
   // ── Firewall ───────────────────────────────────────────────────────────────
   iptables: { baseRisk: "high", reason: "Modifies firewall rules" },
+  ip6tables: { baseRisk: "high", reason: "Modifies IPv6 firewall rules" },
+  nft: { baseRisk: "high", reason: "Modifies firewall rules" },
   ufw: { baseRisk: "high", reason: "Modifies firewall rules" },
   "firewall-cmd": { baseRisk: "high", reason: "Modifies firewall rules" },
 
@@ -878,6 +1446,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   kill: { baseRisk: "high", reason: "Sends signal to process" },
   killall: { baseRisk: "high", reason: "Kills processes by name" },
   pkill: { baseRisk: "high", reason: "Kills processes by pattern" },
+  renice: { baseRisk: "medium", reason: "Changes process scheduling priority" },
 
   // ── Catastrophic ───────────────────────────────────────────────────────────
   mkfs: { baseRisk: "high", reason: "Formats filesystem — destroys all data" },
@@ -887,6 +1456,10 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   fdisk: { baseRisk: "high", reason: "Modifies disk partitions" },
   parted: { baseRisk: "high", reason: "Modifies disk partitions" },
+  wipefs: {
+    baseRisk: "high",
+    reason: "Erases filesystem and partition signatures",
+  },
 
   // ── Wrapper commands ───────────────────────────────────────────────────────
   // These unwrap to find and classify the inner command. The classifier takes
@@ -958,6 +1531,16 @@ export const DEFAULT_COMMAND_REGISTRY = {
     reason: "Executes arbitrary shell commands",
     complexSyntax: true,
   },
+  ksh: {
+    baseRisk: "high",
+    reason: "Executes arbitrary shell commands",
+    complexSyntax: true,
+  },
+  tcsh: {
+    baseRisk: "high",
+    reason: "Executes arbitrary shell commands",
+    complexSyntax: true,
+  },
 
   // ── Package managers (additional) ──────────────────────────────────────────
   "apt-get": { baseRisk: "high", reason: "Installs/removes system packages" },
@@ -966,6 +1549,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
   yum: { baseRisk: "high", reason: "Installs/removes system packages" },
   pacman: { baseRisk: "high", reason: "Installs/removes system packages" },
   apk: { baseRisk: "high", reason: "Installs/removes system packages" },
+  zypper: { baseRisk: "high", reason: "Installs/removes system packages" },
+  port: { baseRisk: "high", reason: "Installs/removes system packages" },
 
   // ── Shell builtins ─────────────────────────────────────────────────────────
   cd: { baseRisk: "low" },
@@ -975,6 +1560,13 @@ export const DEFAULT_COMMAND_REGISTRY = {
   unset: { baseRisk: "low" },
   alias: { baseRisk: "low" },
   history: { baseRisk: "low" },
+  readonly: {
+    baseRisk: "medium",
+    reason: "Locks shell variable/function state",
+  },
+  umask: { baseRisk: "medium", reason: "Changes default file permission mask" },
+  declare: { baseRisk: "medium", reason: "Defines shell variables/functions" },
+  typeset: { baseRisk: "medium", reason: "Defines shell variables/functions" },
   // DIVERGENCE: checker.ts lists `set` as LOW_RISK. Our registry classifies it
   // as medium because it can modify shell options and behavior.
   set: { baseRisk: "medium", reason: "Modifies shell options" },
@@ -994,7 +1586,16 @@ export const DEFAULT_COMMAND_REGISTRY = {
     sandboxAutoApprove: true,
     filesystemOp: true,
     argSchema: {
-      valueFlags: ["-C", "--directory", "-f", "--file"],
+      valueFlags: [
+        "-C",
+        "--directory",
+        "-f",
+        "--file",
+        "-I",
+        "--use-compress-program",
+        "--to-command",
+        "--checkpoint-action",
+      ],
       pathFlags: {
         "-C": true,
         "--directory": true,
@@ -1003,6 +1604,26 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     },
     complexSyntax: true,
+    argRules: [
+      {
+        id: "tar:to-command",
+        flags: ["--to-command"],
+        risk: "high",
+        reason: "Executes arbitrary command during extraction",
+      },
+      {
+        id: "tar:checkpoint-action",
+        flags: ["--checkpoint-action"],
+        risk: "high",
+        reason: "Executes action at checkpoints",
+      },
+      {
+        id: "tar:use-compress-program",
+        flags: ["-I", "--use-compress-program"],
+        risk: "high",
+        reason: "Executes arbitrary compression program",
+      },
+    ],
   },
   zip: {
     baseRisk: "medium",
@@ -1027,6 +1648,26 @@ export const DEFAULT_COMMAND_REGISTRY = {
     sandboxAutoApprove: true,
     filesystemOp: true,
     argSchema: {},
+  },
+  xz: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  unxz: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  bzip2: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  bunzip2: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  zstd: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  unzstd: { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  "7z": { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  "7za": { baseRisk: "medium", filesystemOp: true, argSchema: {} },
+  sleep: { baseRisk: "low", argSchema: { positionals: "none" } },
+  seq: { baseRisk: "low", argSchema: { positionals: "none" } },
+  yes: { baseRisk: "low", argSchema: { positionals: "none" } },
+  watch: { baseRisk: "medium", reason: "Repeatedly executes command" },
+  tmux: {
+    baseRisk: "medium",
+    reason: "Runs shell commands in managed sessions",
+  },
+  screen: {
+    baseRisk: "medium",
+    reason: "Runs shell commands in managed sessions",
   },
 
   // ── Version control tools ──────────────────────────────────────────────────
@@ -1061,6 +1702,32 @@ export const DEFAULT_COMMAND_REGISTRY = {
         },
       },
       api: { baseRisk: "medium", reason: "Makes arbitrary GitHub API calls" },
+    },
+  },
+  svn: {
+    baseRisk: "medium",
+    subcommands: {
+      info: { baseRisk: "low" },
+      status: { baseRisk: "low" },
+      log: { baseRisk: "low" },
+      diff: { baseRisk: "low" },
+      update: { baseRisk: "medium" },
+      add: { baseRisk: "medium" },
+      commit: { baseRisk: "medium" },
+      delete: { baseRisk: "high" },
+    },
+  },
+  hg: {
+    baseRisk: "medium",
+    subcommands: {
+      status: { baseRisk: "low" },
+      log: { baseRisk: "low" },
+      diff: { baseRisk: "low" },
+      pull: { baseRisk: "medium" },
+      update: { baseRisk: "medium" },
+      add: { baseRisk: "medium" },
+      commit: { baseRisk: "medium" },
+      remove: { baseRisk: "high" },
     },
   },
 

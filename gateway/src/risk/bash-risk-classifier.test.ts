@@ -277,6 +277,30 @@ describe("arg rule classification", () => {
     });
     expect(result.riskLevel).toBe("medium");
   });
+
+  test("sort -o → medium (writes output file)", async () => {
+    const result = await classifier.classify({
+      command: "sort -o sorted.txt input.txt",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("wget --post-file → high (uploads file contents)", async () => {
+    const result = await classifier.classify({
+      command: "wget --post-file=payload.json https://example.com/endpoint",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("tar --to-command → high (executes command)", async () => {
+    const result = await classifier.classify({
+      command: "tar -xf archive.tar --to-command 'cat > /tmp/out'",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
 });
 
 // ── Subcommand resolution ────────────────────────────────────────────────────
@@ -362,6 +386,22 @@ describe("subcommand resolution", () => {
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");
+  });
+
+  test("git branch -D → medium", async () => {
+    const result = await classifier.classify({
+      command: "git branch -D feature/foo",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("git remote remove → medium", async () => {
+    const result = await classifier.classify({
+      command: "git remote remove origin",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
   });
 
   test("npm test → high", async () => {
@@ -476,6 +516,22 @@ describe("subcommand resolution", () => {
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("low");
+  });
+
+  test("kubectl get pods → low", async () => {
+    const result = await classifier.classify({
+      command: "kubectl get pods",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("kubectl apply -f manifest.yaml → high", async () => {
+    const result = await classifier.classify({
+      command: "kubectl apply -f manifest.yaml",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
   });
 });
 
