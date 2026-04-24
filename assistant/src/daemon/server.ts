@@ -892,7 +892,7 @@ export class DaemonServer {
       if (!conversation) return null;
       return {
         conversationId,
-        trustClass: conversation.trustContext?.trustClass ?? "guardian",
+        trustClass: conversation.trustContext?.trustClass ?? "unknown",
         hostBrowserProxy: conversation.hostBrowserProxy,
         transportInterface: conversation.transportInterface,
         hostBrowserRegistryRouted: !!conversation.hostBrowserSenderOverride,
