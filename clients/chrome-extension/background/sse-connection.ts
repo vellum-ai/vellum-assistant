@@ -64,6 +64,11 @@ export class SseConnection {
     return this._isOpen;
   }
 
+  /** Return the current connection mode (e.g. for building result POSTs). */
+  getMode(): SseMode {
+    return this.deps.mode;
+  }
+
   /** Begin (or resume) connecting. */
   start(): void {
     this.closedByCaller = false;
@@ -119,7 +124,11 @@ export class SseConnection {
 
     let response: Response;
     try {
-      response = await fetch(url, { headers, signal: ac.signal });
+      response = await fetch(url, {
+        headers,
+        signal: ac.signal,
+        credentials: 'include',
+      });
     } catch {
       if (this.closedByCaller || ac.signal.aborted) return;
       this.scheduleReconnect();
@@ -183,13 +192,16 @@ export class SseConnection {
           // Skip empty frames and heartbeat comments
           if (!frame.trim() || frame.startsWith(':')) continue;
 
-          let data: string | undefined;
+          const dataLines: string[] = [];
           for (const line of frame.split('\n')) {
             if (line.startsWith('data: ')) {
-              data = line.slice(6);
+              dataLines.push(line.slice(6));
+            } else if (line === 'data') {
+              dataLines.push('');
             }
           }
-          if (!data) continue;
+          if (dataLines.length === 0) continue;
+          const data = dataLines.join('\n');
 
           try {
             const parsed = JSON.parse(data);

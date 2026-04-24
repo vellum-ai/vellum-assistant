@@ -197,7 +197,7 @@ const RELAY_AUTH_ERROR_KEY = 'vellum.relayAuthError';
 
 interface RelayAuthError {
   message: string;
-  mode: 'self-hosted';
+  mode: 'self-hosted' | 'vellum-cloud';
   at: number;
   debugDetails?: string;
 }
@@ -476,18 +476,31 @@ async function dispatchHostBrowserResult(
 
   // Cloud SSE path: POST the result to the cloud assistant's runtime
   // URL. The SSE stream is read-only so results must go via HTTP.
+  // We POST directly here (rather than via postHostBrowserResult) so
+  // we can include cross-origin credentials and the SSE mode's token.
   if (sseConnection && sseConnection.isOpen()) {
-    // The SSE connection's mode carries the runtime URL — use it
-    // to build a relay-compatible mode for the HTTP POST helper.
-    const { selected } = await getAssistantCatalogAndSelection();
-    if (selected?.runtimeUrl) {
-      const cloudMode: RelayMode = {
-        kind: 'self-hosted',
-        baseUrl: selected.runtimeUrl,
-        token: null,
-      };
-      return postHostBrowserResult(cloudMode, null, result);
+    const mode = sseConnection.getMode();
+    const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
+    const url = `${baseUrl}/v1/host-browser-result`;
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+    };
+    if (mode.token) {
+      headers['authorization'] = `Bearer ${mode.token}`;
     }
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(result),
+      credentials: 'include',
+    });
+    if (!resp.ok) {
+      console.warn(
+        '[vellum-sse] host-browser-result POST failed',
+        resp.status,
+      );
+    }
+    return;
   }
 
   // Fallback path: no active connection (e.g. a stale result arriving
@@ -787,7 +800,7 @@ function createSseConnection(mode: SseMode): SseConnection {
         });
         void setRelayAuthError({
           message: authError,
-          mode: 'self-hosted',
+          mode: 'vellum-cloud',
           at: Date.now(),
         });
         sseConnection = null;
