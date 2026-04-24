@@ -4,6 +4,13 @@
  * These tests ensure the egress-proxy package remains isolated from
  * assistant runtime and CES server implementation modules. If a direct
  * import of those modules is introduced, these tests will fail.
+ *
+ * Tightened boundaries (added):
+ * - Does NOT import from x-client packages (@vellumai/assistant-client,
+ *   @vellumai/ces-client, @vellumai/gateway-client).
+ * - Does NOT import from @vellumai/service-contracts (the egress-proxy
+ *   package deals only with proxy session lifecycle and must not depend on
+ *   CES wire-protocol types).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -66,6 +73,25 @@ const FORBIDDEN_PATTERNS = [
   /require\s*\(.*\/gateway\/src\//,
   /import\s+['"].*\/gateway\/src\//,
   /import\s+['"]@vellumai\/vellum-gateway/,
+
+  // x-client packages (must not depend on any typed service client)
+  /from\s+['"]@vellumai\/assistant-client(?:\/|['"])/,
+  /import\s+['"]@vellumai\/assistant-client(?:\/|['"])/,
+  /require\s*\(['"]@vellumai\/assistant-client(?:\/|['"])/,
+  /from\s+['"]@vellumai\/ces-client(?:\/|['"])/,
+  /import\s+['"]@vellumai\/ces-client(?:\/|['"])/,
+  /require\s*\(['"]@vellumai\/ces-client(?:\/|['"])/,
+  /from\s+['"]@vellumai\/gateway-client(?:\/|['"])/,
+  /import\s+['"]@vellumai\/gateway-client(?:\/|['"])/,
+  /require\s*\(['"]@vellumai\/gateway-client(?:\/|['"])/,
+
+  // service-contracts (RPC protocol types — egress-proxy must not depend on CES wire types)
+  /from\s+['"]@vellumai\/service-contracts(?:\/|['"])/,
+  /import\s+['"]@vellumai\/service-contracts(?:\/|['"])/,
+  /require\s*\(['"]@vellumai\/service-contracts(?:\/|['"])/,
+  /from\s+['"]@vellumai\/ces-contracts(?:\/|['"])/,
+  /import\s+['"]@vellumai\/ces-contracts(?:\/|['"])/,
+  /require\s*\(['"]@vellumai\/ces-contracts(?:\/|['"])/,
 ];
 
 describe("package boundary", () => {
@@ -94,7 +120,7 @@ describe("package boundary", () => {
     }
   });
 
-  test("package.json has no dependencies on assistant, CES, or gateway", async () => {
+  test("package.json has no dependencies on assistant, CES, gateway, x-client, or service-contracts", async () => {
     const pkgJsonPath = resolve(PKG_SRC, "..", "package.json");
     const pkgJson = JSON.parse(await Bun.file(pkgJsonPath).text());
 
@@ -109,6 +135,11 @@ describe("package boundary", () => {
       "@vellumai/assistant",
       "@vellumai/ces",
       "@vellumai/vellum-gateway",
+      "@vellumai/assistant-client",
+      "@vellumai/ces-client",
+      "@vellumai/ces-contracts",
+      "@vellumai/gateway-client",
+      "@vellumai/service-contracts",
     ];
 
     for (const dep of forbidden) {
