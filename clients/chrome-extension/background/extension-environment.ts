@@ -83,14 +83,12 @@ export function resolveBuildDefaultEnvironment(): ExtensionEnvironment {
     // In some browser runtimes `process` is not defined at all.
     raw = undefined;
   }
-  // Intentional `dev` default: when the env var is absent it means we are in
-  // an unbundled local build where no `--define` injection has occurred. The
-  // release build pipeline (build.sh + release.yml) is responsible for setting
-  // `process.env.VELLUM_ENVIRONMENT` to `staging` or `production` at bundle
-  // time via `--define`. If that injection is ever accidentally omitted from a
-  // release build, it will surface as a clear "targeting dev" mismatch in
-  // pre-release smoke tests rather than silently hitting production.
-  return parseExtensionEnvironment(raw) ?? 'dev';
+  // Default to `production`: when the env var is absent it means the extension
+  // was loaded without a bundler `--define` injection. Defaulting to production
+  // ensures released extensions always target the correct environment even if
+  // the build pipeline omits the variable. Local dev builds inject 'local' via
+  // build.sh, and dev/staging releases inject their respective environments.
+  return parseExtensionEnvironment(raw) ?? 'production';
 }
 
 // ── Cloud URL mapping ───────────────────────────────────────────────

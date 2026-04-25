@@ -21,8 +21,8 @@ fi
 
 # Resolve environment for bundle-time injection. The release workflow sets
 # VELLUM_ENVIRONMENT to 'staging' or 'production'; local dev builds
-# default to 'dev' when the variable is unset.
-VELLUM_ENV="${VELLUM_ENVIRONMENT:-dev}"
+# default to 'local' when the variable is unset.
+VELLUM_ENV="${VELLUM_ENVIRONMENT:-local}"
 
 # Chrome manifest requires 1-4 dot-separated integers. Strip any
 # prerelease suffix (e.g. "0.6.0-staging.3" -> "0.6.0") so staging
