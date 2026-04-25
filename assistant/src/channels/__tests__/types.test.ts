@@ -21,7 +21,7 @@ describe("INTERFACE_IDS", () => {
       "cli",
       "telegram",
       "phone",
-      "vellum",
+      "web",
       "whatsapp",
       "slack",
       "email",
