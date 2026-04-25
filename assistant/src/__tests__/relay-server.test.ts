@@ -400,7 +400,6 @@ describe("relay-server", () => {
           memoryPolicy: {
             scopeId: "default",
             includeDefaultFallback: false,
-            strictSideEffects: false,
           },
           isProcessing: () => false,
           persistUserMessage: async (
@@ -482,7 +481,6 @@ describe("relay-server", () => {
         return session as unknown as import("../daemon/conversation.js").Conversation;
       },
       resolveAttachments: () => [],
-      deriveDefaultStrictSideEffects: () => false,
     });
   });
 

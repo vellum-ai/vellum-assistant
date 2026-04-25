@@ -40,6 +40,11 @@ const conversationCrudRealSnapshot = {
     "../memory/conversation-crud.js",
   ) as Record<string, unknown>),
 };
+const conversationDiskViewRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../memory/conversation-disk-view.js",
+  ) as Record<string, unknown>),
+};
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -508,11 +513,15 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  // Restore real `conversation-crud` for downstream files; see the snapshot
+  // Restore real module mocks for downstream files; see the snapshot
   // block near the top of this file for why this is necessary.
   mock.module(
     "../memory/conversation-crud.js",
     () => conversationCrudRealSnapshot,
+  );
+  mock.module(
+    "../memory/conversation-disk-view.js",
+    () => conversationDiskViewRealSnapshot,
   );
 });
 

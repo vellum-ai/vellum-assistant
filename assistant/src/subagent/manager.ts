@@ -272,12 +272,10 @@ export class SubagentManager {
       ? {
           scopeId: "default",
           includeDefaultFallback: false,
-          strictSideEffects: false,
         }
       : {
           scopeId: `subagent:${subagentId}`,
           includeDefaultFallback: true,
-          strictSideEffects: false,
         };
 
     // ── Initialise state ────────────────────────────────────────────

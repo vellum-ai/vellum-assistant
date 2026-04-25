@@ -194,7 +194,6 @@ function setupBridgeDeps(
       return currentSession as any;
     },
     resolveAttachments: () => [],
-    deriveDefaultStrictSideEffects: () => true,
   });
 }
 

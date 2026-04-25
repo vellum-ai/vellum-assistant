@@ -47,7 +47,6 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -78,7 +77,6 @@ function injectDeps(conversationFactory: () => Conversation): void {
   setVoiceBridgeDeps({
     getOrCreateConversation: async () => conversationFactory(),
     resolveAttachments: () => [],
-    deriveDefaultStrictSideEffects: () => false,
   });
 }
 
@@ -187,7 +185,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -278,7 +275,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -351,141 +347,6 @@ describe("voice-session-bridge", () => {
       userMessageChannel: "phone",
       assistantMessageChannel: "phone",
     });
-  });
-
-  test("startVoiceTurn forces strict side effects for non-guardian actors", async () => {
-    const conversation = createConversation(
-      "voice bridge strict non-guardian test",
-    );
-    const events: ServerMessage[] = [
-      { type: "message_complete", conversationId: conversation.id },
-    ];
-
-    let capturedStrictSideEffects: boolean | undefined;
-    const session = {
-      ...makeStreamingSession(events),
-      get memoryPolicy() {
-        return {
-          scopeId: "default",
-          includeDefaultFallback: false,
-          strictSideEffects: false,
-        };
-      },
-      set memoryPolicy(val: Record<string, unknown>) {
-        capturedStrictSideEffects = val.strictSideEffects as boolean;
-      },
-    } as unknown as Conversation;
-
-    injectDeps(() => session);
-
-    await startVoiceTurn({
-      conversationId: conversation.id,
-      content: "Hello",
-      isInbound: true,
-      trustContext: {
-        sourceChannel: "phone",
-        trustClass: "trusted_contact",
-        guardianExternalUserId: "+15550009999",
-        guardianChatId: "+15550009999",
-        requesterExternalUserId: "+15550002222",
-      },
-      onTextDelta: () => {},
-      onComplete: () => {},
-      onError: () => {},
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(capturedStrictSideEffects).toBe(true);
-  });
-
-  test("startVoiceTurn forces strict side effects for unverified_channel actors", async () => {
-    const conversation = createConversation(
-      "voice bridge strict unverified test",
-    );
-    const events: ServerMessage[] = [
-      { type: "message_complete", conversationId: conversation.id },
-    ];
-
-    let capturedStrictSideEffects: boolean | undefined;
-    const session = {
-      ...makeStreamingSession(events),
-      get memoryPolicy() {
-        return {
-          scopeId: "default",
-          includeDefaultFallback: false,
-          strictSideEffects: false,
-        };
-      },
-      set memoryPolicy(val: Record<string, unknown>) {
-        capturedStrictSideEffects = val.strictSideEffects as boolean;
-      },
-    } as unknown as Conversation;
-
-    injectDeps(() => session);
-
-    await startVoiceTurn({
-      conversationId: conversation.id,
-      content: "Hello",
-      isInbound: true,
-      trustContext: {
-        sourceChannel: "phone",
-        trustClass: "unknown",
-      },
-      onTextDelta: () => {},
-      onComplete: () => {},
-      onError: () => {},
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(capturedStrictSideEffects).toBe(true);
-  });
-
-  test("startVoiceTurn does not force strict side effects for guardian actors", async () => {
-    const conversation = createConversation(
-      "voice bridge strict guardian test",
-    );
-    const events: ServerMessage[] = [
-      { type: "message_complete", conversationId: conversation.id },
-    ];
-
-    let capturedStrictSideEffects: boolean | undefined;
-    const session = {
-      ...makeStreamingSession(events),
-      get memoryPolicy() {
-        return {
-          scopeId: "default",
-          includeDefaultFallback: false,
-          strictSideEffects: false,
-        };
-      },
-      set memoryPolicy(val: Record<string, unknown>) {
-        capturedStrictSideEffects = val.strictSideEffects as boolean;
-      },
-    } as unknown as Conversation;
-
-    injectDeps(() => session);
-
-    await startVoiceTurn({
-      conversationId: conversation.id,
-      content: "Hello",
-      isInbound: true,
-      trustContext: {
-        sourceChannel: "phone",
-        trustClass: "guardian",
-        guardianExternalUserId: "+15550001111",
-        guardianChatId: "+15550001111",
-      },
-      onTextDelta: () => {},
-      onComplete: () => {},
-      onError: () => {},
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    // Guardian actors use the derived default (false), not forced true
-    expect(capturedStrictSideEffects).toBe(false);
   });
 
   test("startVoiceTurn passes guardian context to the session", async () => {
@@ -654,7 +515,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -739,7 +599,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -807,7 +666,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -871,7 +729,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -944,7 +801,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},
@@ -1019,7 +875,6 @@ describe("voice-session-bridge", () => {
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
-        strictSideEffects: false,
       },
       setChannelCapabilities: () => {},
       setAssistantId: () => {},

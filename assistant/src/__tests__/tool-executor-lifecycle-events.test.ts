@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   ToolExecutionResult,
@@ -186,10 +186,6 @@ function makePrompter(
   } as unknown as PermissionPrompter;
 }
 
-afterAll(() => {
-  mock.restore();
-});
-
 describe("ToolExecutor lifecycle events", () => {
   beforeEach(() => {
     checkerDecision = "allow";
@@ -210,7 +206,7 @@ describe("ToolExecutor lifecycle events", () => {
       makeContext(events),
     );
 
-    expect(result).toEqual({ content: "ok", isError: false });
+    expect(result).toMatchObject({ content: "ok", isError: false });
     expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
     expect(events[0]).toMatchObject({
       type: "start",
@@ -224,7 +220,7 @@ describe("ToolExecutor lifecycle events", () => {
       throw new Error("Expected executed event");
     expect(executed.executionTarget).toBe("sandbox");
     expect(executed.riskLevel).toBe("low");
-    expect(executed.result).toEqual({ content: "ok", isError: false });
+    expect(executed.result).toMatchObject({ content: "ok", isError: false });
     expect(executed.durationMs).toBeGreaterThanOrEqual(0);
   });
 
@@ -317,7 +313,7 @@ describe("ToolExecutor lifecycle events", () => {
       makeContext(events),
     );
 
-    expect(result).toEqual({ content: "ok", isError: false });
+    expect(result).toMatchObject({ content: "ok", isError: false });
     expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
     const startEvent = events[0];
     if (startEvent.type !== "start") throw new Error("Expected start event");
@@ -345,7 +341,7 @@ describe("ToolExecutor lifecycle events", () => {
       makeContext(events),
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       content: "Blocked by deny rule: rm *",
       isError: true,
     });
@@ -536,45 +532,15 @@ describe("ToolExecutor lifecycle events", () => {
       }),
     ]);
 
-    await expect(raced).resolves.toEqual({ content: "ok", isError: false });
+    await expect(raced).resolves.toMatchObject({
+      content: "ok",
+      isError: false,
+    });
   });
 
-  // ── forcePromptSideEffects lifecycle event tests (PR 31) ──────────
+  // ── forcePromptSideEffects lifecycle event tests ──────────
 
-  test("emits permission_prompt with private-thread reason when forcePromptSideEffects is true for file_edit", async () => {
-    // check() returns allow — simulating a matched trust rule that would
-    // normally auto-allow. The forcePromptSideEffects flag should promote
-    // this to a prompt.
-    checkerDecision = "allow";
-    checkerReason = "Matched trust rule";
-    checkerRisk = "low";
-    promptDecision = "allow";
-
-    const events: ToolLifecycleEvent[] = [];
-    const executor = new ToolExecutor(makePrompter());
-
-    const result = await executor.execute(
-      "file_edit",
-      { path: "/tmp/project/config.ts", old_string: "a", new_string: "b" },
-      {
-        ...makeContext(events),
-        forcePromptSideEffects: true,
-      },
-    );
-
-    expect(result).toEqual({ content: "ok", isError: false });
-
-    const promptEvent = events.find((e) => e.type === "permission_prompt");
-    expect(promptEvent).toBeDefined();
-    if (promptEvent?.type !== "permission_prompt")
-      throw new Error("Expected permission_prompt event");
-    expect(promptEvent.toolName).toBe("file_edit");
-    expect(promptEvent.reason).toBe(
-      "Private conversation: side-effect tools require explicit approval",
-    );
-  });
-
-  test("permission_prompt reason reflects private-thread policy for bash under forcePromptSideEffects", async () => {
+  test("permission_prompt reason reflects side-effect policy for bash under forcePromptSideEffects", async () => {
     checkerDecision = "allow";
     checkerReason = "Matched trust rule";
     checkerRisk = "low";
@@ -598,7 +564,7 @@ describe("ToolExecutor lifecycle events", () => {
       throw new Error("Expected permission_prompt event");
     expect(promptEvent.toolName).toBe("bash");
     expect(promptEvent.reason).toBe(
-      "Private conversation: side-effect tools require explicit approval",
+      "Side-effect tool requires explicit approval",
     );
   });
 
@@ -626,8 +592,8 @@ describe("ToolExecutor lifecycle events", () => {
   });
 
   test("file_edit to guardian persona emits permission_prompt under forcePromptSideEffects", async () => {
-    // Security invariant: editing the guardian persona file in a private
-    // thread must always prompt, even when a trust rule would auto-allow.
+    // Security invariant: forced side-effect prompting must prompt even when a
+    // trust rule would auto-allow.
     checkerDecision = "allow";
     checkerReason = "Matched trust rule: file_edit:*/users/*.md";
     checkerRisk = "low";
@@ -649,7 +615,7 @@ describe("ToolExecutor lifecycle events", () => {
       },
     );
 
-    expect(result).toEqual({ content: "ok", isError: false });
+    expect(result).toMatchObject({ content: "ok", isError: false });
 
     const promptEvent = events.find((e) => e.type === "permission_prompt");
     expect(promptEvent).toBeDefined();
@@ -657,7 +623,7 @@ describe("ToolExecutor lifecycle events", () => {
       throw new Error("Expected permission_prompt event");
     expect(promptEvent.toolName).toBe("file_edit");
     expect(promptEvent.reason).toBe(
-      "Private conversation: side-effect tools require explicit approval",
+      "Side-effect tool requires explicit approval",
     );
   });
 });

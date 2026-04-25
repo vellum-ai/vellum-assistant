@@ -38,8 +38,6 @@ import {
 import {
   addMessage,
   getConversation,
-  getConversationMemoryScopeId,
-  getConversationType,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -406,15 +404,9 @@ export class DaemonServer {
     return this._filingService;
   }
 
-  private deriveMemoryPolicy(conversationId: string): ConversationMemoryPolicy {
-    const conversationType = getConversationType(conversationId);
-    if (conversationType === "private") {
-      return {
-        scopeId: getConversationMemoryScopeId(conversationId),
-        includeDefaultFallback: true,
-        strictSideEffects: true,
-      };
-    }
+  private deriveMemoryPolicy(
+    _conversationId: string,
+  ): ConversationMemoryPolicy {
     return DEFAULT_MEMORY_POLICY;
   }
 

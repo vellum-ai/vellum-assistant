@@ -146,14 +146,12 @@ const log = getLogger("conversation");
 export interface ConversationMemoryPolicy {
   scopeId: string;
   includeDefaultFallback: boolean;
-  strictSideEffects: boolean;
 }
 
 export const DEFAULT_MEMORY_POLICY: Readonly<ConversationMemoryPolicy> =
   Object.freeze({
     scopeId: "default",
     includeDefaultFallback: false,
-    strictSideEffects: false,
   });
 
 export { findLastUndoableUserMessageIndex } from "./conversation-history.js";

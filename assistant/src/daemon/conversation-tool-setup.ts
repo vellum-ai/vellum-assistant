@@ -99,8 +99,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
-  /** Conversation memory policy — used to propagate scopeId and strictSideEffects into ToolContext. */
-  memoryPolicy: { scopeId: string; strictSideEffects: boolean };
+  /** Conversation memory policy used to propagate scopeId into ToolContext. */
+  memoryPolicy: { scopeId: string };
   /** True when the conversation has no connected client (HTTP-only path). */
   hasNoClient?: boolean;
   /** When true, the conversation is executing a task run and must not become interactive. */
@@ -244,7 +244,6 @@ export function createToolExecutor(
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
       memoryScopeId: ctx.memoryPolicy.scopeId,
-      forcePromptSideEffects: ctx.memoryPolicy.strictSideEffects,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
       hostBrowserProxy: ctx.hostBrowserProxy,

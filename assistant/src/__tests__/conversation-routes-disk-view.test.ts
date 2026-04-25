@@ -155,7 +155,6 @@ function createFakeConversation(conversationId: string): Conversation {
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     isProcessing(this: { processing: boolean }) {
       return this.processing;

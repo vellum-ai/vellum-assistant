@@ -145,7 +145,6 @@ function makeIdleSession(opts?: {
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -213,7 +212,6 @@ function makeConfirmationEmittingSession(opts?: {
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},

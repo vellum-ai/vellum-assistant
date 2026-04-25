@@ -130,7 +130,6 @@ function makeCompletingConversation(): Conversation {
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -191,7 +190,6 @@ function makeHangingConversation(): Conversation {
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},
@@ -277,7 +275,6 @@ function makePendingApprovalConversation(
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
-      strictSideEffects: false,
     },
     setChannelCapabilities: () => {},
     setAssistantId: () => {},

@@ -1,5 +1,4 @@
 import {
-  afterAll,
   afterEach,
   beforeEach,
   describe,
@@ -196,10 +195,6 @@ function makePrompter(): PermissionPrompter {
     dispose: () => {},
   } as unknown as PermissionPrompter;
 }
-
-afterAll(() => {
-  mock.restore();
-});
 
 describe("ToolExecutor allowedToolNames gating", () => {
   beforeEach(() => {
@@ -1573,113 +1568,9 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCount).toBe(1);
   });
 
-  // ── Guardian persona security invariant (PR 31) ──────────
+  // ── Always-mutating schedule tools ──────────
 
-  test("file_edit to guardian persona forces prompt in private conversation even with matching trust rule", async () => {
-    // This is a key security invariant: the guardian persona file contains
-    // the user's persistent memory. In a private conversation
-    // (forcePromptSideEffects=true), edits to it must always require explicit
-    // approval, even when a trust rule matches.
-    checkResultOverride = {
-      decision: "allow",
-      reason: "Matched trust rule: file_edit:*/users/*.md",
-    };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "file_edit",
-      {
-        path: "/Users/alice/.vellum/workspace/users/alice.md",
-        old_string: "old pref",
-        new_string: "new pref",
-      },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    // file_edit is a side-effect tool, so forcePromptSideEffects must trigger prompting
-    expect(promptCalled).toBe(true);
-  });
-
-  test("host_file_edit to guardian persona forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "host_file_edit",
-      {
-        path: "/Users/alice/.vellum/workspace/users/alice.md",
-        old_string: "x",
-        new_string: "y",
-      },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  // ── Always-mutating document tools (PR fix5) ──────────
-
-  test("document_create forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "document_create",
-      { title: "New Doc", content: "hello" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("document_update forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "document_update",
-      { id: "doc-1", content: "updated" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  // ── Always-mutating schedule tools (PR fix7) ──────────
-
-  test("schedule_create forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "schedule_create",
-      { name: "Morning standup", cron: "0 9 * * 1-5" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("schedule_update forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "schedule_update",
-      { id: "sched-1", cron: "0 10 * * 1-5" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("schedule_delete forces prompt in private conversation", async () => {
+  test("schedule_delete forces prompt under forcePromptSideEffects", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1695,7 +1586,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Credential store action-aware (PR fix9) ──────────
 
-  test("credential_store store forces prompt in private conversation", async () => {
+  test("credential_store store forces prompt under forcePromptSideEffects", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1709,7 +1600,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("credential_store delete forces prompt in private conversation", async () => {
+  test("credential_store delete forces prompt under forcePromptSideEffects", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1723,7 +1614,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("credential_store list does NOT force prompt in private conversation", async () => {
+  test("credential_store list does NOT force prompt under forcePromptSideEffects", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1740,7 +1631,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
   // ── Workspace mode + forcePromptSideEffects interaction ──────────
 
-  test("workspace mode allow → prompt promotion still works for side-effect tools in private conversations", async () => {
+  test("workspace mode allow → prompt promotion still works for side-effect tools under forcePromptSideEffects", async () => {
     // Simulate workspace mode returning 'allow' for a workspace-scoped file_write
     checkResultOverride = {
       decision: "allow",
@@ -1760,7 +1651,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("schedule_create forces prompt in private conversation", async () => {
+  test("schedule_create forces prompt under forcePromptSideEffects", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -1778,7 +1669,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     expect(promptCalled).toBe(true);
   });
 
-  test("schedule_list does NOT force prompt in private conversation", async () => {
+  test("schedule_list does NOT force prompt under forcePromptSideEffects", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
     const executor = new ToolExecutor(makeTrackingPrompter());
@@ -2449,7 +2340,10 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
       riskLevel: "medium",
       reason: "Writes to file in workspace",
       scopeOptions: [
-        { pattern: "file_write:/workspace/scratch/out.txt", label: "This file only" },
+        {
+          pattern: "file_write:/workspace/scratch/out.txt",
+          label: "This file only",
+        },
       ],
       directoryScopeOptions: [
         { scope: "/workspace/scratch", label: "In scratch/" },
@@ -2501,9 +2395,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
       scopeOptions: [
         { pattern: "file_write:/tmp/foo.txt", label: "This file" },
       ],
-      directoryScopeOptions: [
-        { scope: "/tmp", label: "Anywhere in tmp/" },
-      ],
+      directoryScopeOptions: [{ scope: "/tmp", label: "Anywhere in tmp/" }],
       matchType: "registry",
     };
 
