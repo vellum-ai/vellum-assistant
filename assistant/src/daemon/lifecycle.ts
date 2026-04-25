@@ -45,11 +45,7 @@ import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
-import {
-  deleteMessageById,
-  getMessages,
-  purgePrivateConversations,
-} from "../memory/conversation-crud.js";
+import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db.js";
 import {
@@ -433,42 +429,6 @@ export async function runDaemon(): Promise<void> {
       // which may copy the legacy installationId into device.json), it is safe
       // to read the device ID and set the Sentry tag.
       setSentryDeviceId(getDeviceId());
-
-      // Purge private (temporary) conversations from the previous daemon run.
-      // These are ephemeral by design and should not survive daemon restarts.
-      const { count: purgedCount, deletedMemory } = purgePrivateConversations();
-      if (purgedCount > 0) {
-        log.info(
-          { purgedCount },
-          `Purged ${purgedCount} private conversation(s) from previous daemon run`,
-        );
-        // Qdrant may not be ready at startup, so enqueue vector cleanup jobs
-        // rather than attempting direct deletion.
-        for (const segId of deletedMemory.segmentIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "segment",
-            targetId: segId,
-          });
-        }
-        for (const summaryId of deletedMemory.deletedSummaryIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "summary",
-            targetId: summaryId,
-          });
-        }
-        if (
-          deletedMemory.segmentIds.length > 0 ||
-          deletedMemory.deletedSummaryIds.length > 0
-        ) {
-          log.info(
-            {
-              segments: deletedMemory.segmentIds.length,
-              deletedSummaries: deletedMemory.deletedSummaryIds.length,
-            },
-            "Enqueued Qdrant vector cleanup jobs for purged private conversations",
-          );
-        }
-      }
 
       // Expire stale pending canonical guardian requests left over from before
       // this process started.  Two categories are cleaned up:

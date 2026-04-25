@@ -1532,10 +1532,8 @@ export async function handleSendMessage(
   // timer so the next heartbeat is a full interval after this interaction.
   deps.heartbeatService?.resetTimer();
 
-  const conversationType =
-    body.conversationType === "private" ? ("private" as const) : undefined;
   const mapping = getOrCreateConversation(resolvedConversationKey, {
-    conversationType,
+    conversationType: "standard",
   });
 
   const smDeps = deps.sendMessageDeps;

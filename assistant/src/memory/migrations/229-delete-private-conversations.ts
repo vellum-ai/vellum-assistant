@@ -1,7 +1,10 @@
 import type { DrizzleDb } from "../db-connection.js";
 
+const REMOVED_CONVERSATION_TYPE = "private";
+const REMOVED_CONVERSATION_TYPE_SQL = `'${REMOVED_CONVERSATION_TYPE}'`;
+
 const PRIVATE_CONVERSATION_IDS = /*sql*/ `
-  SELECT id FROM conversations WHERE conversation_type = 'private'
+  SELECT id FROM conversations WHERE conversation_type = ${REMOVED_CONVERSATION_TYPE_SQL}
 `;
 
 export function migrateDeletePrivateConversations(database: DrizzleDb): void {
@@ -45,6 +48,6 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
   // Qdrant vectors for deleted embedding rows are cleaned up by background sweeps.
   database.run(/*sql*/ `
     DELETE FROM conversations
-    WHERE conversation_type = 'private'
+    WHERE conversation_type = ${REMOVED_CONVERSATION_TYPE_SQL}
   `);
 }

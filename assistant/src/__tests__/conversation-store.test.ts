@@ -24,7 +24,6 @@ import {
   getConversation,
   getConversationHostAccess,
   getConversationMemoryScopeId,
-  getConversationType,
   getMessages,
   updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
@@ -477,15 +476,6 @@ describe("conversation metadata read helpers", () => {
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
-  });
-
-  test("getConversationType returns standard for standard conversation", () => {
-    const conv = createConversation("test");
-    expect(getConversationType(conv.id)).toBe("standard");
-  });
-
-  test("getConversationType returns standard for missing conversation", () => {
-    expect(getConversationType("nonexistent-id")).toBe("standard");
   });
 
   test("getConversationMemoryScopeId returns default for standard conversation", () => {

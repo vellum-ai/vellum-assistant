@@ -152,86 +152,6 @@ mock.module("../config/loader.js", () => ({
   mergeDefaultWorkspaceConfig: () => {},
 }));
 
-// Additional mocks required for Conversation constructor and end-to-end tests
-
-mock.module("../memory/conversation-crud.js", () => ({
-  addMessage: () => ({ id: "msg-1" }),
-  getMessages: () => [],
-  hasMessages: () => false,
-  getMessageById: () => null,
-  getConversation: () => null,
-  createConversation: () => ({
-    id: "bench-conv",
-    title: "Bench",
-    conversationType: "standard",
-  }),
-  clearAll: () => {},
-  deleteConversation: () => {},
-  deleteLastExchange: () => 0,
-  deleteMessageById: () => ({ memoryItemIds: [], memoryEntityIds: [] }),
-  getConversationOriginChannel: () => null,
-  getConversationOriginInterface: () => null,
-  getConversationType: () => "standard",
-  getConversationSource: () => null,
-  findAnalysisConversationFor: () => null,
-  getConversationMemoryScopeId: () => "default",
-  getConversationHostAccess: () => false,
-  getConversationGroupId: () => null,
-  getConversationRecentProvenanceTrustClass: () => null,
-  provenanceFromTrustContext: () => ({}),
-  updateConversationHostAccess: () => {},
-  updateMessageMetadata: () => {},
-  getLastUserTimestampBefore: () => null,
-  relinkAttachments: () => 0,
-  setConversationOriginChannelIfUnset: () => {},
-  setConversationOriginInterfaceIfUnset: () => {},
-  updateConversationContextWindow: () => {},
-  updateConversationTitle: () => {},
-  updateConversationUsage: () => {},
-  updateMessageContent: () => {},
-  updateMessageContentAndMetadata: () => {},
-  batchSetDisplayOrders: () => {},
-  getDisplayMetaForConversations: () => [],
-  messageMetadataSchema: {
-    parse: (v: unknown) => v,
-    safeParse: (v: unknown) => ({ success: true, data: v }),
-  },
-  parseConversation: () => null,
-  parseMessage: () => null,
-  getAssistantMessageIdsInTurn: () => [],
-  getTurnTimeBounds: () => null,
-  countConversationsByScheduleJobId: () => 0,
-  selectSlackMetaCandidateMetadata: () => [],
-  forkConversation: () => null,
-  wipeConversation: () => ({
-    conversations: 0,
-    messages: 0,
-    memoryItemIds: [],
-    memoryEntityIds: [],
-  }),
-  purgePrivateConversations: () => ({
-    purged: 0,
-    memoryItemIds: [],
-    memoryEntityIds: [],
-  }),
-  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
-  getLastAssistantTimestampBefore: () => null,
-  archiveConversation: () => false,
-  unarchiveConversation: () => false,
-  clearStrippedInjectionMetadataForConversation: () => {},
-}));
-
-mock.module("../memory/conversation-queries.js", () => ({
-  buildFtsMatchQuery: () => "",
-  countConversations: () => 0,
-  listConversations: () => [],
-  listPinnedConversations: () => [],
-  getLatestConversation: () => null,
-  isLastUserMessageToolResult: () => false,
-  searchConversations: () => [],
-  buildExcerpt: () => "",
-}));
-
 mock.module("../tools/watch/watch-state.js", () => ({
   watchSessions: new Map(),
   registerWatchStartNotifier: () => {},
@@ -298,6 +218,9 @@ mock.module("../services/published-app-updater.js", () => ({
   updatePublishedAppDeployment: () => Promise.resolve(),
 }));
 
+const { initializeDb } = await import("../memory/db.js");
+initializeDb();
+
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
   await import("../tools/registry.js");
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
@@ -308,6 +231,7 @@ import type { Provider } from "../providers/types.js";
 
 afterAll(() => {
   __resetRegistryForTesting();
+  mock.restore();
 });
 
 describe("Conversation initialization benchmark", () => {

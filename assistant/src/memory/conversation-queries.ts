@@ -51,7 +51,7 @@ export function listConversations(
   const db = getDb();
   const where = backgroundOnly
     ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`;
   const query = db
     .select()
     .from(conversations)
@@ -75,7 +75,7 @@ export function listPinnedConversations(): ConversationRow[] {
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
         sql`is_pinned = 1`,
       ),
     )
@@ -145,7 +145,7 @@ export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
     ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`;
+    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)
@@ -160,7 +160,7 @@ export function getLatestConversation(): ConversationRow | null {
     .select()
     .from(conversations)
     .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+      sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
     )
     .orderBy(
       desc(
@@ -271,7 +271,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'private', 'scheduled') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled') AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -296,7 +296,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'private', 'scheduled') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled') AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -310,7 +310,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+        sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),
