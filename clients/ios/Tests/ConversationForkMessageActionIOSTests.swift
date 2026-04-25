@@ -43,22 +43,6 @@ final class ConversationForkMessageActionIOSTests: XCTestCase {
         XCTAssertFalse(streamingView.canForkFromMessage)
     }
 
-    func testPrivateConversationDoesNotExposeMessageForkAction() {
-        let store = IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true)
-        let privateConversation = IOSConversation(
-            title: "Private",
-            conversationId: "conv-private",
-            isPrivate: true
-        )
-
-        XCTAssertNil(
-            makeConversationForkFromMessageAction(
-                store: store,
-                conversation: privateConversation
-            )
-        )
-    }
-
     func testMessageForkActionUsesStoreHelperAndPublishesSelectionForNewFork() async throws {
         let (userDefaults, suiteName) = makeUserDefaults()
         defer { clear(userDefaults, suiteName: suiteName) }

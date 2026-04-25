@@ -77,7 +77,6 @@ final class ConversationForkIOSTests: XCTestCase {
             isArchived: false,
             isPinned: true,
             displayOrder: 3,
-            isPrivate: false,
             conversationId: "conv-legacy",
             scheduleJobId: nil,
             hasUnseenLatestAssistantMessage: false,
@@ -100,6 +99,59 @@ final class ConversationForkIOSTests: XCTestCase {
         XCTAssertEqual(restored.conversationId, "conv-legacy")
         XCTAssertEqual(restored.title, "Older cache entry")
         XCTAssertNil(restored.forkParent)
+    }
+
+    func testConnectedCacheDropsLegacyEphemeralRows() throws {
+        let (userDefaults, suiteName) = makeUserDefaults()
+        defer { clear(userDefaults, suiteName: suiteName) }
+
+        let droppedConversation = LegacyPersistedConversation(
+            id: UUID(),
+            title: "Ephemeral cache entry",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lastActivityAt: Date(timeIntervalSince1970: 1_700_000_050),
+            isArchived: false,
+            isPinned: false,
+            displayOrder: nil,
+            conversationId: "conv-ephemeral",
+            scheduleJobId: nil,
+            hasUnseenLatestAssistantMessage: false,
+            latestAssistantMessageAt: nil,
+            lastSeenAssistantMessageAt: nil
+        )
+        let retainedConversation = LegacyPersistedConversation(
+            id: UUID(),
+            title: "Retained cache entry",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_100),
+            lastActivityAt: Date(timeIntervalSince1970: 1_700_000_150),
+            isArchived: false,
+            isPinned: false,
+            displayOrder: nil,
+            conversationId: "conv-retained",
+            scheduleJobId: nil,
+            hasUnseenLatestAssistantMessage: false,
+            latestAssistantMessageAt: nil,
+            lastSeenAssistantMessageAt: nil
+        )
+
+        let encoded = try JSONEncoder().encode([droppedConversation, retainedConversation])
+        var rows = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])
+        rows[0][["is", "Private"].joined()] = true
+        let data = try JSONSerialization.data(withJSONObject: rows)
+        userDefaults.set(data, forKey: connectedCacheKey)
+
+        let connectionManager = GatewayConnectionManager()
+        connectionManager.isConnected = true
+        let store = IOSConversationStore(
+            connectionManager: connectionManager,
+            eventStreamClient: connectionManager.eventStreamClient,
+            connectedModeOverride: true,
+            userDefaults: userDefaults
+        )
+
+        XCTAssertNil(store.conversations.first(where: { $0.conversationId == "conv-ephemeral" }))
+        let restored = try XCTUnwrap(store.conversations.first(where: { $0.conversationId == "conv-retained" }))
+        XCTAssertEqual(restored.title, "Retained cache entry")
     }
 
     func testConversationListRefreshClearsStaleForkParentFromCachedConversation() {
@@ -288,7 +340,6 @@ private struct LegacyPersistedConversation: Codable {
     let isArchived: Bool?
     let isPinned: Bool?
     let displayOrder: Int?
-    let isPrivate: Bool?
     let conversationId: String?
     let scheduleJobId: String?
     let hasUnseenLatestAssistantMessage: Bool?

@@ -371,7 +371,7 @@ struct IOSRootNavigationView: View {
     /// in the store. Handles three cases on a store update:
     /// 1. No active selection yet — seed the first eligible conversation.
     /// 2. Active selection still resolves — leave it alone, even if the
-    ///    conversation is archived or private. The drawer surfaces archived
+    ///    conversation is archived. The drawer surfaces archived
     ///    conversations in a DisclosureGroup, so a user can legitimately
     ///    select one and we shouldn't kick them out on the next store change.
     /// 3. Active selection was removed from the store entirely — fall back to
@@ -400,7 +400,7 @@ struct IOSRootNavigationView: View {
     /// real conversation list response arrives.
     private func firstSelectableConversationId() -> UUID? {
         store.conversations.first(where: {
-            $0.conversationId != nil && !$0.isArchived && !$0.isPrivate
+            $0.conversationId != nil && !$0.isArchived
         })?.id
     }
 

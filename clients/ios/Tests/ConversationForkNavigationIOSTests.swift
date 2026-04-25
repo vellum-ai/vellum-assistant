@@ -176,26 +176,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
     }
 
-    func testForkActionsAreHiddenForPrivateConversations() {
-        let privateConversation = IOSConversation(
-            title: "Private",
-            conversationId: "conv-private",
-            isPrivate: true,
-            forkParent: ConversationForkParent(
-                conversationId: "conv-parent",
-                messageId: "msg-parent",
-                title: "Parent thread"
-            )
-        )
-
-        XCTAssertNil(
-            makeOpenForkParentAction(
-                store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
-                conversation: privateConversation
-            )
-        )
-    }
-
     private func makeUserDefaults() -> (UserDefaults, String) {
         let suiteName = "ConversationForkNavigationIOSTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

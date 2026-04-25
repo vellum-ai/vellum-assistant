@@ -34,7 +34,7 @@ func makeConversationForkFromMessageAction(
     store: IOSConversationStore,
     conversation: IOSConversation
 ) -> ((String) -> Void)? {
-    guard conversation.conversationId != nil, !conversation.isPrivate else { return nil }
+    guard conversation.conversationId != nil else { return nil }
     return makeOnForkFromMessageAction(
         conversationLocalId: conversation.id,
         forkConversationFromMessage: { conversationLocalId, daemonMessageId in
@@ -51,7 +51,7 @@ func makeOpenForkParentAction(
     store: IOSConversationStore,
     conversation: IOSConversation
 ) -> (() -> Void)? {
-    guard conversation.forkParent != nil, !conversation.isPrivate else { return nil }
+    guard conversation.forkParent != nil else { return nil }
     return {
         Task { @MainActor in
             _ = await store.openForkParent(of: conversation.id)
@@ -102,10 +102,8 @@ struct ConversationListView: View {
     @State private var showArchived: Bool = false
 
     private var activeConversations: [IOSConversation] {
-        // Exclude private conversations — they are managed separately via the Private Conversations
-        // settings panel and must not appear in the main chat list.
         sortConversationsForDisplay(
-            store.conversations.filter { !$0.isArchived && !$0.isPrivate },
+            store.conversations.filter { !$0.isArchived },
             isConnectedMode: store.isConnectedMode
         )
     }
@@ -150,7 +148,7 @@ struct ConversationListView: View {
 
     private var archivedConversations: [IOSConversation] {
         sortConversationsForDisplay(
-            store.conversations.filter { $0.isArchived && !$0.isPrivate },
+            store.conversations.filter { $0.isArchived },
             isConnectedMode: store.isConnectedMode
         )
     }

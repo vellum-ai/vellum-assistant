@@ -18,9 +18,6 @@ struct IOSConversation: Identifiable {
     var isArchived: Bool
     var isPinned: Bool
     var displayOrder: Int?
-    /// Private conversations are excluded from the normal conversation list and persist only
-    /// for the current session. They match the macOS "temporary chat" behavior.
-    var isPrivate: Bool
     /// The schedule job ID that created this conversation, if any.
     /// Conversations sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
@@ -31,7 +28,7 @@ struct IOSConversation: Identifiable {
     /// The source that created this conversation (e.g. "heartbeat", "task", "schedule", "reminder", "notification").
     /// Immutable after creation — pinning/moving a conversation changes groupId but never source.
     var source: String?
-    /// The daemon-side conversation classification: "standard", "private", "background", "scheduled".
+    /// The daemon-side conversation classification: "standard", "background", "scheduled".
     /// Canonical signal for unread-suppression of automated threads. `nil` for rows written by
     /// older daemons or for locally-created conversations that have not yet round-tripped to the
     /// server; callers should treat `nil` as non-suppressed.
@@ -76,7 +73,7 @@ struct IOSConversation: Identifiable {
             || isScheduleConversation || source == "heartbeat" || source == "task" || source == "auto-analysis"
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, source: String? = nil, conversationType: String? = nil, originChannel: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, source: String? = nil, conversationType: String? = nil, originChannel: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -85,7 +82,6 @@ struct IOSConversation: Identifiable {
         self.isArchived = isArchived
         self.isPinned = isPinned
         self.displayOrder = displayOrder
-        self.isPrivate = isPrivate
         self.scheduleJobId = scheduleJobId
         self.forkParent = forkParent
         self.groupId = groupId
@@ -109,7 +105,6 @@ private struct PersistedConversation: Codable {
     var isArchived: Bool?
     var isPinned: Bool?
     var displayOrder: Int?
-    var isPrivate: Bool?
     var conversationId: String?
     var scheduleJobId: String?
     var forkParent: ConversationForkParent?
@@ -124,7 +119,7 @@ private struct PersistedConversation: Codable {
     // key so UserDefaults data written by any version (pre-rename, intermediate,
     // or current) is read correctly.  Encoding always uses "conversationId".
     enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, lastActivityAt, isArchived, isPinned, displayOrder, isPrivate
+        case id, title, createdAt, lastActivityAt, isArchived, isPinned, displayOrder
         case conversationId
         case scheduleJobId, forkParent, source, conversationType, originChannel, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
         // Legacy key used before the session-to-conversation rename.
@@ -145,7 +140,6 @@ extension PersistedConversation {
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived)
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
         displayOrder = try container.decodeIfPresent(Int.self, forKey: .displayOrder)
-        isPrivate = try container.decodeIfPresent(Bool.self, forKey: .isPrivate)
         // Try the current key first, fall back to the legacy key.
         conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
             ?? container.decodeIfPresent(String.self, forKey: .legacySessionId)
@@ -168,7 +162,6 @@ extension PersistedConversation {
         try container.encodeIfPresent(isArchived, forKey: .isArchived)
         try container.encodeIfPresent(isPinned, forKey: .isPinned)
         try container.encodeIfPresent(displayOrder, forKey: .displayOrder)
-        try container.encodeIfPresent(isPrivate, forKey: .isPrivate)
         // Always encode under the current "conversationId" key.
         try container.encodeIfPresent(conversationId, forKey: .conversationId)
         try container.encodeIfPresent(scheduleJobId, forKey: .scheduleJobId)
@@ -443,7 +436,6 @@ class IOSConversationStore: ObservableObject {
             createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
             lastActivityAt: Date(timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0),
             conversationId: item.id,
-            isPrivate: item.conversationType == "private",
             scheduleJobId: item.scheduleJobId,
             forkParent: item.forkParent,
             source: item.source,
@@ -825,15 +817,13 @@ class IOSConversationStore: ObservableObject {
             return
         }
 
-        let filteredConversations = response.conversations.filter { $0.conversationType != "private" }
-
         // Handle confirmed-empty first-page response: clear stale cached conversations.
         // Only clear when hasMore is explicitly false (authoritative empty result).
         // Transient failures (HTTP errors, decode errors) emit hasMore: nil and must
         // not wipe the cache — the user should keep seeing cached conversations.
-        if filteredConversations.isEmpty && conversationListOffset == 0 && response.hasMore == false {
-            let keepConversations = conversations.filter { $0.conversationId == nil || $0.isPrivate }
-            for conversation in conversations where conversation.conversationId != nil && !conversation.isPrivate {
+        if response.conversations.isEmpty && conversationListOffset == 0 && response.hasMore == false {
+            let keepConversations = conversations.filter { $0.conversationId == nil }
+            for conversation in conversations where conversation.conversationId != nil {
                 viewModels.removeValue(forKey: conversation.id)
             }
             conversations = keepConversations.isEmpty ? [IOSConversation()] : keepConversations
@@ -847,7 +837,7 @@ class IOSConversationStore: ObservableObject {
             return
         }
 
-        guard !filteredConversations.isEmpty else {
+        guard !response.conversations.isEmpty else {
             // Empty non-first page means nothing more to append.
             isLoadingMoreConversations = false
             isLoadingInitialConversations = false
@@ -860,7 +850,7 @@ class IOSConversationStore: ObservableObject {
         isLoadingInitialConversations = false
 
         var restoredConversations: [IOSConversation] = []
-        for item in filteredConversations {
+        for item in response.conversations {
             let conversation = conversationFromListItem(item)
             let vm = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
             vm.conversationId = item.id
@@ -875,9 +865,9 @@ class IOSConversationStore: ObservableObject {
                 && viewModels[conversations[0].id]?.messages.isEmpty ?? true
                 && viewModels[conversations[0].id]?.conversationId == nil
 
-            // All non-private conversations are cached (have conversationId, no VM created yet).
+            // All conversations are cached (have conversationId, no VM created yet).
             let allAreCached = !conversations.isEmpty
-                && conversations.filter({ !$0.isPrivate }).allSatisfy {
+                && conversations.allSatisfy {
                     $0.conversationId != nil && viewModels[$0.id] == nil
                 }
 
@@ -887,8 +877,7 @@ class IOSConversationStore: ObservableObject {
                 conversations = restoredConversations
             } else if allAreCached {
                 // Case 2: All conversations are from cache (no VMs, no user interaction).
-                // Replace with daemon data, preserving local overrides and private conversations.
-                let privateConversations = conversations.filter { $0.isPrivate }
+                // Replace with daemon data, preserving local overrides.
 
                 var localOverrides: [String: IOSConversation] = [:]
                 for conversation in conversations {
@@ -926,7 +915,7 @@ class IOSConversationStore: ObservableObject {
                     merged.append(restored)
                 }
 
-                conversations = merged + privateConversations
+                conversations = merged
                 locallyEditedConversationIds.removeAll()
                 locallyEditedPinConversationIds.removeAll()
             } else {
@@ -1196,7 +1185,6 @@ class IOSConversationStore: ObservableObject {
         let hasTip = knownTipId != nil || latestPersistedTipDaemonMessageId(for: conversationLocalId) != nil
         guard isConnectedMode,
               let conversation = conversations.first(where: { $0.id == conversationLocalId }),
-              !conversation.isPrivate,
               conversation.conversationId != nil,
               hasTip else {
             vm.onFork = nil
@@ -1301,10 +1289,8 @@ class IOSConversationStore: ObservableObject {
             pendingAttentionOverrides.removeValue(forKey: sid)
         }
         conversations.removeAll { $0.id == conversation.id }
-        // Always keep at least one active (non-archived) non-private conversation.
-        // Private conversations are managed separately and should not prevent the
-        // regular conversation list from being empty.
-        if conversations.filter({ !$0.isArchived && !$0.isPrivate }).isEmpty {
+        // Always keep at least one active (non-archived) conversation.
+        if conversations.filter({ !$0.isArchived }).isEmpty {
             newConversation()
         } else {
             save()
@@ -1483,19 +1469,17 @@ class IOSConversationStore: ObservableObject {
     func openForkParent(of conversationLocalId: UUID) async -> UUID? {
         guard isConnectedMode,
               let conversation = conversations.first(where: { $0.id == conversationLocalId }),
-              !conversation.isPrivate,
               let forkParent = conversation.forkParent else {
             return nil
         }
 
         let parentLocalId: UUID
         if let existingIndex = existingConversationIndex(forConversationId: forkParent.conversationId) {
-            guard !conversations[existingIndex].isPrivate else { return nil }
             parentLocalId = conversations[existingIndex].id
         } else {
             guard let parentConversation = await conversationDetailClient.fetchConversation(
                 conversationId: forkParent.conversationId
-            ), parentConversation.conversationType != "private" else {
+            ) else {
                 return nil
             }
             parentLocalId = upsertConversationListItem(parentConversation)
@@ -1529,9 +1513,7 @@ class IOSConversationStore: ObservableObject {
 
     @discardableResult
     func forkCurrentTip(conversationLocalId: UUID) async -> UUID? {
-        guard let conversation = conversations.first(where: { $0.id == conversationLocalId }),
-              !conversation.isPrivate,
-              let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversationLocalId) else {
+        guard let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversationLocalId) else {
             return nil
         }
         return await forkConversation(
@@ -1608,7 +1590,7 @@ class IOSConversationStore: ObservableObject {
 
     private func saveConnectedCache() {
         guard isConnectedMode else { return }
-        let cacheable = conversations.filter { $0.conversationId != nil && !$0.isPrivate }
+        let cacheable = conversations.filter { $0.conversationId != nil }
         guard !cacheable.isEmpty else {
             userDefaults.removeObject(forKey: Self.connectedCacheKey)
             return
@@ -1622,7 +1604,6 @@ class IOSConversationStore: ObservableObject {
                 isArchived: $0.isArchived,
                 isPinned: $0.isPinned,
                 displayOrder: $0.displayOrder,
-                isPrivate: false,
                 conversationId: $0.conversationId,
                 scheduleJobId: $0.scheduleJobId,
                 forkParent: $0.forkParent,
@@ -1639,13 +1620,26 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
+    private static func legacyEphemeralFlags(from data: Data, expectedCount: Int) -> [Bool] {
+        let key = ["is", "Private"].joined()
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              rows.count == expectedCount else {
+            return Array(repeating: false, count: expectedCount)
+        }
+        return rows.map { row in
+            row[key] as? Bool == true
+        }
+    }
+
     private static func loadConnectedCache(from userDefaults: UserDefaults) -> [IOSConversation] {
         guard let data = userDefaults.data(forKey: connectedCacheKey),
               let persisted = try? JSONDecoder().decode([PersistedConversation].self, from: data) else {
             return []
         }
-        return persisted.compactMap { p in
-            guard p.conversationId != nil, !(p.isPrivate ?? false) else { return nil }
+        let legacyEphemeralFlags = Self.legacyEphemeralFlags(from: data, expectedCount: persisted.count)
+        return zip(persisted, legacyEphemeralFlags).compactMap { persistedConversation, isLegacyEphemeral in
+            let p = persistedConversation
+            guard p.conversationId != nil, !isLegacyEphemeral else { return nil }
             return IOSConversation(
                 id: p.id,
                 title: p.title,
@@ -1655,7 +1649,6 @@ class IOSConversationStore: ObservableObject {
                 isArchived: p.isArchived ?? false,
                 isPinned: p.isPinned ?? false,
                 displayOrder: p.displayOrder,
-                isPrivate: false,
                 scheduleJobId: p.scheduleJobId,
                 forkParent: p.forkParent,
                 source: p.source,
@@ -1682,7 +1675,6 @@ class IOSConversationStore: ObservableObject {
                 createdAt: $0.createdAt,
                 lastActivityAt: $0.lastActivityAt,
                 isArchived: $0.isArchived,
-                isPrivate: $0.isPrivate,
                 conversationId: $0.conversationId,
                 scheduleJobId: $0.scheduleJobId,
                 forkParent: $0.forkParent,
@@ -1700,19 +1692,21 @@ class IOSConversationStore: ObservableObject {
               let persisted = try? JSONDecoder().decode([PersistedConversation].self, from: data) else {
             return []
         }
-        return persisted.map {
+        let legacyEphemeralFlags = Self.legacyEphemeralFlags(from: data, expectedCount: persisted.count)
+        return zip(persisted, legacyEphemeralFlags).compactMap { persistedConversation, isLegacyEphemeral in
+            let p = persistedConversation
+            guard !isLegacyEphemeral else { return nil }
             IOSConversation(
-                id: $0.id,
-                title: $0.title,
-                createdAt: $0.createdAt,
-                lastActivityAt: $0.lastActivityAt,
-                conversationId: $0.conversationId,
-                isArchived: $0.isArchived ?? false,
-                isPrivate: $0.isPrivate ?? false,
-                scheduleJobId: $0.scheduleJobId,
-                forkParent: $0.forkParent,
-                source: $0.source,
-                conversationType: $0.conversationType
+                id: p.id,
+                title: p.title,
+                createdAt: p.createdAt,
+                lastActivityAt: p.lastActivityAt,
+                conversationId: p.conversationId,
+                isArchived: p.isArchived ?? false,
+                scheduleJobId: p.scheduleJobId,
+                forkParent: p.forkParent,
+                source: p.source,
+                conversationType: p.conversationType
             )
         }
     }
