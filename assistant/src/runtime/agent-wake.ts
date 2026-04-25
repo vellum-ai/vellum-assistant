@@ -129,11 +129,14 @@ export interface WakeTarget {
   drainQueue?(): Promise<void>;
   /**
    * Called after a wake produces visible output (text or tool calls).
-   * The daemon adapter uses this to emit a UI surface card so the client
-   * shows a visual indicator that the conversation was woken. Optional
-   * because unit-test stubs typically omit it.
+   * The daemon adapter uses this to emit a live SSE event so connected
+   * clients see the wake indicator immediately. The `surfaceId` matches
+   * the `ui_surface` content block already injected into the first
+   * assistant tail message — both must share the same ID so the client
+   * doesn't render duplicates. Optional because unit-test stubs
+   * typically omit it.
    */
-  onWakeProducedOutput?(source: string, hint: string): void;
+  onWakeProducedOutput?(source: string, hint: string, surfaceId: string): void;
 }
 
 export interface WakeOptions {
@@ -489,13 +492,33 @@ export async function wakeAgentForOpportunity(
 
       tailMessageCount = tailMessages.length;
 
-      // Notify the adapter that the wake produced output so it can
-      // emit a visual indicator (e.g. an inline UI card) to connected
-      // clients. Fired BEFORE flushing agent events so the indicator
-      // appears at the top of the wake's output in the chat timeline.
+      // Inject a ui_surface content block into the first assistant tail
+      // message so the wake indicator is persisted inline and rendered
+      // via contentOrder on the client. Generate the surfaceId once so
+      // the persisted block and the live SSE event share the same ID.
+      const wakeSurfaceId = `wake-${conversationId}-${nowFn()}`;
+      const firstAssistant = tailMessages.find((m) => m.role === "assistant");
+      if (firstAssistant && Array.isArray(firstAssistant.content)) {
+        firstAssistant.content.unshift({
+          type: "ui_surface",
+          surfaceId: wakeSurfaceId,
+          surfaceType: "card",
+          title: "Conversation Woke",
+          data: {
+            title: "Conversation Woke",
+            body: hint,
+            metadata: [{ label: "Source", value: source }],
+          },
+          display: "inline",
+        } as never);
+      }
+
+      // Emit a live SSE event so connected clients see the card
+      // immediately. Uses the same surfaceId as the persisted block
+      // so the client doesn't render duplicates on reconciliation.
       if (target.onWakeProducedOutput) {
         try {
-          target.onWakeProducedOutput(source, hint);
+          target.onWakeProducedOutput(source, hint, wakeSurfaceId);
         } catch (err) {
           log.warn(
             { conversationId, source, err },

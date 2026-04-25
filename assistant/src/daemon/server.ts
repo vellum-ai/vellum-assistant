@@ -2011,11 +2011,10 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
     pushMessage: (msg) => {
       conversation.messages.push(msg);
     },
-    onWakeProducedOutput: (source, hint) => {
+    onWakeProducedOutput: (source, hint, surfaceId) => {
       const emit =
         conversation.broadcastToAllClients ??
         conversation.sendToClient.bind(conversation);
-      const surfaceId = `wake-${conversation.conversationId}-${Date.now()}`;
       emit({
         type: "ui_surface_show",
         conversationId: conversation.conversationId,
