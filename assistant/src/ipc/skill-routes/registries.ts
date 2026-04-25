@@ -86,21 +86,20 @@ const ReportSessionParams = z.object({
 /**
  * Fallback active-session set. Keyed by meetingId so duplicate
  * `report_session_started` calls are idempotent and `report_session_ended`
- * for an unknown id is a no-op. Used when no {@link MeetHostSupervisor}
- * has been registered (e.g. when the lazy-external flag is off, in the
- * narrow window before `external-skills-bootstrap.ts` runs, and in tests
- * that exercise the IPC routes in isolation). Also backs the test-only
- * peek helper since the supervisor owns its own counter.
+ * for an unknown id is a no-op. Used in the narrow window before
+ * `meet-host-startup.ts` registers the supervisor and in tests that
+ * exercise the IPC routes in isolation. Also backs the test-only peek
+ * helper since the supervisor owns its own counter.
  */
 const activeSessions = new Set<string>();
 
 /**
- * Optional supervisor injected by `external-skills-bootstrap.ts` when the
- * lazy-external path is enabled. When set, IPC session-report frames are
- * forwarded to it so its active-session counter and idle-shutdown timer
- * stay in sync with the routes; the `register_*` handlers also pin the
- * incoming connection on the supervisor so daemon→skill dispatches have a
- * target. When unset, the fallback set above is mutated directly and the
+ * Supervisor injected by `meet-host-startup.ts` at daemon boot. When set,
+ * IPC session-report frames are forwarded to it so its active-session
+ * counter and idle-shutdown timer stay in sync with the routes; the
+ * `register_*` handlers also pin the incoming connection on the
+ * supervisor so daemon→skill dispatches have a target. When unset (boot
+ * race, tests), the fallback set above is mutated directly and the
  * register_* handlers fall back to in-memory proxy installation.
  */
 type SessionSupervisor = Pick<
@@ -217,7 +216,7 @@ async function handleRegisterTools(
   const { tools } = RegisterToolsParams.parse(params);
   const conn = connection as SkillIpcConnection | undefined;
 
-  // Lazy-external short-circuit: when a supervisor is registered, the
+  // Supervisor short-circuit: when a supervisor is registered, the
   // manifest loader has already installed proxy tools at daemon boot.
   // Re-installing here would double-register and clobber the manifest's
   // execute closures with these placeholder ones. Pin the incoming
@@ -227,7 +226,7 @@ async function handleRegisterTools(
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
       { count: tools.length, names: tools.map((t) => t.name) },
-      "Lazy-external mode: skipping in-memory tool re-registration; manifest proxies serve dispatches",
+      "Supervisor active: skipping in-memory tool re-registration; manifest proxies serve dispatches",
     );
     return { registered: tools.map((t) => t.name) };
   }
@@ -263,14 +262,14 @@ async function handleRegisterSkillRoute(
     RegisterSkillRouteParams.parse(params);
   const conn = connection as SkillIpcConnection | undefined;
 
-  // Lazy-external short-circuit: route already installed by the manifest
+  // Supervisor short-circuit: route already installed by the manifest
   // loader; pin the connection and let the manifest's proxy handler call
   // supervisor.dispatchRoute over IPC.
   if (sessionSupervisor) {
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
       { patternSource, patternFlags, methods, skillId },
-      "Lazy-external mode: skipping in-memory route re-registration; manifest proxy serves dispatches",
+      "Supervisor active: skipping in-memory route re-registration; manifest proxy serves dispatches",
     );
     return { patternSource, methods };
   }
@@ -314,13 +313,13 @@ async function handleRegisterShutdownHook(
   const { name } = RegisterShutdownHookParams.parse(params);
   const conn = connection as SkillIpcConnection | undefined;
 
-  // Lazy-external short-circuit: shutdown hook already registered by the
+  // Supervisor short-circuit: shutdown hook already registered by the
   // manifest loader; just pin the connection so dispatches can flow.
   if (sessionSupervisor) {
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
       { name },
-      "Lazy-external mode: skipping shutdown-hook re-registration; manifest hook serves dispatches",
+      "Supervisor active: skipping shutdown-hook re-registration; manifest hook serves dispatches",
     );
     return { name };
   }
