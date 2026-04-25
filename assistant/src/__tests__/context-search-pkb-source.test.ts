@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantConfig } from "../config/schema.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
+import { makeMockLogger } from "./helpers/mock-logger.js";
 
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  getLogger: () => makeMockLogger(),
 }));
 
 const embedCalls: Array<{
@@ -33,10 +33,34 @@ const sparseCalls: string[] = [];
 let sparseVector = { indices: [1], values: [1] };
 
 mock.module("../memory/embedding-backend.js", () => ({
+  clearEmbeddingBackendCache: () => {},
+  embedWithBackend: async () => ({
+    vectors: [],
+    provider: "test",
+    model: "test-model",
+  }),
   generateSparseEmbedding: (text: string) => {
     sparseCalls.push(text);
     return sparseVector;
   },
+  getMemoryBackendStatus: async () => ({
+    provider: "test",
+    model: "test-model",
+    available: true,
+  }),
+  logMemoryEmbeddingWarning: () => {},
+  resetLocalEmbeddingFailureState: () => {},
+  selectEmbeddingBackend: async () => ({
+    backend: {
+      provider: "test",
+      model: "test-model",
+      embed: async () => [],
+    },
+    provider: "test",
+    model: "test-model",
+  }),
+  selectedBackendSupportsMultimodal: async () => false,
+  SPARSE_EMBEDDING_VERSION: 2,
 }));
 
 type ScoredPoint = {
@@ -67,7 +91,10 @@ let hybridResults: ScoredPoint[] = [];
 let denseThrows: Error | null = null;
 
 mock.module("../memory/qdrant-circuit-breaker.js", () => ({
+  QdrantCircuitOpenError: class extends Error {},
+  _resetQdrantBreaker: () => {},
   isQdrantBreakerOpen: () => false,
+  shouldAllowQdrantProbe: () => true,
   withQdrantBreaker: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
 }));
 
@@ -93,6 +120,9 @@ mock.module("../memory/qdrant-client.js", () => ({
       return hybridResults;
     },
   }),
+  initQdrantClient: () => {},
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
+  VellumQdrantClient: class {},
 }));
 
 let pkbContext: string | null = null;

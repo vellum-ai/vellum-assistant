@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
+
 mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  getLogger: () => makeMockLogger(),
 }));
 
 let breakerOpen = false;
