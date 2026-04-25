@@ -90,7 +90,7 @@ struct ConversationSwitcherDrawer: View {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
-            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation ? {
                 selectConversation(conversation)
                 Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
             } : nil,

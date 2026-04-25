@@ -533,29 +533,7 @@ struct ConversationRestorerTests {
     // MARK: - Conversation Type Mapping
 
     @Test @MainActor
-    func privateConversationTypeIsExcludedFromRestore() {
-        let dc = GatewayConnectionManager()
-        let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
-        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
-        restorer.delegate = delegate
-
-        let defaultConversation = ConversationModel()
-        delegate.conversations = [defaultConversation]
-        delegate.viewModels[defaultConversation.id] = delegate.makeViewModel()
-
-        let response = makeConversationListResponse(conversations: [
-            (id: "s1", title: "Private Chat", updatedAt: 2000, conversationType: "private"),
-        ])
-        restorer.handleConversationListResponse(response)
-
-        // Private conversations are filtered out; empty default is removed and a new conversation created
-        #expect(delegate.conversations.count == 1)
-        #expect(delegate.conversations[0].kind == .standard)
-        #expect(delegate.createConversationCallCount == 1)
-    }
-
-    @Test @MainActor
-    func nilConversationTypeRestoresAsStandardKind() {
+    func nilConversationTypeRestoresConversation() {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -571,11 +549,11 @@ struct ConversationRestorerTests {
         restorer.handleConversationListResponse(response)
 
         #expect(delegate.conversations.count == 1)
-        #expect(delegate.conversations[0].kind == .standard)
+        #expect(delegate.conversations[0].conversationType == nil)
     }
 
     @Test @MainActor
-    func standardConversationTypeRestoresAsStandardKind() {
+    func standardConversationTypeRestoresConversationType() {
         let dc = GatewayConnectionManager()
         let restorer = ConversationRestorer(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
         let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
@@ -591,7 +569,7 @@ struct ConversationRestorerTests {
         restorer.handleConversationListResponse(response)
 
         #expect(delegate.conversations.count == 1)
-        #expect(delegate.conversations[0].kind == .standard)
+        #expect(delegate.conversations[0].conversationType == "standard")
     }
 
     // MARK: - Channel Binding Filtering

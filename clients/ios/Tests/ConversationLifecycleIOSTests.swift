@@ -66,19 +66,19 @@ final class ConversationLifecycleIOSTests: XCTestCase {
 
     func testCreateConversationWithConversationTypeSetsConversationType() {
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient)
-        vm.createConversationIfNeeded(conversationType: "private")
+        vm.createConversationIfNeeded(conversationType: "background")
 
-        XCTAssertEqual(vm.conversationType, "private")
+        XCTAssertEqual(vm.conversationType, "background")
     }
 
     func testCreateConversationWithConversationTypeRetainsConversationType() {
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient)
         let expectation = XCTestExpectation(description: "conversationId assigned")
         vm.onConversationCreated = { _ in expectation.fulfill() }
-        vm.createConversationIfNeeded(conversationType: "private")
+        vm.createConversationIfNeeded(conversationType: "background")
         wait(for: [expectation], timeout: 10.0)
 
-        XCTAssertEqual(vm.conversationType, "private")
+        XCTAssertEqual(vm.conversationType, "background")
     }
 
     // MARK: - Local Conversation ID Assignment

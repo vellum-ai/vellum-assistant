@@ -81,7 +81,7 @@ struct SidebarConversationItem: View, Equatable {
             .disabled(!canMarkUnread)
         }
 
-        if !conversation.isChannelConversation && conversation.kind != .private, let onAnalyze {
+        if !conversation.isChannelConversation, let onAnalyze {
             VMenuItem(icon: VIcon.sparkles.rawValue, label: "Analyze") {
                 onAnalyze()
             }
@@ -162,12 +162,6 @@ struct SidebarConversationItem: View, Equatable {
                     }
                 }
             }
-            if conversation.kind == .private {
-                VIconView(.lock, size: 13)
-                    .foregroundStyle(VColor.primaryBase.opacity(0.7))
-                    .nativeTooltip("Private conversation")
-                    .accessibilityLabel("Private conversation")
-            }
             VMarqueeText(
                 text: conversation.title,
                 font: VFont.bodyMediumDefault,
@@ -187,8 +181,6 @@ struct SidebarConversationItem: View, Equatable {
                 VColor.surfaceActive
             } else if isHovered || isMenuOpen {
                 VColor.surfaceBase
-            } else if conversation.kind == .private {
-                VColor.primaryBase.opacity(0.04)
             } else {
                 VColor.surfaceBase.opacity(0)
             }

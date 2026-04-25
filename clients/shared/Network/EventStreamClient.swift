@@ -135,9 +135,6 @@ public final class EventStreamClient {
     /// Host tool requests are only executed for these conversation IDs.
     private(set) var locallyOwnedConversationIds: Set<String> = []
 
-    /// Conversation IDs that belong to private (temporary) conversations.
-    var privateConversationIds: Set<String> = []
-
     /// Local conversation IDs whose HTTP POST is in flight (server ID not yet known).
     /// Used by parseSSEData to speculatively remap unknown server IDs that arrive
     /// before the HTTP response creates the serverToLocalConversationMap entry.
@@ -197,9 +194,6 @@ public final class EventStreamClient {
     public func cleanupAfterConversationIdResolution(localId: String, serverId: String) {
         serverToLocalConversationMap.removeValue(forKey: serverId)
         locallyOwnedConversationIds.remove(localId)
-        if privateConversationIds.remove(localId) != nil {
-            privateConversationIds.insert(serverId)
-        }
     }
 
     /// Disconnect and finish all subscriber streams.
@@ -291,12 +285,11 @@ public final class EventStreamClient {
             }
 
             // Send the message
-            let resolvedConversationType = conversationType ?? (self.privateConversationIds.contains(conversationId) ? "private" : nil)
             let sendResult = await messageClient.sendMessage(
                 content: content,
                 conversationKey: conversationId,
                 attachmentIds: attachmentIds,
-                conversationType: resolvedConversationType,
+                conversationType: conversationType,
                 automated: automated,
                 bypassSecretCheck: bypassSecretCheck,
                 onboarding: onboarding,

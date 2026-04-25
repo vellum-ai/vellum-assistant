@@ -150,7 +150,7 @@ final class DebugStateWriter {
                 title: conversation.title,
                 conversationId: conversation.conversationId,
                 messageCount: vm?.messages.count ?? 0,
-                kind: conversation.kind == .private ? "private" : "standard",
+                kind: conversation.conversationType ?? "standard",
                 isArchived: conversation.isArchived,
                 isPinned: conversation.isPinned
             )

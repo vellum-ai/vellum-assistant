@@ -155,26 +155,6 @@ final class ConversationManagerForkTests: XCTestCase {
         XCTAssertEqual(conversationManager.activeConversation?.conversationId, "conv-fork")
     }
 
-    func testExactForkCommandOnPrivateConversationShowsLocalErrorWithoutRouting() async {
-        conversationManager.createPrivateConversation()
-
-        guard let privateViewModel = conversationManager.activeViewModel else {
-            XCTFail("Expected an active private view model")
-            return
-        }
-
-        privateViewModel.inputText = "/fork"
-        privateViewModel.sendMessage()
-
-        XCTAssertTrue(forkClient.capturedConversationIds.isEmpty)
-        XCTAssertTrue(privateViewModel.messages.isEmpty)
-        XCTAssertEqual(privateViewModel.inputText, "")
-        XCTAssertEqual(
-            privateViewModel.errorText,
-            "Forking is unavailable in private conversations."
-        )
-    }
-
     func testExactForkCommandOnUnsavedDraftShowsLocalErrorWithoutAppendingBubble() {
         guard let draftViewModel = conversationManager.activeViewModel else {
             XCTFail("Expected a draft view model")
@@ -189,29 +169,6 @@ final class ConversationManagerForkTests: XCTestCase {
         XCTAssertEqual(draftViewModel.inputText, "")
         XCTAssertEqual(draftViewModel.errorText, "Send a message before forking this conversation.")
         XCTAssertTrue(conversationManager.conversations.isEmpty)
-    }
-
-    func testOpenForkParentConversationRefusesPrivateParents() async {
-        let privateConversation = ConversationModel(
-            title: "Private",
-            conversationId: "conv-private",
-            kind: .private,
-            forkParent: ConversationForkParent(
-                conversationId: "conv-parent",
-                messageId: "msg-parent",
-                title: "Parent"
-            )
-        )
-        conversationManager.conversations = [privateConversation]
-
-        let opened = await conversationManager.openForkParentConversation(
-            conversationId: "conv-private",
-            sourceMessageId: "msg-parent"
-        )
-
-        XCTAssertFalse(opened)
-        XCTAssertNil(conversationManager.activeConversationId)
-        XCTAssertTrue(detailClient.fetchedConversationIds.isEmpty)
     }
 
     @discardableResult

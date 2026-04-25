@@ -9,7 +9,6 @@ struct ConversationHeaderPresentation {
     let displayTitle: String
     let isStarted: Bool
     let showsActionsMenu: Bool
-    let isPrivateConversation: Bool
     let isChannelConversation: Bool
     let canCopy: Bool
     let isPinned: Bool
@@ -29,7 +28,6 @@ struct ConversationHeaderPresentation {
             self.displayTitle = "New conversation"
             self.isStarted = false
             self.showsActionsMenu = false
-            self.isPrivateConversation = false
             self.isChannelConversation = false
             self.canCopy = false
             self.isPinned = false
@@ -44,7 +42,6 @@ struct ConversationHeaderPresentation {
         self.localConversationId = conversation.id
         self.displayTitle = conversation.title
         self.isPinned = conversation.isPinned
-        self.isPrivateConversation = conversation.kind == .private
         self.isChannelConversation = conversation.isChannelConversation
 
         // Read O(1) cached values from the model layer instead of scanning the
@@ -54,23 +51,15 @@ struct ConversationHeaderPresentation {
         self.isStarted = conversation.conversationId != nil || hasNonEmptyMessage
         self.isPersisted = conversation.conversationId != nil
 
-        // Private conversations don't show the full actions menu
-        self.showsActionsMenu = isStarted && !isPrivateConversation
+        self.showsActionsMenu = isStarted
 
         // Can copy when there's non-empty content
         self.canCopy = hasNonEmptyMessage
         self.showsForkConversationAction =
             conversation.conversationId != nil
-            && !isPrivateConversation
             && activeViewModel?.latestPersistedTipDaemonMessageId != nil
-        if isPrivateConversation {
-            self.forkParentTitle = nil
-            self.forkParentConversationId = nil
-            self.forkParentMessageId = nil
-        } else {
-            self.forkParentTitle = conversation.forkParent?.title
-            self.forkParentConversationId = conversation.forkParent?.conversationId
-            self.forkParentMessageId = conversation.forkParent?.messageId
-        }
+        self.forkParentTitle = conversation.forkParent?.title
+        self.forkParentConversationId = conversation.forkParent?.conversationId
+        self.forkParentMessageId = conversation.forkParent?.messageId
     }
 }

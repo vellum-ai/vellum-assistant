@@ -110,7 +110,7 @@ struct SidebarView: View {
     /// an unnecessary O(N log N) sort — only the count is needed.
     private var scheduledUnreadCount: Int {
         listStore.conversations
-            .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
+            .count { !$0.isArchived && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
     }
 
     // MARK: - Row / Section Factories
@@ -239,7 +239,7 @@ struct SidebarView: View {
             onDragStart: {
                 sidebar.beginConversationDrag(conversation.id)
             },
-            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation ? {
                 selectConversation(conversation)
                 Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
             } : nil,
