@@ -7,11 +7,11 @@
 
 import { existsSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { ensureBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("package-resolver");
 
@@ -33,11 +33,7 @@ const inflight = new Map<string, Promise<string | null>>();
 
 /** Where all cached packages live on disk. */
 export function getCacheDir(): string {
-  // Package cache is intentionally shared across all local assistants to
-  // avoid re-downloading the same bundler deps per instance. Resolved
-  // against the real home directory so the cache is a single host-wide
-  // location regardless of BASE_DATA_DIR / per-instance containers.
-  return join(homedir(), ".vellum", "package-cache");
+  return join(getWorkspaceDir(), "package-cache");
 }
 
 /**

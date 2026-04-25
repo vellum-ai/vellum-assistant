@@ -694,7 +694,6 @@ describe("host_bash — spawn error handling", () => {
 
 describe("host_bash — proxy delegation", () => {
   const ROUTING_ENV_KEYS = [
-    "BASE_DATA_DIR",
     "VELLUM_WORKSPACE_DIR",
     "VELLUM_DATA_DIR",
     "VELLUM_ENVIRONMENT",
@@ -958,7 +957,6 @@ describe("host_bash — proxy delegation", () => {
       ...ROUTING_ENV_KEYS,
       "VELLUM_UNTRUSTED_SHELL",
     ]);
-    process.env.BASE_DATA_DIR = "/tmp/vellum-instance";
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-instance/.vellum/workspace";
     process.env.VELLUM_DATA_DIR = "/tmp/vellum-instance/.vellum/workspace/data";
     process.env.VELLUM_ENVIRONMENT = "local";
@@ -986,7 +984,6 @@ describe("host_bash — proxy delegation", () => {
       expect(result).toBe(proxyResult);
       expect(calls.length).toBe(1);
       expect(calls[0].input.env).toEqual({
-        BASE_DATA_DIR: "/tmp/vellum-instance",
         VELLUM_WORKSPACE_DIR: "/tmp/vellum-instance/.vellum/workspace",
         VELLUM_DATA_DIR: "/tmp/vellum-instance/.vellum/workspace/data",
         VELLUM_ENVIRONMENT: "local",
