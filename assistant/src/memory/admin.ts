@@ -2,7 +2,10 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { deleteMemoryCheckpoint } from "./checkpoints.js";
+import { runDeterministicRecallSearch } from "./context-search/search.js";
+import type { RecallEvidence } from "./context-search/types.js";
 import { getConversationMemoryScopeId } from "./conversation-crud.js";
 import { getDb, rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
@@ -11,7 +14,6 @@ import {
   type CompactionResult,
   compactLongMemories,
 } from "./graph/compaction.js";
-import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
 import {
   enqueueBackfillJob,
   enqueueRebuildIndexJob,
@@ -42,6 +44,20 @@ export interface MemorySystemStatus {
     embeddings: number;
   };
   jobs: Record<string, number>;
+}
+
+export interface AdminMemoryQueryResult {
+  results: Array<{
+    id: string;
+    content: string;
+    type: string;
+    confidence: number;
+    significance: number;
+    score: number;
+    created: number;
+  }>;
+  mode: "memory";
+  query: string;
 }
 
 export async function getMemorySystemStatus(): Promise<MemorySystemStatus> {
@@ -82,10 +98,51 @@ export function requestMemoryRebuildIndex(): string {
 
 export async function queryMemory(
   query: string,
-  _conversationId: string,
-): Promise<RecallResult> {
+  conversationId: string,
+): Promise<AdminMemoryQueryResult> {
   const config = getConfig();
-  return handleRecall({ query }, config, "default");
+  const result = await runDeterministicRecallSearch(
+    { query, sources: ["memory", "conversations", "pkb"] },
+    {
+      workingDir: getWorkspaceDir(),
+      memoryScopeId: getConversationMemoryScopeId(conversationId) ?? "default",
+      conversationId,
+      config,
+    },
+  );
+
+  return {
+    results: result.evidence.map(evidenceToAdminResult),
+    mode: "memory",
+    query,
+  };
+}
+
+function evidenceToAdminResult(
+  evidence: RecallEvidence,
+): AdminMemoryQueryResult["results"][number] {
+  const confidence = readNumericMetadata(evidence, "confidence");
+  const significance = readNumericMetadata(evidence, "significance");
+
+  return {
+    id: evidence.id,
+    content: evidence.excerpt,
+    type: evidence.source,
+    confidence: confidence ?? evidence.score ?? 0,
+    significance: significance ?? 0,
+    score: evidence.score ?? 0,
+    created: evidence.timestampMs ?? 0,
+  };
+}
+
+function readNumericMetadata(
+  evidence: RecallEvidence,
+  key: string,
+): number | undefined {
+  const value = evidence.metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 // ── Short segment cleanup ─────────────────────────────────────────────
