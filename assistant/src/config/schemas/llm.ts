@@ -316,6 +316,9 @@ export const LLMSchema = z
   .object({
     default: LLMConfigBase.default(LLMConfigBase.parse({})),
     profiles: z.record(z.string().min(1), LLMConfigFragment).default({}),
+    // Presentation-only order for named profiles. The resolver ignores this;
+    // clients use it to render profile pickers consistently.
+    profileOrder: z.array(z.string().min(1)).default([]),
     // `partialRecord` (vs `record`) makes call-site keys optional while still
     // rejecting keys that aren't members of `LLMCallSiteEnum` — exactly the
     // behavior we want (typo detection without requiring callers to declare

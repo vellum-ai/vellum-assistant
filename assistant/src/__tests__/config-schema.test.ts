@@ -194,6 +194,7 @@ describe("AssistantConfigSchema", () => {
       openrouter: { only: [] },
     });
     expect(result.llm.profiles).toEqual({});
+    expect(result.llm.profileOrder).toEqual([]);
     expect(result.llm.callSites).toEqual({});
     expect(result.llm.pricingOverrides).toEqual([]);
   });
@@ -227,6 +228,7 @@ describe("AssistantConfigSchema", () => {
         profiles: {
           fast: { speed: "fast" as const, effort: "low" as const },
         },
+        profileOrder: ["fast"],
         callSites: {
           mainAgent: { profile: "fast" },
           commitMessage: { maxTokens: 256 },
@@ -241,6 +243,7 @@ describe("AssistantConfigSchema", () => {
       speed: "fast",
       effort: "low",
     });
+    expect(result.llm.profileOrder).toEqual(["fast"]);
     expect(result.llm.callSites?.mainAgent).toEqual({ profile: "fast" });
     expect(result.llm.callSites?.commitMessage).toEqual({ maxTokens: 256 });
   });

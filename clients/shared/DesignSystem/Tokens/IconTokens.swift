@@ -209,6 +209,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case scissors = "lucide-scissors"
     case rocket = "lucide-rocket"
     case palette = "lucide-palette"
+    case gripVertical = "lucide-grip-vertical"
     case graduationCap = "lucide-graduation-cap"
     case trophy = "lucide-trophy"
     case plane = "lucide-plane"

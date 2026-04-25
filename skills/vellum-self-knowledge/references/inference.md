@@ -52,6 +52,7 @@ Relevant config paths and what they control:
 | `services.inference.mode`      | `"your-own"` (user's API key) vs `"managed"` (platform proxy)                                                                                                 |
 | `llm.default.effort`           | Inference effort level: `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"` (`xhigh` sits between `high` and `max`, for models that support it — e.g. Opus 4.7) |
 | `llm.default.thinking.enabled` | Whether extended thinking (chain-of-thought) is active                                                                                                        |
+| `llm.profileOrder`             | Presentation-only order for named inference profiles in settings and profile pickers; inference resolution ignores it                                         |
 
 Read any of these with `assistant config get <path>`, e.g.:
 
