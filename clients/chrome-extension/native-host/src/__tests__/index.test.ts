@@ -59,7 +59,7 @@ function getAllowedOriginFromCanonicalConfig(): string {
   const raw = readFileSync(
     resolve(
       REPO_ROOT,
-      "meta/browser-extension/chrome-extension-allowlist.json",
+      "gateway/chrome-extension-allowlist.json",
     ),
     "utf8",
   );

@@ -3,7 +3,7 @@
  * `NATIVE_HOST_MARKER_VALUE` constants are referenced from two coupled
  * files that MUST stay in lockstep:
  *
- *   - assistant/src/runtime/routes/browser-extension-pair-routes.ts
+ *   - gateway/src/http/routes/browser-extension-pair.ts
  *     (the runtime side that rejects unmarked pair requests with 403)
  *   - clients/chrome-extension/native-host/src/index.ts
  *     (the native messaging helper that stamps the marker on every
@@ -32,15 +32,15 @@ import { describe, expect, test } from "bun:test";
 const repoRoot = resolve(__dirname, "..", "..", "..");
 
 const ASSISTANT_PAIR_ROUTE_PATH =
-  "assistant/src/runtime/routes/browser-extension-pair-routes.ts";
+  "gateway/src/http/routes/browser-extension-pair.ts";
 const NATIVE_HOST_INDEX_PATH =
   "clients/chrome-extension/native-host/src/index.ts";
 
 /**
  * Extract the string literal value of an exported const from raw
  * TypeScript source text. Accepts both single- and double-quoted
- * forms and is permissive about whitespace so minor formatter changes
- * don't break the guard.
+ * forms and is permissive about whitespace (including newlines) so
+ * formatter line-wrapping doesn't break the guard.
  *
  * Returns the literal string (without quotes) or `null` if the export
  * cannot be found.
@@ -49,10 +49,11 @@ function extractExportedConstString(
   source: string,
   constName: string,
 ): string | null {
-  // Matches: export const FOO = "bar";  (also ' and whitespace
-  // variations). The value group stops at the next matching quote.
+  // Matches: export const FOO = "bar";  (also ' and whitespace /
+  // newline variations). The `[\s\S]` after `=` allows the value to
+  // appear on the next line when the formatter wraps long names.
   const re = new RegExp(
-    `export\\s+const\\s+${constName}\\s*=\\s*(['"])([^'"]*)\\1`,
+    `export\\s+const\\s+${constName}\\s*=\\s*(?:[\\s\\S]*?)(['"])([^'"]*)\\1`,
   );
   const match = source.match(re);
   if (!match) return null;
@@ -61,7 +62,7 @@ function extractExportedConstString(
 
 describe("native-host marker sync guard", () => {
   test("NATIVE_HOST_MARKER_HEADER matches across runtime route and native host", () => {
-    const assistantSource = readFileSync(
+    const gatewaySource = readFileSync(
       join(repoRoot, ASSISTANT_PAIR_ROUTE_PATH),
       "utf8",
     );
@@ -71,8 +72,8 @@ describe("native-host marker sync guard", () => {
     );
 
     const assistantHeader = extractExportedConstString(
-      assistantSource,
-      "NATIVE_HOST_MARKER_HEADER",
+      gatewaySource,
+      "BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_HEADER",
     );
     const nativeHostHeader = extractExportedConstString(
       nativeHostSource,
@@ -101,7 +102,7 @@ describe("native-host marker sync guard", () => {
   });
 
   test("NATIVE_HOST_MARKER_VALUE matches across runtime route and native host", () => {
-    const assistantSource = readFileSync(
+    const gatewaySource = readFileSync(
       join(repoRoot, ASSISTANT_PAIR_ROUTE_PATH),
       "utf8",
     );
@@ -111,8 +112,8 @@ describe("native-host marker sync guard", () => {
     );
 
     const assistantValue = extractExportedConstString(
-      assistantSource,
-      "NATIVE_HOST_MARKER_VALUE",
+      gatewaySource,
+      "BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_VALUE",
     );
     const nativeHostValue = extractExportedConstString(
       nativeHostSource,

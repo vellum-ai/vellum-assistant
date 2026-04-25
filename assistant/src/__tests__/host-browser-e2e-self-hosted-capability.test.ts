@@ -61,7 +61,11 @@ import type { Conversation } from "../daemon/conversation.js";
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getDb, initializeDb } from "../memory/db.js";
-import { mintHostBrowserCapability } from "../runtime/capability-tokens.js";
+import {
+  mintHostBrowserCapability,
+  resetCapabilityTokenSecretForTests,
+  setCapabilityTokenSecretForTests,
+} from "../runtime/capability-tokens.js";
 import {
   __resetChromeExtensionRegistryForTests,
   getChromeExtensionRegistry,
@@ -125,6 +129,10 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
   let runtimeBaseUrl: string;
 
   beforeEach(async () => {
+    // Inject a deterministic secret so mintHostBrowserCapability works
+    // in-process without a live gateway.
+    setCapabilityTokenSecretForTests(Buffer.alloc(32, 0xab));
+
     // Each test gets a clean DB and a fresh registry so connection
     // state doesn't leak between cases.
     const db = getDb();
@@ -143,6 +151,7 @@ describe("host_browser self-hosted capability-token e2e round-trip", () => {
     await server?.stop();
     pendingInteractions.clear();
     __resetChromeExtensionRegistryForTests();
+    resetCapabilityTokenSecretForTests();
   });
 
   test("capability token round-trips Browser.getVersion over WS result transport", async () => {

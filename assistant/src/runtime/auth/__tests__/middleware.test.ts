@@ -292,14 +292,14 @@ describe("authenticateHostBrowserResultRequest", () => {
     resetCapabilityTokenSecretForTests();
   });
 
-  test("accepts a valid capability token and synthesizes an actor AuthContext", () => {
+  test("accepts a valid capability token and synthesizes an actor AuthContext", async () => {
     const { token } = mintHostBrowserCapability("guardian-cap-happy");
     const req = new Request("http://localhost/v1/host-browser-result", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    const result = authenticateHostBrowserResultRequest(req);
+    const result = await authenticateHostBrowserResultRequest(req);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.context.principalType).toBe("actor");
@@ -313,14 +313,14 @@ describe("authenticateHostBrowserResultRequest", () => {
     }
   });
 
-  test("accepts a valid daemon-audience JWT (regression for the legacy path)", () => {
+  test("accepts a valid daemon-audience JWT (regression for the legacy path)", async () => {
     const token = mintValidToken({ sub: "actor:self:jwt-principal" });
     const req = new Request("http://localhost/v1/host-browser-result", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    const result = authenticateHostBrowserResultRequest(req);
+    const result = await authenticateHostBrowserResultRequest(req);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.context.principalType).toBe("actor");
@@ -329,19 +329,19 @@ describe("authenticateHostBrowserResultRequest", () => {
     }
   });
 
-  test("returns 401 when the Authorization header is missing entirely", () => {
+  test("returns 401 when the Authorization header is missing entirely", async () => {
     const req = new Request("http://localhost/v1/host-browser-result", {
       method: "POST",
     });
 
-    const result = authenticateHostBrowserResultRequest(req);
+    const result = await authenticateHostBrowserResultRequest(req);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
     }
   });
 
-  test("malformed bearer falls through to JWT path and 401s", () => {
+  test("malformed bearer falls through to JWT path and 401s", async () => {
     // A bearer that is neither a valid capability token (bad HMAC) nor a
     // parseable JWT must fail the JWT path and return 401. This is the
     // primary regression guard against someone accidentally making the
@@ -352,21 +352,21 @@ describe("authenticateHostBrowserResultRequest", () => {
       headers: { Authorization: "Bearer not-a-token.xxxxxxxxxxxxx" },
     });
 
-    const result = authenticateHostBrowserResultRequest(req);
+    const result = await authenticateHostBrowserResultRequest(req);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.response.status).toBe(401);
     }
   });
 
-  test("dev bypass returns synthetic AuthContext without Authorization header", () => {
+  test("dev bypass returns synthetic AuthContext without Authorization header", async () => {
     authDisabled = true;
 
     const req = new Request("http://localhost/v1/host-browser-result", {
       method: "POST",
     });
 
-    const result = authenticateHostBrowserResultRequest(req);
+    const result = await authenticateHostBrowserResultRequest(req);
     expect(result.ok).toBe(true);
     if (result.ok) {
       // Same synthetic context shape as authenticateRequest's dev

@@ -285,7 +285,7 @@ sources; all sources are consulted, and any one of them is sufficient to
 admit an ID:
 
 1. Canonical repo config at
-   `meta/browser-extension/chrome-extension-allowlist.json` (repo checkout paths).
+   `gateway/chrome-extension-allowlist.json` (repo checkout paths).
 2. Local override at `~/.vellum/chrome-extension-allowlist.local.json`
    (optional — silently ignored if absent). Developers use this to allowlist
    an unpacked dev-build ID without committing it to the repo.

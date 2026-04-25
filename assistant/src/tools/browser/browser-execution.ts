@@ -2179,7 +2179,7 @@ function probeFailureActions(mode: StatusCheckMode, error: CdpError): string[] {
       )
     ) {
       actions.push(
-        "Ensure this extension ID is present in meta/browser-extension/chrome-extension-allowlist.json and restart the assistant.",
+        "Ensure this extension ID is present in the chrome-extension-allowlist.json in $GATEWAY_SECURITY_DIR and restart the assistant.",
       );
     }
     if (

@@ -13,6 +13,8 @@ Bun + TypeScript monorepo with multiple packages:
 - `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md` for contribution rules and portability requirements.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant lifecycle.
 
+**`meta/` is a parent package, NOT a shared package.** Its purpose is to be the root workspace that all service packages (`gateway/`, `assistant/`, etc.) descend from — it provides workspace-level tooling, CI configuration, and build scripts. It must never contain runtime code, constants, or configuration files that child services import. A gateway or assistant module importing from `../../meta/` is a layering violation. Static config files (e.g. allowlists, registries) that a service consumes at runtime belong in that service's own package directory. Existing `meta/` contents (feature flags, test infra) are either shared build/CI metadata or are being migrated out.
+
 ## Intellectual Honesty
 
 Defend your technical positions. If you change your mind, explain what new information changed it — not just that the user questioned it. Do not flip-flop to agree with the user; sycophantic responses erode trust and lead to worse outcomes.
@@ -196,20 +198,6 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 "Daemon" is an internal implementation detail. In all user-facing text — CLI output, error messages, help strings, SKILL.md instructions that would be relayed to users, README documentation, and UI strings — use **"assistant"** instead of "daemon". Internal code (variable names, class names, file paths, log messages, comments explaining architecture) may continue using "daemon" since users don't see those. When in doubt, ask: "Would a user ever read this?" If yes, say "assistant".
 
-## Multi-Instance Path Invariant
-
-The assistant daemon's root directory is **per-instance**. `vellumRoot()` in `assistant/src/util/platform.ts` reads `BASE_DATA_DIR` — set by the CLI on every daemon and gateway spawn — and returns `join(BASE_DATA_DIR, ".vellum")`. When `BASE_DATA_DIR` is unset (containerized deployments, manual test invocations outside the CLI-spawn lifecycle), it falls back to `join(homedir(), ".vellum")`. Every root-level path (PID file, `.env`, `runtime-port`, `protected/` — with its `keys.enc`, `trust.json`, `capability-token-secret`, `credentials/`, etc. — daemon stderr log) and the workspace directory itself derive from this helper, so a single fix cascades through every consumer.
-
-New local hatches allocate `instanceDir` under `$XDG_DATA_HOME/vellum/assistants/<name>/` (or `$XDG_DATA_HOME/vellum-<env>/assistants/<name>/` in non-production environments), and the daemon for that instance writes everything under `<instanceDir>/.vellum/`. Existing production lockfile entries that were created before this change may have `instanceDir = homedir()`; the read path honors whatever is stored in `resources.instanceDir`, so those assistants continue to live at `~/.vellum/` with no on-disk migration.
-
-`BASE_DATA_DIR` is the **canonical per-instance signal** the daemon consumes — it is not legacy and is not slated for removal. The CLI sets it in `cli/src/lib/local.ts` on every local daemon/gateway spawn, sourced from `resources.instanceDir` in the lockfile entry. The gateway (`gateway/src/paths.ts:getRootDir`) reads the same variable, so the daemon and gateway always agree on the root.
-
-Note that the CLI still writes the authoritative `vellum.pid` (and `gateway.pid`, `ngrok.pid`) for each instance externally from its own process at `<instanceDir>/.vellum/vellum.pid` during spawn. The daemon also writes its own `vellumRoot()/vellum.pid` via `getPidPath()`. These paths are identical under `BASE_DATA_DIR`, so there is no divergence in practice — the CLI-written PID is the one consulted for lifecycle commands.
-
-**XDG-shared config files** (platform-token, device-id, guardian tokens) are environment-scoped on both the CLI and daemon sides via `getXdgVellumConfigDirName()` in `assistant/src/util/platform.ts`: production resolves to `$XDG_CONFIG_HOME/vellum/`, non-production to `$XDG_CONFIG_HOME/vellum-<env>/` (for the seed environments `dev`, `staging`, `test`, `local`; unknown values fall back to `vellum` for safety). The Swift client's `VellumPaths.current.configDir` mirrors the same convention so every writer of these files agrees on the location.
-
-In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`) and `GATEWAY_SECURITY_DIR` points at the gateway's security volume. Docker mode does not set `BASE_DATA_DIR`, so the two resolution paths do not conflict — containerized deployments keep using the workspace/security-volume conventions and ignore the per-instance override. Code that needs the workspace path must use `getWorkspaceDir()` rather than assuming it lives under `vellumRoot()`.
-
 ## Qdrant Port Override
 
 Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant ports. Setting `QDRANT_URL` triggers QdrantManager's external/remote mode which bypasses the local managed Qdrant lifecycle (download, start, health checks). The CLI deletes `QDRANT_URL` from the environment when spawning instance daemons to ensure local Qdrant management is used.
@@ -250,8 +238,10 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 **Never store secrets, API keys, or sensitive credentials in the workspace directory.**
 
-- **Local mode**: Use the credential store (`assistant credentials`) or the `~/.vellum/protected/` directory for sensitive data.
-- **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`) live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
+- **Local mode**: Use the credential store (`assistant credentials`) or `GATEWAY_SECURITY_DIR` (resolved by `getGatewaySecurityDir()` in `gateway/src/paths.ts`) for sensitive data. Do **not** create new secrets in the daemon's `protected/` directory — that directory is being phased out; all new security-sensitive files belong in the gateway security dir or CES.
+- **Docker mode**: Sensitive files are isolated on dedicated security volumes that only the owning service can access. Trust rules (`trust.json`, `actor-token-signing-key`), capability-token secrets, and other gateway-owned security material live on the gateway security volume (`/gateway-security`). Credential keys (`keys.enc`, `store.key`) live on the CES security volume (`/ces-security`). The assistant and gateway access credentials via the CES HTTP API (`CES_CREDENTIAL_URL`), and the assistant accesses trust rules via the gateway's trust HTTP API. Neither the assistant nor the gateway has direct filesystem access to the other service's security volume.
+- **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
+- **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
 
 ## Release Update Hygiene
 

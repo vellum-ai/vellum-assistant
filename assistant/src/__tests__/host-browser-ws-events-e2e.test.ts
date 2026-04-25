@@ -69,7 +69,11 @@ import {
   onCdpEvent,
 } from "../browser-session/index.js";
 import { getDb, initializeDb } from "../memory/db.js";
-import { mintHostBrowserCapability } from "../runtime/capability-tokens.js";
+import {
+  mintHostBrowserCapability,
+  resetCapabilityTokenSecretForTests,
+  setCapabilityTokenSecretForTests,
+} from "../runtime/capability-tokens.js";
 import {
   __resetChromeExtensionRegistryForTests,
   getChromeExtensionRegistry,
@@ -114,6 +118,8 @@ describe("host_browser WS event + invalidation e2e", () => {
   let runtimeBaseUrl: string;
 
   beforeEach(async () => {
+    setCapabilityTokenSecretForTests(Buffer.alloc(32, 0xab));
+
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
@@ -135,6 +141,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     pendingInteractions.clear();
     __resetChromeExtensionRegistryForTests();
     __resetBrowserSessionEventsForTests();
+    resetCapabilityTokenSecretForTests();
   });
 
   test("host_browser_event frame fans out to browser-session event bus subscribers", async () => {

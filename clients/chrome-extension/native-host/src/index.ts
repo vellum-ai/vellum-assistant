@@ -54,8 +54,8 @@ import { decodeFrames, encodeFrame, FrameDecodeError } from "./protocol.js";
  * Loaded from the union of three sources so developers can allowlist a
  * local unpacked-extension ID without committing it to the repo:
  *
- *   1. Canonical repo config (`meta/browser-extension/chrome-extension-allowlist.json`)
- *   2. Local override (`~/.vellum/chrome-extension-allowlist.local.json`)
+ *   1. Canonical repo config (`gateway/chrome-extension-allowlist.json`)
+ *   2. Local override (`$GATEWAY_SECURITY_DIR/chrome-extension-allowlist.local.json`)
  *   3. Env var (`VELLUM_CHROME_EXTENSION_IDS` / `VELLUM_CHROME_EXTENSION_ID`)
  */
 const EXTENSION_ID_REGEX = /^[a-p]{32}$/;
@@ -69,21 +69,20 @@ const ALLOWLIST_CONFIG_PATH_CANDIDATES = [
     "..",
     "..",
     "..",
-    "meta",
-    "browser-extension",
+    "gateway",
     "chrome-extension-allowlist.json",
   ),
   // Repo-root current-working-directory fallback.
   resolve(
     process.cwd(),
-    "meta",
-    "browser-extension",
+    "gateway",
     "chrome-extension-allowlist.json",
   ),
 ];
+// Local override in $GATEWAY_SECURITY_DIR (or ~/.vellum/protected/ fallback).
 const LOCAL_OVERRIDE_PATH = join(
-  homedir(),
-  ".vellum",
+  process.env.GATEWAY_SECURITY_DIR?.trim() ||
+    join(homedir(), ".vellum", "protected"),
   "chrome-extension-allowlist.local.json",
 );
 
@@ -194,7 +193,7 @@ const RUNTIME_PORT_FILE = join(homedir(), ".vellum", "runtime-port");
  * without a CORS preflight, which the pair endpoint does not serve). Kept
  * in sync with `NATIVE_HOST_MARKER_HEADER` /
  * `NATIVE_HOST_MARKER_VALUE` in
- * `assistant/src/runtime/routes/browser-extension-pair-routes.ts`.
+ * `gateway/src/http/routes/browser-extension-pair.ts`.
  */
 export const NATIVE_HOST_MARKER_HEADER = "x-vellum-native-host";
 export const NATIVE_HOST_MARKER_VALUE = "1";
