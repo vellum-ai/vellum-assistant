@@ -14,7 +14,7 @@
  */
 
 import type { InterfaceId } from "../channels/types.js";
-import { isInterfaceId } from "../channels/types.js";
+import { parseInterfaceId } from "../channels/types.js";
 import type { NotificationSignal } from "./signal.js";
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
@@ -39,13 +39,19 @@ export function resolveVerbosity(
   channel: NotificationChannel,
   contextPayload: Record<string, unknown>,
 ): SurfaceVerbosity {
-  const hint = contextPayload.interfaceHint;
-  if (typeof hint === "string" && isInterfaceId(hint)) {
+  const hint =
+    typeof contextPayload.interfaceHint === "string"
+      ? parseInterfaceId(contextPayload.interfaceHint)
+      : null;
+  if (hint) {
     return RICH_INTERFACES.has(hint) ? "rich" : "compact";
   }
 
-  const sourceIface = contextPayload.sourceInterface;
-  if (typeof sourceIface === "string" && isInterfaceId(sourceIface)) {
+  const sourceIface =
+    typeof contextPayload.sourceInterface === "string"
+      ? parseInterfaceId(contextPayload.sourceInterface)
+      : null;
+  if (sourceIface) {
     return RICH_INTERFACES.has(sourceIface) ? "rich" : "compact";
   }
 

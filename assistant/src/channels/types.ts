@@ -52,11 +52,15 @@ const LEGACY_INTERFACE_ALIASES: Record<string, InterfaceId> = {
   vellum: "web",
 };
 
+/**
+ * Strict type guard — returns `true` only for canonical `InterfaceId`
+ * values. Legacy aliases like `"vellum"` return `false`; use
+ * `parseInterfaceId` to accept and normalize those.
+ */
 export function isInterfaceId(value: unknown): value is InterfaceId {
   return (
     typeof value === "string" &&
-    ((INTERFACE_IDS as readonly string[]).includes(value) ||
-      value in LEGACY_INTERFACE_ALIASES)
+    (INTERFACE_IDS as readonly string[]).includes(value)
   );
 }
 

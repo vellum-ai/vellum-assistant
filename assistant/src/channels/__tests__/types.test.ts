@@ -4,6 +4,7 @@ import {
   INTERACTIVE_INTERFACES,
   INTERFACE_IDS,
   isInterfaceId,
+  parseInterfaceId,
   supportsHostProxy,
 } from "../types.js";
 
@@ -54,6 +55,27 @@ describe("isInterfaceId", () => {
 
   test("returns false for unknown interface", () => {
     expect(isInterfaceId("safari-extension")).toBe(false);
+  });
+
+  test("returns false for legacy alias 'vellum' (use parseInterfaceId to normalize)", () => {
+    expect(isInterfaceId("vellum")).toBe(false);
+  });
+});
+
+describe("parseInterfaceId", () => {
+  test("returns canonical ID for valid interface", () => {
+    expect(parseInterfaceId("web")).toBe("web");
+    expect(parseInterfaceId("macos")).toBe("macos");
+  });
+
+  test("normalizes legacy 'vellum' alias to 'web'", () => {
+    expect(parseInterfaceId("vellum")).toBe("web");
+  });
+
+  test("returns null for unknown interface", () => {
+    expect(parseInterfaceId("safari-extension")).toBeNull();
+    expect(parseInterfaceId(42)).toBeNull();
+    expect(parseInterfaceId(null)).toBeNull();
   });
 });
 
