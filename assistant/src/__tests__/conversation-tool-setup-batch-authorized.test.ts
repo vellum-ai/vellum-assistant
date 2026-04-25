@@ -73,7 +73,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
-    memoryPolicy: { scopeId: "default", strictSideEffects: false },
+    memoryPolicy: { scopeId: "default" },
     ...overrides,
   };
 }

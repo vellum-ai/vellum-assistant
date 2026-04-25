@@ -169,11 +169,10 @@ Channel approvals are always enabled for channel traffic when orchestrator + cal
 
 ### Guardian-Specific Behavior
 
-Guardian actor-role _classification_ (determining whether a sender is guardian, non-guardian, or unverified) runs unconditionally. Guardian _enforcement_ for non-guardian/unverified actors (`forceStrictSideEffects`, fail-closed denial for unverified channels, and approval prompt routing to guardians) is always active when orchestrator + callback context are available.
+Guardian actor-role _classification_ (determining whether a sender is guardian, non-guardian, or unverified) runs unconditionally. Guardian _enforcement_ for non-guardian/unverified actors (fail-closed denial for unverified channels and approval prompt routing to guardians) is always active when orchestrator + callback context are available.
 
 | Flag / Behavior                | Description                                                                                                                                                                                                                                                                         |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `forceStrictSideEffects`       | Automatically set on runs triggered by non-guardian or unverified-channel senders so all side-effect tools require approval.                                                                                                                                                        |
 | **Fail-closed no-binding**     | When no guardian binding exists for a channel, the sender is classified as `unverified_channel`. Any sensitive action is auto-denied with a notice that no guardian has been configured.                                                                                            |
 | **Fail-closed no-identity**    | When `actorExternalId` is absent, the actor is classified as `unverified_channel` (even if no guardian binding exists yet).                                                                                                                                                         |
 | **Guardian-only approval**     | Non-guardian senders cannot approve their own pending actions. Only the verified guardian can approve or deny.                                                                                                                                                                      |
@@ -472,12 +471,11 @@ The image exposes port `3001` and bundles the `assistant` CLI binary.
 
 ### Guardian and gateway-origin issues
 
-| Symptom                                      | Cause                                                                                              | Resolution                                                                                                               |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 403 `FORBIDDEN` on `/channels/inbound`       | JWT does not have `svc_gateway` principal type or `ingress.write` scope                            | Ensure the gateway is minting JWTs with the `gateway_ingress_v1` scope profile when forwarding channel inbound requests. |
-| Non-guardian actions silently denied         | No guardian binding for the channel. The system is fail-closed for unverified channels.            | Run the guardian verification flow from the desktop UI to bind a guardian.                                               |
-| Guardian approval expired                    | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action.                                                                                |
-| `forceStrictSideEffects` unexpectedly active | The sender is classified as `non-guardian` or `unverified_channel`                                 | Verify the sender's `actorExternalId` matches the guardian binding, or set up a guardian binding for the channel.        |
+| Symptom                                | Cause                                                                                              | Resolution                                                                                                               |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 403 `FORBIDDEN` on `/channels/inbound` | JWT does not have `svc_gateway` principal type or `ingress.write` scope                            | Ensure the gateway is minting JWTs with the `gateway_ingress_v1` scope profile when forwarding channel inbound requests. |
+| Non-guardian actions silently denied   | No guardian binding for the channel. The system is fail-closed for unverified channels.            | Run the guardian verification flow from the desktop UI to bind a guardian.                                               |
+| Guardian approval expired              | The 30-minute TTL elapsed. The proactive sweep auto-denied the approval and notified both parties. | The requester must re-trigger the action.                                                                                |
 
 ### Invalid RRULE set expressions
 

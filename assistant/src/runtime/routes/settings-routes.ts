@@ -496,15 +496,14 @@ async function handleToolPermissionSimulate(body: {
       manifestOverride,
     );
 
-    // Private-conversation override
+    // Force explicit approval for side-effect tools.
     if (
       body.forcePromptSideEffects &&
       result.decision === "allow" &&
       isSideEffectTool(body.toolName, body.input)
     ) {
       result.decision = "prompt";
-      result.reason =
-        "Private conversation: side-effect tools require explicit approval";
+      result.reason = "Side-effect tool requires explicit approval";
     }
 
     // Non-interactive override
