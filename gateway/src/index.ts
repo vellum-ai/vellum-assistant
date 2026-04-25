@@ -1703,10 +1703,24 @@ async function main() {
               // (e.g. .mkv, .dmg) for downstream processing. Resolved once
               // per message — the assistant re-checks gateway-service auth
               // before honoring the flag, so impersonation is not possible.
+              // Lookup failures (e.g. assistant.db unavailable) default to
+              // strict handling so non-guardian uploads still flow through
+              // the normal validation path instead of being dropped.
               const slackActorId = normalized.event.actor.actorExternalId;
-              const isGuardianActor = slackActorId
-                ? !!findGuardianForChannelActor("slack", slackActorId)
-                : false;
+              let isGuardianActor = false;
+              if (slackActorId) {
+                try {
+                  isGuardianActor = !!findGuardianForChannelActor(
+                    "slack",
+                    slackActorId,
+                  );
+                } catch (err) {
+                  log.warn(
+                    { err, slackActorId },
+                    "Guardian lookup failed; defaulting to strict attachment validation",
+                  );
+                }
+              }
 
               // Filter oversized attachments
               const eligible = eventAttachments.filter((att) => {
