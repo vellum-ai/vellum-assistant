@@ -184,6 +184,49 @@ describe("runDeterministicRecallSearch", () => {
     }
   });
 
+  test("pinned PKB context leaves excerpt budget for exact PKB hits", async () => {
+    const result = await runDeterministicRecallSearch(
+      { query: "where does alice live", sources: ["pkb"], max_results: 3 },
+      makeContext(),
+      {
+        adapters: [
+          makeAdapter("pkb", [
+            makeEvidence("pkb", {
+              id: "pkb:lexical:people/alice.md:5",
+              score: 0.2,
+              excerpt:
+                "5: - Lives at Bob's parents' house in Katy and has her own room.",
+              metadata: { retrieval: "lexical" },
+            }),
+          ]),
+        ],
+        readPkbContextEvidence: () => [
+          makeEvidence("pkb", {
+            id: "pkb:auto-inject",
+            title: "PKB auto-injected context",
+            locator: "pkb:auto-inject",
+            excerpt: "A".repeat(RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE * 2),
+          }),
+          makeEvidence("pkb", {
+            id: "pkb:NOW.md",
+            title: "NOW.md",
+            locator: "NOW.md",
+            excerpt: "B".repeat(RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE * 2),
+          }),
+        ],
+      },
+    );
+
+    expect(result.evidence.map((item) => item.id)).toContain(
+      "pkb:lexical:people/alice.md:5",
+    );
+    expect(
+      result.evidence.find(
+        (item) => item.id === "pkb:lexical:people/alice.md:5",
+      )?.excerpt,
+    ).toContain("Lives at Bob's parents' house in Katy");
+  });
+
   test("searches every source by default", async () => {
     const calls: RecallSource[] = [];
     await runDeterministicRecallSearch({ query: "deployment" }, makeContext(), {

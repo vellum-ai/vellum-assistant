@@ -202,6 +202,7 @@ export function buildRecallAgentPromptBundle(
     "- Treat requested output fields like flavor, decoration, message, recipient, timing, or plan details as things to answer, not mandatory search terms.",
     "- Do not use external web, internet, browser, or network sources.",
     "- Do not guess. If the evidence is missing, weak, or contradictory, say so.",
+    "- Do not say the information is absent while any supplied evidence contains relevant facts; cite and summarize the partial evidence instead.",
     "- Report conflicts in the answer or unresolved field instead of silently choosing one side.",
     "- Cite supporting evidence with exact citation_ids from the evidence table only.",
     "- The final output must be a finish_recall tool call.",

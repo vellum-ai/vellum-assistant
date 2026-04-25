@@ -113,6 +113,7 @@ describe("buildRecallAgentPrompt", () => {
     expect(prompt).toContain("search those candidates");
     expect(prompt).toContain("not mandatory search terms");
     expect(prompt).toContain("Report conflicts");
+    expect(prompt).toContain("Do not say the information is absent");
     expect(prompt).toContain("finish_recall tool call");
     expect(prompt).toContain("Allowed citation_ids: ev-1, ev-2");
     expect(prompt).toContain("id: ev-1");

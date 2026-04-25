@@ -302,7 +302,7 @@ async function searchPkbFile(
     queryTerms,
   );
   const score =
-    bestLine.matchedTerms.size / queryTerms.size + pathTerms.size * 0.05;
+    bestLine.matchedTerms.size / queryTerms.size + pathTerms.size * 0.35;
 
   return {
     relativePath,
@@ -317,7 +317,11 @@ function findBestPkbLine(
   lines: readonly string[],
   queryTerms: ReadonlySet<string>,
 ): { lineIndex: number; matchedTerms: Set<string> } | null {
-  let best: { lineIndex: number; matchedTerms: Set<string> } | null = null;
+  let best: {
+    lineIndex: number;
+    matchedTerms: Set<string>;
+    score: number;
+  } | null = null;
 
   lines.forEach((line, lineIndex) => {
     const lineTerms = tokenizeSalientRecallTerms(line);
@@ -326,8 +330,9 @@ function findBestPkbLine(
       return;
     }
 
-    if (!best || matchedTerms.size > best.matchedTerms.size) {
-      best = { lineIndex, matchedTerms };
+    const score = matchedTerms.size * 10 + Math.min(lineTerms.size, 12) / 100;
+    if (!best || score > best.score) {
+      best = { lineIndex, matchedTerms, score };
     }
   });
 

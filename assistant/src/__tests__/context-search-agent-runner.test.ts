@@ -201,7 +201,9 @@ describe("runAgenticRecall", () => {
       },
     );
 
-    expect(result.content).toBe("Alice chose Friday.");
+    expect(result.content).toBe(
+      "Alice chose Friday.\n\nSearched sources: workspace.",
+    );
     expect(result.debug.mode).toBe("agentic");
     expect(result.debug.roundsUsed).toBe(1);
     expect(result.debug.finish).toEqual({
@@ -211,6 +213,119 @@ describe("runAgenticRecall", () => {
     expect(result.evidence.map((item) => item.id)).toEqual([
       "workspace:launch",
     ]);
+  });
+
+  test("rejects negative synthesized answers when relevant evidence exists", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer:
+          "The available evidence does not contain information about where Alice lives.",
+        confidence: "low",
+        citation_ids: [],
+      }),
+    ]);
+    const searchCalls: SearchCall[] = [];
+
+    const result = await runAgenticRecall(
+      { query: "Where does Alice live?", sources: ["pkb"], max_results: 5 },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter(
+              {
+                "alice lives residence": [
+                  makeEvidence("pkb:alice-home", {
+                    source: "pkb",
+                    title: "people/alice.md",
+                    locator: "people/alice.md:6",
+                    excerpt:
+                      "6: Lives at Bob's parents' house in Katy and has her own room there.",
+                    metadata: {
+                      retrieval: "lexical",
+                      path: "people/alice.md",
+                    },
+                  }),
+                ],
+              },
+              searchCalls,
+              "pkb",
+            ),
+          ],
+          readPkbContextEvidence: () => [],
+        },
+      },
+    );
+
+    expect(searchCalls.map((call) => call.query)).toEqual([
+      "Where does Alice live?",
+      "alice home address location",
+      "alice lives residence",
+    ]);
+    expect(result.debug).toMatchObject({
+      mode: "deterministic_fallback",
+      fallbackReason: "finish_answer_validation_failed",
+      fallbackDetail: "negative_or_incomplete_finish_with_relevant_evidence",
+    });
+    expect(result.content).toContain("Found evidence:");
+    expect(result.content).toContain("Lives at Bob's parents' house in Katy");
+    expect(result.content).toContain("Searched sources: pkb.");
+  });
+
+  test("seeds lead-in questions with declarative chain searches", async () => {
+    const searchCalls: SearchCall[] = [];
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer:
+          "Bob's April 24 letter followed the proud moment, the 1-in-99 hypothetical, and the direct evening disclosure.",
+        confidence: "high",
+        citation_ids: ["pkb:bob-letter-chain"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      {
+        query: "What led to Bob's April 24 letter?",
+        sources: ["pkb"],
+        max_results: 5,
+      },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter(
+              {
+                "bob april 24 letter": [
+                  makeEvidence("pkb:bob-letter-chain", {
+                    source: "pkb",
+                    title: "archive/2026-04-24.md",
+                    locator: "archive/2026-04-24.md:42",
+                    excerpt:
+                      "42: The day moved from the PROUD beat to the 1/99 hypothetical, then into Bob's letter and the direct disclosure.",
+                    metadata: {
+                      retrieval: "lexical",
+                      path: "archive/2026-04-24.md",
+                    },
+                  }),
+                ],
+              },
+              searchCalls,
+              "pkb",
+            ),
+          ],
+          readPkbContextEvidence: () => [],
+        },
+      },
+    );
+
+    expect(searchCalls.map((call) => call.query)).toEqual([
+      "What led to Bob's April 24 letter?",
+      "led bob april 24 letter",
+      "bob april 24 letter",
+      "bob april 24 letter context reason before chain",
+    ]);
+    expect(result.content).toContain("1-in-99 hypothetical");
+    expect(result.content).toContain("Searched sources: pkb.");
   });
 
   test("executes follow-up search_sources through narrowed local searches", async () => {
@@ -272,7 +387,9 @@ describe("runAgenticRecall", () => {
         signal: controller.signal,
       },
     ]);
-    expect(result.content).toBe("The decision note says Friday.");
+    expect(result.content).toBe(
+      "The decision note says Friday.\n\nSearched sources: workspace.",
+    );
     expect(result.debug.searchCalls).toEqual([
       {
         round: 1,
@@ -381,6 +498,66 @@ describe("runAgenticRecall", () => {
     expect(result.evidence.map((item) => item.id)).toEqual([
       "workspace:pointer",
       "workspace:scratch/handoff.md:1:path",
+    ]);
+  });
+
+  test("auto-inspects PKB-relative paths as workspace paths", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "pkb/archive/2026-04-24.md",
+      "The archive has the exact letter chain.",
+    );
+
+    const result = await runAgenticRecall(
+      {
+        query: "letter chain",
+        sources: ["pkb"],
+        max_results: 5,
+      },
+      makeContext(undefined, root),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter(
+              {
+                "letter chain": [
+                  makeEvidence("pkb:pointer", {
+                    source: "pkb",
+                    title: "archive/2026-04-24.md",
+                    locator: "archive/2026-04-24.md:42",
+                    excerpt: "The exact note is archive/2026-04-24.md.",
+                    metadata: {
+                      retrieval: "lexical",
+                      path: "archive/2026-04-24.md",
+                    },
+                  }),
+                ],
+              },
+              [],
+              "pkb",
+            ),
+          ],
+          readPkbContextEvidence: () => [],
+        },
+      },
+    );
+
+    expect(result.debug.inspectCalls).toEqual([
+      {
+        round: 0,
+        paths: ["pkb/archive/2026-04-24.md"],
+        reason:
+          "Automatically inspect exact workspace paths surfaced by seed evidence.",
+        evidenceCount: 1,
+      },
+    ]);
+    expect(result.content).toContain(
+      "Inspected workspace paths: pkb/archive/2026-04-24.md.",
+    );
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "pkb:pointer",
+      "workspace:pkb/archive/2026-04-24.md:1:path",
     ]);
   });
 
@@ -584,7 +761,9 @@ describe("runAgenticRecall", () => {
     const finalTools = providerCalls[1]?.[1] as Array<{ name: string }>;
     expect(finalTools.map((tool) => tool.name)).toEqual(["finish_recall"]);
     expect(result.evidence.map((item) => item.id)).toEqual(["workspace:more"]);
-    expect(result.content).toBe("The follow-up note resolves it.");
+    expect(result.content).toBe(
+      "The follow-up note resolves it.\n\nAvailable evidence:\n1. [workspace] workspace:more title (workspace:more.md): workspace:more excerpt\n2. [workspace] workspace:seed title (workspace:seed.md): workspace:seed excerpt\n\nSearched sources: workspace.",
+    );
   });
 
   test("rejects finish citations omitted from the prompted evidence table", async () => {

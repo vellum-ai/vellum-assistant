@@ -9,9 +9,13 @@ import {
   buildRecallAgentPromptBundle,
   FINISH_RECALL_TOOL_DEFINITION,
   RECALL_AGENT_TOOL_DEFINITIONS,
+  type RecallAgentFinish,
   validateFinishRecallPayload,
 } from "./agent-protocol.js";
-import { formatDeterministicRecallAnswer } from "./format.js";
+import {
+  formatDeterministicRecallAnswer,
+  formatRecallFooter,
+} from "./format.js";
 import {
   isRecallSource,
   type NormalizedRecallInput,
@@ -43,7 +47,8 @@ export type AgenticRecallFallbackReason =
   | "timeout"
   | "no_valid_finish"
   | "round_limit"
-  | "citation_validation_failed";
+  | "citation_validation_failed"
+  | "finish_answer_validation_failed";
 
 export interface AgenticRecallSearchDebug {
   round: number;
@@ -93,6 +98,14 @@ const REFERENT_QUERY_PATTERN =
   /\b(asked about|referred to|talking about|mentioned|meant by|referent)\b/i;
 const DETAIL_QUERY_PATTERN =
   /\b(details?|specifics?|flavor|decoration|design|message|inscription|recipient|timing|plan)\b/i;
+const QUESTION_QUERY_PATTERN = /\b(where|what|why|how)\b/i;
+const LOCATION_QUERY_PATTERN =
+  /\b(where|live|lives|lived|living|residence|home|address|location|located)\b/i;
+const LEAD_IN_QUERY_PATTERN =
+  /\b(led to|lead to|leads to|what led|why|how did|chain|context|cause|reason)\b/i;
+
+const LOW_CONFIDENCE_AVAILABLE_EVIDENCE_MAX_ITEMS = 5;
+const AVAILABLE_EVIDENCE_EXCERPT_MAX_CHARS = 220;
 
 const DETAIL_EXPANSION_TERMS = [
   "paid",
@@ -115,6 +128,34 @@ const DETAIL_FIELD_TERMS = new Set([
   "specifics",
   "timing",
   "plan",
+]);
+
+const LOCATION_FIELD_TERMS = new Set([
+  "address",
+  "home",
+  "live",
+  "lived",
+  "lives",
+  "living",
+  "located",
+  "location",
+  "residence",
+  "where",
+]);
+
+const LEAD_IN_FIELD_TERMS = new Set([
+  "cause",
+  "chain",
+  "context",
+  "did",
+  "how",
+  "lead",
+  "leads",
+  "led",
+  "reason",
+  "to",
+  "what",
+  "why",
 ]);
 
 const NON_SALIENT_REFERENT_TERMS = new Set([
@@ -153,6 +194,36 @@ const NON_SALIENT_REFERENT_TERMS = new Set([
   "who",
   "with",
 ]);
+
+const FINISH_NEGATIVE_PATTERNS = [
+  /\bavailable evidence does not contain\b/i,
+  /\bavailable evidence doesn't contain\b/i,
+  /\bevidence does not contain\b/i,
+  /\bevidence doesn't contain\b/i,
+  /\bdoes not contain information\b/i,
+  /\bdoesn't contain information\b/i,
+  /\bno (?:reliable |available |relevant )?(?:evidence|information|results|answer)\b/i,
+  /\bnot enough evidence\b/i,
+  /\binsufficient evidence\b/i,
+  /\bunable to (?:answer|determine|find|provide)\b/i,
+  /\bcannot (?:answer|determine|find|provide)\b/i,
+  /\bcan't (?:answer|determine|find|provide)\b/i,
+  /\bonly the locator path\b/i,
+  /\bno text\b/i,
+];
+
+const PKB_RELATIVE_PATH_PREFIXES = [
+  "archive/",
+  "dpo/",
+  "essentials.md",
+  "INDEX.md",
+  "intimate/",
+  "people/",
+  "preferences/",
+  "procedures/",
+  "schedule/",
+  "us-arcs/",
+];
 
 export async function runAgenticRecall(
   input: RecallInput,
@@ -249,14 +320,17 @@ export async function runAgenticRecall(
       const finishResult = finishRecallFromToolUse(
         finishTool,
         promptBundle.evidence,
+        evidence,
         debug,
+        normalizedInput,
+        withFallbackEvidence(seedResult, evidence),
       );
       if (finishResult.ok) {
         return finishResult.answer;
       }
 
       if (!finishResult.ok) {
-        fallbackReason = "citation_validation_failed";
+        fallbackReason = finishResult.reason;
         fallbackDetail = finishResult.detail;
         break;
       }
@@ -322,6 +396,7 @@ export async function runAgenticRecall(
       evidence,
       debug,
       context,
+      searchResult: withFallbackEvidence(seedResult, evidence),
     });
     if (finalFinish.ok) {
       return finalFinish.answer;
@@ -397,8 +472,14 @@ async function runSeedRecallSearch(
 function buildReferentExpansionQueries(query: string): string[] {
   const shouldExpandReferent = REFERENT_QUERY_PATTERN.test(query);
   const shouldExpandDetails = DETAIL_QUERY_PATTERN.test(query);
+  const shouldExpandQuestion = QUESTION_QUERY_PATTERN.test(query);
+  const shouldExpandLocation = LOCATION_QUERY_PATTERN.test(query);
+  const shouldExpandLeadIn = LEAD_IN_QUERY_PATTERN.test(query);
   const terms = tokenizeReferentTerms(query);
-  if (terms.length === 0 || (!shouldExpandReferent && !shouldExpandDetails)) {
+  if (
+    terms.length === 0 ||
+    (!shouldExpandReferent && !shouldExpandDetails && !shouldExpandQuestion)
+  ) {
     return [];
   }
 
@@ -429,6 +510,26 @@ function buildReferentExpansionQueries(query: string): string[] {
     queries.push(`${lastTerm} ${DETAIL_EXPANSION_TERMS.join(" ")}`);
   }
 
+  if (shouldExpandQuestion && !shouldExpandLocation && terms.length > 1) {
+    queries.push(terms.join(" "));
+  }
+
+  if (shouldExpandLocation && firstTerm) {
+    const entityTerms = terms.filter((term) => !LOCATION_FIELD_TERMS.has(term));
+    const entity = entityTerms[0] ?? firstTerm;
+    queries.push(`${entity} home address location`);
+    queries.push(`${entity} lives residence`);
+  }
+
+  if (shouldExpandLeadIn && terms.length > 1) {
+    const leadTerms = terms.filter((term) => !LEAD_IN_FIELD_TERMS.has(term));
+    const focusedTerms = leadTerms.length > 0 ? leadTerms : terms;
+    queries.push(focusedTerms.join(" "));
+    if (focusedTerms.length > 1) {
+      queries.push(`${focusedTerms.join(" ")} context reason before chain`);
+    }
+  }
+
   return [...new Set(queries)].filter((candidate) => candidate !== query);
 }
 
@@ -448,6 +549,7 @@ async function tryFinalFinishRecall(options: {
   evidence: readonly RecallEvidence[];
   debug: AgenticRecallDebug;
   context: RecallSearchContext;
+  searchResult: DeterministicRecallSearchResult;
 }): Promise<
   | { ok: true; answer: AgenticRecallAnswer }
   | {
@@ -496,7 +598,10 @@ async function tryFinalFinishRecall(options: {
   const finishResult = finishRecallFromToolUse(
     finishTool,
     promptBundle.evidence,
+    options.evidence,
     options.debug,
+    options.normalizedInput,
+    options.searchResult,
   );
   if (finishResult.ok) {
     return finishResult;
@@ -504,38 +609,237 @@ async function tryFinalFinishRecall(options: {
 
   return {
     ok: false,
-    reason: "citation_validation_failed",
+    reason: finishResult.reason,
     detail: finishResult.detail,
   };
 }
 
 function finishRecallFromToolUse(
   finishTool: ToolUseContent,
-  evidence: readonly RecallEvidence[],
+  promptEvidence: readonly RecallEvidence[],
+  allEvidence: readonly RecallEvidence[],
   debug: AgenticRecallDebug,
-): { ok: true; answer: AgenticRecallAnswer } | { ok: false; detail: string } {
-  const validation = validateFinishRecallPayload(finishTool.input, evidence);
+  input: NormalizedRecallInput,
+  searchResult: DeterministicRecallSearchResult,
+):
+  | { ok: true; answer: AgenticRecallAnswer }
+  | { ok: false; reason: AgenticRecallFallbackReason; detail: string } {
+  const validation = validateFinishRecallPayload(
+    finishTool.input,
+    promptEvidence,
+  );
   if (!validation.ok) {
-    return { ok: false, detail: validation.reason };
+    return {
+      ok: false,
+      reason: "citation_validation_failed",
+      detail: validation.reason,
+    };
   }
 
   const finish = validation.finish;
-  const citedEvidence = selectCitedEvidence(evidence, finish.citationIds);
+  const answerValidation = validateFinishAnswerAgainstEvidence(
+    input.query,
+    finish,
+    allEvidence,
+  );
+  if (!answerValidation.ok) {
+    return {
+      ok: false,
+      reason: "finish_answer_validation_failed",
+      detail: answerValidation.reason,
+    };
+  }
+
+  const citedEvidence = selectCitedEvidence(promptEvidence, finish.citationIds);
   debug.finish = {
     confidence: finish.confidence,
     citationIds: finish.citationIds,
     ...(finish.unresolved ? { unresolved: finish.unresolved } : {}),
   };
+  const content = formatAgenticRecallContent({
+    answer: finish.answer,
+    availableEvidence: shouldAppendAvailableEvidence(finish)
+      ? selectAvailableEvidence(input.query, allEvidence, citedEvidence)
+      : [],
+    footer: formatRecallFooter({
+      searchedSources: searchResult.searchedSources,
+      inspectCalls: debug.inspectCalls,
+    }),
+  });
 
   return {
     ok: true,
     answer: {
-      content: finish.answer,
-      answer: finish.answer,
+      content,
+      answer: content,
       evidence: citedEvidence,
       debug,
     },
   };
+}
+
+function validateFinishAnswerAgainstEvidence(
+  query: string,
+  finish: RecallAgentFinish,
+  evidence: readonly RecallEvidence[],
+): { ok: true } | { ok: false; reason: string } {
+  if (!isNegativeOrIncompleteFinish(finish)) {
+    return { ok: true };
+  }
+
+  const relevantEvidence = selectRelevantEvidence(query, evidence);
+  if (relevantEvidence.length === 0) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    reason: "negative_or_incomplete_finish_with_relevant_evidence",
+  };
+}
+
+function isNegativeOrIncompleteFinish(finish: RecallAgentFinish): boolean {
+  const finishText = [finish.answer, ...(finish.unresolved ?? [])].join("\n");
+  return FINISH_NEGATIVE_PATTERNS.some((pattern) => pattern.test(finishText));
+}
+
+function shouldAppendAvailableEvidence(finish: RecallAgentFinish): boolean {
+  return finish.confidence === "low" || (finish.unresolved?.length ?? 0) > 0;
+}
+
+function selectAvailableEvidence(
+  query: string,
+  evidence: readonly RecallEvidence[],
+  citedEvidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  return dedupeEvidenceById([
+    ...citedEvidence,
+    ...selectRelevantEvidence(query, evidence),
+    ...evidence.filter(isUsableEvidence),
+  ]).slice(0, LOW_CONFIDENCE_AVAILABLE_EVIDENCE_MAX_ITEMS);
+}
+
+function selectRelevantEvidence(
+  query: string,
+  evidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  const queryTerms = tokenizeValidationTerms(query);
+  if (queryTerms.size === 0) {
+    return [];
+  }
+
+  return evidence.filter(
+    (item) =>
+      isUsableEvidence(item) &&
+      hasTermOverlap(queryTerms, tokenizeValidationTerms(evidenceText(item))),
+  );
+}
+
+function isUsableEvidence(item: RecallEvidence): boolean {
+  return item.excerpt.trim().length > 0 && item.metadata?.inspectError !== true;
+}
+
+function evidenceText(item: RecallEvidence): string {
+  const metadataPath = item.metadata?.path;
+  return [
+    item.title,
+    item.locator,
+    item.excerpt,
+    typeof metadataPath === "string" ? metadataPath : "",
+  ].join("\n");
+}
+
+function hasTermOverlap(
+  queryTerms: ReadonlySet<string>,
+  evidenceTerms: ReadonlySet<string>,
+): boolean {
+  for (const term of queryTerms) {
+    if (evidenceTerms.has(term)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function tokenizeValidationTerms(text: string): Set<string> {
+  const terms = new Set<string>();
+  for (const token of text.toLowerCase().match(/[a-z0-9_]+/g) ?? []) {
+    if (token.length < 2 || NON_SALIENT_REFERENT_TERMS.has(token)) {
+      continue;
+    }
+    terms.add(token);
+    terms.add(stemValidationTerm(token));
+  }
+  return terms;
+}
+
+function stemValidationTerm(term: string): string {
+  if (term.length > 4 && term.endsWith("ies")) {
+    return `${term.slice(0, -3)}y`;
+  }
+  if (term.length > 3 && term.endsWith("s") && !term.endsWith("ss")) {
+    return term.slice(0, -1);
+  }
+  return term;
+}
+
+function formatAgenticRecallContent(options: {
+  answer: string;
+  availableEvidence: readonly RecallEvidence[];
+  footer: string;
+}): string {
+  return [
+    options.answer.trim(),
+    formatAvailableEvidence(options.availableEvidence),
+    options.footer,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function formatAvailableEvidence(evidence: readonly RecallEvidence[]): string {
+  if (evidence.length === 0) {
+    return "";
+  }
+
+  return [
+    "Available evidence:",
+    ...evidence.map((item, index) => {
+      const excerpt = compactText(
+        item.excerpt,
+        AVAILABLE_EVIDENCE_EXCERPT_MAX_CHARS,
+      );
+      return `${index + 1}. [${item.source}] ${item.title} (${item.locator}): ${excerpt}`;
+    }),
+  ].join("\n");
+}
+
+function compactText(text: string, maxChars: number): string {
+  const compacted = text.trim().replace(/\s+/g, " ");
+  if (compacted.length <= maxChars) {
+    return compacted;
+  }
+  if (maxChars <= 3) {
+    return compacted.slice(0, maxChars);
+  }
+  return `${compacted.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function dedupeEvidenceById(
+  evidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  const seen = new Set<string>();
+  const deduped: RecallEvidence[] = [];
+
+  for (const item of evidence) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 async function executeSearchSources(
@@ -614,10 +918,19 @@ async function executeInspectWorkspacePaths(
   const reason = readSearchReason(payload.reason);
   const requestedPaths = readInspectPaths(payload.paths);
   const allowedPaths = collectInspectableWorkspacePaths(input.query, evidence);
-  const acceptedPaths = requestedPaths.filter((path) => allowedPaths.has(path));
-  const rejectedPaths = requestedPaths.filter(
-    (path) => !allowedPaths.has(path),
-  );
+  const acceptedPaths: string[] = [];
+  const rejectedPaths: string[] = [];
+  for (const requestedPath of requestedPaths) {
+    const acceptedPath = normalizeRequestedWorkspaceInspectionPath(
+      requestedPath,
+      allowedPaths,
+    );
+    if (acceptedPath) {
+      acceptedPaths.push(acceptedPath);
+    } else {
+      rejectedPaths.push(requestedPath);
+    }
+  }
 
   const debug: AgenticRecallInspectDebug = {
     round,
@@ -693,7 +1006,7 @@ async function runAutomaticWorkspaceInspection(
   evidence: RecallEvidence[];
   debug?: AgenticRecallInspectDebug;
 }> {
-  if (!input.sources.includes("workspace")) {
+  if (!input.sources.includes("workspace") && !input.sources.includes("pkb")) {
     return { evidence: [] };
   }
 
@@ -755,12 +1068,7 @@ function collectAutomaticWorkspaceInspectionPaths(
 ): string[] {
   const paths = new Set(extractWorkspacePathLiterals(query));
   for (const item of evidence) {
-    if (item.source !== "workspace") {
-      continue;
-    }
-    for (const path of extractWorkspacePathLiterals(item.excerpt)) {
-      paths.add(path);
-    }
+    collectEvidenceWorkspacePaths(item).forEach((path) => paths.add(path));
   }
   return [...paths].filter(isSafeWorkspaceRelativePath).slice(0, 3);
 }
@@ -771,25 +1079,72 @@ function collectInspectableWorkspacePaths(
 ): Set<string> {
   const paths = new Set(extractWorkspacePathLiterals(query));
   for (const item of evidence) {
-    const metadataPath = item.metadata?.path;
-    if (
-      typeof metadataPath === "string" &&
-      isSafeWorkspaceRelativePath(metadataPath)
-    ) {
-      paths.add(metadataPath);
-    }
-
-    for (const path of extractWorkspacePathLiterals(item.locator)) {
-      paths.add(path);
-    }
-    for (const path of extractWorkspacePathLiterals(item.title)) {
-      paths.add(path);
-    }
-    for (const path of extractWorkspacePathLiterals(item.excerpt)) {
-      paths.add(path);
-    }
+    collectEvidenceWorkspacePaths(item).forEach((path) => paths.add(path));
   }
   return paths;
+}
+
+function collectEvidenceWorkspacePaths(item: RecallEvidence): string[] {
+  if (isPinnedPkbContextEvidence(item)) {
+    return [];
+  }
+
+  const rawPaths = new Set<string>();
+  const metadataPath = item.metadata?.path;
+  if (typeof metadataPath === "string") {
+    rawPaths.add(metadataPath);
+  }
+  for (const text of [item.locator, item.title, item.excerpt]) {
+    for (const path of extractWorkspacePathLiterals(text)) {
+      rawPaths.add(path);
+    }
+  }
+
+  const paths: string[] = [];
+  for (const rawPath of rawPaths) {
+    for (const path of normalizeEvidenceWorkspacePath(rawPath, item.source)) {
+      if (isSafeWorkspaceRelativePath(path)) {
+        paths.push(path);
+      }
+    }
+  }
+  return [...new Set(paths)];
+}
+
+function isPinnedPkbContextEvidence(item: RecallEvidence): boolean {
+  return item.id === "pkb:auto-inject" || item.id === "pkb:NOW.md";
+}
+
+function normalizeRequestedWorkspaceInspectionPath(
+  requestedPath: string,
+  allowedPaths: ReadonlySet<string>,
+): string | null {
+  const pkbPrefixedPath = `pkb/${requestedPath}`;
+  if (!requestedPath.startsWith("pkb/") && allowedPaths.has(pkbPrefixedPath)) {
+    return pkbPrefixedPath;
+  }
+
+  if (allowedPaths.has(requestedPath)) {
+    return requestedPath;
+  }
+
+  return null;
+}
+
+function normalizeEvidenceWorkspacePath(
+  path: string,
+  source: RecallSource,
+): string[] {
+  if (path.startsWith("pkb/")) {
+    return [path];
+  }
+  if (
+    source === "pkb" ||
+    PKB_RELATIVE_PATH_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ) {
+    return [`pkb/${path}`];
+  }
+  return [path];
 }
 
 function makeWorkspaceInspectionErrorEvidence(options: {
@@ -897,7 +1252,9 @@ function deterministicFallback(
   reason: AgenticRecallFallbackReason,
   detail: string,
 ): AgenticRecallAnswer {
-  const fallback = formatDeterministicRecallAnswer(result);
+  const fallback = formatDeterministicRecallAnswer(result, {
+    inspectCalls: debug.inspectCalls,
+  });
   return {
     content: fallback.answer,
     answer: fallback.answer,

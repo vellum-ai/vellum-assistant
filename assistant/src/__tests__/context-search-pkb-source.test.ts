@@ -338,6 +338,42 @@ describe("PKB context-search source", () => {
     expect(result.evidence[0]?.excerpt).toContain("vanilla with raspberry");
   });
 
+  test("lexical PKB fallback finds declarative residence facts", async () => {
+    const root = makeTempDir();
+    embedVectors = [];
+    writeWorkspaceFile(
+      root,
+      "pkb/people/alice.md",
+      [
+        "# Alice",
+        "",
+        "Notes about family geography.",
+        "",
+        "- Lives at Bob's parents' house in Katy and has her own room.",
+      ].join("\n"),
+    );
+
+    const result = await searchPkbSource(
+      "alice lives residence home location address",
+      makeContext({ workingDir: root }),
+      5,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      id: "pkb:lexical:people/alice.md:5",
+      source: "pkb",
+      title: "people/alice.md",
+      locator: "people/alice.md:5",
+      metadata: {
+        retrieval: "lexical",
+        matchedTerms: ["lives"],
+      },
+    });
+    expect(result.evidence[0]?.excerpt).toContain(
+      "Lives at Bob's parents' house in Katy",
+    );
+  });
+
   test("lexical PKB fallback preserves the matched line when context is long", async () => {
     const root = makeTempDir();
     embedVectors = [];

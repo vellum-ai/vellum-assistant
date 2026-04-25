@@ -43,6 +43,9 @@ const PINNED_PKB_CONTEXT_EVIDENCE_IDS = new Set([
   "pkb:auto-inject",
   "pkb:NOW.md",
 ]);
+const PINNED_PKB_CONTEXT_TEXT_CAP = Math.floor(
+  RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE / 2,
+);
 
 export async function runDeterministicRecallSearch(
   input: RecallInput,
@@ -188,7 +191,7 @@ function sortEvidence(evidence: RecallEvidence[]): RecallEvidence[] {
 }
 
 function compareEvidence(a: RecallEvidence, b: RecallEvidence): number {
-  const scoreCompare = (b.score ?? 0) - (a.score ?? 0);
+  const scoreCompare = rankScore(b) - rankScore(a);
   if (scoreCompare !== 0) return scoreCompare;
 
   const timestampCompare = (b.timestampMs ?? 0) - (a.timestampMs ?? 0);
@@ -207,6 +210,19 @@ function compareEvidence(a: RecallEvidence, b: RecallEvidence): number {
       a.excerpt.localeCompare(b.excerpt),
     ].find((comparison) => comparison !== 0) ?? 0
   );
+}
+
+function rankScore(item: RecallEvidence): number {
+  return (item.score ?? 0) + retrievalRankBoost(item);
+}
+
+function retrievalRankBoost(item: RecallEvidence): number {
+  const retrieval = item.metadata?.retrieval;
+  if (retrieval === "path") return 0.45;
+  if (retrieval === "structured-json") return 0.4;
+  if (retrieval === "section") return 0.35;
+  if (retrieval === "lexical") return item.source === "pkb" ? 1.5 : 0.25;
+  return 0;
 }
 
 function dedupeEvidence(evidence: readonly RecallEvidence[]): RecallEvidence[] {
@@ -298,7 +314,11 @@ function getReservedPinnedTextBudget(
   },
 ): number {
   const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
-  const sourceRemaining = RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE - sourceTextSize;
+  const pinnedSourceCap =
+    item.source === "pkb"
+      ? PINNED_PKB_CONTEXT_TEXT_CAP
+      : RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE;
+  const sourceRemaining = pinnedSourceCap - sourceTextSize;
   const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
   const remaining = Math.min(sourceRemaining, totalRemaining);
   return Math.max(1, Math.floor(remaining / state.pinnedRemaining));
