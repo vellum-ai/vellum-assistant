@@ -1,66 +1,135 @@
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 import { getAcpSessionManager } from "../../acp/index.js";
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const execFileAsync = promisify(execFile);
 const log = getLogger("acp:spawn");
 
-/** Cache so we only check once per process lifetime. */
-let adapterVersionChecked = false;
+/**
+ * Maps adapter binary commands to their npm package names. The version
+ * check is best-effort and only runs for known adapters; unknown commands
+ * skip the check entirely.
+ */
+const ADAPTER_NPM_PACKAGES: Record<string, string> = {
+  "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
+  "codex-acp": "@zed-industries/codex-acp",
+};
+
+/** Per-call timeout for `npm` probes. Best-effort: timeouts are non-fatal. */
+const NPM_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Cache of resolved version-check outcomes — including `null` for "skipped" —
+ * keyed by command. Lives for the process lifetime so retries don't reprobe.
+ */
+const adapterVersionCache = new Map<string, AdapterVersionInfo | null>();
 
 interface AdapterVersionInfo {
   outdated: true;
   installed: string;
   latest: string;
+  packageName: string;
 }
 
 /**
- * Checks if the globally-installed claude-agent-acp adapter is outdated.
- * Runs at most once per process lifetime. Does NOT auto-update — returns
- * version info so the caller can ask the user first.
+ * Run `execFile` with an AbortController-driven timeout. Returns the stdout
+ * on success; throws on error or timeout. Caller treats any throw as a
+ * best-effort skip.
+ */
+function execFileWithTimeout(
+  command: string,
+  args: string[],
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    execFile(
+      command,
+      args,
+      { signal: controller.signal, encoding: "utf8" },
+      (err, stdout) => {
+        clearTimeout(timer);
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+  });
+}
+
+/**
+ * Checks if the globally-installed ACP adapter for `command` is outdated.
+ * Best-effort: any error or timeout returns `null` (skipped). Unknown
+ * commands also return `null`. Results are cached per-command for the
+ * process lifetime.
+ *
+ * Note: `npm ls -g` doesn't see Homebrew/tarball installs, so a "not found"
+ * here doesn't mean the binary is missing — it just means we can't compare
+ * versions. The caller must NEVER block the spawn on this result.
  */
 async function checkAdapterVersion(
   command: string,
 ): Promise<AdapterVersionInfo | null> {
-  if (adapterVersionChecked || command !== "claude-agent-acp") {
+  if (adapterVersionCache.has(command)) {
+    return adapterVersionCache.get(command) ?? null;
+  }
+
+  const packageName = ADAPTER_NPM_PACKAGES[command];
+  if (!packageName) {
+    adapterVersionCache.set(command, null);
     return null;
   }
 
   try {
-    const { stdout: installedRaw } = await execFileAsync("npm", [
-      "ls",
-      "-g",
-      "--json",
-      "@zed-industries/claude-agent-acp",
-    ]);
-    const { stdout: latestRaw } = await execFileAsync("npm", [
-      "view",
-      "@zed-industries/claude-agent-acp",
-      "version",
+    const [installedRaw, latestRaw] = await Promise.all([
+      execFileWithTimeout(
+        "npm",
+        ["ls", "-g", "--json", packageName],
+        NPM_PROBE_TIMEOUT_MS,
+      ),
+      execFileWithTimeout(
+        "npm",
+        ["view", packageName, "version"],
+        NPM_PROBE_TIMEOUT_MS,
+      ),
     ]);
 
     const installed =
-      JSON.parse(installedRaw)?.dependencies?.[
-        "@zed-industries/claude-agent-acp"
-      ]?.version;
+      JSON.parse(installedRaw)?.dependencies?.[packageName]?.version;
     const latest = latestRaw.trim();
 
-    adapterVersionChecked = true;
-
     if (!installed || !latest || installed === latest) {
+      adapterVersionCache.set(command, null);
       return null;
     }
 
-    log.info({ installed, latest }, "claude-agent-acp is outdated");
-    return { outdated: true, installed, latest };
+    log.info({ installed, latest, packageName }, "ACP adapter is outdated");
+    const info: AdapterVersionInfo = {
+      outdated: true,
+      installed,
+      latest,
+      packageName,
+    };
+    adapterVersionCache.set(command, info);
+    return info;
   } catch (err) {
-    log.warn({ err }, "Failed to check claude-agent-acp version");
+    log.warn(
+      { err, packageName },
+      "Failed to check ACP adapter version (best-effort, skipping)",
+    );
+    adapterVersionCache.set(command, null);
     return null;
   }
+}
+
+/** @internal — exposed for tests only. */
+export function _resetAdapterVersionCacheForTests(): void {
+  adapterVersionCache.clear();
 }
 
 export async function executeAcpSpawn(
@@ -98,16 +167,9 @@ export async function executeAcpSpawn(
     };
   }
 
-  // Check if the ACP adapter is outdated before spawning
+  // Best-effort version check — never blocks the spawn. If outdated, we
+  // append a non-blocking warning to the success payload.
   const versionInfo = await checkAdapterVersion(agentConfig.command);
-  if (versionInfo) {
-    return {
-      content:
-        `claude-agent-acp is outdated (installed: ${versionInfo.installed}, latest: ${versionInfo.latest}). ` +
-        `Ask the user if they'd like to update. If yes, run: npm install -g @zed-industries/claude-agent-acp@${versionInfo.latest} — then retry acp_spawn.`,
-      isError: true,
-    };
-  }
 
   try {
     const manager = getAcpSessionManager();
@@ -121,20 +183,27 @@ export async function executeAcpSpawn(
       sendToClient as (msg: unknown) => void,
     );
 
-    return {
-      content: JSON.stringify({
-        acpSessionId,
-        protocolSessionId,
-        agent,
-        cwd,
-        status: "running",
-        message:
-          `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
-          `Results stream back via SSE. You will be notified when it completes. ` +
-          `To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`,
-      }),
-      isError: false,
-    };
+    const payload = JSON.stringify({
+      acpSessionId,
+      protocolSessionId,
+      agent,
+      cwd,
+      status: "running",
+      message:
+        `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
+        `Results stream back via SSE. You will be notified when it completes. ` +
+        `To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`,
+    });
+
+    let content = payload;
+    if (versionInfo) {
+      content +=
+        `\n\nNote: ${versionInfo.packageName} is outdated ` +
+        `(installed: ${versionInfo.installed}, latest: ${versionInfo.latest}). ` +
+        `To update, run: npm install -g ${versionInfo.packageName}@${versionInfo.latest}`;
+    }
+
+    return { content, isError: false };
   } catch (err) {
     const msg =
       err instanceof Error
