@@ -1,7 +1,5 @@
 // ---------------------------------------------------------------------------
-// Memory Graph — Tool definitions for recall and remember
-//
-// These replace memory_recall and memory_manage from the old system.
+// Memory Tool definitions for agentic recall and remember.
 // ---------------------------------------------------------------------------
 
 import type { ToolDefinition } from "../../providers/types.js";
