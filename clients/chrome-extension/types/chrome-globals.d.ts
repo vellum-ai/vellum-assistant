@@ -112,6 +112,8 @@ interface ChromeRuntimeManifest {
 }
 
 interface ChromeRuntimeNamespace {
+  /** The ID of the extension. */
+  readonly id: string;
   readonly lastError: ChromeRuntimeLastError | undefined;
   connectNative(application: string): ChromeRuntimePort;
   onMessage: ChromeRuntimeOnMessageEvent;
