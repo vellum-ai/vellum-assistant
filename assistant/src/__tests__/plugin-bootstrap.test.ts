@@ -62,7 +62,7 @@ const TEST_INSTANCE_DIR = join(
   tmpdir(),
   `vellum-plugin-bootstrap-test-${process.pid}`,
 );
-process.env.BASE_DATA_DIR = TEST_INSTANCE_DIR;
+process.env.VELLUM_WORKSPACE_DIR = join(TEST_INSTANCE_DIR, ".vellum", "workspace");
 
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
@@ -125,10 +125,10 @@ describe("plugin bootstrap", () => {
     expect(ctx.credentials).toEqual({});
     expect(ctx.logger).toBeDefined();
     expect(typeof (ctx.logger as { info: unknown }).info).toBe("function");
-    // Storage dir lives under vellumRoot()/plugins-data/<name> and must have
+    // Storage dir lives under getWorkspaceDir()/plugins-data/<name> and must have
     // been created on disk by bootstrap.
     expect(ctx.pluginStorageDir).toBe(
-      join(TEST_INSTANCE_DIR, ".vellum", "plugins-data", "alpha"),
+      join(TEST_INSTANCE_DIR, ".vellum", "workspace", "plugins-data", "alpha"),
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
     expect(ctx.assistantVersion).toBe("9.9.9-test");

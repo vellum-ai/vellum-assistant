@@ -50,10 +50,7 @@ function buildCredentialRefTrace(
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
  */
 function buildCesProtectedPaths(): string[] {
-  // Block both the legacy global protected dir and the current per-instance
-  // protected dir so the sandbox read-block works in both single-instance
-  // and multi-instance setups. In the default case (no BASE_DATA_DIR) the
-  // two entries collapse via the Set dedupe.
+  // and multi-instance setups.
   const protectedDirs = process.env.GATEWAY_SECURITY_DIR
     ? [process.env.GATEWAY_SECURITY_DIR]
     : Array.from(

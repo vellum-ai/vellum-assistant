@@ -7,12 +7,10 @@ import { getWorkspaceDir } from "../util/platform.js";
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 const DEFAULT_UNIX_SOCKET_MAX_PATH_BYTES = 107;
 const IPC_TMP_DIR_NAME = "vellum-ipc";
-const IPC_BASE_DATA_DIR_NAME = "ipc";
 
 export type IpcSocketPathSource =
   | "env-override"
   | "workspace"
-  | "base-data-dir"
   | "tmp-hash"
   | "tmp-short-hash";
 
@@ -31,12 +29,6 @@ function getUnixSocketMaxPathBytes(): number {
 
 function isPathWithinSocketLimit(path: string, maxPathBytes: number): boolean {
   return Buffer.byteLength(path, "utf8") <= maxPathBytes;
-}
-
-function buildBaseDataDirCandidate(socketFileName: string): string | null {
-  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
-  if (!baseDataDir) return null;
-  return join(baseDataDir, IPC_BASE_DATA_DIR_NAME, socketFileName);
 }
 
 function buildTmpCandidate(
@@ -78,19 +70,6 @@ export function resolveIpcSocketPath(
     return {
       path: workspacePath,
       source: "workspace",
-      workspacePath,
-      maxPathBytes,
-    };
-  }
-
-  const baseDataDirCandidate = buildBaseDataDirCandidate(socketFileName);
-  if (
-    baseDataDirCandidate &&
-    isPathWithinSocketLimit(baseDataDirCandidate, maxPathBytes)
-  ) {
-    return {
-      path: baseDataDirCandidate,
-      source: "base-data-dir",
       workspacePath,
       maxPathBytes,
     };

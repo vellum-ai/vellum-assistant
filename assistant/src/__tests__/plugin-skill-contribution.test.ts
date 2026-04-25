@@ -62,7 +62,7 @@ const TEST_INSTANCE_DIR = join(
   tmpdir(),
   `vellum-plugin-skill-test-${process.pid}`,
 );
-process.env.BASE_DATA_DIR = TEST_INSTANCE_DIR;
+process.env.VELLUM_WORKSPACE_DIR = join(TEST_INSTANCE_DIR, ".vellum", "workspace");
 
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {

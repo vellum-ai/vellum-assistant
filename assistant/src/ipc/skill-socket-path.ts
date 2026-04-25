@@ -4,7 +4,7 @@
  * daemon.
  *
  * Delegates to the shared `resolveIpcSocketPath` in `socket-path.ts` so the
- * same workspace → BASE_DATA_DIR → tmp fallback chain applies for platforms
+ * same workspace → tmp fallback chain applies for platforms
  * with strict AF_UNIX path limits.
  */
 

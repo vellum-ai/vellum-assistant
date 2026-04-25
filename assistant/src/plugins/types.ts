@@ -110,7 +110,7 @@ export interface PluginInitContext {
    * to avoid pulling pino into the types module.
    */
   logger: unknown;
-  /** Absolute path to `~/.vellum/plugins-data/<plugin>/` (created by bootstrap). */
+  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
   pluginStorageDir: string;
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;

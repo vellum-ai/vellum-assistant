@@ -5,12 +5,9 @@
  * `meta/feature-flags/feature-flag-registry.json` and resolves the effective
  * enabled/disabled state for each declared assistant-scope flag by consulting
  * (in priority order):
- *   1. Override values from the gateway IPC socket (or local file fallback)
- *   2. Remote values from `feature-flags-remote.json` (platform-pushed,
- *      cached locally; only used in local mode — containerized mode gets
- *      remote values via the gateway)
- *   3. defaults registry `defaultEnabled`         (for declared keys)
- *   4. `true`                                     (for undeclared keys)
+ *   1. Override values from the gateway IPC socket
+ *   2. defaults registry `defaultEnabled`         (for declared keys)
+ *   3. `true`                                     (for undeclared keys)
  *
  * Key format:
  *   Canonical:  simple kebab-case string (e.g., "browser", "ces-tools")
@@ -20,7 +17,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
-import { getProtectedDir } from "../util/platform.js";
+
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -137,49 +134,7 @@ interface FeatureFlagFileData {
   values: Record<string, boolean>;
 }
 
-/**
- * Resolve the path to the feature flag overrides file.
- *
- * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
- * Local:  `<protectedDir>/feature-flags.json` — resolved via `getProtectedDir()`
- *         so it honors `BASE_DATA_DIR` for per-instance setups.
- */
-function getFeatureFlagOverridesPath(): string {
-  const securityDir = process.env.GATEWAY_SECURITY_DIR;
-  if (securityDir) {
-    return join(securityDir, "feature-flags.json");
-  }
-  return join(getProtectedDir(), "feature-flags.json");
-}
 
-/**
- * Load override values from the local feature-flags.json file.
- * Returns an empty record if the file doesn't exist or is malformed.
- */
-function loadOverridesFromFile(): Record<string, boolean> {
-  const path = getFeatureFlagOverridesPath();
-  if (!existsSync(path)) return {};
-
-  try {
-    const raw = readFileSync(path, "utf-8");
-    const data = JSON.parse(raw) as FeatureFlagFileData;
-    if (data.version !== 1) return {};
-    if (
-      data.values &&
-      typeof data.values === "object" &&
-      !Array.isArray(data.values)
-    ) {
-      const filtered: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(data.values)) {
-        if (typeof v === "boolean") filtered[k] = v;
-      }
-      return filtered;
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
 
 /**
  * Fetch override values from the gateway via IPC (Unix domain socket).
@@ -205,9 +160,8 @@ async function fetchOverridesFromGateway(): Promise<Record<string, boolean>> {
  * uses the gateway. In local mode, falls back to the local file when
  * the gateway is unreachable.
  *
- * On failure, the cache is left unset so subsequent sync calls fall
- * through to the file-based fallback rather than caching an empty map
- * that masks all overrides for the process lifetime.
+ * On failure, the cache is left unset so subsequent sync calls return an
+ * empty override map (registry defaults only).
  *
  * No-ops when the cache is already populated — callers that want to
  * refresh must call `clearFeatureFlagOverridesCache()` first. This lets
@@ -224,23 +178,18 @@ export async function initFeatureFlagOverrides(): Promise<void> {
     return;
   }
 
-  // Gateway returned empty or failed. If the cache was populated from the
-  // file fallback, leave it in place for the next sync read. Otherwise leave
-  // unset so `loadOverrides()` falls through to file on first sync read.
+  // Gateway returned empty or failed — leave cache unset so loadOverrides()
+  // returns an empty map on subsequent sync reads.
 }
 
 /**
  * Read cached overrides synchronously.
  *
- * If `initFeatureFlagOverrides()` was called at startup, this returns the
- * pre-populated cache. Otherwise falls back to the local file — this
- * ensures the resolver never blocks on a network call.
+ * Returns the gateway-populated cache if `initFeatureFlagOverrides()` was
+ * called at startup, or an empty record otherwise.
  */
 function loadOverrides(): Record<string, boolean> {
-  if (cachedOverrides != null) return cachedOverrides;
-
-  cachedOverrides = loadOverridesFromFile();
-  return cachedOverrides;
+  return cachedOverrides ?? {};
 }
 
 // ---------------------------------------------------------------------------
@@ -254,46 +203,14 @@ function loadOverrides(): Record<string, boolean> {
 let cachedRemoteValues: Record<string, boolean> | null = null;
 
 /**
- * Load remote flag values from the `feature-flags-remote.json` file that
- * lives alongside the local overrides file. Returns an empty record if the
- * file doesn't exist or is malformed.
- *
- * In containerized mode, this file won't exist — the gateway already merges
- * remote values into its response — so we'll harmlessly return `{}`.
- */
-function loadRemoteValuesFromFile(): Record<string, boolean> {
-  const overridesPath = getFeatureFlagOverridesPath();
-  const remotePath = join(dirname(overridesPath), "feature-flags-remote.json");
-  if (!existsSync(remotePath)) return {};
-
-  try {
-    const raw = readFileSync(remotePath, "utf-8");
-    const data = JSON.parse(raw) as FeatureFlagFileData;
-    if (data.version !== 1) return {};
-    if (
-      data.values &&
-      typeof data.values === "object" &&
-      !Array.isArray(data.values)
-    ) {
-      const filtered: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(data.values)) {
-        if (typeof v === "boolean") filtered[k] = v;
-      }
-      return filtered;
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-/**
  * Load remote values with module-level caching.
+ *
+ * Remote values are now always included in the gateway IPC response (merged
+ * server-side), so this only returns the injected test cache. In production,
+ * remote values flow through the overrides cache.
  */
 function loadRemoteValues(): Record<string, boolean> {
-  if (cachedRemoteValues != null) return cachedRemoteValues;
-  cachedRemoteValues = loadRemoteValuesFromFile();
-  return cachedRemoteValues;
+  return cachedRemoteValues ?? {};
 }
 
 /**
@@ -338,11 +255,9 @@ export function _setOverridesForTesting(
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. Override from gateway IPC socket (or local file fallback)
- *   2. Remote value from `feature-flags-remote.json` (platform-pushed,
- *      cached locally)
- *   3. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
- *   4. `true`                                     (for undeclared keys with no override)
+ *   1. Override from gateway IPC socket
+ *   2. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
+ *   3. `true`                                     (for undeclared keys with no override)
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
