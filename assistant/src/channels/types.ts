@@ -169,6 +169,24 @@ export function canServiceRegistryBrowser(id: InterfaceId): boolean {
   return id === "chrome-extension" || id === "macos";
 }
 
+/**
+ * Whether the interface can service host_browser frames via the SSE event
+ * hub when a chrome-extension client is connected over SSE (cloud mode).
+ *
+ * In cloud/platform-hosted deployments the chrome extension connects via
+ * SSE (`GET /v1/events`) instead of a direct WebSocket. There is no
+ * ChromeExtensionRegistry entry, but the extension is a valid SSE consumer
+ * for `host_browser_request` frames and can POST results back to
+ * `/v1/host-browser-result`.
+ *
+ * Returns `true` for interfaces that should provision a `HostBrowserProxy`
+ * with the SSE hub sender when a chrome-extension SSE client is present in
+ * the ClientRegistry.
+ */
+export function canServiceSseBrowser(id: InterfaceId): boolean {
+  return id === "web" || id === "chrome-extension" || id === "macos";
+}
+
 export interface TurnInterfaceContext {
   userMessageInterface: InterfaceId;
   assistantMessageInterface: InterfaceId;
