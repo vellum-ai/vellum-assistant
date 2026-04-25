@@ -1,14 +1,9 @@
 /**
- * Risk classifier parity validation — gateway port.
+ * Risk classifier baseline validation.
  *
  * Verifies that the gateway's BashRiskClassifier produces consistent results
- * against a baseline of expected risk levels. This is the gateway counterpart
- * of assistant/src/__tests__/risk-classifier-parity.test.ts.
- *
- * In the assistant, the parity test compares classifyRisk() (checker.ts) with
- * bashRiskClassifier.classify() to catch divergences. In the gateway, there is
- * no checker.ts — the classifier is the sole entry point. This test verifies
- * that the gateway classifier matches the expected baselines.
+ * against a baseline of expected risk levels. The gateway classifier is the
+ * sole entry point for all risk classification.
  */
 import { describe, expect, test } from "bun:test";
 

@@ -1,9 +1,9 @@
 /**
- * Gateway-side trust store — file-backed persistence of trust rules.
+ * V1 trust store — file-backed persistence of trust rules (trust.json).
  *
- * Ported from `assistant/src/permissions/trust-store.ts` so that the gateway
- * can own trust rule CRUD and expose it via HTTP API.  The assistant daemon
- * will later use the gateway's HTTP API instead of reading trust.json directly.
+ * This is the legacy trust rule store, used when `permission-controls-v3`
+ * is off. V3 trust rules live in the `trust_rules` SQLite table
+ * (see trust-store-v3.ts). Will be removed once v3 is the sole path.
  */
 
 import {
