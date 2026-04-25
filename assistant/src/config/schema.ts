@@ -3,60 +3,11 @@ import { z } from "zod";
 import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
-export type { PermissionMode } from "../permissions/permission-mode.js";
-export {
-  DEFAULT_PERMISSION_MODE,
-  PermissionModeSchema,
-} from "../permissions/permission-mode.js";
-export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
-export { AcpConfigSchema } from "./acp-schema.js";
-export type { AnalysisConfig } from "./schemas/analysis.js";
 export { AnalysisConfigSchema } from "./schemas/analysis.js";
 export type { BackupConfig, BackupDestination } from "./schemas/backup.js";
 export { BackupConfigSchema } from "./schemas/backup.js";
-export type {
-  CallerIdentityConfig,
-  CallsConfig,
-  CallsDisclosureConfig,
-  CallsSafetyConfig,
-  CallsVerificationConfig,
-  CallsVoiceConfig,
-} from "./schemas/calls.js";
-export {
-  CallerIdentityConfigSchema,
-  CallsConfigSchema,
-  CallsDisclosureConfigSchema,
-  CallsSafetyConfigSchema,
-  CallsVerificationConfigSchema,
-  CallsVoiceConfigSchema,
-  VALID_CALLER_IDENTITY_MODES,
-} from "./schemas/calls.js";
-export type {
-  SlackConfig,
-  TelegramConfig,
-  TwilioConfig,
-  WhatsAppConfig,
-} from "./schemas/channels.js";
-export {
-  SlackConfigSchema,
-  TelegramConfigSchema,
-  TwilioConfigSchema,
-  WhatsAppConfigSchema,
-} from "./schemas/channels.js";
-export type { ConversationsConfig } from "./schemas/conversations.js";
-export { ConversationsConfigSchema } from "./schemas/conversations.js";
-export {
-  DEFAULT_ELEVENLABS_VOICE_ID,
-  VALID_CONVERSATION_TIMEOUTS,
-} from "./schemas/elevenlabs.js";
-export type { HeartbeatConfig } from "./schemas/heartbeat.js";
-export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
-export type {
-  DesktopAutoCdpInspectConfig,
-  HostBrowserCdpInspectConfig,
-  HostBrowserConfig,
-} from "./schemas/host-browser.js";
-export { HostBrowserConfigSchema } from "./schemas/host-browser.js";
+export { VALID_CALLER_IDENTITY_MODES } from "./schemas/calls.js";
+export { DEFAULT_ELEVENLABS_VOICE_ID } from "./schemas/elevenlabs.js";
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
