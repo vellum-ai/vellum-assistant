@@ -1,8 +1,8 @@
 /**
- * Gateway-native guardian bootstrap — mints credentials by operating
- * directly on the assistant's SQLite database (shared workspace volume)
- * for contacts and token persistence. Uses the gateway's own signing
- * key for JWT minting.
+ * Gateway-native guardian bootstrap — mints credentials using the
+ * gateway's own SQLite database for token persistence and the
+ * assistant's database for contact lookups (contacts migration is
+ * separate). Uses the gateway's own signing key for JWT minting.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -14,8 +14,8 @@ import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
-  actorRefreshTokenRecords as gwActorRefreshTokenRecords,
-  actorTokenRecords as gwActorTokenRecords,
+  actorRefreshTokenRecords,
+  actorTokenRecords,
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
@@ -297,88 +297,48 @@ function createVellumGuardianBinding(
  * Revoke active actor tokens for a device binding.
  */
 function revokeActorTokensByDevice(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
   const now = Date.now();
-  db.run(
-    `UPDATE actor_token_records
-     SET status = 'revoked', updated_at = ?
-     WHERE guardian_principal_id = ?
-       AND hashed_device_id = ?
-       AND status = 'active'`,
-    [now, guardianPrincipalId, hashedDeviceId],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .update(gwActorTokenRecords)
-      .set({ status: "revoked", updatedAt: now })
-      .where(
-        and(
-          eq(gwActorTokenRecords.guardianPrincipalId, guardianPrincipalId),
-          eq(gwActorTokenRecords.hashedDeviceId, hashedDeviceId),
-          eq(gwActorTokenRecords.status, "active"),
-        ),
-      )
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Failed to dual-write actor token revocation to gateway DB",
-    );
-  }
+  getGatewayDb()
+    .update(actorTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+        eq(actorTokenRecords.status, "active"),
+      ),
+    )
+    .run();
 }
 
 /**
  * Revoke active refresh tokens for a device binding.
  */
 function revokeRefreshTokensByDevice(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
   const now = Date.now();
-  db.run(
-    `UPDATE actor_refresh_token_records
-     SET status = 'revoked', updated_at = ?
-     WHERE guardian_principal_id = ?
-       AND hashed_device_id = ?
-       AND status = 'active'`,
-    [now, guardianPrincipalId, hashedDeviceId],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .update(gwActorRefreshTokenRecords)
-      .set({ status: "revoked", updatedAt: now })
-      .where(
-        and(
-          eq(
-            gwActorRefreshTokenRecords.guardianPrincipalId,
-            guardianPrincipalId,
-          ),
-          eq(gwActorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
-          eq(gwActorRefreshTokenRecords.status, "active"),
-        ),
-      )
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Failed to dual-write refresh token revocation to gateway DB",
-    );
-  }
+  getGatewayDb()
+    .update(actorRefreshTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
+        eq(actorRefreshTokenRecords.status, "active"),
+      ),
+    )
+    .run();
 }
 
 /**
- * Mint a JWT access token and persist its hash in the assistant DB.
+ * Mint a JWT access token and persist its hash in the gateway DB.
  */
 function mintAccessToken(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
@@ -398,55 +358,29 @@ function mintAccessToken(
   const expiresAt = now + ACCESS_TOKEN_TTL_MS;
   const tokenHash = hashToken(token);
 
-  const tokenId = uuid();
-  db.run(
-    `INSERT INTO actor_token_records
-       (id, token_hash, guardian_principal_id, hashed_device_id, platform,
-        status, issued_at, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
-    [
-      tokenId,
+  getGatewayDb()
+    .insert(actorTokenRecords)
+    .values({
+      id: uuid(),
       tokenHash,
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      now,
+      status: "active",
+      issuedAt: now,
       expiresAt,
-      now,
-      now,
-    ],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .insert(gwActorTokenRecords)
-      .values({
-        id: tokenId,
-        tokenHash,
-        guardianPrincipalId,
-        hashedDeviceId,
-        platform,
-        status: "active",
-        issuedAt: now,
-        expiresAt,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-  } catch (gwErr) {
-    log.warn({ err: gwErr }, "Failed to dual-write actor token to gateway DB");
-  }
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   return { token, expiresAt };
 }
 
 /**
- * Mint an opaque refresh token and persist its hash in the assistant DB.
+ * Mint an opaque refresh token and persist its hash in the gateway DB.
  */
 function mintRefreshToken(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
@@ -462,55 +396,24 @@ function mintRefreshToken(
   const absoluteExpiresAt = now + REFRESH_ABSOLUTE_TTL_MS;
   const inactivityExpiresAt = now + REFRESH_INACTIVITY_TTL_MS;
 
-  const refreshTokenId = uuid();
-  db.run(
-    `INSERT INTO actor_refresh_token_records
-       (id, token_hash, family_id, guardian_principal_id, hashed_device_id,
-        platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
-        last_used_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)`,
-    [
-      refreshTokenId,
-      refreshTokenHash,
+  getGatewayDb()
+    .insert(actorRefreshTokenRecords)
+    .values({
+      id: uuid(),
+      tokenHash: refreshTokenHash,
       familyId,
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      now,
+      status: "active",
+      issuedAt: now,
       absoluteExpiresAt,
       inactivityExpiresAt,
-      now,
-      now,
-    ],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .insert(gwActorRefreshTokenRecords)
-      .values({
-        id: refreshTokenId,
-        tokenHash: refreshTokenHash,
-        familyId,
-        guardianPrincipalId,
-        hashedDeviceId,
-        platform,
-        status: "active",
-        issuedAt: now,
-        absoluteExpiresAt,
-        inactivityExpiresAt,
-        lastUsedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Failed to dual-write refresh token to gateway DB",
-    );
-  }
+      lastUsedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   return {
     refreshToken,
@@ -550,11 +453,12 @@ export function ensureVellumGuardianBinding(): string {
 /**
  * Execute the full guardian bootstrap flow:
  *   1. Ensure a guardian principal exists for the vellum channel
- *   2. Revoke existing credentials for this device
- *   3. Mint new JWT access token + opaque refresh token
- *   4. Persist token hashes
+ *   2. Revoke existing credentials for this device (gateway DB)
+ *   3. Mint new JWT access token + opaque refresh token (gateway DB)
+ *   4. Persist token hashes (gateway DB)
  *
- * All operations run against the assistant's SQLite database.
+ * Contact operations still run against the assistant's SQLite database
+ * (contacts migration is separate). Token operations use the gateway DB.
  */
 export function bootstrapGuardian(params: {
   platform: string;
@@ -565,7 +469,7 @@ export function bootstrapGuardian(params: {
     .update(params.deviceId)
     .digest("hex");
 
-  // 1. Ensure guardian principal
+  // 1. Ensure guardian principal (contacts — still in assistant DB)
   let isNew = false;
   let guardianPrincipalId: string;
 
@@ -578,19 +482,17 @@ export function bootstrapGuardian(params: {
     isNew = true;
   }
 
-  // 2. Revoke existing credentials for this device
-  revokeActorTokensByDevice(db, guardianPrincipalId, hashedDeviceId);
-  revokeRefreshTokensByDevice(db, guardianPrincipalId, hashedDeviceId);
+  // 2. Revoke existing credentials for this device (gateway DB)
+  revokeActorTokensByDevice(guardianPrincipalId, hashedDeviceId);
+  revokeRefreshTokensByDevice(guardianPrincipalId, hashedDeviceId);
 
-  // 3. Mint new credentials
+  // 3. Mint new credentials (gateway DB)
   const access = mintAccessToken(
-    db,
     guardianPrincipalId,
     hashedDeviceId,
     params.platform,
   );
   const refresh = mintRefreshToken(
-    db,
     guardianPrincipalId,
     hashedDeviceId,
     params.platform,

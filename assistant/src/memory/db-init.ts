@@ -15,8 +15,6 @@ import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
-  createActorRefreshTokenRecordsTable,
-  createActorTokenRecordsTable,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
   createCallSessionsTables,
@@ -273,8 +271,6 @@ export function initializeDb(): void {
     migrateVoiceInviteColumns,
     migrateVoiceInviteDisplayMetadata,
     migrateInviteCodeHashColumn,
-    createActorTokenRecordsTable,
-    createActorRefreshTokenRecordsTable,
     createApprovalPromptTsTrackerTable,
     migrateGuardianPrincipalIdColumns,
     migrateBackfillGuardianPrincipalId,

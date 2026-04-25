@@ -1,19 +1,22 @@
 /**
- * Gateway-native guardian token refresh — rotates credentials by operating
- * directly on the assistant's SQLite database (shared workspace volume).
- *
- * Gateway-native credential rotation — operates directly on the assistant's
- * SQLite database (shared workspace volume).
- * but uses raw SQL against the shared assistant DB (same pattern as guardian-bootstrap.ts).
+ * Gateway-native guardian token refresh — rotates credentials using the
+ * gateway's own SQLite database for all token operations.
  */
 
 import { createHash, randomBytes } from "node:crypto";
 
+import { Database } from "bun:sqlite";
+import { and, eq } from "drizzle-orm";
+
+import { getGatewayDb } from "../db/connection.js";
+import {
+  actorRefreshTokenRecords,
+  actorTokenRecords,
+} from "../db/schema.js";
 import { getLogger } from "../logger.js";
 
 import {
   closeAssistantDb,
-  getAssistantDb,
   getExternalAssistantId,
   hashToken,
   ACCESS_TOKEN_TTL_MS,
@@ -49,7 +52,7 @@ export interface RotateResult {
 }
 
 // ---------------------------------------------------------------------------
-// Refresh token record shape (from DB)
+// SQL helpers (gateway DB)
 // ---------------------------------------------------------------------------
 
 interface RefreshTokenRow {
@@ -66,13 +69,12 @@ interface RefreshTokenRow {
   last_used_at: number | null;
 }
 
-// ---------------------------------------------------------------------------
-// SQL helpers
-// ---------------------------------------------------------------------------
+function getRawGatewayDb(): Database {
+  return (getGatewayDb() as unknown as { $client: Database }).$client;
+}
 
 function findRefreshByHash(tokenHash: string): RefreshTokenRow | null {
-  const db = getAssistantDb();
-  return db
+  return getRawGatewayDb()
     .query<RefreshTokenRow, [string]>(
       `SELECT id, token_hash, family_id, guardian_principal_id,
               hashed_device_id, platform, status, issued_at,
@@ -88,9 +90,8 @@ function findRefreshByHash(tokenHash: string): RefreshTokenRow | null {
  * Returns true if exactly one row was updated.
  */
 function markRotated(tokenHash: string): boolean {
-  const db = getAssistantDb();
   const now = Date.now();
-  const result = db.run(
+  const result = getRawGatewayDb().run(
     `UPDATE actor_refresh_token_records
      SET status = 'rotated', last_used_at = ?, updated_at = ?
      WHERE token_hash = ? AND status = 'active'`,
@@ -101,9 +102,8 @@ function markRotated(tokenHash: string): boolean {
 
 /** Revoke all tokens in a family (replay detection response). */
 function revokeFamily(familyId: string): void {
-  const db = getAssistantDb();
   const now = Date.now();
-  db.run(
+  getRawGatewayDb().run(
     `UPDATE actor_refresh_token_records
      SET status = 'revoked', updated_at = ?
      WHERE family_id = ?`,
@@ -116,20 +116,22 @@ function revokeActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
-  const db = getAssistantDb();
   const now = Date.now();
-  db.run(
-    `UPDATE actor_token_records
-     SET status = 'revoked', updated_at = ?
-     WHERE guardian_principal_id = ?
-       AND hashed_device_id = ?
-       AND status = 'active'`,
-    [now, guardianPrincipalId, hashedDeviceId],
-  );
+  getGatewayDb()
+    .update(actorTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+        eq(actorTokenRecords.status, "active"),
+      ),
+    )
+    .run();
 }
 
 // ---------------------------------------------------------------------------
-// Token minting (matches guardian-bootstrap.ts)
+// Token minting (gateway DB)
 // ---------------------------------------------------------------------------
 
 function mintAccessToken(
@@ -137,7 +139,6 @@ function mintAccessToken(
   hashedDeviceId: string,
   platform: string,
 ): { token: string; expiresAt: number } {
-  const db = getAssistantDb();
   const externalAssistantId = getExternalAssistantId();
   const sub = `actor:${externalAssistantId}:${guardianPrincipalId}`;
 
@@ -153,23 +154,21 @@ function mintAccessToken(
   const expiresAt = now + ACCESS_TOKEN_TTL_MS;
   const tokenHash = hashToken(token);
 
-  db.run(
-    `INSERT INTO actor_token_records
-       (id, token_hash, guardian_principal_id, hashed_device_id, platform,
-        status, issued_at, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
-    [
-      crypto.randomUUID(),
+  getGatewayDb()
+    .insert(actorTokenRecords)
+    .values({
+      id: crypto.randomUUID(),
       tokenHash,
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      now,
+      status: "active",
+      issuedAt: now,
       expiresAt,
-      now,
-      now,
-    ],
-  );
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   return { token, expiresAt };
 }
@@ -185,32 +184,29 @@ function mintRefreshTokenInFamily(params: {
   refreshTokenExpiresAt: number;
   refreshAfter: number;
 } {
-  const db = getAssistantDb();
   const now = Date.now();
   const refreshToken = randomBytes(32).toString("base64url");
   const refreshTokenHash = hashToken(refreshToken);
   const inactivityExpiresAt = now + REFRESH_INACTIVITY_TTL_MS;
 
-  db.run(
-    `INSERT INTO actor_refresh_token_records
-       (id, token_hash, family_id, guardian_principal_id, hashed_device_id,
-        platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
-        last_used_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)`,
-    [
-      crypto.randomUUID(),
-      refreshTokenHash,
-      params.familyId,
-      params.guardianPrincipalId,
-      params.hashedDeviceId,
-      params.platform,
-      now,
-      params.absoluteExpiresAt,
+  getGatewayDb()
+    .insert(actorRefreshTokenRecords)
+    .values({
+      id: crypto.randomUUID(),
+      tokenHash: refreshTokenHash,
+      familyId: params.familyId,
+      guardianPrincipalId: params.guardianPrincipalId,
+      hashedDeviceId: params.hashedDeviceId,
+      platform: params.platform,
+      status: "active",
+      issuedAt: now,
+      absoluteExpiresAt: params.absoluteExpiresAt,
       inactivityExpiresAt,
-      now,
-      now,
-    ],
-  );
+      lastUsedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   return {
     refreshToken,
@@ -230,7 +226,7 @@ function mintRefreshTokenInFamily(params: {
 /**
  * Rotate credentials: validate refresh token, revoke old, mint new pair.
  *
- * All operations run against the assistant's SQLite database in a transaction.
+ * All token operations run against the gateway's SQLite database.
  */
 export function rotateCredentials(params: {
   refreshToken: string;
@@ -288,10 +284,10 @@ export function rotateCredentials(params: {
     return { ok: false, error: "device_binding_mismatch" };
   }
 
-  // Wrap the rotate-revoke-remint sequence in a transaction
-  const db = getAssistantDb();
+  // Wrap the rotate-revoke-remint sequence in a transaction on the gateway DB
+  const rawDb = getRawGatewayDb();
 
-  const txn = db.transaction(() => {
+  const txn = rawDb.transaction(() => {
     // Mark old refresh token as rotated (atomic CAS)
     const didRotate = markRotated(refreshTokenHash);
     if (!didRotate) {

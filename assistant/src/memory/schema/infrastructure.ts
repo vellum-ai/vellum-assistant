@@ -192,18 +192,8 @@ export const lifecycleEvents = sqliteTable("lifecycle_events", {
   createdAt: integer("created_at").notNull(),
 });
 
-export const actorTokenRecords = sqliteTable("actor_token_records", {
-  id: text("id").primaryKey(),
-  tokenHash: text("token_hash").notNull(),
-  guardianPrincipalId: text("guardian_principal_id").notNull(),
-  hashedDeviceId: text("hashed_device_id").notNull(),
-  platform: text("platform").notNull(),
-  status: text("status").notNull().default("active"),
-  issuedAt: integer("issued_at").notNull(),
-  expiresAt: integer("expires_at"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-});
+// actor_token_records table has been migrated to the gateway database.
+// See gateway/src/db/data-migrations/m0002-actor-token-tables-to-gateway.ts.
 
 export const traceEvents = sqliteTable(
   "trace_events",
@@ -228,21 +218,5 @@ export const traceEvents = sqliteTable(
   ],
 );
 
-export const actorRefreshTokenRecords = sqliteTable(
-  "actor_refresh_token_records",
-  {
-    id: text("id").primaryKey(),
-    tokenHash: text("token_hash").notNull(),
-    familyId: text("family_id").notNull(),
-    guardianPrincipalId: text("guardian_principal_id").notNull(),
-    hashedDeviceId: text("hashed_device_id").notNull(),
-    platform: text("platform").notNull(),
-    status: text("status").notNull().default("active"),
-    issuedAt: integer("issued_at").notNull(),
-    absoluteExpiresAt: integer("absolute_expires_at").notNull(),
-    inactivityExpiresAt: integer("inactivity_expires_at").notNull(),
-    lastUsedAt: integer("last_used_at"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
+// actor_refresh_token_records table has been migrated to the gateway database.
+// See gateway/src/db/data-migrations/m0002-actor-token-tables-to-gateway.ts.
