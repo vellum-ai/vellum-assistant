@@ -40,6 +40,7 @@ public protocol SettingsClientProtocol {
     func fetchPlatformConfig() async -> PlatformConfigResponseMessage?
     func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage?
     func patchConfig(_ partial: [String: Any]) async -> Bool
+    func replaceInferenceProfile(name: String, fragment: [String: Any]) async -> Bool
     func fetchConfig() async -> [String: Any]?
     func checkApiKeyExists(provider: String) async -> Bool
 }
@@ -47,6 +48,16 @@ public protocol SettingsClientProtocol {
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
 public struct SettingsClient: SettingsClientProtocol {
     nonisolated public init() {}
+
+    private static let pathComponentAllowed: CharacterSet = {
+        var cs = CharacterSet.urlPathAllowed
+        cs.remove(charactersIn: "/")
+        return cs
+    }()
+
+    private static func encodePath(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: pathComponentAllowed) ?? value
+    }
 
     public func fetchVercelConfig() async -> VercelApiConfigResponseMessage? {
         do {
@@ -525,6 +536,25 @@ public struct SettingsClient: SettingsClientProtocol {
             return true
         } catch {
             log.error("patchConfig error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func replaceInferenceProfile(name: String, fragment: [String: Any]) async -> Bool {
+        do {
+            let encodedName = Self.encodePath(name)
+            let response = try await GatewayHTTPClient.put(
+                path: "assistants/{assistantId}/config/llm/profiles/\(encodedName)",
+                json: fragment,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("replaceInferenceProfile failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("replaceInferenceProfile error: \(error.localizedDescription)")
             return false
         }
     }

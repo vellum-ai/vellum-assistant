@@ -12,6 +12,7 @@
  * PUT    /v1/config/embeddings          — set embedding provider/model
  * GET    /v1/config                     — full raw workspace config
  * PATCH  /v1/config                     — deep-merge partial config
+ * PUT    /v1/config/llm/profiles/:name  — replace an inference profile
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
@@ -25,6 +26,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { LLMConfigFragment } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
 import {
@@ -74,6 +76,45 @@ type LlmContextSummaryResponse = NonNullable<
 type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
+
+const INFERENCE_PROFILE_UI_KEYS = new Set([
+  "provider",
+  "model",
+  "maxTokens",
+  "effort",
+  "speed",
+  "verbosity",
+  "temperature",
+  "thinking",
+]);
+
+function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function replaceInferenceProfileConfig(
+  raw: Record<string, unknown>,
+  name: string,
+  fragment: Record<string, unknown>,
+): void {
+  const existingLlm = asMutablePlainObject(raw.llm);
+  const llm = existingLlm ?? {};
+  if (!existingLlm) raw.llm = llm;
+
+  const existingProfiles = asMutablePlainObject(llm.profiles);
+  const profiles = existingProfiles ?? {};
+  if (!existingProfiles) llm.profiles = profiles;
+
+  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
+  const nextProfile: Record<string, unknown> = { ...existingProfile };
+  for (const key of INFERENCE_PROFILE_UI_KEYS) {
+    delete nextProfile[key];
+  }
+  profiles[name] = { ...nextProfile, ...fragment };
+}
 
 function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
   const { provider, model, inputTokens, outputTokens } = summary;
@@ -378,6 +419,62 @@ export function conversationQueryRouteDefinitions(
           return httpError(
             "INTERNAL_ERROR",
             `Failed to patch config: ${message}`,
+            500,
+          );
+        }
+      },
+    },
+
+    // ── Inference profile replacement ─────────────────────────────────
+    {
+      endpoint: "config/llm/profiles/:name",
+      method: "PUT",
+      policyKey: "config",
+      summary: "Replace an inference profile",
+      description:
+        "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
+      tags: ["config"],
+      handler: async ({ req, params }) => {
+        const name = params.name.trim();
+        if (!name) {
+          return httpError(
+            "BAD_REQUEST",
+            "Profile name must be a non-empty string",
+            400,
+          );
+        }
+
+        const body = (await req.json()) as unknown;
+        if (body == null || typeof body !== "object" || Array.isArray(body)) {
+          return httpError("BAD_REQUEST", "Body must be a JSON object", 400);
+        }
+
+        const parsed = LLMConfigFragment.safeParse(body);
+        if (!parsed.success) {
+          const detail = parsed.error.issues
+            .map((issue) => issue.message)
+            .join("; ");
+          return httpError(
+            "BAD_REQUEST",
+            `Invalid profile fragment: ${detail}`,
+            400,
+          );
+        }
+
+        try {
+          const raw = loadRawConfig();
+          replaceInferenceProfileConfig(
+            raw,
+            name,
+            parsed.data as Record<string, unknown>,
+          );
+          saveRawConfig(raw);
+          return Response.json({ ok: true });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return httpError(
+            "INTERNAL_ERROR",
+            `Failed to replace inference profile: ${message}`,
             500,
           );
         }

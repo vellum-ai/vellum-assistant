@@ -47,6 +47,8 @@ final class MockSettingsClient: SettingsClientProtocol {
     var fetchSuggestionResponse: SuggestionResponseMessage?
     var patchConfigCalls: [[String: Any]] = []
     var patchConfigResponse: Bool = true
+    var replaceInferenceProfileCalls: [(name: String, fragment: [String: Any])] = []
+    var replaceInferenceProfileResponse: Bool = true
 
     // MARK: - Protocol Methods
 
@@ -163,6 +165,11 @@ final class MockSettingsClient: SettingsClientProtocol {
     func patchConfig(_ partial: [String: Any]) async -> Bool {
         patchConfigCalls.append(partial)
         return patchConfigResponse
+    }
+
+    func replaceInferenceProfile(name: String, fragment: [String: Any]) async -> Bool {
+        replaceInferenceProfileCalls.append((name: name, fragment: fragment))
+        return replaceInferenceProfileResponse
     }
 
     var fetchConfigCallCount = 0

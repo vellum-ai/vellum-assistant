@@ -65,6 +65,20 @@ final class InferenceProfileEditorTests: XCTestCase {
         init(profile: InferenceProfile) { self.profile = profile }
     }
 
+    private func modelEntry(
+        id: String,
+        displayName: String,
+        maxOutputTokens: Int,
+        supportsThinking: Bool
+    ) -> LLMModelEntry {
+        LLMModelEntry(
+            id: id,
+            displayName: displayName,
+            maxOutputTokens: maxOutputTokens,
+            supportsThinking: supportsThinking
+        )
+    }
+
     // MARK: - Form structure
 
     func testStaticOptionsCoverEverySegmentControl() {
@@ -93,6 +107,198 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
         let (editor, _) = makeEditor(profile: profile)
         XCTAssertNotNil(editor.body)
+    }
+
+    func testOpenAIGPT55ShowsOnlyConsumedParameters() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openai",
+            model: "gpt-5.5",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gpt-5.5",
+                displayName: "GPT-5.5",
+                maxOutputTokens: 128000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: false,
+                verbosity: true,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testAnthropicOpusShowsAnthropicOnlyParameters() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-opus-4-7",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "claude-opus-4-7",
+                displayName: "Claude Opus 4.7",
+                maxOutputTokens: 32000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: true,
+                verbosity: false,
+                temperature: true,
+                thinking: true
+            )
+        )
+    }
+
+    func testAnthropicHaikuHidesEffortAndSpeed() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "claude-haiku-4-5-20251001",
+                displayName: "Claude Haiku 4.5",
+                maxOutputTokens: 16000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: true,
+                thinking: true
+            )
+        )
+    }
+
+    func testGeminiShowsOnlyMaxTokensWithCurrentProviderSupport() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "gemini",
+            model: "gemini-2.5-flash",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gemini-2.5-flash",
+                displayName: "Gemini 2.5 Flash",
+                maxOutputTokens: 65536,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testOpenRouterReasoningModelsShowEffortAndThinking() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openrouter",
+            model: "deepseek/deepseek-r1-0528",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "deepseek/deepseek-r1-0528",
+                displayName: "DeepSeek R1",
+                maxOutputTokens: 32000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: true
+            )
+        )
+    }
+
+    func testOpenRouterNonReasoningModelsHideEffortAndThinking() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openrouter",
+            model: "deepseek/deepseek-chat-v3-0324",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "deepseek/deepseek-chat-v3-0324",
+                displayName: "DeepSeek V3",
+                maxOutputTokens: 32000,
+                supportsThinking: false
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testHiddenParametersAreClearedForOpenAIOnSave() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openai",
+            model: "gpt-5.5",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gpt-5.5",
+                displayName: "GPT-5.5",
+                maxOutputTokens: 128000,
+                supportsThinking: true
+            )
+        )
+        let profile = InferenceProfile(
+            name: "gpt-5.5-inline-thinking",
+            provider: "openai",
+            model: "gpt-5.5",
+            maxTokens: 16000,
+            effort: "high",
+            speed: "fast",
+            verbosity: "high",
+            temperature: 0.7,
+            thinkingEnabled: true,
+            thinkingStreamThinking: true
+        )
+
+        let sanitized = visibility.sanitized(profile)
+
+        XCTAssertEqual(sanitized.maxTokens, 16000)
+        XCTAssertEqual(sanitized.effort, "high")
+        XCTAssertEqual(sanitized.verbosity, "high")
+        XCTAssertNil(sanitized.speed)
+        XCTAssertEqual(sanitized.temperature, .unset)
+        XCTAssertNil(sanitized.thinkingEnabled)
+        XCTAssertNil(sanitized.thinkingStreamThinking)
     }
 
     // MARK: - Validation

@@ -292,6 +292,59 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(stored?.maxTokens, 16000, "Local cache must mirror the daemon's deep-merge — fields absent from the fragment must persist")
     }
 
+    func testReplaceProfileDropsHiddenLeavesFromPayloadAndLocalCache() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "balanced": [
+                        "provider": "anthropic",
+                        "model": "claude-opus-4-7",
+                        "maxTokens": 32000,
+                        "effort": "max",
+                        "speed": "fast",
+                        "verbosity": "high",
+                        "temperature": 0.7,
+                        "thinking": ["enabled": true, "streamThinking": true],
+                    ]
+                ]
+            ]
+        ])
+
+        let replacement = InferenceProfile(
+            name: "balanced",
+            provider: "openai",
+            model: "gpt-5.5",
+            maxTokens: 128000,
+            effort: "high",
+            verbosity: "medium"
+        )
+        let success = await store.replaceProfile(name: "balanced", fragment: replacement)
+        XCTAssertTrue(success)
+
+        XCTAssertEqual(mockSettingsClient.replaceInferenceProfileCalls.count, 1)
+        let call = mockSettingsClient.replaceInferenceProfileCalls[0]
+        XCTAssertEqual(call.name, "balanced")
+        XCTAssertEqual(call.fragment["provider"] as? String, "openai")
+        XCTAssertEqual(call.fragment["model"] as? String, "gpt-5.5")
+        XCTAssertEqual(call.fragment["maxTokens"] as? Int, 128000)
+        XCTAssertEqual(call.fragment["effort"] as? String, "high")
+        XCTAssertEqual(call.fragment["verbosity"] as? String, "medium")
+        XCTAssertNil(call.fragment["speed"])
+        XCTAssertNil(call.fragment["temperature"])
+        XCTAssertNil(call.fragment["thinking"])
+
+        let stored = store.profiles.first(where: { $0.name == "balanced" })
+        XCTAssertEqual(stored?.provider, "openai")
+        XCTAssertEqual(stored?.model, "gpt-5.5")
+        XCTAssertEqual(stored?.maxTokens, 128000)
+        XCTAssertEqual(stored?.effort, "high")
+        XCTAssertEqual(stored?.verbosity, "medium")
+        XCTAssertNil(stored?.speed)
+        XCTAssertEqual(stored?.temperature, .some(.unset))
+        XCTAssertNil(stored?.thinkingEnabled)
+        XCTAssertNil(stored?.thinkingStreamThinking)
+    }
+
     // MARK: - deleteProfile blocked-by-active
 
     func testDeleteProfileBlockedByActive() async {

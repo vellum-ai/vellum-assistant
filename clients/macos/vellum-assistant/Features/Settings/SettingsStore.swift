@@ -3279,7 +3279,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Persists a profile fragment under `llm.profiles.<name>`. The
     /// fragment merges into any existing entry — callers that want
-    /// "replace" semantics should issue a delete first.
+    /// "replace" semantics should use `replaceProfile(name:fragment:)`.
     @discardableResult
     func setProfile(
         name: String,
@@ -3323,6 +3323,56 @@ public final class SettingsStore: ObservableObject {
             }
         } else {
             log.error("Failed to patch config for llm.profiles.\(name, privacy: .public)")
+        }
+        return success
+    }
+
+    /// Replaces the Settings-UI-managed leaves for a profile. Unlike
+    /// `setProfile`, nil fields in `fragment` are treated as removals by
+    /// the assistant route, so hidden or toggled-off editor controls do not
+    /// leave stale values in `llm.profiles.<name>`.
+    @discardableResult
+    func replaceProfile(
+        name: String,
+        fragment: InferenceProfile,
+        replacingOrderName: String? = nil
+    ) async -> Bool {
+        let existingIndex = profiles.firstIndex(where: { $0.name == name })
+        let nextOrder = nextProfileOrderAfterSaving(
+            name: name,
+            isNewProfile: existingIndex == nil,
+            replacingOrderName: replacingOrderName
+        )
+        let success = await settingsClient.replaceInferenceProfile(
+            name: name,
+            fragment: fragment.toJSON()
+        )
+        if success, let nextOrder {
+            let orderSuccess = await settingsClient.patchConfig([
+                "llm": ["profileOrder": nextOrder]
+            ])
+            guard orderSuccess else {
+                log.error("Failed to patch llm.profileOrder after replacing llm.profiles.\(name, privacy: .public)")
+                return false
+            }
+        }
+        if success {
+            var copy = fragment
+            copy.name = name
+            if let index = existingIndex {
+                profiles[index] = copy
+            } else {
+                profiles.append(copy)
+            }
+            if let nextOrder {
+                profileOrder = nextOrder
+                reorderPublishedProfiles(to: nextOrder)
+            } else {
+                profiles.sort { $0.name < $1.name }
+                profileOrder = profiles.map(\.name)
+            }
+        } else {
+            log.error("Failed to replace llm.profiles.\(name, privacy: .public)")
         }
         return success
     }
