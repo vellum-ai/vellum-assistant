@@ -212,6 +212,11 @@ export interface ConversationInfo {
   correlationId?: string;
   conversationType?: ConversationType;
   hostAccess: boolean;
+  /**
+   * Per-conversation override for the LLM inference profile. `undefined`
+   * means the conversation inherits the workspace `llm.activeProfile`.
+   */
+  inferenceProfile?: string;
 }
 
 export interface ConversationTitleUpdated {
@@ -262,6 +267,11 @@ export interface ConversationListResponse {
     displayOrder?: number;
     isPinned?: boolean;
     forkParent?: ConversationForkParent;
+    /**
+     * Per-conversation override for the LLM inference profile. Omitted when
+     * the conversation inherits the workspace `llm.activeProfile`.
+     */
+    inferenceProfile?: string;
   }>;
   /** Whether more conversations exist beyond the returned page. */
   hasMore?: boolean;

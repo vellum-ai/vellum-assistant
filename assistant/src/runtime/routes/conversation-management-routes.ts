@@ -68,6 +68,7 @@ export interface ConversationManagementDeps {
     title: string;
     conversationType: string;
     hostAccess: boolean;
+    inferenceProfile?: string;
   } | null>;
   renameConversation: (conversationId: string, name: string) => boolean;
   clearAllConversations: () => number;
@@ -235,6 +236,7 @@ export function conversationManagementRouteDefinitions(
         title: z.string(),
         conversationType: z.string(),
         hostAccess: z.boolean(),
+        inferenceProfile: z.string().optional(),
       }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
@@ -264,6 +266,9 @@ export function conversationManagementRouteDefinitions(
           conversationType:
             result.conversationType === "private" ? "private" : "standard",
           hostAccess: result.hostAccess,
+          ...(result.inferenceProfile != null
+            ? { inferenceProfile: result.inferenceProfile }
+            : {}),
         });
       },
     },

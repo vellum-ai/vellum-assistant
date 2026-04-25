@@ -1624,6 +1624,9 @@ export class RuntimeHttpServer {
       ...(conversation.archivedAt != null
         ? { archivedAt: conversation.archivedAt }
         : {}),
+      ...(conversation.inferenceProfile != null
+        ? { inferenceProfile: conversation.inferenceProfile }
+        : {}),
     };
   }
 
