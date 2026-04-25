@@ -29,6 +29,38 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
   `);
   database.run(/*sql*/ `
+    DELETE FROM canonical_guardian_deliveries
+    WHERE destination_conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+       OR request_id IN (
+        SELECT id FROM canonical_guardian_requests
+        WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+      )
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM canonical_guardian_requests
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM scoped_approval_grants
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM guardian_action_deliveries
+    WHERE destination_conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+       OR request_id IN (
+        SELECT id FROM guardian_action_requests
+        WHERE source_conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+      )
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM guardian_action_requests
+    WHERE source_conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM channel_guardian_approval_requests
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
     DELETE FROM memory_embeddings
     WHERE target_type = 'segment'
       AND target_id IN (
