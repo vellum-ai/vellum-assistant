@@ -197,15 +197,17 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
                     "balanced": [
                         "provider": "anthropic",
                         "model": "claude-sonnet-4-6",
+                        "maxTokens": 16000,
                     ]
                 ]
             ]
         ])
         XCTAssertEqual(store.profiles.count, 1)
 
+        // Partial fragment — only the model changes. The daemon deep-merges,
+        // so `provider` and `maxTokens` must remain set locally as well.
         let updated = InferenceProfile(
             name: "balanced",
-            provider: "openai",
             model: "gpt-5"
         )
         let success = await store.setProfile(name: "balanced", fragment: updated)
@@ -213,8 +215,9 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
 
         XCTAssertEqual(store.profiles.count, 1, "Updating an existing profile must not duplicate the entry")
         let stored = store.profiles.first(where: { $0.name == "balanced" })
-        XCTAssertEqual(stored?.provider, "openai")
         XCTAssertEqual(stored?.model, "gpt-5")
+        XCTAssertEqual(stored?.provider, "anthropic", "Local cache must mirror the daemon's deep-merge — fields absent from the fragment must persist")
+        XCTAssertEqual(stored?.maxTokens, 16000, "Local cache must mirror the daemon's deep-merge — fields absent from the fragment must persist")
     }
 
     // MARK: - deleteProfile blocked-by-active
