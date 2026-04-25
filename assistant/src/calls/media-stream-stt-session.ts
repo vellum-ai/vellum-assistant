@@ -350,8 +350,6 @@ export class MediaStreamSttSession {
  * threshold. The threshold is tuned for Twilio's 8 kHz, 8-bit mu-law
  * stream where typical silence RMS is ~50-100 and speech is >300.
  *
- * Exported for testing.
- *
  * @param base64Payload - Base64-encoded mu-law audio chunk from Twilio.
  * @returns `true` if the chunk likely contains speech, `false` otherwise.
  */

@@ -32,8 +32,7 @@ export const CES_GRANT_AUDIT_FLAG_KEY = "ces-grant-audit" as const;
 export const CES_MANAGED_SIDECAR_FLAG_KEY = "ces-managed-sidecar" as const;
 
 /** Gate for routing credential reads/writes through the CES process. */
-export const CES_CREDENTIAL_BACKEND_FLAG_KEY =
-  "ces-credential-backend" as const;
+const CES_CREDENTIAL_BACKEND_FLAG_KEY = "ces-credential-backend" as const;
 
 // ---------------------------------------------------------------------------
 // Public API — predicate functions

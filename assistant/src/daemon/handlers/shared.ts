@@ -44,17 +44,7 @@ interface PendingSigningResolve {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
-export const pendingSignBundlePayload = new Map<
-  string,
-  PendingSigningResolve
->();
-
-interface PendingIdentityResolve {
-  resolve: (result: { keyId: string; publicKey: string }) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-export const pendingSigningIdentity = new Map<string, PendingIdentityResolve>();
+const pendingSignBundlePayload = new Map<string, PendingSigningResolve>();
 
 export interface HistoryToolCall {
   name: string;

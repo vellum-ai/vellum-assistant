@@ -305,7 +305,7 @@ async function runCompactionCircuitPipeline(
  * with no outcome. Async because the pipeline runner is async, but the
  * default plugin resolves synchronously on its microtask.
  */
-export async function isCompactionCircuitOpen(ctx: {
+async function isCompactionCircuitOpen(ctx: {
   readonly conversationId: string;
   consecutiveCompactionFailures: number;
   compactionCircuitOpenUntil: number | null;
@@ -361,7 +361,7 @@ export async function trackCompactionOutcome(
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
  * to a custom plugin reading `ctx.trust`.
  */
-export const FALLBACK_TURN_TRUST: TrustContext = {
+const FALLBACK_TURN_TRUST: TrustContext = {
   sourceChannel: "vellum",
   trustClass: "unknown",
 };

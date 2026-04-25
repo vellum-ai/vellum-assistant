@@ -371,7 +371,7 @@ export function isContextTooLarge(message: string): boolean {
 }
 
 /** Check whether an error message indicates a web-search-specific ordering failure. */
-export function isWebSearchOrderingError(message: string): boolean {
+function isWebSearchOrderingError(message: string): boolean {
   return WEB_SEARCH_ORDERING_PATTERNS.some((p) => p.test(message));
 }
 
@@ -380,17 +380,17 @@ export function isWebSearchOrderingError(message: string): boolean {
  * opaque token in a replayed `web_search_tool_result`. See
  * `stripHistoricalWebSearchResults()` for the proactive mitigation.
  */
-export function isStaleWebSearchContent(message: string): boolean {
+function isStaleWebSearchContent(message: string): boolean {
   return STALE_WEB_SEARCH_CONTENT_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates a tool_use/tool_result ordering failure. */
-export function isOrderingError(message: string): boolean {
+function isOrderingError(message: string): boolean {
   return ORDERING_ERROR_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates an Anthropic SDK streaming corruption. */
-export function isStreamingError(message: string): boolean {
+function isStreamingError(message: string): boolean {
   return STREAMING_ERROR_PATTERNS.some((p) => p.test(message));
 }
 

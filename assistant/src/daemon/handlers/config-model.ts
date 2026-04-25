@@ -31,7 +31,7 @@ import {
 } from "./shared.js";
 
 /** Reverse lookup: model ID → provider, derived from PROVIDER_CATALOG. */
-export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
+const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
   PROVIDER_CATALOG.flatMap((provider) =>
     provider.models.map(({ id }) => [id, provider.id]),
   ),
