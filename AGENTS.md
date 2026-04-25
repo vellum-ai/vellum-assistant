@@ -289,7 +289,6 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 - `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
 - `run` command => `local` (for local full-stack development, e.g. `vel up`)
 - all other local build commands (plain `build`, etc.) => `dev`
-- (macOS/iOS only) if `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` points at a loopback `http://...` host, default to `local` regardless of command
 
 CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
 
