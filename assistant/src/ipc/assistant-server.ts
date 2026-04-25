@@ -64,19 +64,7 @@ export class AssistantIpcServer {
   private socketPath: string;
 
   constructor() {
-    const socketResolution = resolveIpcSocketPath("assistant.sock");
-    this.socketPath = socketResolution.path;
-    if (socketResolution.source !== "workspace") {
-      log.warn(
-        {
-          source: socketResolution.source,
-          workspacePath: socketResolution.workspacePath,
-          resolvedPath: socketResolution.path,
-          maxPathBytes: socketResolution.maxPathBytes,
-        },
-        "CLI IPC socket path exceeded platform limit; using fallback path",
-      );
-    }
+    this.socketPath = resolveIpcSocketPath("assistant.sock");
     for (const route of cliIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }
@@ -246,5 +234,5 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 export function getAssistantSocketPath(): string {
-  return resolveIpcSocketPath("assistant.sock").path;
+  return resolveIpcSocketPath("assistant.sock");
 }

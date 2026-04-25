@@ -3,25 +3,16 @@
  * the Unix domain socket that first-party skill processes use to talk to the
  * daemon.
  *
- * Delegates to the shared `resolveIpcSocketPath` in `socket-path.ts` so the
- * same workspace → BASE_DATA_DIR → tmp fallback chain applies for platforms
- * with strict AF_UNIX path limits.
+ * Delegates to the shared `resolveIpcSocketPath` in `socket-path.ts`.
  */
 
 import { getWorkspaceDir } from "../util/platform.js";
-import {
-  type IpcSocketPathResolution,
-  resolveIpcSocketPath,
-} from "./socket-path.js";
+import { resolveIpcSocketPath } from "./socket-path.js";
 
 export const SKILL_IPC_SOCKET_FILE_NAME = "assistant-skill.sock";
 
-export function resolveSkillIpcSocketPath(
+export function getSkillSocketPath(
   workspaceDir: string = getWorkspaceDir(),
-): IpcSocketPathResolution {
+): string {
   return resolveIpcSocketPath(SKILL_IPC_SOCKET_FILE_NAME, workspaceDir);
-}
-
-export function getSkillSocketPath(): string {
-  return resolveSkillIpcSocketPath().path;
 }

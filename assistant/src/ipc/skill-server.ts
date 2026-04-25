@@ -56,7 +56,7 @@ import {
   skillIpcRoutes,
   skillIpcStreamingRoutes,
 } from "./skill-routes/index.js";
-import { resolveSkillIpcSocketPath } from "./skill-socket-path.js";
+import { getSkillSocketPath } from "./skill-socket-path.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 
 const log = getLogger("skill-ipc-server");
@@ -294,23 +294,7 @@ export class SkillIpcServer {
   private socketPath: string;
 
   constructor(options: SkillIpcServerOptions = {}) {
-    if (options.socketPath) {
-      this.socketPath = options.socketPath;
-    } else {
-      const socketResolution = resolveSkillIpcSocketPath();
-      this.socketPath = socketResolution.path;
-      if (socketResolution.source !== "workspace") {
-        log.warn(
-          {
-            source: socketResolution.source,
-            workspacePath: socketResolution.workspacePath,
-            resolvedPath: socketResolution.path,
-            maxPathBytes: socketResolution.maxPathBytes,
-          },
-          "Skill IPC socket path exceeded platform limit; using fallback path",
-        );
-      }
-    }
+    this.socketPath = options.socketPath ?? getSkillSocketPath();
     for (const route of skillIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }
