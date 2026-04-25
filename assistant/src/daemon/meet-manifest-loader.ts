@@ -354,6 +354,13 @@ export async function loadMeetManifestProxies(
   const registerRoute = deps.registerRoute ?? registerSkillRoute;
   const registerShutdown = deps.registerShutdown ?? registerShutdownHook;
 
+  // Eagerly validate every tool entry so a malformed manifest (e.g. an
+  // unknown `risk` value) surfaces here, where startup catches it, rather
+  // than later inside the lazy tool provider during `initializeTools()`.
+  for (const entry of manifest.tools) {
+    coerceRiskLevel(entry.risk, entry.name);
+  }
+
   // Tool provider resolves the full proxy list lazily so the tool manifest
   // reflects the manifest file at `initializeTools()` time — same timing
   // contract as the in-process skill's provider closure.
