@@ -81,6 +81,7 @@ function searchWithFts(
     JOIN conversations c ON c.id = m.conversation_id
     WHERE messages_fts MATCH ?
       AND c.memory_scope_id = ?
+      AND c.conversation_type != 'private'
       AND (c.source IS NULL OR c.source NOT IN (?, ?))
     ORDER BY bm25(messages_fts), m.created_at DESC
     LIMIT ?
@@ -111,6 +112,7 @@ function searchWithLike(
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.content LIKE ? ESCAPE '\\'
       AND c.memory_scope_id = ?
+      AND c.conversation_type != 'private'
       AND (c.source IS NULL OR c.source NOT IN (?, ?))
     ORDER BY m.created_at DESC
     LIMIT ?

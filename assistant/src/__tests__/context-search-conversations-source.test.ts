@@ -117,6 +117,38 @@ describe("searchConversationSource", () => {
     ]);
   });
 
+  test("does not return legacy private conversations", async () => {
+    const visibleFts = await seedConversation({
+      title: "Visible FTS conversation",
+      content: "privatetoken belongs to a normal conversation.",
+    });
+    const privateFts = await seedConversation({
+      title: "Private FTS conversation",
+      content: "privatetoken belongs to private history.",
+    });
+    const privateLike = await seedConversation({
+      title: "Private LIKE conversation",
+      content: "C++ private history should stay hidden.",
+    });
+    rawRun(
+      "UPDATE conversations SET conversation_type = 'private' WHERE id IN (?, ?)",
+      privateFts.conversation.id,
+      privateLike.conversation.id,
+    );
+
+    const ftsResult = await searchConversationSource(
+      "privatetoken",
+      makeContext(),
+      10,
+    );
+    const likeResult = await searchConversationSource("C++", makeContext(), 10);
+
+    expect(ftsResult.evidence.map((item) => item.locator)).toEqual([
+      `${visibleFts.conversation.id}#${visibleFts.message.id}`,
+    ]);
+    expect(likeResult.evidence).toHaveLength(0);
+  });
+
   test("includes archived, scheduled, and background conversations", async () => {
     const archived = await seedConversation({
       title: "Archived conversation",
