@@ -7,6 +7,9 @@
  * `send(method, params)` with a CDP method name and return the raw
  * CDP result object; errors are thrown as {@link CdpError}.
  */
+
+import type { BrowserBackend } from "../../../browser-session/types.js";
+
 export interface CdpClient {
   /**
    * Send a CDP command and await the result. `method` must be a
@@ -115,6 +118,6 @@ export interface BackendCandidate {
    */
   create(): {
     client: CdpClient;
-    backend: import("../../../browser-session/types.js").BrowserBackend;
+    backend: BrowserBackend;
   };
 }

@@ -21,6 +21,7 @@ import {
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -58,7 +59,7 @@ import {
   emitAccessRequestCallbackHandoff,
   scheduleNextHeartbeat,
 } from "./relay-access-wait.js";
-import { routeSetup } from "./relay-setup-router.js";
+import { routeSetup, type SetupResolved } from "./relay-setup-router.js";
 import {
   attemptInviteCodeRedemption,
   attemptVerificationCode,
@@ -159,14 +160,10 @@ export interface RelayWebSocketData {
 export const activeRelayConnections = new Map<string, RelayConnection>();
 
 /** Module-level broadcast function, set by the HTTP server during startup. */
-let globalBroadcast:
-  | ((msg: import("../daemon/message-protocol.js").ServerMessage) => void)
-  | undefined;
+let globalBroadcast: ((msg: ServerMessage) => void) | undefined;
 
 /** Register a broadcast function so RelayConnection can forward events to connected clients. */
-export function setRelayBroadcast(
-  fn: (msg: import("../daemon/message-protocol.js").ServerMessage) => void,
-): void {
+export function setRelayBroadcast(fn: (msg: ServerMessage) => void): void {
   globalBroadcast = fn;
 }
 
@@ -695,7 +692,7 @@ export class RelayConnection {
   /** Deny an inbound call with a TTS message and schedule disconnect. */
   private async denyInboundCall(
     from: string,
-    resolved: import("./relay-setup-router.js").SetupResolved,
+    resolved: SetupResolved,
     outcome: { message: string; logReason: string },
   ): Promise<void> {
     recordCallEvent(this.callSessionId, "inbound_acl_denied", {

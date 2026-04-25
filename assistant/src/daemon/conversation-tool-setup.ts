@@ -28,6 +28,7 @@ import {
 } from "../permissions/trust-store.js";
 import { isAllowDecision } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
+import type { TurnContext } from "../plugins/types.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
@@ -62,6 +63,10 @@ import {
   isDoordashCommand,
   markDoordashStepInProgress,
 } from "./doordash-steps.js";
+import type { HostBashProxy } from "./host-bash-proxy.js";
+import type { HostBrowserProxy } from "./host-browser-proxy.js";
+import type { HostFileProxy } from "./host-file-proxy.js";
+import type { HostTransferProxy } from "./host-transfer-proxy.js";
 import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
 
@@ -112,13 +117,13 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
-  hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
+  hostBashProxy?: HostBashProxy;
   /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
-  hostBrowserProxy?: import("./host-browser-proxy.js").HostBrowserProxy;
+  hostBrowserProxy?: HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
-  hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
+  hostFileProxy?: HostFileProxy;
   /** Optional proxy for delegating bidirectional file transfers between sandbox and host. */
-  hostTransferProxy?: import("./host-transfer-proxy.js").HostTransferProxy;
+  hostTransferProxy?: HostTransferProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
@@ -131,9 +136,7 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * `hostBrowserRegistryRouted` (boolean) so the CDP factory can distinguish
    * SSE-backed proxies from extension-backed proxies.
    */
-  hostBrowserSenderOverride?: (
-    msg: import("./message-protocol.js").ServerMessage,
-  ) => void;
+  hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
   /**
@@ -180,7 +183,7 @@ export function createToolExecutor(
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
-  turnContext?: import("../plugins/types.js").TurnContext,
+  turnContext?: TurnContext,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
   registerConversationSender(ctx.conversationId, (msg) =>
@@ -192,7 +195,7 @@ export function createToolExecutor(
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
     toolUseId?: string,
-    turnContext?: import("../plugins/types.js").TurnContext,
+    turnContext?: TurnContext,
   ) => {
     if (isDoordashCommand(name, input)) {
       markDoordashStepInProgress(ctx, input);

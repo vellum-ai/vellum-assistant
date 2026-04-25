@@ -67,6 +67,7 @@ import {
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
+import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -175,6 +176,7 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
+import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
@@ -531,13 +533,10 @@ export interface AgentLoopConversationContext {
     statusText?: string,
   ): void;
   emitConfirmationStateChanged(
-    params: import("./message-types/messages.js").ConfirmationStateChanged extends {
+    params: ConfirmationStateChanged extends {
       type: infer _;
     }
-      ? Omit<
-          import("./message-types/messages.js").ConfirmationStateChanged,
-          "type"
-        >
+      ? Omit<ConfirmationStateChanged, "type">
       : never,
   ): void;
 
@@ -939,9 +938,7 @@ export async function runAgentLoopImpl(
     const defaultGraphPayload: GraphMemoryPayload | null =
       asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
     let pkbQueryVector: number[] | undefined;
-    let pkbSparseVector:
-      | import("../memory/qdrant-client.js").QdrantSparseVector
-      | undefined;
+    let pkbSparseVector: QdrantSparseVector | undefined;
     if (defaultGraphPayload) {
       const graphResult = defaultGraphPayload.result;
       runMessages = graphResult.runMessages;
@@ -2930,9 +2927,7 @@ export function applyCompactionResult(
   );
 }
 
-function collapseRawResponses(
-  rawResponses?: unknown[],
-): unknown | undefined {
+function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }

@@ -1,4 +1,5 @@
 /** Opaque token representing a policy-checked authorization to use a credential. */
+import type { CredentialInjectionTemplate } from "./policy-types.js";
 export interface UsageToken {
   tokenId: string;
   credentialId: string;
@@ -95,7 +96,7 @@ export interface ServerUseByIdSuccess {
   credentialId: string;
   service: string;
   field: string;
-  injectionTemplates: import("./policy-types.js").CredentialInjectionTemplate[];
+  injectionTemplates: CredentialInjectionTemplate[];
 }
 
 /** Denied or not-found by-id lookup result. */

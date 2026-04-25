@@ -239,6 +239,7 @@ export type {
   SendMessageDeps,
 } from "./http-types.js";
 
+import type { Conversation } from "../daemon/conversation.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -1681,7 +1682,7 @@ export class RuntimeHttpServer {
                 ? (conversationId) => {
                     const s = this.findConversation!(conversationId);
                     if (!s || !("abort" in s)) return undefined;
-                    return s as import("../daemon/conversation.js").Conversation;
+                    return s as Conversation;
                   }
                 : undefined,
             }
@@ -1962,7 +1963,7 @@ export class RuntimeHttpServer {
             // wired the hydration-capable accessor (e.g. unit tests).
             const s = this.findConversation?.(id);
             if (!s || !("abort" in s)) return undefined;
-            return s as import("../daemon/conversation.js").Conversation;
+            return s as Conversation;
           }
           return sendDeps.getOrCreateConversation(id);
         },
