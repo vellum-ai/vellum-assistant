@@ -48,7 +48,7 @@ function buildIpcToolContext(conversationId?: string): ToolContext {
   return {
     workingDir: getWorkspaceDir(),
     conversationId: conversationId ?? "",
-    trustClass: "guardian",
+    trustClass: "unknown",
   };
 }
 

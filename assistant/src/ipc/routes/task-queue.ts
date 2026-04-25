@@ -26,7 +26,7 @@ function queueToolContext(): ToolContext {
   return {
     workingDir: getWorkspaceDir(),
     conversationId: "",
-    trustClass: "guardian",
+    trustClass: "unknown",
   };
 }
 
