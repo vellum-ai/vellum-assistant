@@ -701,7 +701,6 @@ extension MainWindowView {
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
                 onMicrophoneToggle: onMicrophoneToggle,
-                isTemporaryChat: activeConversation?.kind == .private,
                 isReadonly: activeConversation?.isChannelConversation ?? false,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceModeManager.openAIVoiceService,
@@ -916,7 +915,6 @@ struct ActiveChatViewWrapper: View {
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
-    var isTemporaryChat: Bool = false
     var isReadonly: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
@@ -984,7 +982,6 @@ struct ActiveChatViewWrapper: View {
                 isBootstrapTimedOut: isBootstrapTimedOut,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
-                isTemporaryChat: isTemporaryChat,
                 conversationStartersEnabled: conversationStartersEnabled,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,

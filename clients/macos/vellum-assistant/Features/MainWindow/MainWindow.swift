@@ -216,7 +216,7 @@ class TitleBarZoomableWindow: NSWindow {
 
 /// NSHostingController subclass whose view returns `mouseDownCanMoveWindow = false`.
 /// This prevents the transparent title bar from swallowing clicks intended for
-/// SwiftUI buttons (sidebar toggle, temporary-chat toggle) that sit in the
+/// SwiftUI buttons (sidebar toggle) that sit in the
 /// title bar zone.
 @MainActor
 class NonDraggableHostingController<Content: View>: NSHostingController<Content> {

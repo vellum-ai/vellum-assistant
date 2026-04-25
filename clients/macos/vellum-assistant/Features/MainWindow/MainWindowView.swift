@@ -51,11 +51,6 @@ struct MainWindowView: View {
     /// Window size tracked via onGeometryChange, used for zoom scaling
     /// and panel width calculations without a synchronous GeometryReader.
     @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
-    /// Stores the conversation ID the user was on before entering temporary chat,
-    /// so we can restore it when they exit instead of jumping to visibleConversations.first
-    /// (which may be a pinned conversation unrelated to what they were doing).
-    @State private var preTemporaryChatConversationId: UUID?
-
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
     @AppStorage("homeShortcut") private var homeShortcut: String = "cmd+shift+h"
@@ -185,32 +180,6 @@ struct MainWindowView: View {
             if let viewModel = conversationManager.activeViewModel {
                 voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
                 voiceModeManager.startListening()
-            }
-        }
-    }
-
-    private func toggleTemporaryChat() {
-        withAnimation(VAnimation.standard) {
-            if let privateConversation = conversationManager.activeConversation, privateConversation.kind == .private {
-                let privateId = privateConversation.id
-
-                // Restore the conversation the user was on before entering temporary chat.
-                // Fall back to visibleConversations.first only if the stored conversation no longer exists.
-                if let savedId = preTemporaryChatConversationId,
-                   listStore.visibleConversations.contains(where: { $0.id == savedId }) {
-                    conversationManager.selectConversation(id: savedId)
-                } else if let recent = listStore.visibleConversations.first {
-                    conversationManager.selectConversation(id: recent.id)
-                } else {
-                    conversationManager.enterDraftMode()
-                }
-                preTemporaryChatConversationId = nil
-
-                // Delete the private conversation and its backend conversation.
-                conversationManager.removePrivateConversation(id: privateId)
-            } else {
-                preTemporaryChatConversationId = conversationManager.activeConversationId
-                conversationManager.createPrivateConversation()
             }
         }
     }
@@ -591,13 +560,6 @@ struct MainWindowView: View {
                 .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
                 .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
             }
-            if windowState.isConversationVisible {
-                TemporaryChatToggleWrapper(
-                    activeConversation: conversationManager.activeConversation,
-                    activeViewModel: conversationManager.activeViewModel,
-                    onToggle: { toggleTemporaryChat() }
-                )
-            }
         }
         .padding(.leading, trafficLightPadding)
         .padding(.trailing, VSpacing.lg)
@@ -907,29 +869,6 @@ private struct AssistantLoadingOverlayContent: View {
 private struct PlatformURLMismatchInfo {
     let configuredURL: String
     let lockfileURL: String
-}
-
-// MARK: - Temporary Chat Toggle Wrapper
-
-/// Standalone view that reads `ChatViewModel.hasNonEmptyMessage` in its
-/// own body, preventing that `@Observable` dependency from propagating
-/// to `MainWindowView`'s observation scope.
-private struct TemporaryChatToggleWrapper: View {
-    let activeConversation: ConversationModel?
-    let activeViewModel: ChatViewModel?
-    let onToggle: () -> Void
-
-    var body: some View {
-        if activeConversation?.kind == .private
-            || activeViewModel?.hasNonEmptyMessage != true {
-            TemporaryChatToggle(
-                isActive: activeConversation?.kind == .private,
-                tooltip: activeConversation?.kind == .private
-                    ? "Exit temporary chat" : "Temporary chat",
-                onToggle: onToggle
-            )
-        }
-    }
 }
 
 // MARK: - Conversation Title Overlay

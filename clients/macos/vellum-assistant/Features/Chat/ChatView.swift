@@ -77,7 +77,6 @@ struct ChatView: View {
     var isBootstrapTimedOut: Bool = false
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
-    var isTemporaryChat: Bool = false
     var conversationStartersEnabled: Bool = false
 
     // MARK: - Voice Mode (from parent)
@@ -282,60 +281,35 @@ struct ChatView: View {
                     ChatBootstrapLoadingView()
                 }
             } else if isEmptyState {
-                if isTemporaryChat {
-                    ChatTemporaryChatEmptyStateView(
-                        inputText: $viewModel.inputText,
-                        isSending: viewModel.isSending,
-                        isAssistantBusy: viewModel.isAssistantBusy,
-                        isRecording: viewModel.isRecording,
-                        suggestion: viewModel.suggestion,
-                        pendingAttachments: viewModel.pendingAttachments,
-                        isLoadingAttachment: viewModel.isLoadingAttachment,
-                        onSend: { sendMessage() },
-                        onStop: { viewModel.stopGenerating() },
-                        onAcceptSuggestion: { viewModel.acceptSuggestion() },
-                        onAttach: { presentFilePicker() },
-                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                        onPaste: { viewModel.addAttachmentFromPasteboard() },
-                        onMicrophoneToggle: onMicrophoneToggle,
-                        recordingAmplitude: viewModel.recordingAmplitude,
-                        onDictateToggle: onDictateToggle,
-                        onVoiceModeToggle: onVoiceModeToggle,
-                        conversationId: conversationId,
-                        conversationHostAccessControl: conversationHostAccessControl,
-                        showThresholdPicker: showThresholdPicker
-                    )
-                } else {
-                    ChatEmptyStateView(
-                        inputText: $viewModel.inputText,
-                        isSending: viewModel.isSending,
-                        isAssistantBusy: viewModel.isAssistantBusy,
-                        isRecording: viewModel.isRecording,
-                        suggestion: viewModel.suggestion,
-                        pendingAttachments: viewModel.pendingAttachments,
-                        isLoadingAttachment: viewModel.isLoadingAttachment,
-                        onSend: { sendMessage() },
-                        onStop: { viewModel.stopGenerating() },
-                        onAcceptSuggestion: { viewModel.acceptSuggestion() },
-                        onAttach: { presentFilePicker() },
-                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                        onPaste: { viewModel.addAttachmentFromPasteboard() },
-                        onMicrophoneToggle: onMicrophoneToggle,
-                        recordingAmplitude: viewModel.recordingAmplitude,
-                        onDictateToggle: onDictateToggle,
-                        onVoiceModeToggle: onVoiceModeToggle,
-                        conversationId: conversationId,
-                        daemonGreeting: viewModel.emptyStateGreeting,
-                        onRequestGreeting: { viewModel.generateGreeting() },
-                        conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
-                        conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
-                        onSelectStarter: { starter in viewModel.inputText = starter.prompt },
-                        onFetchConversationStarters: { viewModel.fetchConversationStarters() },
-                        conversationHostAccessControl: conversationHostAccessControl,
-                        showThresholdPicker: showThresholdPicker
-                    )
-                    .id(conversationId)
-                }
+                ChatEmptyStateView(
+                    inputText: $viewModel.inputText,
+                    isSending: viewModel.isSending,
+                    isAssistantBusy: viewModel.isAssistantBusy,
+                    isRecording: viewModel.isRecording,
+                    suggestion: viewModel.suggestion,
+                    pendingAttachments: viewModel.pendingAttachments,
+                    isLoadingAttachment: viewModel.isLoadingAttachment,
+                    onSend: { sendMessage() },
+                    onStop: { viewModel.stopGenerating() },
+                    onAcceptSuggestion: { viewModel.acceptSuggestion() },
+                    onAttach: { presentFilePicker() },
+                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                    onPaste: { viewModel.addAttachmentFromPasteboard() },
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    recordingAmplitude: viewModel.recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
+                    conversationId: conversationId,
+                    daemonGreeting: viewModel.emptyStateGreeting,
+                    onRequestGreeting: { viewModel.generateGreeting() },
+                    conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
+                    conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
+                    onSelectStarter: { starter in viewModel.inputText = starter.prompt },
+                    onFetchConversationStarters: { viewModel.fetchConversationStarters() },
+                    conversationHostAccessControl: conversationHostAccessControl,
+                    showThresholdPicker: showThresholdPicker
+                )
+                .id(conversationId)
             } else {
                 activeConversationContent(containerWidth: containerWidth)
             }

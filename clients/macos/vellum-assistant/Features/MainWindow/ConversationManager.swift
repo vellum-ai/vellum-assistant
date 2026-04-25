@@ -598,6 +598,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Promoted draft to conversation \(conversation.id)")
     }
 
+    // TODO(rm-priv-conv): removed in PR 5
     func createPrivateConversation() {
         let conversation = ConversationModel(kind: .private)
         let viewModel = makeViewModel()
@@ -622,6 +623,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         log.info("Created private conversation \(conversation.id)")
     }
 
+    // TODO(rm-priv-conv): removed in PR 5
     func removePrivateConversation(id: UUID) {
         guard let index = listStore.conversations.firstIndex(where: { $0.id == id && $0.kind == .private }) else { return }
         let conversationId = listStore.conversations[index].conversationId
