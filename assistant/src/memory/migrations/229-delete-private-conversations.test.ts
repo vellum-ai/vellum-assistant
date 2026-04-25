@@ -51,6 +51,63 @@ function bootstrapTables(raw: Database): void {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE memory_recall_logs (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT,
+      enabled INTEGER NOT NULL,
+      degraded INTEGER NOT NULL,
+      provider TEXT,
+      model TEXT,
+      degradation_json TEXT,
+      semantic_hits INTEGER NOT NULL,
+      merged_count INTEGER NOT NULL,
+      selected_count INTEGER NOT NULL,
+      tier1_count INTEGER NOT NULL,
+      tier2_count INTEGER NOT NULL,
+      hybrid_search_latency_ms INTEGER NOT NULL,
+      sparse_vector_used INTEGER NOT NULL,
+      injected_tokens INTEGER NOT NULL,
+      latency_ms INTEGER NOT NULL,
+      top_candidates_json TEXT NOT NULL,
+      injected_text TEXT,
+      reason TEXT,
+      query_context TEXT,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE llm_usage_events (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      conversation_id TEXT,
+      run_id TEXT,
+      request_id TEXT,
+      actor TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      cache_creation_input_tokens INTEGER,
+      cache_read_input_tokens INTEGER,
+      estimated_cost_usd REAL,
+      pricing_status TEXT NOT NULL,
+      llm_call_count INTEGER,
+      metadata_json TEXT
+    );
+
+    CREATE TABLE trace_events (
+      event_id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      request_id TEXT,
+      timestamp_ms INTEGER NOT NULL,
+      sequence INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT,
+      summary TEXT NOT NULL,
+      attributes_json TEXT,
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE memory_segments (
       id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -161,6 +218,56 @@ function seedConversation(raw: Database, id: string, conversationType: string) {
       ) VALUES (?, ?, '{}', '{}', ?)`,
     )
     .run(`${id}-llm`, id, now);
+  raw
+    .query(
+      `INSERT INTO memory_recall_logs (
+        id,
+        conversation_id,
+        message_id,
+        enabled,
+        degraded,
+        semantic_hits,
+        merged_count,
+        selected_count,
+        tier1_count,
+        tier2_count,
+        hybrid_search_latency_ms,
+        sparse_vector_used,
+        injected_tokens,
+        latency_ms,
+        top_candidates_json,
+        created_at
+      ) VALUES (?, ?, ?, 1, 0, 1, 1, 1, 1, 0, 2, 0, 3, 4, '[]', ?)`,
+    )
+    .run(`${id}-recall`, id, `${id}-message`, now);
+  raw
+    .query(
+      `INSERT INTO llm_usage_events (
+        id,
+        created_at,
+        conversation_id,
+        actor,
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        pricing_status
+      ) VALUES (?, ?, ?, 'assistant', 'test-provider', 'test-model', 10, 5, 'estimated')`,
+    )
+    .run(`${id}-usage`, now, id);
+  raw
+    .query(
+      `INSERT INTO trace_events (
+        event_id,
+        conversation_id,
+        timestamp_ms,
+        sequence,
+        kind,
+        summary,
+        created_at
+      ) VALUES (?, ?, ?, 1, 'llm', 'Test trace event', ?)`,
+    )
+    .run(`${id}-trace`, id, now, now);
   raw
     .query(
       `INSERT INTO memory_segments (
@@ -291,6 +398,9 @@ describe("migrateDeletePrivateConversations", () => {
       { table: "messages", column: "id" },
       { table: "tool_invocations", column: "id" },
       { table: "llm_request_logs", column: "id" },
+      { table: "memory_recall_logs", column: "id" },
+      { table: "llm_usage_events", column: "id" },
+      { table: "trace_events", column: "event_id" },
       { table: "memory_segments", column: "id" },
       { table: "memory_embeddings", column: "id" },
       { table: "message_attachments", column: "id" },

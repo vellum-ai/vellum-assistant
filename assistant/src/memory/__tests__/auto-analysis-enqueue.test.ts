@@ -13,7 +13,6 @@ mock.module("../../util/logger.js", () => ({
 
 let flagEnabled = true;
 let isAuto = false;
-let conversationType: "standard" | "private" = "standard";
 let configValue: { analysis?: { idleTimeoutMs?: number } } = {
   analysis: { idleTimeoutMs: 600_000 },
 };
@@ -45,10 +44,6 @@ mock.module("../../config/assistant-feature-flags.js", () => ({
 mock.module("../auto-analysis-guard.js", () => ({
   AUTO_ANALYSIS_SOURCE: "auto-analysis",
   isAutoAnalysisConversation: (_conversationId: string) => isAuto,
-}));
-
-mock.module("../conversation-crud.js", () => ({
-  getConversationType: (_conversationId: string) => conversationType,
 }));
 
 mock.module("../jobs-store.js", () => ({
@@ -95,7 +90,6 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
-    conversationType = "standard";
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;
@@ -116,7 +110,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(debouncedCalls).toHaveLength(0);
   });
 
-  test("flag on, trigger = 'batch', normal source — upsertDebouncedJob called with runAfter ≈ now", () => {
+  test("flag on, trigger = 'batch', standard source — upsertDebouncedJob called with runAfter ≈ now", () => {
     const before = Date.now();
 
     enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
@@ -138,7 +132,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("flag on, trigger = 'idle', normal source — upsertAutoAnalysisJob called with runAfter ≈ now + idleTimeoutMs", () => {
+  test("flag on, trigger = 'idle', standard source — upsertAutoAnalysisJob called with runAfter ≈ now + idleTimeoutMs", () => {
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     const before = Date.now();
 
@@ -159,7 +153,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(enqueueCalls).toHaveLength(0);
   });
 
-  test("flag on, trigger = 'lifecycle', normal source — upsertAutoAnalysisJob called (same as idle)", () => {
+  test("flag on, trigger = 'lifecycle', standard source — upsertAutoAnalysisJob called (same as idle)", () => {
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     const before = Date.now();
 
@@ -185,23 +179,6 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
 
   test("flag on, source is auto-analysis — no job is enqueued", () => {
     isAuto = true;
-
-    enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
-    enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "idle" });
-    enqueueAutoAnalysisIfEnabled({
-      conversationId: "c1",
-      trigger: "lifecycle",
-    });
-
-    expect(enqueueCalls).toHaveLength(0);
-    expect(debouncedCalls).toHaveLength(0);
-  });
-
-  test("flag on, source is private — no job is enqueued for any trigger", () => {
-    // `analyzeConversation` rejects private conversations with FORBIDDEN, so
-    // enqueueing a job for one is guaranteed to fail. Skip silently instead
-    // so we don't create queue/log churn on every private-chat eviction.
-    conversationType = "private";
 
     enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "batch" });
     enqueueAutoAnalysisIfEnabled({ conversationId: "c1", trigger: "idle" });
@@ -257,7 +234,7 @@ describe("enqueueAutoAnalysisIfEnabled", () => {
     expect(debouncedCalls[0]!.runAfter).toBeLessThanOrEqual(after + 1_000);
   });
 
-  test("flag on, trigger = 'compaction', normal source — fires immediately like 'batch'", () => {
+  test("flag on, trigger = 'compaction', standard source — fires immediately like 'batch'", () => {
     const before = Date.now();
 
     enqueueAutoAnalysisIfEnabled({
@@ -285,7 +262,6 @@ describe("enqueueAutoAnalysisOnCompaction", () => {
   beforeEach(() => {
     flagEnabled = true;
     isAuto = false;
-    conversationType = "standard";
     getConfigThrows = false;
     configValue = { analysis: { idleTimeoutMs: 600_000 } };
     enqueueCalls.length = 0;

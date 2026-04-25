@@ -49,7 +49,6 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../../tools/schema-transforms.js";
-import { isSideEffectTool } from "../../tools/side-effects.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
@@ -455,7 +454,6 @@ async function handleToolPermissionSimulate(body: {
   toolName?: string;
   input?: Record<string, unknown>;
   workingDir?: string;
-  forcePromptSideEffects?: boolean;
   isInteractive?: boolean;
 }): Promise<Response> {
   if (!body.toolName || typeof body.toolName !== "string") {
@@ -495,16 +493,6 @@ async function handleToolPermissionSimulate(body: {
       policyContext,
       manifestOverride,
     );
-
-    // Force explicit approval for side-effect tools.
-    if (
-      body.forcePromptSideEffects &&
-      result.decision === "allow" &&
-      isSideEffectTool(body.toolName, body.input)
-    ) {
-      result.decision = "prompt";
-      result.reason = "Side-effect tool requires explicit approval";
-    }
 
     // Non-interactive override
     if (body.isInteractive === false && result.decision === "prompt") {
@@ -775,7 +763,6 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
         toolName: z.string(),
         input: z.object({}).passthrough(),
         workingDir: z.string(),
-        forcePromptSideEffects: z.boolean(),
         isInteractive: z.boolean(),
       }),
       handler: async ({ req }) => {
@@ -783,7 +770,6 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
           toolName?: string;
           input?: Record<string, unknown>;
           workingDir?: string;
-          forcePromptSideEffects?: boolean;
           isInteractive?: boolean;
         };
         return handleToolPermissionSimulate(body);

@@ -4758,16 +4758,13 @@ public struct ToolPermissionSimulateRequest: Codable, Sendable {
     public let workingDir: String?
     /// Whether the simulated context is interactive (default true).
     public let isInteractive: Bool?
-    /// When true, side-effect tools that would normally be auto-allowed get promoted to prompt.
-    public let forcePromptSideEffects: Bool?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
         self.workingDir = workingDir
         self.isInteractive = isInteractive
-        self.forcePromptSideEffects = forcePromptSideEffects
     }
 }
 

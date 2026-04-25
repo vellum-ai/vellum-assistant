@@ -17,6 +17,18 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
   `);
   database.run(/*sql*/ `
+    DELETE FROM memory_recall_logs
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM llm_usage_events
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM trace_events
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
     DELETE FROM memory_embeddings
     WHERE target_type = 'segment'
       AND target_id IN (
