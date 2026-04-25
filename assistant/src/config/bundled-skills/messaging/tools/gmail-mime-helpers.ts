@@ -4,7 +4,7 @@
 
 import { extname } from "node:path";
 
-export const MIME_MAP: Record<string, string> = {
+const MIME_MAP: Record<string, string> = {
   ".pdf": "application/pdf",
   ".zip": "application/zip",
   ".gz": "application/gzip",

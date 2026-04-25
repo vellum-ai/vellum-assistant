@@ -9,7 +9,7 @@ export {
   PermissionModeSchema,
 } from "../permissions/permission-mode.js";
 export type { AcpAgentConfig, AcpConfig } from "./acp-schema.js";
-export { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
+export { AcpConfigSchema } from "./acp-schema.js";
 export type { AnalysisConfig } from "./schemas/analysis.js";
 export { AnalysisConfigSchema } from "./schemas/analysis.js";
 export type { BackupConfig, BackupDestination } from "./schemas/backup.js";
@@ -56,11 +56,7 @@ export type {
   HostBrowserCdpInspectConfig,
   HostBrowserConfig,
 } from "./schemas/host-browser.js";
-export {
-  DesktopAutoCdpInspectConfigSchema,
-  HostBrowserCdpInspectConfigSchema,
-  HostBrowserConfigSchema,
-} from "./schemas/host-browser.js";
+export { HostBrowserConfigSchema } from "./schemas/host-browser.js";
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
@@ -81,7 +77,6 @@ export type {
 export {
   IngressConfigSchema,
   IngressRateLimitConfigSchema,
-  IngressWebhookConfigSchema,
 } from "./schemas/ingress.js";
 export type { JournalConfig } from "./schemas/journal.js";
 export { JournalConfigSchema } from "./schemas/journal.js";

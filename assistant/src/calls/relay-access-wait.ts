@@ -108,10 +108,7 @@ export function classifyWaitUtterance(
  * Generate a non-repetitive heartbeat message for the caller based
  * on the current sequence counter and guardian label.
  */
-export function getHeartbeatMessage(
-  sequence: number,
-  guardianLabel: string,
-): string {
+function getHeartbeatMessage(sequence: number, guardianLabel: string): string {
   const messages = [
     `Still waiting to hear back from ${guardianLabel}. Thank you for your patience.`,
     `I'm still trying to reach ${guardianLabel}. One moment please.`,

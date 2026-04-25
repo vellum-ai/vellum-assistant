@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const AcpAgentConfigSchema = z
+const AcpAgentConfigSchema = z
   .object({
     command: z.string().describe("Command to spawn the ACP agent process"),
     args: z

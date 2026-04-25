@@ -24,7 +24,7 @@
  * 8000 samples/sec * 0.020 sec = 160 samples per frame.
  * Each mu-law sample is 1 byte, so each frame is 160 bytes.
  */
-export const MULAW_FRAME_SIZE = 160;
+const MULAW_FRAME_SIZE = 160;
 
 /**
  * Bias constant used in the linear-to-mu-law compression formula
@@ -52,7 +52,7 @@ const MULAW_SEG_TABLE = [0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3];
  * signed 16-bit integer (range: -32768 to +32767). The output is an
  * unsigned 8-bit mu-law value.
  */
-export function linearToMulaw(sample: number): number {
+function linearToMulaw(sample: number): number {
   // Determine sign and clamp magnitude
   const sign = (sample >> 8) & 0x80;
   if (sign !== 0) sample = -sample;
@@ -132,42 +132,3 @@ export function chunkMulawToBase64Frames(mulawBuffer: Buffer): string[] {
 // ---------------------------------------------------------------------------
 // High-level: raw audio bytes to sendable base64 frames
 // ---------------------------------------------------------------------------
-
-/**
- * Accepted audio formats for transcoding into mu-law frames.
- *
- * Currently only `mulaw` (already in the target format) and `pcm16` (16-bit
- * signed LE PCM at 8 kHz) are supported. Higher-level formats (mp3, wav,
- * opus) require decoding to PCM first -- callers should handle that
- * conversion before invoking this helper.
- */
-export type TranscodeInputFormat = "mulaw" | "pcm16";
-
-/**
- * Transcode raw audio bytes into Twilio-compatible base64-encoded mu-law
- * frames.
- *
- * @param audio - Raw audio bytes in the specified format.
- * @param format - The format of the input audio.
- * @returns Array of base64-encoded mu-law frames ready for
- *   `MediaStreamOutput.sendAudioPayload()`.
- */
-export function transcodeToMulawFrames(
-  audio: Uint8Array,
-  format: TranscodeInputFormat,
-): string[] {
-  let mulawBuffer: Buffer;
-
-  switch (format) {
-    case "mulaw":
-      mulawBuffer = Buffer.from(audio);
-      break;
-    case "pcm16":
-      mulawBuffer = pcm16ToMulaw(audio);
-      break;
-    default:
-      throw new Error(`Unsupported transcode format: ${format as string}`);
-  }
-
-  return chunkMulawToBase64Frames(mulawBuffer);
-}

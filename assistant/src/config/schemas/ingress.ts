@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const IngressWebhookConfigSchema = z
+const IngressWebhookConfigSchema = z
   .object({
     secret: z
       .string({ error: "ingress.webhook.secret must be a string" })

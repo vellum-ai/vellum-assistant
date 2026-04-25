@@ -12,7 +12,7 @@ import { z } from "zod";
  * skips the probe for subsequent calls until the cooldown expires. This bounds
  * the per-call latency penalty to `probeTimeoutMs` once per cooldown window.
  */
-export const DesktopAutoCdpInspectConfigSchema = z
+const DesktopAutoCdpInspectConfigSchema = z
   .object({
     enabled: z
       .boolean({
@@ -49,7 +49,7 @@ export type DesktopAutoCdpInspectConfig = z.infer<
  * (e.g. `chrome://inspect`-style remote debugging) as an alternative to the
  * extension or local Playwright backend.
  */
-export const HostBrowserCdpInspectConfigSchema = z
+const HostBrowserCdpInspectConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "hostBrowser.cdpInspect.enabled must be a boolean" })

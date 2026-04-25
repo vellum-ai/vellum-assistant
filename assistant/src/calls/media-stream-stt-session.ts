@@ -355,7 +355,7 @@ export class MediaStreamSttSession {
  * @param base64Payload - Base64-encoded mu-law audio chunk from Twilio.
  * @returns `true` if the chunk likely contains speech, `false` otherwise.
  */
-export function detectSpeechActivity(base64Payload: string): boolean {
+function detectSpeechActivity(base64Payload: string): boolean {
   const SPEECH_ENERGY_THRESHOLD = 200;
 
   let raw: Buffer;

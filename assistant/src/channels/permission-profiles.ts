@@ -11,7 +11,7 @@
  * Each entry maps a channel ID to a ChannelPermissionProfile.
  */
 
-import { getConfig, saveConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ export type ChannelPermissionMap = Record<string, ChannelPermissionProfile>;
 /**
  * Get all channel permission mappings from config.
  */
-export function getChannelPermissions(): ChannelPermissionMap {
+function getChannelPermissions(): ChannelPermissionMap {
   const config = getConfig();
   const perms = config.skills?.entries?.slack?.config?.channelPermissions;
   if (perms && typeof perms === "object" && !Array.isArray(perms)) {
@@ -53,65 +53,6 @@ export function getChannelPermissionProfile(
 ): ChannelPermissionProfile | null {
   const perms = getChannelPermissions();
   return perms[channelId] ?? null;
-}
-
-/**
- * Set the permission profile for a specific channel.
- */
-export function setChannelPermissionProfile(
-  channelId: string,
-  profile: ChannelPermissionProfile,
-): void {
-  const config = getConfig();
-  if (!config.skills) config.skills = {} as typeof config.skills;
-  if (!config.skills.entries) config.skills.entries = {};
-  if (!config.skills.entries.slack)
-    config.skills.entries.slack = { enabled: true };
-  if (!config.skills.entries.slack.config)
-    config.skills.entries.slack.config = {};
-
-  const existing =
-    (config.skills.entries.slack.config.channelPermissions as
-      | ChannelPermissionMap
-      | undefined) ?? {};
-  existing[channelId] = profile;
-  config.skills.entries.slack.config.channelPermissions = existing;
-  saveConfig(config);
-}
-
-/**
- * Remove the permission profile for a specific channel.
- * Returns true if a profile was removed, false if none existed.
- */
-export function removeChannelPermissionProfile(channelId: string): boolean {
-  const config = getConfig();
-  const perms = config.skills?.entries?.slack?.config?.channelPermissions as
-    | ChannelPermissionMap
-    | undefined;
-  if (!perms || !(channelId in perms)) return false;
-
-  delete perms[channelId];
-  config.skills!.entries!.slack!.config!.channelPermissions = perms;
-  saveConfig(config);
-  return true;
-}
-
-/**
- * Replace all channel permission profiles at once.
- */
-export function setAllChannelPermissions(
-  permissions: ChannelPermissionMap,
-): void {
-  const config = getConfig();
-  if (!config.skills) config.skills = {} as typeof config.skills;
-  if (!config.skills.entries) config.skills.entries = {};
-  if (!config.skills.entries.slack)
-    config.skills.entries.slack = { enabled: true };
-  if (!config.skills.entries.slack.config)
-    config.skills.entries.slack.config = {};
-
-  config.skills.entries.slack.config.channelPermissions = permissions;
-  saveConfig(config);
 }
 
 // ── Permission resolution ───────────────────────────────────────────
@@ -142,4 +83,3 @@ export function isToolAllowedInChannel(
 
   return true;
 }
-

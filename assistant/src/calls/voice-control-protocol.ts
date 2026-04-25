@@ -124,7 +124,7 @@ export function extractBalancedJson(
  * nested braces, string literals, and flexible whitespace correctly.
  * Only strips complete markers (prefix + balanced JSON + closing `]`).
  */
-export function stripGuardianApprovalMarkers(text: string): string {
+function stripGuardianApprovalMarkers(text: string): string {
   let result = text;
   for (;;) {
     const match = extractBalancedJson(result);
