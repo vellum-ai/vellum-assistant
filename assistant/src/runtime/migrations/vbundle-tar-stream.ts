@@ -155,9 +155,17 @@ export async function* parseVBundleStream(
     extractor.destroy(err);
   });
 
-  // Kick off the pipeline. We wire stages with `.pipe(..., { end: true })`
-  // so that clean EOF from the source triggers `finish` on the extractor.
-  source.pipe(gunzip).pipe(extractor);
+  // `pipe()` is a no-op on an already-destroyed Readable, so gunzip and
+  // extractor would never see `end` and `nextEntry()` would await forever.
+  // Synthesize a terminal error instead.
+  if (source.destroyed) {
+    const err = new Error("vbundle source stream was destroyed before parse");
+    pushError(err);
+    gunzip.destroy(err);
+    extractor.destroy(err);
+  } else {
+    source.pipe(gunzip).pipe(extractor);
+  }
 
   function nextEntry(): Promise<PendingEntry | null> {
     if (pipelineError) return Promise.reject(pipelineError);

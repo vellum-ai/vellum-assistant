@@ -219,4 +219,20 @@ describe("parseVBundleStream — cleanup", () => {
     // Source should now be destroyed (no dangling listeners keeping it alive).
     expect(source.destroyed).toBe(true);
   });
+
+  test("throws (does not hang) when source is already destroyed before parse", async () => {
+    const source = readableFromBuffer(new Uint8Array(0));
+    source.destroy(new Error("upstream torn down"));
+
+    let threw = false;
+    try {
+      for await (const _entry of parseVBundleStream(source)) {
+        // unreachable
+      }
+    } catch {
+      threw = true;
+    }
+
+    expect(threw).toBe(true);
+  }, 1000);
 });
