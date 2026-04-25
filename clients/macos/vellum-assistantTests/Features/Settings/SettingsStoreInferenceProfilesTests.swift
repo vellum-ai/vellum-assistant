@@ -5,9 +5,9 @@ import XCTest
 /// Verifies the inference-profile state and CRUD APIs on `SettingsStore`:
 /// daemon-push parsing into `profiles` / `activeProfile`, profile create/
 /// update via `setProfile`, active selection via `setActiveProfile`,
-/// reference-aware deletion via `deleteProfile`, and the
-/// `replaceCallSiteOverride` adjustment that clears stale fragment
-/// fields when assigning a profile.
+/// reference-aware deletion via `deleteProfile`, and the two-step
+/// clear-then-write semantics of `replaceCallSiteOverride` when
+/// assigning a profile.
 @MainActor
 final class SettingsStoreInferenceProfilesTests: XCTestCase {
 
@@ -314,17 +314,14 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertTrue(store.profiles.contains(where: { $0.name == "experimental" }))
     }
 
-    // MARK: - replaceCallSiteOverride profile-only stale-clear
+    // MARK: - replaceCallSiteOverride profile-only path
 
     /// When `replaceCallSiteOverride` is invoked with `profile` set and
-    /// no raw `provider`/`model`, the second PATCH must explicitly null
-    /// out the fragment leaves so any stale `provider`/`model`/
-    /// `maxTokens`/`effort`/etc. don't shadow the profile in the
-    /// resolver. The first (entry-level) clear PATCH already handles
-    /// the same job, but emitting both shores up the contract under
-    /// flaky network conditions where the clear could be retried out
-    /// of order.
-    func testReplaceCallSiteOverrideClearsFragmentLeavesWhenAssigningProfile() async {
+    /// no raw `provider`/`model`, the entry-level clear PATCH (first
+    /// step) already removes any stale fragment leaves, so the second
+    /// PATCH writes only the `profile` field — no leaf-level NSNull
+    /// blanket is needed.
+    func testReplaceCallSiteOverrideWritesProfileOnlyAfterEntryClear() async {
         _ = store.replaceCallSiteOverride("memoryRetrieval", profile: "fast")
         // Wait for both the clear and set PATCHes to flush.
         let predicate = NSPredicate { _, _ in
@@ -353,17 +350,17 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertTrue(sawClear, "replaceCallSiteOverride must first NSNull-clear the entry")
         XCTAssertNotNil(setPayloadEntry, "replaceCallSiteOverride must follow the clear with a set PATCH")
         XCTAssertEqual(setPayloadEntry?["profile"] as? String, "fast")
-        // Fragment leaves must be NSNull-cleared in the same SET PATCH so
-        // any concurrent persisted state is overwritten with deletes.
-        XCTAssertTrue(setPayloadEntry?["provider"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["model"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["maxTokens"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["effort"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["speed"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["verbosity"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["temperature"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["thinking"] is NSNull)
-        XCTAssertTrue(setPayloadEntry?["contextWindow"] is NSNull)
+        // The entry-level clear handles stale leaves; the SET payload
+        // should contain only `profile` and no fragment fields.
+        XCTAssertNil(setPayloadEntry?["provider"])
+        XCTAssertNil(setPayloadEntry?["model"])
+        XCTAssertNil(setPayloadEntry?["maxTokens"])
+        XCTAssertNil(setPayloadEntry?["effort"])
+        XCTAssertNil(setPayloadEntry?["speed"])
+        XCTAssertNil(setPayloadEntry?["verbosity"])
+        XCTAssertNil(setPayloadEntry?["temperature"])
+        XCTAssertNil(setPayloadEntry?["thinking"])
+        XCTAssertNil(setPayloadEntry?["contextWindow"])
     }
 
     /// Sanity-check that the stale-clear behavior does NOT trigger when

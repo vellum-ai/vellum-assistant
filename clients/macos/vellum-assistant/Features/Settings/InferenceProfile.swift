@@ -102,7 +102,7 @@ public struct InferenceProfile: Codable, Hashable, Identifiable {
 }
 
 /// The three first-class profiles the daemon seeds into every workspace
-/// (see migration 040 in `assistant/src/workspace/migrations/`). The
+/// (see migration 052 in `assistant/src/workspace/migrations/`). The
 /// macOS UI uses this enum only to render a "Built-in" badge — deletion
 /// and editing remain allowed for these profiles.
 public enum BuiltInInferenceProfile: String, CaseIterable {

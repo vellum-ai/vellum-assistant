@@ -3431,27 +3431,6 @@ public final class SettingsStore: ObservableObject {
             if let model { entry["model"] = model }
             if let profile { entry["profile"] = profile }
             guard !entry.isEmpty else { return true }
-            // When the caller is assigning a profile-only override (no raw
-            // provider/model), explicitly null out the fragment leaves
-            // (`provider`, `model`, `maxTokens`, `effort`, `speed`,
-            // `verbosity`, `temperature`, `thinking`, `contextWindow`) so
-            // any pre-existing fragment fields don't shadow the profile's
-            // resolved values. The daemon's type-aware deep-merge treats
-            // `null` on object/scalar leaves as deletion. Without this,
-            // switching a row from "Custom" (raw fragment) to a profile
-            // would leave stale leaves in `llm.callSites.<id>` that win
-            // over the profile in the resolver.
-            if profile != nil && provider == nil && model == nil {
-                entry["provider"] = NSNull()
-                entry["model"] = NSNull()
-                entry["maxTokens"] = NSNull()
-                entry["effort"] = NSNull()
-                entry["speed"] = NSNull()
-                entry["verbosity"] = NSNull()
-                entry["temperature"] = NSNull()
-                entry["thinking"] = NSNull()
-                entry["contextWindow"] = NSNull()
-            }
             let setSuccess = await settingsClient.patchConfig([
                 "llm": ["callSites": [id: entry]]
             ])
