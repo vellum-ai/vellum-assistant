@@ -155,9 +155,30 @@ describe("deleteConversation — private scope cleanup", () => {
     db.run(`DELETE FROM conversations`);
   });
 
+  // createConversation no longer accepts conversationType "private", but the
+  // deleteConversation cleanup path still handles legacy private rows. Stamp
+  // the memory_scope_id directly to simulate one.
+  function makeLegacyPrivateConversation(): {
+    id: string;
+    scopeId: string;
+  } {
+    const conv = createConversation("legacy private");
+    const scopeId = `private:${conv.id}`;
+    const raw = (
+      getDb() as unknown as {
+        $client: import("bun:sqlite").Database;
+      }
+    ).$client;
+    raw
+      .query(
+        `UPDATE conversations SET memory_scope_id = ?, conversation_type = 'private' WHERE id = ?`,
+      )
+      .run(scopeId, conv.id);
+    return { id: conv.id, scopeId };
+  }
+
   test("summaries cleaned up", () => {
-    const conv = createConversation({ conversationType: "private" });
-    const scopeId = conv.memoryScopeId;
+    const conv = makeLegacyPrivateConversation();
     const now = Date.now();
 
     const raw = (
@@ -172,7 +193,7 @@ describe("deleteConversation — private scope cleanup", () => {
         `INSERT INTO memory_summaries (id, scope, scope_key, summary, token_estimate, version, scope_id, start_at, end_at, created_at, updated_at)
          VALUES ('priv-sum-1', 'global', 'all', 'private summary', 100, 1, ?, ?, ?, ?, ?)`,
       )
-      .run(scopeId, now, now, now, now);
+      .run(conv.scopeId, now, now, now, now);
 
     const result = deleteConversation(conv.id);
 
@@ -187,20 +208,16 @@ describe("deleteConversation — private scope cleanup", () => {
   });
 
   test("standard conversations unaffected", async () => {
-    // Create a standard conversation and a private one
     const standardConv = createConversation("standard test");
-    const privateConv = createConversation({ conversationType: "private" });
+    const privateConv = makeLegacyPrivateConversation();
 
-    // Delete the private conversation
     deleteConversation(privateConv.id);
 
-    // Standard conversation should still exist
     expect(getConversation(standardConv.id)).not.toBeNull();
   });
 
   test("conversationStarters cleaned up", () => {
-    const conv = createConversation({ conversationType: "private" });
-    const scopeId = conv.memoryScopeId;
+    const conv = makeLegacyPrivateConversation();
     const now = Date.now();
 
     const raw = (
@@ -215,7 +232,7 @@ describe("deleteConversation — private scope cleanup", () => {
         `INSERT INTO conversation_starters (id, label, prompt, generation_batch, scope_id, card_type, created_at)
          VALUES ('starter-1', 'Test starter', 'Tell me about tests', 1, ?, 'chip', ?)`,
       )
-      .run(scopeId, now);
+      .run(conv.scopeId, now);
 
     // Also insert a default-scope starter that should NOT be deleted
     raw

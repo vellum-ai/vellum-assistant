@@ -465,23 +465,6 @@ describe("createConversation with conversation type option", () => {
     expect(conv.memoryScopeId).toBe("default");
   });
 
-  test("private create sets conversationType and derives memoryScopeId", () => {
-    const conv = createConversation({
-      title: "secret",
-      conversationType: "private",
-    });
-    expect(conv.conversationType).toBe("private");
-    expect(conv.memoryScopeId).toBe(`private:${conv.id}`);
-  });
-
-  test("private create memoryScopeId is persisted", () => {
-    const conv = createConversation({ conversationType: "private" });
-    const loaded = getConversation(conv.id);
-    expect(loaded).not.toBeNull();
-    expect(loaded!.conversationType).toBe("private");
-    expect(loaded!.memoryScopeId).toBe(`private:${conv.id}`);
-  });
-
   test("no-arg create uses defaults", () => {
     const conv = createConversation();
     expect(conv.conversationType).toBe("standard");
@@ -501,11 +484,6 @@ describe("conversation metadata read helpers", () => {
     expect(getConversationType(conv.id)).toBe("standard");
   });
 
-  test("getConversationType returns private for private conversation", () => {
-    const conv = createConversation({ conversationType: "private" });
-    expect(getConversationType(conv.id)).toBe("private");
-  });
-
   test("getConversationType returns standard for missing conversation", () => {
     expect(getConversationType("nonexistent-id")).toBe("standard");
   });
@@ -513,11 +491,6 @@ describe("conversation metadata read helpers", () => {
   test("getConversationMemoryScopeId returns default for standard conversation", () => {
     const conv = createConversation("test");
     expect(getConversationMemoryScopeId(conv.id)).toBe("default");
-  });
-
-  test("getConversationMemoryScopeId returns private scope for private conversation", () => {
-    const conv = createConversation({ conversationType: "private" });
-    expect(getConversationMemoryScopeId(conv.id)).toBe(`private:${conv.id}`);
   });
 
   test("getConversationMemoryScopeId returns default for missing conversation", () => {
@@ -801,146 +774,5 @@ describe("attachment reuse across conversation lifecycles", () => {
     const second = uploadAttachment("photo.png", "image/png", "DEDUPCROSS");
 
     expect(second.id).not.toBe(first.id);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Baseline: no private-conversation visibility boundary for attachments
-// ---------------------------------------------------------------------------
-
-describe("no private-conversation attachment visibility boundary", () => {
-  beforeEach(() => {
-    const db = getDb();
-    db.run("DELETE FROM message_attachments");
-    db.run("DELETE FROM attachments");
-    db.run("DELETE FROM messages");
-    db.run("DELETE FROM conversations");
-  });
-
-  test("attachment from a private conversation is visible via getAttachmentById (no conversation scoping)", async () => {
-    const privateConv = createConversation({
-      title: "Secret",
-      conversationType: "private",
-    });
-    expect(privateConv.conversationType).toBe("private");
-
-    const msg = await addMessage(
-      privateConv.id,
-      "assistant",
-      "Private content",
-    );
-    const stored = uploadAttachment("secret.pdf", "application/pdf", "JVBER");
-    linkAttachmentToMessage(msg.id, stored.id, 0);
-
-    // Attachment is globally visible by ID — no conversation-type filter exists
-    const fetched = getAttachmentById(stored.id);
-    expect(fetched).not.toBeNull();
-    expect(fetched!.originalFilename).toBe("secret.pdf");
-  });
-
-  test("attachment from a private conversation is copied when linked into a standard conversation", async () => {
-    const privateConv = createConversation({
-      title: "Private",
-      conversationType: "private",
-    });
-    const standardConv = createConversation({
-      title: "Standard",
-      conversationType: "standard",
-    });
-
-    const privateMsg = await addMessage(
-      privateConv.id,
-      "assistant",
-      "Private file",
-    );
-    const standardMsg = await addMessage(
-      standardConv.id,
-      "assistant",
-      "Reusing private file",
-    );
-
-    const stored = uploadAttachment("private-doc.png", "image/png", "PRIVDATA");
-    linkAttachmentToMessage(privateMsg.id, stored.id, 0);
-    linkAttachmentToMessage(standardMsg.id, stored.id, 0);
-
-    // Both conversations can see the attachment
-    const linkedPrivate = getAttachmentsForMessage(privateMsg.id);
-    expect(linkedPrivate).toHaveLength(1);
-
-    const linkedStandard = getAttachmentsForMessage(standardMsg.id);
-    expect(linkedStandard).toHaveLength(1);
-    expect(linkedStandard[0].id).not.toBe(stored.id);
-  });
-
-  test("getAttachmentsForMessage returns private conversation attachments", async () => {
-    const privateConv = createConversation({
-      title: "Private",
-      conversationType: "private",
-    });
-    const msg = await addMessage(privateConv.id, "assistant", "Private media");
-    const stored = uploadAttachment("photo.jpg", "image/jpeg", "AAAA");
-    linkAttachmentToMessage(msg.id, stored.id, 0);
-
-    const linked = getAttachmentsForMessage(msg.id);
-    expect(linked).toHaveLength(1);
-    expect(linked[0].id).toBe(stored.id);
-  });
-
-  test("identical uploads remain distinct across private and standard conversations", () => {
-    createConversation({ title: "Private", conversationType: "private" });
-    createConversation({ title: "Standard", conversationType: "standard" });
-
-    // Same content uploaded in private and standard contexts
-    const fromPrivate = uploadAttachment(
-      "file.png",
-      "image/png",
-      "CROSSCONVERSATION",
-    );
-    const fromStandard = uploadAttachment(
-      "file.png",
-      "image/png",
-      "CROSSCONVERSATION",
-    );
-
-    expect(fromStandard.id).not.toBe(fromPrivate.id);
-  });
-
-  test("clearAll removes attachments from both private and standard conversations", async () => {
-    const privateConv = createConversation({
-      title: "Private",
-      conversationType: "private",
-    });
-    const standardConv = createConversation({
-      title: "Standard",
-      conversationType: "standard",
-    });
-
-    const privateMsg = await addMessage(
-      privateConv.id,
-      "assistant",
-      "Private file",
-    );
-    const standardMsg = await addMessage(
-      standardConv.id,
-      "assistant",
-      "Standard file",
-    );
-
-    const att1 = uploadAttachment("private.png", "image/png", "PRIV");
-    const att2 = uploadAttachment("standard.png", "image/png", "STD");
-    linkAttachmentToMessage(privateMsg.id, att1.id, 0);
-    linkAttachmentToMessage(standardMsg.id, att2.id, 0);
-
-    clearAll();
-
-    const raw = (
-      getDb() as unknown as {
-        $client: import("bun:sqlite").Database;
-      }
-    ).$client;
-    const attachmentCount = raw
-      .query("SELECT COUNT(*) AS c FROM attachments")
-      .get() as { c: number };
-    expect(attachmentCount.c).toBe(0);
   });
 });
