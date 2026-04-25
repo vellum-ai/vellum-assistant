@@ -11,6 +11,7 @@ import {
 } from "../../memory/graph/tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 // ── remember ────────────────────────────────────────────────────────
@@ -59,6 +60,14 @@ class RecallTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
+    if (isUntrustedTrustClass(context.trustClass)) {
+      return {
+        content:
+          "Recall is only available to the guardian because it can read sensitive local context.",
+        isError: true,
+      };
+    }
+
     const config = getConfig();
     const result = await runAgenticRecall(input as unknown as RecallInput, {
       workingDir: context.workingDir,

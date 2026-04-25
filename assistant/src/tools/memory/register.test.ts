@@ -139,6 +139,34 @@ describe("recallTool.execute", () => {
     recallContent = "agentic recall answer";
   });
 
+  test("allows guardian recall to invoke the agentic runner", async () => {
+    const result = await recallTool.execute(
+      { query: "guardian recall" },
+      makeContext({ trustClass: "guardian" }),
+    );
+
+    expect(result).toEqual({
+      content: "agentic recall answer",
+      isError: false,
+    });
+    expect(recallCalls).toHaveLength(1);
+    expect(recallCalls[0]?.input).toEqual({ query: "guardian recall" });
+  });
+
+  test.each(["trusted_contact", "unknown"] as const)(
+    "blocks %s recall before invoking the agentic runner",
+    async (trustClass) => {
+      const result = await recallTool.execute(
+        { query: "sensitive local search", sources: ["workspace"] },
+        makeContext({ trustClass }),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("only available to the guardian");
+      expect(recallCalls).toHaveLength(0);
+    },
+  );
+
   test("passes source filtering input through to agentic recall", async () => {
     const result = await recallTool.execute(
       {
