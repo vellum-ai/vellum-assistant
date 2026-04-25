@@ -142,6 +142,15 @@ export interface SendMessageConfig {
    * `llm.default` when no callSite-specific entry is present.
    */
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc profile override applied per request. When set, the
+   * resolver layers `llm.profiles[overrideProfile]` between the workspace's
+   * `activeProfile` and the call-site's named profile (see
+   * `resolveCallSiteConfig`). Used by per-conversation pinned profiles to
+   * override the workspace default for a single send. Missing profile names
+   * silently fall through.
+   */
+  overrideProfile?: string;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   [key: string]: unknown;

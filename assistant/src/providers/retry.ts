@@ -120,16 +120,24 @@ function normalizeSendMessageOptions(
 
   const nextConfig: Record<string, unknown> = { ...config };
 
+  // `overrideProfile` is a routing/resolution-time concern (consumed by the
+  // resolver below and `CallSiteRoutingProvider`'s provider selection); it is
+  // not a wire-format field. Strip unconditionally so it never leaks into
+  // provider request bodies even when callers set it without a `callSite`.
+  delete nextConfig.overrideProfile;
+
   if (config.callSite !== undefined) {
-    const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm);
+    const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
+      overrideProfile: config.overrideProfile,
+    });
 
     const explicitModel =
       typeof config.model === "string" && config.model.trim().length > 0
         ? config.model.trim()
         : undefined;
 
-    // Routing key is consumed by the RetryProvider layer and must not leak
-    // downstream.
+    // Routing key is consumed by the resolver above and must not leak
+    // downstream as a wire-format field.
     delete nextConfig.callSite;
 
     // Apply resolved values, letting per-call explicit fields win where set.

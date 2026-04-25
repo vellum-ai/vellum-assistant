@@ -53,14 +53,18 @@ export class CallSiteRoutingProvider implements Provider {
 
   /**
    * Pick the provider to route this call through. The default provider wins
-   * unless the per-call `callSite` resolves to a different provider name and
-   * the registry can produce a Provider for it.
+   * unless the per-call `callSite` (layered with any `overrideProfile`)
+   * resolves to a different provider name and the registry can produce a
+   * Provider for it.
    */
   private selectProvider(options?: SendMessageOptions): Provider {
     const callSite = options?.config?.callSite;
     if (!callSite) return this.defaultProvider;
 
-    const resolved = resolveCallSiteConfig(callSite, getConfig().llm);
+    const overrideProfile = options?.config?.overrideProfile;
+    const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
+      overrideProfile,
+    });
     if (resolved.provider === this.defaultProvider.name) {
       return this.defaultProvider;
     }

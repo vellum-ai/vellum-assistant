@@ -7,11 +7,7 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  getProvider,
-  initializeProviders,
-  listProviders,
-} from "./registry.js";
+import { getProvider, initializeProviders, listProviders } from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -43,15 +39,19 @@ let lazyInitPromise: Promise<void> | null = null;
  * performs a one-shot `initializeProviders(getConfig())`.
  *
  * The provider name is sourced from
- * `resolveCallSiteConfig(callSite, config.llm).provider` — i.e. the unified
- * `llm` block drives selection. The `callSite` argument is required so the
- * resolver can layer per-call-site overrides; pass the closest matching
- * call-site identifier from `LLMCallSiteEnum` when adding a new caller.
+ * `resolveCallSiteConfig(callSite, config.llm, opts).provider` — i.e. the
+ * unified `llm` block drives selection. The `callSite` argument is required
+ * so the resolver can layer per-call-site overrides; pass the closest
+ * matching call-site identifier from `LLMCallSiteEnum` when adding a new
+ * caller. Pass `opts.overrideProfile` to apply a per-call ad-hoc profile
+ * override (e.g. a per-conversation pinned profile) on top of any workspace
+ * `activeProfile`.
  *
  * Returns `null` when no providers are available at all.
  */
 export async function resolveConfiguredProvider(
   callSite: LLMCallSite,
+  opts: { overrideProfile?: string } = {},
 ): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
@@ -68,7 +68,11 @@ export async function resolveConfiguredProvider(
     }
   }
 
-  const inferenceProvider = resolveCallSiteConfig(callSite, config.llm).provider;
+  const inferenceProvider = resolveCallSiteConfig(
+    callSite,
+    config.llm,
+    opts,
+  ).provider;
 
   try {
     const provider = getProvider(inferenceProvider);
@@ -91,8 +95,9 @@ export async function resolveConfiguredProvider(
  */
 export async function getConfiguredProvider(
   callSite: LLMCallSite,
+  opts: { overrideProfile?: string } = {},
 ): Promise<Provider | null> {
-  const result = await resolveConfiguredProvider(callSite);
+  const result = await resolveConfiguredProvider(callSite, opts);
   return result?.provider ?? null;
 }
 
