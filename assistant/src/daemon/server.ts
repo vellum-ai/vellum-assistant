@@ -448,9 +448,9 @@ export class DaemonServer {
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     // Wire the skill IPC server into the meet-host supervisor's lazy
     // dispatch path. The supervisor is constructed in
-    // `external-skills-bootstrap.ts` at module-load time — earlier than
-    // this DaemonServer instance exists — so the sender flows through a
-    // module-level global rather than constructor injection.
+    // `initializeProvidersAndTools()` (via `startMeetHost`), which can run
+    // before or after this DaemonServer instance, so the sender flows
+    // through a module-level global rather than constructor injection.
     setGlobalSkillIpcSender(this.skillIpc);
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);

@@ -91,24 +91,9 @@ export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
  * (avatar renderer, consent copy, proactive-chat keywords, etc.) lives in
  * `skills/meet-join/config-schema.ts` and is sourced from the separate
  * `<workspace>/config/meet.json` file the skill owns.
- *
- * `lazy_external` gates the manifest-driven lazy-spawn path. The default
- * is `true`: the daemon reads the shipped meet-join manifest at startup
- * and spawns the meet-host child via `bun run` on first tool/route use.
- * Setting `false` keeps the in-process `register(host)` path that
- * `external-skills-bootstrap.ts` runs as an opt-out — useful for local
- * iteration when the manifest or shipped skill source is stale.
  */
 export const MeetHostConfigSchema = z
   .object({
-    lazy_external: z
-      .boolean({
-        error: "services.meet.host.lazy_external must be a boolean",
-      })
-      .default(true)
-      .describe(
-        "When true, the daemon installs meet-join tools from the shipped manifest and spawns the meet-host child on first use instead of loading the skill in-process.",
-      ),
     idle_timeout_ms: z
       .number({
         error: "services.meet.host.idle_timeout_ms must be a number",

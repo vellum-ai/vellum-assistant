@@ -7,30 +7,21 @@ entirely — without hunting down scattered references across the monorepo.
 
 ## The isolation rule
 
-The `assistant/` module must **never** import from `skills/meet-join/` via
-relative paths. The Docker build context only exposes a curated subset of
-`skills/` — whitelisted by the repo-root `.dockerignore` — so an import
-reaching into an unlisted skill path breaks at runtime.
+The `assistant/` module must never import from `skills/meet-join/` via
+relative paths, and `skills/meet-join/` must never import from `assistant/`.
+Both directions are enforced by `assistant/src/__tests__/skill-boundary-guard.test.ts`.
 
-There is one narrow exception:
-`assistant/src/daemon/external-skills-bootstrap.ts` may do a single
-named import of `register` from `skills/meet-join/register.js` and
-invoke it with a `DaemonSkillHost`. The exception exists because
-`bun --compile` only bundles statically analyzed imports — a dynamic
-relative import would fail inside the compiled binary's `/$bunfs/`
-layer. It is limited to that one file, that single named import, and
-requires the skill's runtime files (including `register.ts`) to be
-whitelisted in the repo-root `.dockerignore` so the assistant Docker
-build context sees them; the assistant `Dockerfile` itself copies
-`skills/` generically and does not name meet-join. Beyond `register`,
-no named-export consumption from `skills/meet-join/` in `assistant/`
-code is permitted. See the root `AGENTS.md` "Skill Isolation" section
-for the full rule.
+Meet-join runs as a separate `bun run` subprocess. The daemon ships
+this directory's source plus a generated `manifest.json` alongside its
+binary; on startup it installs proxy tools/routes/hooks from the manifest
+and spawns the meet-host child on first invocation via the
+`assistant-skill.sock` IPC socket. See `assistant/src/daemon/meet-host-startup.ts`
+and `assistant/src/daemon/meet-host-supervisor.ts` for the daemon side.
 
 Skills wire into the assistant through the `SkillHost` contract from
-`@vellumai/skill-host-contracts`. The bootstrap passes a
-`DaemonSkillHost` into `register(host)`; the skill uses `host.registries.*`
-instead of direct imports from `assistant/`:
+`@vellumai/skill-host-contracts`. The meet-host entrypoint constructs a
+`SkillHostClient` against the IPC socket and passes it to `register(host)`;
+the skill uses `host.registries.*` instead of direct imports from `assistant/`:
 
 - **Tools**: `host.registries.registerTools(() => [...])`
 - **Routes**: `host.registries.registerSkillRoute({ pattern, methods, handler })`

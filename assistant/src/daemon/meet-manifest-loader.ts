@@ -2,23 +2,15 @@
  * `meet-manifest-loader` — registers proxy tools, routes, and shutdown
  * hooks for the meet-join skill from its shipped `manifest.json` without
  * loading the skill's source in-process. Paired with
- * {@link MeetHostSupervisor}, this is the lazy-external path that
- * eventually replaces `external-skills-bootstrap.ts` (PR 33).
+ * {@link MeetHostSupervisor}, this is how meet-join wires into the daemon
+ * across the skill-boundary.
  *
- * ## Lifecycle today (flag off)
+ * ## Lifecycle
  *
- * The `services.meet.host.lazy_external` config key defaults to `false`
- * (PR 32 flips it). When the flag is off, `external-skills-bootstrap.ts`
- * runs the in-process path (`register(createDaemonSkillHost("meet-join"))`)
- * and this loader is never invoked on main. Code lives here so PR 32
- * becomes a one-line default flip rather than a large rebase-prone patch.
- *
- * ## Lifecycle when the flag is on
- *
- * 1. The bootstrap constructs a {@link MeetHostSupervisor} and calls
- *    {@link setMeetHostSupervisorForSessionReports} so session-reporting
- *    IPC frames flow into the supervisor's counter.
- * 2. The bootstrap awaits `loadMeetManifestProxies(supervisor)` (this
+ * 1. `meet-host-startup.ts` constructs a {@link MeetHostSupervisor} and
+ *    calls {@link setMeetHostSupervisorForSessionReports} so
+ *    session-reporting IPC frames flow into the supervisor's counter.
+ * 2. It awaits `loadMeetManifestProxies(supervisor)` (this
  *    function). It reads the shipped `manifest.json`, builds a proxy
  *    `Tool` for every tool entry, a proxy `SkillRoute` for every route
  *    entry, and a shutdown hook for every declared hook name.
@@ -251,7 +243,7 @@ export function resolveMeetManifestPath(): string | undefined {
 
 /**
  * Read and validate the shipped manifest from disk. Exposed so
- * `external-skills-bootstrap.ts` can extract `sourceHash` for
+ * `meet-host-startup.ts` can extract `sourceHash` for
  * {@link MeetHostSupervisor} construction without duplicating the JSON
  * validation shape.
  */
