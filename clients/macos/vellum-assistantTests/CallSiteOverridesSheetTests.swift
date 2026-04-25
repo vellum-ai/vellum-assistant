@@ -109,6 +109,26 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         )
     }
 
+    /// A row that has both `profile` and raw fragment fields must render
+    /// as Custom — `resolveCallSiteConfig` applies fragments after profile
+    /// layering, so the fragments would silently shadow the profile at
+    /// runtime. Surfacing this state as Custom keeps the editor honest.
+    func testProfilePickerRendersCustomForMixedProfileAndFragmentRow() {
+        let row = CallSiteOverride(
+            id: "memoryRetrieval",
+            displayName: "Memory · Retrieval",
+            domain: .memory,
+            provider: "openai",
+            model: "gpt-4.1",
+            profile: "balanced"
+        )
+        XCTAssertEqual(
+            CallSiteOverrideRow.profilePickerValue(for: row),
+            CallSiteOverrideRow.customSentinel,
+            "Mixed profile+fragment rows must render as Custom so the fragments are visible and editable"
+        )
+    }
+
     func testProfilePickerEmptyStringProfileTreatedAsUnset() {
         // Defense against config payloads that round-trip an empty string
         // through `loadCallSiteOverrides` — the loader normalizes empty
