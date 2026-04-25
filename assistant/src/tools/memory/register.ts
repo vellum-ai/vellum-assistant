@@ -1,8 +1,8 @@
 import { getConfig } from "../../config/loader.js";
+import { runAgenticRecall } from "../../memory/context-search/agent-runner.js";
+import type { RecallInput } from "../../memory/context-search/types.js";
 import {
-  handleRecall,
   handleRemember,
-  type RecallInput,
   type RememberInput,
 } from "../../memory/graph/tool-handlers.js";
 import {
@@ -60,41 +60,16 @@ class RecallTool implements Tool {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const config = getConfig();
-    const result = await handleRecall(
-      input as unknown as RecallInput,
+    const result = await runAgenticRecall(input as unknown as RecallInput, {
+      workingDir: context.workingDir,
+      conversationId: context.conversationId,
+      memoryScopeId: context.memoryScopeId ?? "default",
       config,
-      context.memoryScopeId ?? "default",
-    );
+      signal: context.signal,
+    });
 
-    if (result.results.length === 0) {
-      return { content: "No results found.", isError: false };
-    }
-
-    const formatted = result.results
-      .map((r) => {
-        const ts = formatTimestamp(r.created);
-        const meta =
-          result.mode === "memory"
-            ? `[${r.type}] ${ts} (confidence: ${r.confidence.toFixed(2)}, score: ${r.score.toFixed(3)})`
-            : `[archive] ${ts}`;
-        return `${meta}\n${r.content}`;
-      })
-      .join("\n\n---\n\n");
-
-    return { content: formatted, isError: false };
+    return { content: result.content, isError: false };
   }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────
-
-function formatTimestamp(epochMs: number): string {
-  const d = new Date(epochMs);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const yy = String(d.getFullYear()).slice(-2);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}/${dd}/${yy} ${hh}:${min}`;
 }
 
 // ── Exported tool instances ──────────────────────────────────────────

@@ -27,6 +27,12 @@ const enqueueCalls: Array<{
 }> = [];
 let enqueueShouldThrow = false;
 
+const recallCalls: Array<{
+  input: Record<string, unknown>;
+  context: Record<string, unknown>;
+}> = [];
+let recallContent = "agentic recall answer";
+
 mock.module("../../memory/jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: (input: {
     pkbRoot: string;
@@ -38,6 +44,21 @@ mock.module("../../memory/jobs/embed-pkb-file.js", () => ({
       throw new Error("simulated enqueue failure");
     }
     return "job-mock-id";
+  },
+}));
+
+mock.module("../../memory/context-search/agent-runner.js", () => ({
+  runAgenticRecall: async (
+    input: Record<string, unknown>,
+    context: Record<string, unknown>,
+  ) => {
+    recallCalls.push({ input, context });
+    return {
+      content: recallContent,
+      answer: recallContent,
+      evidence: [],
+      debug: { mode: "agentic" },
+    };
   },
 }));
 
@@ -57,7 +78,8 @@ afterAll(() => {
 });
 
 // Import after the env var is set so getWorkspaceDir() resolves to the tmpdir.
-const { rememberTool } = await import("./register.js");
+const { recallTool, rememberTool } = await import("./register.js");
+const { getConfig } = await import("../../config/loader.js");
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -67,6 +89,116 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
     ...overrides,
   };
 }
+
+describe("recallTool definition", () => {
+  test("exposes the agentic local search schema", () => {
+    const definition = recallTool.getDefinition();
+
+    expect(definition.name).toBe("recall");
+    expect(definition.description).toContain("Search local information");
+    expect(definition.description).toContain("workspace files");
+
+    const inputSchema = definition.input_schema as {
+      required?: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(inputSchema.required).toEqual(["query"]);
+
+    const properties = inputSchema.properties;
+    expect(Object.keys(properties).sort()).toEqual([
+      "depth",
+      "max_results",
+      "query",
+      "sources",
+    ]);
+    expect(properties).not.toHaveProperty("mode");
+    expect(properties).not.toHaveProperty("num_results");
+    expect(properties).not.toHaveProperty("filters");
+    expect(properties.sources).toMatchObject({
+      type: "array",
+      items: {
+        type: "string",
+        enum: ["memory", "pkb", "conversations", "workspace"],
+      },
+    });
+    expect(properties.max_results).toMatchObject({
+      type: "integer",
+      minimum: 1,
+      maximum: 20,
+    });
+    expect(properties.depth).toMatchObject({
+      type: "string",
+      enum: ["fast", "standard", "deep"],
+    });
+  });
+});
+
+describe("recallTool.execute", () => {
+  beforeEach(() => {
+    recallCalls.length = 0;
+    recallContent = "agentic recall answer";
+  });
+
+  test("passes source filtering input through to agentic recall", async () => {
+    const result = await recallTool.execute(
+      {
+        query: "release notes",
+        sources: ["pkb", "workspace"],
+        max_results: 4,
+        depth: "deep",
+      },
+      makeContext({ memoryScopeId: "scope-filter" }),
+    );
+
+    expect(result).toEqual({
+      content: "agentic recall answer",
+      isError: false,
+    });
+    expect(recallCalls).toHaveLength(1);
+    expect(recallCalls[0]?.input).toEqual({
+      query: "release notes",
+      sources: ["pkb", "workspace"],
+      max_results: 4,
+      depth: "deep",
+    });
+  });
+
+  test("returns deterministic fallback content directly", async () => {
+    recallContent = "Found evidence:\n\n- [workspace] fallback note";
+
+    const result = await recallTool.execute(
+      { query: "fallback search", sources: ["workspace"], depth: "fast" },
+      makeContext({ memoryScopeId: "scope-fallback" }),
+    );
+
+    expect(result).toEqual({
+      content: "Found evidence:\n\n- [workspace] fallback note",
+      isError: false,
+    });
+  });
+
+  test("propagates tool context and defaults missing memory scope", async () => {
+    const controller = new AbortController();
+
+    await recallTool.execute(
+      { query: "context propagation" },
+      makeContext({
+        workingDir: "/workspace/project",
+        conversationId: "conv-context",
+        signal: controller.signal,
+      }),
+    );
+
+    expect(recallCalls).toHaveLength(1);
+    expect(recallCalls[0]?.context).toEqual({
+      workingDir: "/workspace/project",
+      conversationId: "conv-context",
+      memoryScopeId: "default",
+      config: getConfig(),
+      signal: controller.signal,
+    });
+  });
+});
 
 describe("rememberTool.execute — finish_turn", () => {
   test("omits yieldToUser when finish_turn is not provided", async () => {

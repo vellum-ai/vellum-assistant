@@ -5,68 +5,50 @@
 // ---------------------------------------------------------------------------
 
 import type { ToolDefinition } from "../../providers/types.js";
+import {
+  ALL_RECALL_SOURCES,
+  MAX_RECALL_MAX_RESULTS,
+  MIN_RECALL_MAX_RESULTS,
+} from "../context-search/limits.js";
+
+const RECALL_DEPTHS = ["fast", "standard", "deep"] as const;
 
 /**
- * Explicit memory search across the living graph or raw archive.
- *
- * Auto-injection is incomplete by design — the assistant should recall
- * aggressively whenever uncertain, before guessing or asking.
+ * Explicit local information search across memory, PKB, conversations, and
+ * workspace files.
  */
 export const graphRecallDefinition: ToolDefinition = {
   name: "recall",
   description:
-    'Search your memory the moment you feel uncertain. Call this AGGRESSIVELY — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If the user references someone, a place, or a decision you should already know — recall. If you\'re about to ask a clarifying question memory might answer — recall first. Searching costs nothing; guessing costs trust. Call it multiple times per conversation if the turn warrants it. Be specific in your query — a topic, feeling, time period, or person — for best results.',
+    'Search local information the moment you feel uncertain. Use recall for memory, the personal knowledge base, past conversations, and workspace files — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If the user references someone, a place, a decision, a document, or prior work you should be able to find locally — recall. Call it multiple times per conversation if the turn warrants it. Be specific in your query for best results.',
   input_schema: {
     type: "object",
     properties: {
       query: {
         type: "string",
         description:
-          "What you're looking for — be specific and descriptive. Can be a topic, feeling, time period, or person.",
+          "What you're looking for. Be specific and descriptive: include the topic, person, project, decision, time period, or file clues when known.",
       },
-      num_results: {
-        type: "integer",
-        description:
-          "Maximum number of results to return (default 20, max 50).",
-      },
-      mode: {
-        type: "string",
-        enum: ["memory", "archive"],
-        description:
-          '"memory" searches the living memory graph using semantic similarity (default). "archive" searches raw conversation transcripts using keyword matching. Supports FTS5 syntax: use "quoted phrases" for exact matching, AND/OR for boolean logic, NEAR(word1 word2, N) for proximity. Without operators, all keywords must appear (implicit AND). Short words like "I" and "a" are ignored. Prefer "memory" for conceptual/emotional queries, "archive" for finding specific wording.',
-      },
-      filters: {
-        type: "object",
-        description: "Optional filters to narrow results",
-        properties: {
-          types: {
-            type: "array",
-            items: {
-              type: "string",
-              enum: [
-                "episodic",
-                "semantic",
-                "procedural",
-                "emotional",
-                "prospective",
-                "behavioral",
-                "narrative",
-                "shared",
-              ],
-            },
-            description: "Only return memories of these types",
-          },
-          after: {
-            type: "string",
-            description:
-              "Only return memories created after this date (ISO 8601)",
-          },
-          before: {
-            type: "string",
-            description:
-              "Only return memories created before this date (ISO 8601)",
-          },
+      sources: {
+        type: "array",
+        items: {
+          type: "string",
+          enum: [...ALL_RECALL_SOURCES],
         },
+        description:
+          "Optional local sources to search. Omit to search memory, PKB, conversations, and workspace files.",
+      },
+      max_results: {
+        type: "integer",
+        minimum: MIN_RECALL_MAX_RESULTS,
+        maximum: MAX_RECALL_MAX_RESULTS,
+        description: "Maximum number of evidence items to return.",
+      },
+      depth: {
+        type: "string",
+        enum: [...RECALL_DEPTHS],
+        description:
+          "Search effort. Use fast for quick lookups, standard by default, and deep when the answer may require multiple local searches.",
       },
     },
     required: ["query"],
