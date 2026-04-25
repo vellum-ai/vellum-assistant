@@ -10,6 +10,7 @@ const IPC_TMP_DIR_NAME = "vellum-ipc";
 const IPC_BASE_DATA_DIR_NAME = "ipc";
 
 export type IpcSocketPathSource =
+  | "env-override"
   | "workspace"
   | "base-data-dir"
   | "tmp-hash"
@@ -58,6 +59,20 @@ export function resolveIpcSocketPath(
 ): IpcSocketPathResolution {
   const maxPathBytes = getUnixSocketMaxPathBytes();
   const workspacePath = join(workspaceDir, socketFileName);
+
+  // Explicit override via env var — used in containerized deployments where
+  // the gateway and daemon run in separate containers that share an emptyDir
+  // volume for IPC sockets (9p/virtio-fs mounts don't support Unix domain
+  // sockets across container boundaries).
+  const envSocketDir = process.env.GATEWAY_IPC_SOCKET_DIR?.trim();
+  if (envSocketDir) {
+    return {
+      path: join(envSocketDir, socketFileName),
+      source: "env-override",
+      workspacePath,
+      maxPathBytes,
+    };
+  }
 
   if (isPathWithinSocketLimit(workspacePath, maxPathBytes)) {
     return {

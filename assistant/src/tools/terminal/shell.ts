@@ -67,6 +67,12 @@ function buildCesProtectedPaths(): string[] {
     process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces-bootstrap";
   paths.push(bootstrapSocketDir);
 
+  // Gateway IPC socket directory - block access to the shared emptyDir
+  // volume used for gateway↔daemon IPC in containerized deployments.
+  const gatewayIpcSocketDir =
+    process.env["GATEWAY_IPC_SOCKET_DIR"] || "/run/gateway-ipc";
+  paths.push(gatewayIpcSocketDir);
+
   // If a full socket path override is set (without the dir env var), block
   // its parent directory as well.
   if (

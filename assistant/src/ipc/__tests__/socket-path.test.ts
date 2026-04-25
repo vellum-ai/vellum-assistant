@@ -9,10 +9,12 @@ const LONG_WORKSPACE_DIR =
 
 let savedWorkspaceDir: string | undefined;
 let savedBaseDataDir: string | undefined;
+let savedGatewayIpcSocketDir: string | undefined;
 
 beforeEach(() => {
   savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   savedBaseDataDir = process.env.BASE_DATA_DIR;
+  savedGatewayIpcSocketDir = process.env.GATEWAY_IPC_SOCKET_DIR;
 });
 
 afterEach(() => {
@@ -26,9 +28,35 @@ afterEach(() => {
   } else {
     process.env.BASE_DATA_DIR = savedBaseDataDir;
   }
+  if (savedGatewayIpcSocketDir === undefined) {
+    delete process.env.GATEWAY_IPC_SOCKET_DIR;
+  } else {
+    process.env.GATEWAY_IPC_SOCKET_DIR = savedGatewayIpcSocketDir;
+  }
 });
 
 describe("resolveIpcSocketPath", () => {
+  test("uses GATEWAY_IPC_SOCKET_DIR when set", () => {
+    process.env.GATEWAY_IPC_SOCKET_DIR = "/run/gateway-ipc";
+    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+
+    const resolved = resolveIpcSocketPath("gateway.sock");
+
+    expect(resolved.source).toBe("env-override");
+    expect(resolved.path).toBe("/run/gateway-ipc/gateway.sock");
+  });
+
+  test("ignores empty GATEWAY_IPC_SOCKET_DIR", () => {
+    process.env.GATEWAY_IPC_SOCKET_DIR = "  ";
+    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+    delete process.env.BASE_DATA_DIR;
+
+    const resolved = resolveIpcSocketPath("assistant.sock");
+
+    expect(resolved.source).toBe("workspace");
+    expect(resolved.path).toBe("/tmp/vellum-workspace-test/assistant.sock");
+  });
+
   test("uses workspace path when it is within the platform limit", () => {
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
     delete process.env.BASE_DATA_DIR;
@@ -49,9 +77,7 @@ describe("resolveIpcSocketPath", () => {
     const resolved = resolveIpcSocketPath("assistant.sock");
 
     expect(resolved.source).toBe("base-data-dir");
-    expect(resolved.path).toBe(
-      "/tmp/vellum-instance-test/ipc/assistant.sock",
-    );
+    expect(resolved.path).toBe("/tmp/vellum-instance-test/ipc/assistant.sock");
     expect(Buffer.byteLength(resolved.path, "utf8")).toBeLessThanOrEqual(
       resolved.maxPathBytes,
     );
