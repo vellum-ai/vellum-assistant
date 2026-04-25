@@ -3,7 +3,6 @@
  *
  * Uses bun:test mock.module to stub ipcSuggestTrustRule, and initializes
  * a real in-memory SQLite DB (via initGatewayDb) for threshold reads.
- * The `permission-controls-v3` feature flag is toggled via writeFeatureFlag.
  */
 
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
@@ -33,10 +32,7 @@ const { createTrustRuleV3SuggestHandler } = await import(
 );
 
 import { initGatewayDb, resetGatewayDb } from "../../db/connection.js";
-import {
-  writeFeatureFlag,
-  clearFeatureFlagStoreCache,
-} from "../../feature-flag-store.js";
+import { clearFeatureFlagStoreCache } from "../../feature-flag-store.js";
 import { getGatewayDb } from "../../db/connection.js";
 import { autoApproveThresholds } from "../../db/schema.js";
 
@@ -52,9 +48,6 @@ beforeEach(async () => {
   // Clear persisted threshold rows so each test starts from a clean state.
   // resetGatewayDb() closes the connection but the SQLite file retains data.
   getGatewayDb().delete(autoApproveThresholds).run();
-
-  // Enable the feature flag for all tests by default
-  writeFeatureFlag("permission-controls-v3", true);
 
   // Reset mock state
   ipcSuggestTrustRuleMock.mockReset();
@@ -105,17 +98,6 @@ function jsonRequest(body?: unknown): Request {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/trust-rules-v3/suggest", () => {
-  test("returns 403 when permission-controls-v3 flag is off", async () => {
-    writeFeatureFlag("permission-controls-v3", false);
-
-    const handler = createTrustRuleV3SuggestHandler();
-    const res = await handler(jsonRequest(VALID_BODY));
-
-    expect(res.status).toBe(403);
-    const data = (await res.json()) as { error: string };
-    expect(data.error).toBe("Feature not enabled");
-  });
-
   test("returns 400 when body is not valid JSON", async () => {
     const handler = createTrustRuleV3SuggestHandler();
     const req = new Request("http://localhost/v1/trust-rules-v3/suggest", {

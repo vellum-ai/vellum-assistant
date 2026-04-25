@@ -1,14 +1,10 @@
 /**
  * Gateway-backed auto-approve threshold reader.
  *
- * When the `permission-controls-v3` feature flag is enabled, reads
- * thresholds from the gateway via IPC. Falls back to `undefined` (caller
- * uses config-based `resolveThreshold`) when the flag is off or the gateway
- * is unreachable.
+ * Reads thresholds from the gateway via IPC. Returns undefined when the
+ * gateway is unreachable so callers fall back to local config thresholds.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { ipcCall } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 import type { ExecutionContext } from "./approval-policy.js";
@@ -55,14 +51,6 @@ export function _clearGlobalCacheForTesting(): void {
   conversationThresholdCache.clear();
 }
 
-// ── Hardcoded fallback defaults ──────────────────────────────────────────────
-
-const HARDCODED_DEFAULTS: Record<ExecutionContext, Threshold> = {
-  conversation: "low",
-  background: "medium",
-  headless: "none",
-};
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function mapExecutionContextToField(
@@ -86,25 +74,17 @@ function isValidThreshold(value: string): value is Threshold {
 /**
  * Read the auto-approve threshold from the gateway via IPC.
  *
- * Returns `undefined` when the feature flag is off (caller falls back to
- * config-based `resolveThreshold`).
- *
  * For `"conversation"` context with a `conversationId`, checks for a
  * per-conversation override first. Falls through to global defaults when
  * the conversation override is absent.
  *
  * Caches global thresholds for 30 seconds to avoid hammering the gateway.
- * On any IPC error, logs a warning and returns hardcoded defaults.
+ * On any IPC error, logs a warning and returns undefined.
  */
 export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
 ): Promise<Threshold | undefined> {
-  const config = getConfig();
-  if (!isAssistantFeatureFlagEnabled("permission-controls-v3", config)) {
-    return undefined;
-  }
-
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
   // For conversation context with a conversationId, try per-conversation override first
@@ -120,9 +100,8 @@ export async function getAutoApproveThreshold(
     } else {
       // ipcCall() returns undefined on transport failure (socket not found,
       // timeout, etc.) and null when the gateway explicitly says "no override".
-      // We must distinguish the two: only cache the negative on `null`, and
-      // fall back to hardcoded defaults on `undefined` without poisoning the
-      // cache — otherwise a transient IPC failure would cause subsequent
+      // On transport failure, fall through to the global threshold without
+      // poisoning the cache — a transient IPC failure must not cause subsequent
       // approval checks to skip a real override for up to 5 seconds.
       const result = (await ipcCall("get_conversation_threshold", {
         conversationId,
@@ -131,25 +110,23 @@ export async function getAutoApproveThreshold(
       if (result === undefined) {
         log.warn(
           { conversationId },
-          "IPC call failed for conversation threshold override, falling back to defaults",
+          "IPC call failed for conversation threshold override, falling through to global",
         );
-        return HARDCODED_DEFAULTS[ctx];
-      }
-
-      if (result && isValidThreshold(result.threshold)) {
+        // Fall through to global threshold fetch below.
+      } else if (result && isValidThreshold(result.threshold)) {
         conversationThresholdCache.set(conversationId, {
           threshold: result.threshold,
           timestamp: Date.now(),
         });
         return result.threshold;
+      } else {
+        // result === null (or an unexpected shape) — cache the negative result
+        // and fall through to global defaults.
+        conversationThresholdCache.set(conversationId, {
+          threshold: null,
+          timestamp: Date.now(),
+        });
       }
-
-      // result === null (or an unexpected shape) — cache the negative result
-      // and fall through to global defaults.
-      conversationThresholdCache.set(conversationId, {
-        threshold: null,
-        timestamp: Date.now(),
-      });
     }
   }
 
@@ -161,15 +138,20 @@ export async function getAutoApproveThreshold(
     if (isValidThreshold(value)) {
       return value;
     }
-    // Unexpected value from gateway — fall back to hardcoded
+    // Unexpected value from gateway — return undefined so checker falls back
+    // to the local config threshold (isGatewayThreshold stays false).
     log.warn({ field, value }, "Gateway returned unexpected threshold value");
-    return HARDCODED_DEFAULTS[ctx];
+    return undefined;
   } catch (err) {
+    // Gateway unreachable — return undefined so checker.ts falls back to
+    // resolveThreshold(config.permissions.autoApproveUpTo). This preserves
+    // isGatewayThreshold = false, keeping ask-rule overrides inactive when
+    // the gateway is down.
     log.warn(
       { error: String(err) },
-      "Failed to fetch global thresholds, falling back to defaults",
+      "Failed to fetch global thresholds, falling back to local config",
     );
-    return HARDCODED_DEFAULTS[ctx];
+    return undefined;
   }
 }
 

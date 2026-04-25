@@ -370,14 +370,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "permission-controls-v3",
-      "scope": "assistant",
-      "key": "permission-controls-v3",
-      "label": "Permission Controls v3",
-      "description": "Enables permission controls v3: gateway-backed auto-approve thresholds, risk badges on tool results, simplified Allow/Deny permission prompt, and rule editor modal.",
-      "defaultEnabled": false
-    },
-    {
       "id": "compaction-playground",
       "scope": "assistant",
       "key": "compaction-playground",

@@ -1,10 +1,6 @@
 /**
  * Trust rule v3 CRUD endpoints for the gateway.
  *
- * All mutation endpoints are gated behind the `permission-controls-v3`
- * feature flag. Read endpoints (list) are always available so the UI
- * can display rules regardless of the flag state.
- *
  * Mutations invalidate the in-memory risk rule cache so subsequent
  * classifications reflect the change immediately.
  */
@@ -15,7 +11,6 @@ import {
   VALID_RISK_VALUES,
 } from "../../db/trust-rule-v3-store.js";
 import { invalidateTrustRuleV3Cache } from "../../risk/trust-rule-v3-cache.js";
-import { getMergedFeatureFlags } from "../../ipc/feature-flag-handlers.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry/index.js";
 import { getLogger } from "../../logger.js";
 import { ipcSuggestTrustRule } from "../../ipc/assistant-client.js";
@@ -24,21 +19,6 @@ import { autoApproveThresholds } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 
 const log = getLogger("trust-rules-v3");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Check the `permission-controls-v3` feature flag.
- * Returns a 403 Response if the flag is disabled, or null if enabled.
- */
-function requireV3Flag(): Response | null {
-  if (!getMergedFeatureFlags()["permission-controls-v3"]) {
-    return Response.json({ error: "Feature not enabled" }, { status: 403 });
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Zod schema for POST /v1/trust-rules-v3/suggest request body
@@ -93,9 +73,6 @@ function readInteractiveThreshold(): string {
 
 export function createTrustRuleV3SuggestHandler() {
   return async (req: Request): Promise<Response> => {
-    const flagResponse = requireV3Flag();
-    if (flagResponse) return flagResponse;
-
     let body: unknown;
     try {
       body = await req.json();
@@ -172,9 +149,6 @@ export function createTrustRuleV3sCreateHandler() {
   const store = new TrustRuleV3Store();
 
   return async (req: Request): Promise<Response> => {
-    const flagResponse = requireV3Flag();
-    if (flagResponse) return flagResponse;
-
     let body: unknown;
     try {
       body = await req.json();
@@ -243,9 +217,6 @@ export function createTrustRuleV3sUpdateHandler() {
   const store = new TrustRuleV3Store();
 
   return async (req: Request, ruleId: string): Promise<Response> => {
-    const flagResponse = requireV3Flag();
-    if (flagResponse) return flagResponse;
-
     if (!ruleId) {
       return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
@@ -313,9 +284,6 @@ export function createTrustRuleV3sDeleteHandler() {
   const store = new TrustRuleV3Store();
 
   return async (_req: Request, ruleId: string): Promise<Response> => {
-    const flagResponse = requireV3Flag();
-    if (flagResponse) return flagResponse;
-
     if (!ruleId) {
       return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
@@ -393,9 +361,6 @@ export function createTrustRuleV3sResetHandler() {
   const store = new TrustRuleV3Store();
 
   return async (_req: Request, ruleId: string): Promise<Response> => {
-    const flagResponse = requireV3Flag();
-    if (flagResponse) return flagResponse;
-
     if (!ruleId) {
       return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
