@@ -45,6 +45,15 @@ const EFFORT_TO_REASONING_EFFORT: Record<
 /** Values accepted by the Responses API `text.verbosity` parameter. */
 const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
 
+/** `text.verbosity` is a GPT-5-series-only parameter. Older models on the
+ *  Responses API (o-series, etc.) reject unknown wire fields with HTTP 400, so
+ *  gate forwarding by model name here. The retry layer can't make this call
+ *  because verbosity defaults to "medium" in the LLM schema, so every
+ *  callSite-resolved request would otherwise carry it regardless of model. */
+function modelSupportsVerbosity(model: string): boolean {
+  return /^gpt-5(\b|[-.])/i.test(model);
+}
+
 /** Loosely-typed Responses stream event to avoid `any` while the SDK types settle. */
 interface ResponsesStreamEvent {
   type: string;
@@ -149,7 +158,11 @@ export class OpenAIResponsesProvider implements Provider {
         params.reasoning = { effort: reasoningEffort };
       }
 
-      if (verbosity && VALID_VERBOSITIES.has(verbosity)) {
+      if (
+        verbosity &&
+        VALID_VERBOSITIES.has(verbosity) &&
+        modelSupportsVerbosity(modelOverride ?? this.model)
+      ) {
         params.text = { verbosity };
       }
 

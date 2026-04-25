@@ -638,10 +638,43 @@ describe("OpenAIResponsesProvider", () => {
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       undefined,
       undefined,
-      { config: { verbosity: "bogus" } },
+      // Cast through unknown — the test deliberately exercises the runtime
+      // guard against malformed values that would bypass the type system
+      // (e.g. arriving via the index signature on `SendMessageConfig`).
+      { config: { verbosity: "bogus" as unknown as "low" } },
     );
 
     expect(lastStreamParams!.text).toBeUndefined();
+  });
+
+  test("verbosity is suppressed for non-GPT-5 models", async () => {
+    // `text.verbosity` is a GPT-5-series-only parameter; forwarding it to
+    // older Responses-API models (o-series, etc.) risks HTTP 400 rejections.
+    const oSeriesProvider = new OpenAIResponsesProvider("sk-test", "o3");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await oSeriesProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "high" } },
+    );
+
+    expect(lastStreamParams!.text).toBeUndefined();
+  });
+
+  test("verbosity is forwarded when model override is GPT-5", async () => {
+    const oSeriesProvider = new OpenAIResponsesProvider("sk-test", "o3");
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await oSeriesProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      undefined,
+      undefined,
+      { config: { verbosity: "high", model: "gpt-5.2" } },
+    );
+
+    expect(lastStreamParams!.text).toEqual({ verbosity: "high" });
   });
 
   // -----------------------------------------------------------------------
