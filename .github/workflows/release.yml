@@ -298,6 +298,15 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: gateway/chrome-extension-allowlist.json
+          sparse-checkout-cone-mode: false
+
+      - name: Read CWS extension ID from allowlist
+        id: read-extension-id
+        run: echo "id=$(jq -r '.allowedExtensionIds[0]' gateway/chrome-extension-allowlist.json)" >> "$GITHUB_OUTPUT"
+
       - name: Download extension CRX
         id: download-crx
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -318,7 +327,7 @@ jobs:
 
       - name: Upload to Chrome Web Store
         env:
-          EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          EXTENSION_ID: ${{ steps.read-extension-id.outputs.id }}
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
@@ -335,7 +344,7 @@ jobs:
 
       - name: Publish to Chrome Web Store
         env:
-          EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          EXTENSION_ID: ${{ steps.read-extension-id.outputs.id }}
           CLIENT_ID: ${{ vars.CWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
@@ -1370,15 +1379,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Inject CWS extension ID into allowlist
-        if: vars.CWS_EXTENSION_ID != ''
-        working-directory: .
-        run: |
-          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
-            '.allowedExtensionIds += [$id]' \
-            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
-            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
-
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
@@ -1745,15 +1745,6 @@ jobs:
       KEYCHAIN_PASSWORD: temporary-ci-password
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Inject CWS extension ID into allowlist
-        if: vars.CWS_EXTENSION_ID != ''
-        working-directory: .
-        run: |
-          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
-            '.allowedExtensionIds += [$id]' \
-            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
-            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
