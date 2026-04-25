@@ -393,6 +393,33 @@ describe("forkConversation", () => {
     );
   });
 
+  test("inherits the source conversation's inference profile", async () => {
+    const source = createConversation("Pinned profile thread");
+    await addMessage(source.id, "user", "Use the balanced profile", undefined, {
+      skipIndexing: true,
+    });
+    getDb()
+      .update(conversations)
+      .set({ inferenceProfile: "balanced" })
+      .where(eq(conversations.id, source.id))
+      .run();
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(fork.inferenceProfile).toBe("balanced");
+  });
+
+  test("leaves inference profile null when source has no override", async () => {
+    const source = createConversation("Default profile thread");
+    await addMessage(source.id, "user", "No pinned profile", undefined, {
+      skipIndexing: true,
+    });
+
+    const fork = forkConversation({ conversationId: source.id });
+
+    expect(fork.inferenceProfile).toBeNull();
+  });
+
   test("marks copied assistant history as seen and excludes request logs, queued work, and inbound events", async () => {
     const source = createConversation("Support thread");
     const sourceUser = await addMessage(

@@ -558,6 +558,7 @@ export function forkConversation(params: {
         contextCompactedAt: preserveSourceCompactionState
           ? sourceConversation.contextCompactedAt
           : null,
+        inferenceProfile: sourceConversation.inferenceProfile,
       })
       .where(eq(conversations.id, fc.id))
       .run();
