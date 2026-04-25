@@ -736,7 +736,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Nonce sent with `conversation_create` and echoed back in `conversation_info`.
     /// Used to ensure this ChatViewModel only claims its own conversation.
     @ObservationIgnored var bootstrapCorrelationId: String?
-    /// Conversation type sent with `conversation_create` (e.g. "private").
+    /// Conversation type sent with `conversation_create` (e.g. "background" or "scheduled").
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
     public var conversationType: String?
@@ -1405,8 +1405,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
 
     /// Create a daemon conversation immediately, without a user message.
-    /// Used by private conversations that need a persistent conversation ID right away
-    /// (e.g. to store the conversation in the database before the user types anything).
     /// No-op if a conversation already exists or a bootstrap is already in flight.
     public func createConversationIfNeeded(conversationType: String? = nil) {
         guard conversationId == nil, !isBootstrapping else { return }

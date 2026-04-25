@@ -270,13 +270,17 @@ final class ConversationRestorer {
 
     // MARK: - Response Handlers (internal for testability)
 
-    func handleConversationListResponse(_ response: ConversationListResponseMessage) {
+    func handleConversationListResponse(_ response: ConversationListResponseMessage, updateServerOffset: Bool = true) {
         guard let delegate else { return }
 
         // If ConversationManager is waiting for a "load more" response, route there.
         if delegate.isLoadingMoreConversations {
             delegate.appendConversations(from: response)
             return
+        }
+
+        if updateServerOffset {
+            delegate.serverOffset = response.nextOffset ?? response.conversations.count
         }
 
         // Seed groups from the response if available, otherwise fall back to system defaults.
@@ -313,17 +317,12 @@ final class ConversationRestorer {
             return
         }
 
-        // Filter out private conversations.
-        let recentConversations = response.conversations.filter {
-            $0.conversationType != "private"
-        }
-
         let defaultConversationIsEmpty = delegate.conversations.count == 1
             && delegate.chatViewModel(for: delegate.conversations[0].id)?.messages.isEmpty ?? true
             && delegate.chatViewModel(for: delegate.conversations[0].id)?.conversationId == nil
 
         var restoredConversations: [ConversationModel] = []
-        for session in recentConversations {
+        for session in response.conversations {
             let isPinned = session.isPinned ?? false
             let groupId: String? = daemonSupportsGroups
                 ? (session.groupId ?? (isPinned ? ConversationGroup.pinned.id : ConversationGroup.all.id))
@@ -363,8 +362,6 @@ final class ConversationRestorer {
                 continue
             }
 
-            let kind: ConversationKind = session.conversationType == "private" ? .private : .standard
-
             // Preserve user-set titles: if a conversation with this session already
             // exists locally and has a non-default title, keep it instead of
             // overwriting with the daemon's auto-generated title.
@@ -382,7 +379,6 @@ final class ConversationRestorer {
                 groupId: groupId,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0),
-                kind: kind,
                 source: session.source,
                 conversationType: session.conversationType,
                 hostAccess: session.hostAccess ?? false,
@@ -543,7 +539,7 @@ final class ConversationRestorer {
                         hasMore: foreground.hasMore,
                         groups: foreground.groups
                     )
-                    self.handleConversationListResponse(merged)
+                    self.handleConversationListResponse(merged, updateServerOffset: false)
                     return
                 }
                 if attempt < maxAttempts {

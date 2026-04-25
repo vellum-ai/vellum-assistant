@@ -229,7 +229,7 @@ final class ConversationListStore {
     /// ungrouped and orphaned conversations are folded into the system:all bucket.
     private(set) var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] = []
 
-    /// Non-archived, non-private conversations sorted for the sidebar.
+    /// Non-archived conversations sorted for the sidebar.
     private(set) var visibleConversations: [ConversationModel] = []
 
     /// Count of visible conversations with unseen assistant messages (dock badge).
@@ -291,12 +291,12 @@ final class ConversationListStore {
 
         let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
         let currentVisible = conversations
-            .filter { !$0.isArchived && $0.kind != .private }
+            .filter { !$0.isArchived }
             .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
         visibleConversations = currentVisible
 
         unseenVisibleConversationCount = conversations.count {
-            !$0.isArchived && $0.kind != .private && $0.hasUnseenLatestAssistantMessage
+            !$0.isArchived && $0.hasUnseenLatestAssistantMessage
                 && !$0.shouldSuppressGlobalUnreadAggregations
         }
 
@@ -457,7 +457,6 @@ final class ConversationListStore {
             groupId: groupId,
             displayOrder: item.displayOrder.map { Int($0) },
             lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0),
-            kind: item.conversationType == "private" ? .private : .standard,
             source: item.source,
             conversationType: item.conversationType,
             hostAccess: item.hostAccess ?? false,
@@ -629,7 +628,7 @@ final class ConversationListStore {
         // Reorder within TARGET GROUP only (not global — prevents corrupting other groups).
         let positionMap = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
         let groupMembers = draft
-            .filter { $0.groupId == targetGroupId && !$0.isArchived && $0.kind != .private }
+            .filter { $0.groupId == targetGroupId && !$0.isArchived }
             .sorted { visibleConversationSortOrder($0, $1, positionMap: positionMap) }
 
         // Remove source from the group member list
@@ -861,11 +860,7 @@ final class ConversationListStore {
             mergeGroups(from: responseGroups)
         }
 
-        let recentConversations = response.conversations.filter {
-            $0.conversationType != "private"
-        }
-
-        for conversation in recentConversations {
+        for conversation in response.conversations {
             // If a local conversation already exists, merge server pin/order metadata.
             if let existingIdx = conversations.firstIndex(where: { $0.conversationId == conversation.id }) {
                 conversations[existingIdx] = conversationModel(
@@ -956,7 +951,7 @@ final class ConversationListStore {
         }
     }
 
-    /// Mark all visible (non-archived, non-private) conversations as seen locally.
+    /// Mark all visible, non-archived conversations as seen locally.
     /// Seen signals are NOT sent immediately — call `commitPendingSeenSignals()`
     /// after the undo window expires, or `cancelPendingSeenSignals()` if the
     /// user clicks Undo. Returns the IDs of conversations that were actually marked.
@@ -974,7 +969,7 @@ final class ConversationListStore {
 
     /// Shared implementation for bulk mark-as-seen operations.
     /// `additionalFilter` narrows which conversations are marked beyond the
-    /// standard non-archived, non-private, has-unseen guards.
+    /// standard non-archived, has-unseen guards.
     private func markConversationsSeenImpl(
         where additionalFilter: (ConversationModel) -> Bool
     ) -> [UUID] {
@@ -989,7 +984,6 @@ final class ConversationListStore {
         var snapshot = conversations
         for idx in snapshot.indices {
             guard !snapshot[idx].isArchived,
-                  snapshot[idx].kind != .private,
                   snapshot[idx].hasUnseenLatestAssistantMessage,
                   additionalFilter(snapshot[idx]) else { continue }
             let localId = snapshot[idx].id

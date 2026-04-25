@@ -144,7 +144,7 @@ struct ModifiersGallerySection: View {
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                                .nativeTooltip("Private conversation")
+                                .nativeTooltip("Locked")
                         }
                     }
                 }

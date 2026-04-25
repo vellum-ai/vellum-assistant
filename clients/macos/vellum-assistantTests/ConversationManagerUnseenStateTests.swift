@@ -165,22 +165,6 @@ final class ConversationManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(conversationManager.unseenVisibleConversationCount, 0)
     }
 
-    func testUnseenVisibleConversationCountExcludesPrivateConversations() {
-        // Create a private conversation (this switches activeConversationId to the private conversation)
-        conversationManager.createPrivateConversation()
-        guard let privateId = conversationManager.activeConversationId,
-              let idx = conversationManager.conversations.firstIndex(where: { $0.id == privateId }) else {
-            XCTFail("Expected a private conversation")
-            return
-        }
-
-        // Mark the private conversation as unseen
-        conversationManager.conversations[idx].hasUnseenLatestAssistantMessage = true
-
-        // Private conversations are excluded from the visible count
-        XCTAssertEqual(conversationManager.unseenVisibleConversationCount, 0)
-    }
-
     func testUnseenVisibleConversationCountIncludesMultipleUnseen() {
         // Start with the initial conversation
         guard let firstId = conversationManager.activeConversationId else {

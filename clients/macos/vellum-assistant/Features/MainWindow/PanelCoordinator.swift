@@ -241,8 +241,7 @@ extension MainWindowView {
                     // (Devin feedback on PR #27475).
                     // TODO: replace placeholder data with real schedule
                     // metadata when the daemon surfaces scheduled-item
-                    // fields on FeedItem (see .private/plans/home-feed-groups.md
-                    // follow-up).
+                    // fields on FeedItem (home-feed-groups follow-up).
                     HomeScheduledDetailPanel(
                         title: item.title,
                         description: details.description,

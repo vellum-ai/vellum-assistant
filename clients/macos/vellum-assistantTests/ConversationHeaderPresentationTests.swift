@@ -73,44 +73,6 @@ final class ConversationHeaderPresentationTests: XCTestCase {
         XCTAssertTrue(p.showsForkConversationAction)
     }
 
-    // MARK: - Private conversation
-
-    func testPrivateConversationHidesActionsMenu() {
-        let conversation = ConversationModel(title: "Private Chat", conversationId: "session-2", kind: .private)
-        let p = ConversationHeaderPresentation(
-            activeConversation: conversation,
-            activeViewModel: nil,
-            isConversationVisible: true
-        )
-        XCTAssertTrue(p.isStarted)
-        XCTAssertTrue(p.isPrivateConversation)
-        XCTAssertFalse(p.showsActionsMenu)
-        XCTAssertFalse(p.showsForkConversationAction)
-    }
-
-    func testPrivateConversationSuppressesForkParentMetadata() {
-        let conversation = ConversationModel(
-            title: "Private Chat",
-            conversationId: "session-private",
-            kind: .private,
-            forkParent: ConversationForkParent(
-                conversationId: "session-parent",
-                messageId: "msg-parent",
-                title: "Original"
-            )
-        )
-        let p = ConversationHeaderPresentation(
-            activeConversation: conversation,
-            activeViewModel: nil,
-            isConversationVisible: true
-        )
-
-        XCTAssertFalse(p.showsForkParentLink)
-        XCTAssertNil(p.forkParentTitle)
-        XCTAssertNil(p.forkParentConversationId)
-        XCTAssertNil(p.forkParentMessageId)
-    }
-
     // MARK: - Not started (no conversationId, no messages)
 
     func testUnstartedConversationDoesNotShowActions() {

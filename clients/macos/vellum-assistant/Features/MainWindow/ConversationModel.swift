@@ -1,11 +1,6 @@
 import Foundation
 import VellumAssistantShared
 
-enum ConversationKind: String, Hashable, Sendable {
-    case standard
-    case `private`
-}
-
 /// Composite view identity for conversation rows. Combines the conversation UUID
 /// with its current groupId so that SwiftUI treats a group change as a view identity
 /// change — destroying the old row and creating a fresh one. This prevents stale
@@ -38,9 +33,8 @@ struct ConversationModel: Identifiable, Hashable {
     /// nil means no explicit order — conversation is sorted by recency.
     var displayOrder: Int?
     var lastInteractedAt: Date
-    var kind: ConversationKind
     var source: String?
-    /// The daemon-side conversation classification: "standard", "private", "background", "scheduled".
+    /// The daemon-side conversation classification: "standard", "background", "scheduled".
     /// This is the canonical signal for unread-suppression of automated threads — keys off the
     /// `conversationType` column the daemon sets at creation time, and is stable across pin/move
     /// operations (which can mutate `groupId` but never `conversationType`). `nil` for rows returned
@@ -59,7 +53,7 @@ struct ConversationModel: Identifiable, Hashable {
     var forkParent: ConversationForkParent?
     var originChannel: String?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, conversationType: String? = nil, hostAccess: Bool = false, inferenceProfile: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, source: String? = nil, conversationType: String? = nil, hostAccess: Bool = false, inferenceProfile: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -68,7 +62,6 @@ struct ConversationModel: Identifiable, Hashable {
         self.groupId = groupId
         self.displayOrder = displayOrder
         self.lastInteractedAt = lastInteractedAt ?? createdAt
-        self.kind = kind
         self.source = source
         self.conversationType = conversationType
         self.hostAccess = hostAccess
@@ -165,7 +158,6 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.groupId == rhs.groupId &&
             lhs.displayOrder == rhs.displayOrder &&
             lhs.lastInteractedAt == rhs.lastInteractedAt &&
-            lhs.kind == rhs.kind &&
             lhs.source == rhs.source &&
             lhs.conversationType == rhs.conversationType &&
             lhs.hostAccess == rhs.hostAccess &&
@@ -189,7 +181,6 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(groupId)
         hasher.combine(displayOrder)
         hasher.combine(lastInteractedAt)
-        hasher.combine(kind)
         hasher.combine(source)
         hasher.combine(conversationType)
         hasher.combine(hostAccess)

@@ -181,7 +181,7 @@ struct ConversationActionsMenuContent: View {
                 VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
             }
 
-            if presentation.isPersisted && !presentation.isChannelConversation && !presentation.isPrivateConversation {
+            if presentation.isPersisted && !presentation.isChannelConversation {
                 VMenuItem(
                     icon: VIcon.sparkles.rawValue,
                     label: "Analyze conversation",

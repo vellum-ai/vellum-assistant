@@ -2659,17 +2659,17 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - createConversationIfNeeded (Message-less Conversation Create)
 
     func testCreateConversationIfNeededSetsBootstrapping() {
-        viewModel.createConversationIfNeeded(conversationType: "private")
+        viewModel.createConversationIfNeeded()
         XCTAssertFalse(viewModel.isSending, "Message-less conversation creates should not set isSending")
         XCTAssertFalse(viewModel.isThinking, "Should not show thinking for message-less conversation create")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "Should set correlation ID")
-        XCTAssertEqual(viewModel.conversationType, "private")
+        XCTAssertNil(viewModel.conversationType)
         XCTAssertTrue(viewModel.isBootstrapping)
     }
 
     func testCreateConversationIfNeededNoOpWhenConversationExists() {
         viewModel.conversationId = "existing-conversation"
-        viewModel.createConversationIfNeeded(conversationType: "private")
+        viewModel.createConversationIfNeeded()
         XCTAssertNil(viewModel.bootstrapCorrelationId, "Should not bootstrap when conversation already exists")
     }
 
@@ -2681,12 +2681,12 @@ final class ChatViewModelTests: XCTestCase {
         let originalCorrelationId = viewModel.bootstrapCorrelationId
 
         // Calling createConversationIfNeeded should be a no-op
-        viewModel.createConversationIfNeeded(conversationType: "private")
+        viewModel.createConversationIfNeeded()
         XCTAssertEqual(viewModel.bootstrapCorrelationId, originalCorrelationId, "Should not overwrite existing bootstrap")
     }
 
     func testCreateConversationIfNeededConversationInfoResetsState() {
-        viewModel.createConversationIfNeeded(conversationType: "private")
+        viewModel.createConversationIfNeeded()
         let correlationId = viewModel.bootstrapCorrelationId!
 
         // Simulate daemon responding with conversation_info
@@ -2706,22 +2706,13 @@ final class ChatViewModelTests: XCTestCase {
             callbackConversationId = conversationId
         }
 
-        viewModel.createConversationIfNeeded(conversationType: "private")
+        viewModel.createConversationIfNeeded()
         let correlationId = viewModel.bootstrapCorrelationId!
 
         let info = ConversationInfoMessage(conversationId: "callback-conversation", title: "Test", correlationId: correlationId)
         viewModel.handleServerMessage(.conversationInfo(info))
 
         XCTAssertEqual(callbackConversationId, "callback-conversation", "Should fire onConversationCreated callback")
-    }
-
-    func testCreateConversationIfNeededSendsConversationTypeInMessage() {
-        viewModel.createConversationIfNeeded(conversationType: "private")
-
-        // Verify the viewModel state was set correctly for the bootstrap
-        XCTAssertTrue(viewModel.isBootstrapping, "Should be bootstrapping a conversation")
-        XCTAssertEqual(viewModel.conversationType, "private", "conversationType should be set to private")
-        XCTAssertNotNil(viewModel.bootstrapCorrelationId, "bootstrapCorrelationId should be set")
     }
 
     func testCreateConversationIfNeededWithoutConversationType() {
@@ -2732,19 +2723,19 @@ final class ChatViewModelTests: XCTestCase {
 
     func testConversationTypePassedThroughNormalSend() {
         // Set conversationType before sending
-        viewModel.conversationType = "private"
+        viewModel.conversationType = "background"
         viewModel.inputText = "Hello"
         viewModel.sendMessage()
 
         // Verify the viewModel bootstrapped with the correct conversationType
         XCTAssertTrue(viewModel.isBootstrapping, "Should be bootstrapping a conversation")
-        XCTAssertEqual(viewModel.conversationType, "private", "Normal send should also pass conversationType")
+        XCTAssertEqual(viewModel.conversationType, "background", "Normal send should also pass conversationType")
         XCTAssertNotNil(viewModel.bootstrapCorrelationId, "bootstrapCorrelationId should be set")
     }
 
     func testCreateConversationThenSendMessageUsesClaimedConversation() {
         // Create conversation without message
-        viewModel.createConversationIfNeeded(conversationType: "private")
+        viewModel.createConversationIfNeeded()
         let correlationId = viewModel.bootstrapCorrelationId!
 
         // Daemon responds with conversation_info

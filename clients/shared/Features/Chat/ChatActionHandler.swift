@@ -425,8 +425,8 @@ final class ChatActionHandler {
                     clientMessageId: pendingClientMessageId
                 )
             } else {
-                // Message-less conversation create (e.g. private conversation
-                // pre-allocation) — conversation is claimed, reset UI state.
+                // Message-less conversation create — conversation is claimed,
+                // reset UI state.
                 vm.isSending = false
                 vm.isThinking = false
             }

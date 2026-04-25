@@ -488,7 +488,7 @@ final class ConversationManager: ConversationRestorerDelegate {
            let vm = selectionStore.chatViewModels[activeId],
            vm.messages.isEmpty {
             let activeConversation = listStore.conversations.first(where: { $0.id == activeId })
-            if activeConversation?.kind != .private && activeConversation?.conversationId == nil {
+            if activeConversation?.conversationId == nil {
                 return
             }
         }
@@ -596,45 +596,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.performActivation(for: conversation.id)
         listStore.updateLastInteracted(conversationId: conversation.id)
         log.info("Promoted draft to conversation \(conversation.id)")
-    }
-
-    // TODO(rm-priv-conv): removed in PR 5
-    func createPrivateConversation() {
-        let conversation = ConversationModel(kind: .private)
-        let viewModel = makeViewModel()
-        viewModel.isHistoryLoaded = true
-        let localId = conversation.id
-        viewModel.onFirstUserMessage = { [weak self] _ in
-            self?.selectionStore.completedConversationCount += 1
-            if self?.listStore.pendingRenames[localId] == nil {
-                self?.listStore.updateConversationTitle(id: localId, title: "Untitled")
-            }
-            self?.listStore.updateLastInteracted(conversationId: localId)
-        }
-        listStore.conversations.insert(conversation, at: 0)
-        selectionStore.chatViewModels[conversation.id] = viewModel
-        activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
-        activityStore.observeAssistantActivity(for: conversation.id, messageManager: viewModel.messageManager)
-        activityStore.observeInteractionState(for: conversation.id, messageManager: viewModel.messageManager, errorManager: viewModel.errorManager)
-        selectionStore.touchVMAccessOrder(conversation.id)
-        selectionStore.scheduleEvictionIfNeeded()
-        selectionStore.performActivation(for: conversation.id)
-        viewModel.createConversationIfNeeded(conversationType: "private")
-        log.info("Created private conversation \(conversation.id)")
-    }
-
-    // TODO(rm-priv-conv): removed in PR 5
-    func removePrivateConversation(id: UUID) {
-        guard let index = listStore.conversations.firstIndex(where: { $0.id == id && $0.kind == .private }) else { return }
-        let conversationId = listStore.conversations[index].conversationId
-        selectionStore.chatViewModels[id]?.stopGenerating()
-        listStore.conversations.remove(at: index)
-        selectionStore.removeChatViewModel(for: id)
-        ConversationSelectionStore.clearRenderCaches()
-        if let conversationId {
-            Task { await conversationClient.deleteConversation(conversationId) }
-        }
-        log.info("Removed private conversation \(id)")
     }
 
     @discardableResult
@@ -761,8 +722,8 @@ final class ConversationManager: ConversationRestorerDelegate {
         if listStore.visibleConversations.isEmpty {
             enterDraftMode()
         } else if selectionStore.activeConversationId == id {
-            let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived && $0.kind != .private })
-            let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived && $0.kind != .private })
+            let visibleAfter = listStore.conversations[index...].dropFirst().first(where: { !$0.isArchived })
+            let visibleBefore = listStore.conversations[..<index].last(where: { !$0.isArchived })
             if let next = visibleAfter ?? visibleBefore {
                 selectionStore.performActivation(for: next.id)
             } else if let firstVisibleId = listStore.visibleConversations.first?.id {
@@ -901,7 +862,6 @@ final class ConversationManager: ConversationRestorerDelegate {
     @discardableResult
     func openForkParentConversation(conversationId: String, sourceMessageId: String?) async -> Bool {
         if let existingConversation = listStore.conversations.first(where: { $0.conversationId == conversationId }) {
-            guard existingConversation.kind != .private else { return false }
             selectConversation(id: existingConversation.id)
             if existingConversation.isArchived {
                 unarchiveConversation(id: existingConversation.id)
@@ -918,7 +878,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
 
         if let existingConversation = listStore.conversations.first(where: { $0.conversationId == conversationId }) {
-            guard existingConversation.kind != .private else { return false }
             selectConversation(id: existingConversation.id)
             if existingConversation.isArchived {
                 unarchiveConversation(id: existingConversation.id)
@@ -929,8 +888,6 @@ final class ConversationManager: ConversationRestorerDelegate {
             )
             return true
         }
-
-        guard conversation.conversationType != "private" else { return false }
 
         if listStore.isConversationArchived(conversation.id) {
             listStore.unmarkArchived(conversation.id)
@@ -967,10 +924,6 @@ final class ConversationManager: ConversationRestorerDelegate {
             return true
         }
 
-        if conversation.conversationType == "private" {
-            return false
-        }
-
         if listStore.isConversationArchived(conversation.id) {
             listStore.unmarkArchived(conversation.id)
         }
@@ -985,16 +938,9 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     // MARK: - Fork
 
-    private static let privateConversationForkErrorText =
-        "Forking is unavailable in private conversations."
-
     func forkActiveConversation() async {
         guard let conversation = activeConversation else {
             activeViewModel?.errorText = "Send a message before forking this conversation."
-            return
-        }
-        guard conversation.kind != .private else {
-            activeViewModel?.errorText = Self.privateConversationForkErrorText
             return
         }
         guard let daemonMessageId = latestPersistedTipDaemonMessageId(for: conversation.id) else {
@@ -1044,10 +990,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         guard let conversation = activeConversation,
               let conversationId = conversation.conversationId else {
             activeViewModel?.errorText = "Send a message before analyzing this conversation."
-            return
-        }
-        guard conversation.kind != .private else {
-            activeViewModel?.errorText = "Private conversations cannot be analyzed."
             return
         }
         activeViewModel?.errorText = nil
@@ -1380,8 +1322,6 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     @discardableResult
     private func upsertConversation(from item: ConversationListResponseItem, isArchived: Bool) -> UUID? {
-        guard item.conversationType != "private" else { return nil }
-
         if !isArchived && listStore.isConversationArchived(item.id) {
             listStore.unmarkArchived(item.id)
         }

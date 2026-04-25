@@ -118,9 +118,6 @@ final class MessageSendCoordinator {
         #endif
     }
 
-    private static let privateConversationForkErrorText =
-        "Forking is unavailable in private conversations."
-
     // MARK: - Send Message
 
     func sendMessage(hidden: Bool = false) {
@@ -142,10 +139,7 @@ final class MessageSendCoordinator {
             messageManager.suggestion = nil
             delegate.pendingSuggestionRequestId = nil
             delegate.flushCoalescedPublish()
-            if delegate.conversationType == "private" {
-                errorManager.errorText = Self.privateConversationForkErrorText
-                errorManager.conversationError = nil
-            } else if let onFork = delegate.onFork {
+            if let onFork = delegate.onFork {
                 errorManager.errorText = nil
                 errorManager.conversationError = nil
                 onFork()
@@ -209,8 +203,8 @@ final class MessageSendCoordinator {
         let clientMessageId = UUID().uuidString
 
         // Block rapid-fire only when bootstrapping with a queued message.
-        // When a message-less bootstrap is in flight (e.g. private conversation
-        // pre-allocation), adopt the user's message as the pending message
+        // When a message-less bootstrap is in flight, adopt the user's message
+        // as the pending message
         // so it gets sent when conversation_info arrives instead of being dropped.
         if (messageManager.isSending || delegate.isBootstrapping) && delegate.conversationId == nil {
             if delegate.pendingUserMessage == nil {
@@ -338,8 +332,8 @@ final class MessageSendCoordinator {
         guard let delegate else { return }
 
         // Only set sending/thinking indicators when there's an actual user
-        // message; message-less conversation creates (e.g. private conversation
-        // pre-allocation) are silent and shouldn't affect UI state.
+        // message; message-less conversation creates are silent and shouldn't
+        // affect UI state.
         if userMessage != nil {
             messageManager.isSending = true
             messageManager.isThinking = true

@@ -384,7 +384,7 @@ final class ConversationSelectionStore {
     // MARK: - Trim & Cleanup
 
     /// Remove the currently active conversation if it was never used (no messages,
-    /// no persisted conversation, not private). Prevents abandoned empty conversations
+    /// no persisted conversation). Prevents abandoned empty conversations
     /// from accumulating in the sidebar.
     func removeAbandonedEmptyConversation(switching nextId: UUID? = nil) {
         guard let previousId = activeConversationId,
@@ -392,7 +392,7 @@ final class ConversationSelectionStore {
               let vm = chatViewModels[previousId],
               vm.messages.isEmpty else { return }
         let conversation = listStore.conversations.first(where: { $0.id == previousId })
-        guard conversation?.kind != .private, conversation?.conversationId == nil else { return }
+        guard conversation?.conversationId == nil else { return }
         listStore.conversations.removeAll { $0.id == previousId }
         chatViewModels.removeValue(forKey: previousId)
         onViewModelRemoved?(previousId)
