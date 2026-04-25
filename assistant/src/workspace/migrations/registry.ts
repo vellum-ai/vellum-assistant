@@ -53,6 +53,7 @@ import { seedDefaultInferenceProfiles052 } from "./052-seed-default-inference-pr
 import { releaseNotesAcpCodexMigration } from "./053-release-notes-acp-codex.js";
 import { seedRecallCallsiteMigration } from "./054-seed-recall-callsite.js";
 import { releaseNotesAgenticRecallMigration } from "./055-release-notes-agentic-recall.js";
+import { releaseNotesInferenceProfileReorderingMigration } from "./056-release-notes-inference-profile-reordering.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -117,4 +118,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   releaseNotesAcpCodexMigration,
   seedRecallCallsiteMigration,
   releaseNotesAgenticRecallMigration,
+  releaseNotesInferenceProfileReorderingMigration,
 ];

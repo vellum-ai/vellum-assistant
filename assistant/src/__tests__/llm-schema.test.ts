@@ -49,6 +49,7 @@ describe("LLMSchema", () => {
     });
     expect(parsed.default.provider).toBe("anthropic");
     expect(parsed.profiles["fast"]?.speed).toBe("fast");
+    expect(parsed.profileOrder).toEqual([]);
     expect(parsed.callSites.mainAgent?.profile).toBe("thorough");
     expect(parsed.pricingOverrides).toHaveLength(1);
   });
@@ -56,6 +57,7 @@ describe("LLMSchema", () => {
   test("minimal valid config (only `default` provided) parses with profiles: {} and callSites: {}", () => {
     const parsed = LLMSchema.parse({ default: fullDefault });
     expect(parsed.profiles).toEqual({});
+    expect(parsed.profileOrder).toEqual([]);
     expect(parsed.callSites).toEqual({});
     expect(parsed.pricingOverrides).toEqual([]);
   });
@@ -94,8 +96,18 @@ describe("LLMSchema", () => {
       openrouter: { only: [] },
     });
     expect(parsed.profiles).toEqual({});
+    expect(parsed.profileOrder).toEqual([]);
     expect(parsed.callSites).toEqual({});
     expect(parsed.pricingOverrides).toEqual([]);
+  });
+
+  test("profileOrder accepts presentation order without requiring matching profiles", () => {
+    const parsed = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { fast: { speed: "fast" } },
+      profileOrder: ["fast", "stale"],
+    });
+    expect(parsed.profileOrder).toEqual(["fast", "stale"]);
   });
 
   test("invalid provider rejected", () => {

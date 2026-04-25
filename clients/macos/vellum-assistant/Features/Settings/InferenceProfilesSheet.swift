@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Management sheet for the user's inference profiles. Lists every entry in
@@ -48,6 +49,12 @@ struct InferenceProfilesSheet: View {
     /// Inline error surfaced when a save or delete fails. Cleared at the
     /// start of every action.
     @State private var actionError: String?
+
+    /// Drag state for profile reordering. The row-level drop delegate uses
+    /// this to render the insertion indicator and persist the new order.
+    @State private var draggingProfileName: String?
+    @State private var dropTargetProfileName: String?
+    @State private var dropIndicatorAtBottom: Bool = false
 
     enum EditorState: Equatable {
         case create
@@ -154,6 +161,28 @@ struct InferenceProfilesSheet: View {
             } else {
                 ForEach(store.profiles) { profile in
                     profileRow(profile)
+                        .overlay(alignment: dropIndicatorAtBottom ? .bottom : .top) {
+                            profileDropIndicator(for: profile)
+                        }
+                        .onDrop(
+                            of: [.plainText],
+                            delegate: InferenceProfileRowDropDelegate(
+                                targetName: profile.name,
+                                profiles: store.profiles,
+                                draggingProfileName: $draggingProfileName,
+                                dropTargetProfileName: $dropTargetProfileName,
+                                dropIndicatorAtBottom: $dropIndicatorAtBottom,
+                                onDrop: { sourceName, targetName, insertAfterTarget in
+                                    Task {
+                                        await reorderProfile(
+                                            sourceName: sourceName,
+                                            targetName: targetName,
+                                            insertAfterTarget: insertAfterTarget
+                                        )
+                                    }
+                                }
+                            )
+                        )
                         .contextMenu {
                             Button("Edit") { beginEdit(profile.name) }
                             Button("Duplicate") { beginDuplicate(profile.name) }
@@ -189,6 +218,27 @@ struct InferenceProfilesSheet: View {
     /// surfaces Duplicate and Delete in addition.
     private func profileRow(_ profile: InferenceProfile) -> some View {
         HStack(alignment: .center, spacing: VSpacing.md) {
+            VIconView(.gripVertical, size: 14)
+                .foregroundStyle(VColor.contentTertiary)
+                .frame(width: 18, height: 28)
+                .contentShape(Rectangle())
+                .help("Drag to reorder")
+                .accessibilityLabel("Reorder \(profile.name)")
+                .pointerCursor()
+                .onDrag {
+                    draggingProfileName = profile.name
+                    return NSItemProvider(object: profile.name as NSString)
+                } preview: {
+                    Text(profile.name)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .lineLimit(1)
+                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.vertical, VSpacing.xs)
+                        .frame(width: 220, alignment: .leading)
+                        .background(VColor.surfaceBase.opacity(0.94))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                }
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 HStack(spacing: VSpacing.xs) {
                     Text(profile.name)
@@ -209,6 +259,16 @@ struct InferenceProfilesSheet: View {
         }
         .padding(.vertical, VSpacing.xs)
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func profileDropIndicator(for profile: InferenceProfile) -> some View {
+        if dropTargetProfileName == profile.name {
+            Rectangle()
+                .fill(VColor.borderActive)
+                .frame(height: 2)
+                .padding(.leading, 28)
+        }
     }
 
     // MARK: - Editor Sheet
@@ -316,7 +376,8 @@ struct InferenceProfilesSheet: View {
     }
 
     /// Replacement candidates are every profile except the one we're trying
-    /// to delete. Sorted alphabetically to match the list ordering.
+    /// to delete. Order follows the user-controlled profile presentation
+    /// order so the blocked-delete picker matches the rest of the UI.
     private var replacementOptions: [String] {
         let blockedName: String?
         switch blockedState {
@@ -330,7 +391,6 @@ struct InferenceProfilesSheet: View {
         return store.profiles
             .map(\.name)
             .filter { $0 != blockedName }
-            .sorted()
     }
 
     // MARK: - Actions
@@ -379,7 +439,12 @@ struct InferenceProfilesSheet: View {
             return
         }
 
-        let success = await store.setProfile(name: name, fragment: draft)
+        let replacingOrderName = originalName != nil && originalName != name ? originalName : nil
+        let success = await store.setProfile(
+            name: name,
+            fragment: draft,
+            replacingOrderName: replacingOrderName
+        )
         guard success else {
             actionError = "Couldn't save profile. Please try again."
             return
@@ -424,6 +489,22 @@ struct InferenceProfilesSheet: View {
         }
 
         editorState = nil
+    }
+
+    private func reorderProfile(
+        sourceName: String,
+        targetName: String,
+        insertAfterTarget: Bool
+    ) async {
+        actionError = nil
+        let success = await store.moveProfile(
+            sourceName: sourceName,
+            targetName: targetName,
+            insertAfterTarget: insertAfterTarget
+        )
+        if !success {
+            actionError = "Couldn't reorder profiles. Please try again."
+        }
     }
 
     private func attemptDelete(_ name: String) async {
@@ -577,5 +658,57 @@ extension InferenceProfilesSheet.BlockedDeleteState: Identifiable {
         case .callSites(let name, _):
             return "callSites:\(name)"
         }
+    }
+}
+
+private struct InferenceProfileRowDropDelegate: DropDelegate {
+    let targetName: String
+    let profiles: [InferenceProfile]
+    @Binding var draggingProfileName: String?
+    @Binding var dropTargetProfileName: String?
+    @Binding var dropIndicatorAtBottom: Bool
+    let onDrop: (String, String, Bool) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let sourceName = draggingProfileName,
+              sourceName != targetName,
+              profiles.contains(where: { $0.name == sourceName }),
+              profiles.contains(where: { $0.name == targetName }) else {
+            return false
+        }
+        return info.hasItemsConforming(to: [.plainText])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let sourceName = draggingProfileName,
+              sourceName != targetName else { return }
+        dropTargetProfileName = targetName
+        let sourceIndex = profiles.firstIndex(where: { $0.name == sourceName }) ?? 0
+        let targetIndex = profiles.firstIndex(where: { $0.name == targetName }) ?? 0
+        dropIndicatorAtBottom = sourceIndex < targetIndex
+    }
+
+    func dropExited(info: DropInfo) {
+        if dropTargetProfileName == targetName {
+            dropTargetProfileName = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let sourceName = draggingProfileName,
+              sourceName != targetName else {
+            draggingProfileName = nil
+            dropTargetProfileName = nil
+            return false
+        }
+        let insertAfterTarget = dropIndicatorAtBottom
+        draggingProfileName = nil
+        dropTargetProfileName = nil
+        onDrop(sourceName, targetName, insertAfterTarget)
+        return true
     }
 }
