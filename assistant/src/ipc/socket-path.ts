@@ -30,32 +30,50 @@ function isPathWithinSocketLimit(path: string, maxPathBytes: number): boolean {
 }
 
 /**
+ * Derive the env var name and socket filename from a socket name.
+ *
+ * Examples:
+ *   "gateway"         → { envVar: "GATEWAY_IPC_SOCKET_DIR", fileName: "gateway.sock" }
+ *   "assistant"       → { envVar: "ASSISTANT_IPC_SOCKET_DIR", fileName: "assistant.sock" }
+ *   "assistant-skill" → { envVar: "ASSISTANT_SKILL_IPC_SOCKET_DIR", fileName: "assistant-skill.sock" }
+ */
+function deriveSocketNames(socketName: string): {
+  envVar: string;
+  fileName: string;
+} {
+  const envVar = `${socketName.toUpperCase().replace(/-/g, "_")}_IPC_SOCKET_DIR`;
+  const fileName = `${socketName}.sock`;
+  return { envVar, fileName };
+}
+
+/**
  * Resolve the path to an IPC socket file.
  *
  * Resolution order:
- *   1. `envVar` override (e.g. `GATEWAY_IPC_SOCKET_DIR`) — used in
+ *   1. `${SOCKET_NAME}_IPC_SOCKET_DIR` env var override — used in
  *      containerized deployments (emptyDir volume) and by hatch on macOS
  *      when the workspace path would exceed the AF_UNIX limit.
- *   2. `{workspaceDir}/{socketFileName}` — default for local dev.
+ *   2. `{workspaceDir}/{socketName}.sock` — default for local dev.
  *   3. tmpdir fallback — if the workspace path exceeds the platform's
  *      AF_UNIX path limit (103 bytes on macOS, 107 on Linux).
  */
 export function resolveIpcSocketPath(
-  socketFileName: string,
-  envVar: string,
+  socketName: string,
   workspaceDir: string = getWorkspaceDir(),
 ): IpcSocketPathResolution {
+  const { envVar, fileName } = deriveSocketNames(socketName);
+
   // Explicit override via env var.
   const envSocketDir = process.env[envVar]?.trim();
   if (envSocketDir) {
     return {
-      path: join(envSocketDir, socketFileName),
+      path: join(envSocketDir, fileName),
       source: "env-override",
     };
   }
 
   const maxPathBytes = getUnixSocketMaxPathBytes();
-  const workspacePath = join(workspaceDir, socketFileName);
+  const workspacePath = join(workspaceDir, fileName);
 
   if (isPathWithinSocketLimit(workspacePath, maxPathBytes)) {
     return {
@@ -69,11 +87,7 @@ export function resolveIpcSocketPath(
     .update(workspacePath)
     .digest("hex")
     .slice(0, 12);
-  const hashedPath = join(
-    tmpdir(),
-    IPC_TMP_DIR_NAME,
-    `${hash}-${socketFileName}`,
-  );
+  const hashedPath = join(tmpdir(), IPC_TMP_DIR_NAME, `${hash}-${fileName}`);
   if (isPathWithinSocketLimit(hashedPath, maxPathBytes)) {
     return {
       path: hashedPath,

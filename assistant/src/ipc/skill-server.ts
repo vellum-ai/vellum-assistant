@@ -291,12 +291,10 @@ export class SkillIpcServer {
   constructor() {
     const resolution = resolveSkillIpcSocketPath();
     this.socketPath = resolution.path;
-    if (resolution.source !== "workspace") {
-      log.warn(
-        { source: resolution.source, resolvedPath: resolution.path },
-        "Skill IPC socket using non-workspace path",
-      );
-    }
+    log.info(
+      { source: resolution.source, path: resolution.path },
+      "Skill IPC socket path resolved",
+    );
     for (const route of skillIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }

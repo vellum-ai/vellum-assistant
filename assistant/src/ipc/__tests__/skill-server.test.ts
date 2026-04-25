@@ -22,18 +22,18 @@ let server: SkillIpcServer | null = null;
 let savedSkillIpcSocketDir: string | undefined;
 
 beforeEach(() => {
-  savedSkillIpcSocketDir = process.env.SKILL_IPC_SOCKET_DIR;
+  savedSkillIpcSocketDir = process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   tempDir = mkdtempSync(join(tmpdir(), "skill-ipc-test-"));
-  process.env.SKILL_IPC_SOCKET_DIR = tempDir;
+  process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = tempDir;
 });
 
 afterEach(() => {
   server?.stop();
   server = null;
   if (savedSkillIpcSocketDir === undefined) {
-    delete process.env.SKILL_IPC_SOCKET_DIR;
+    delete process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   } else {
-    process.env.SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
+    process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
   }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });

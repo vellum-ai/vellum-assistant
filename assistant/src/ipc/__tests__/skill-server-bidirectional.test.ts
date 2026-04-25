@@ -42,9 +42,9 @@ let client: SkillHostClient | null = null;
 let savedSkillIpcSocketDir: string | undefined;
 
 beforeEach(() => {
-  savedSkillIpcSocketDir = process.env.SKILL_IPC_SOCKET_DIR;
+  savedSkillIpcSocketDir = process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   tempDir = mkdtempSync(join(tmpdir(), "skill-ipc-bidir-"));
-  process.env.SKILL_IPC_SOCKET_DIR = tempDir;
+  process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = tempDir;
   socketPath = join(tempDir, "assistant-skill.sock");
 });
 
@@ -54,9 +54,9 @@ afterEach(async () => {
   server?.stop();
   server = null;
   if (savedSkillIpcSocketDir === undefined) {
-    delete process.env.SKILL_IPC_SOCKET_DIR;
+    delete process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   } else {
-    process.env.SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
+    process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
   }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });

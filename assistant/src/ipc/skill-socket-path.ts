@@ -6,26 +6,15 @@
  * Delegates to the shared `resolveIpcSocketPath` in `socket-path.ts`.
  */
 
-import { getWorkspaceDir } from "../util/platform.js";
 import {
   type IpcSocketPathResolution,
   resolveIpcSocketPath,
 } from "./socket-path.js";
 
-export const SKILL_IPC_SOCKET_FILE_NAME = "assistant-skill.sock";
-
-export function resolveSkillIpcSocketPath(
-  workspaceDir: string = getWorkspaceDir(),
-): IpcSocketPathResolution {
-  return resolveIpcSocketPath(
-    SKILL_IPC_SOCKET_FILE_NAME,
-    "SKILL_IPC_SOCKET_DIR",
-    workspaceDir,
-  );
+export function resolveSkillIpcSocketPath(): IpcSocketPathResolution {
+  return resolveIpcSocketPath("assistant-skill");
 }
 
-export function getSkillSocketPath(
-  workspaceDir: string = getWorkspaceDir(),
-): string {
-  return resolveSkillIpcSocketPath(workspaceDir).path;
+export function getSkillSocketPath(): string {
+  return resolveSkillIpcSocketPath().path;
 }

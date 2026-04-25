@@ -47,7 +47,7 @@ interface IpcResponse {
 // ---------------------------------------------------------------------------
 
 function getAssistantSocketPath(): string {
-  return resolveIpcSocketPath("assistant.sock", "ASSISTANT_IPC_SOCKET_DIR").path;
+  return resolveIpcSocketPath("assistant").path;
 }
 
 // ---------------------------------------------------------------------------

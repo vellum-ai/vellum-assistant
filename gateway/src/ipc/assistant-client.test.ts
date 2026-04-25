@@ -48,12 +48,15 @@ afterEach(async () => {
  * Create a fresh temp workspace dir, configure VELLUM_WORKSPACE_DIR to point
  * at it, and return the socket path that ipcCallAssistant will connect to.
  *
- * resolveIpcSocketPath("assistant.sock") = join(workspaceDir, "assistant.sock")
+ * resolveIpcSocketPath("assistant") = join(workspaceDir, "assistant.sock")
  * when the path fits within the Unix socket path limit (which a short tmpdir
  * path always does).
  */
 function setupWorkspace(): string {
-  const dir = join(tmpdir(), `vellum-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `vellum-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   process.env.VELLUM_WORKSPACE_DIR = dir;
   return join(dir, "assistant.sock");

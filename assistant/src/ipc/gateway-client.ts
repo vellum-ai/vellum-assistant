@@ -159,5 +159,5 @@ export async function ipcClassifyRisk(
 // ---------------------------------------------------------------------------
 
 function getGatewaySocketPath(): string {
-  return resolveIpcSocketPath("gateway.sock", "GATEWAY_IPC_SOCKET_DIR").path;
+  return resolveIpcSocketPath("gateway").path;
 }
