@@ -1,7 +1,6 @@
 import { getConfig } from "../config/loader.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { SecretPattern } from "../security/secret-scanner.js";
 import {
   compileCustomPatterns,
@@ -231,12 +230,12 @@ export class SecretDetectionHandler {
 
   private async handlePrompt(
     allMatches: Array<{ type: string; redactedValue: string }>,
-    execResult: ToolExecutionResult,
+    _execResult: ToolExecutionResult,
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
     executionTarget: ExecutionTarget,
-    riskLevel: string,
+    _riskLevel: string,
     _decision: string,
     startTime: number,
     emitLifecycleEvent: (
@@ -245,115 +244,26 @@ export class SecretDetectionHandler {
     ) => void,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
-
-    if (isPermissionControlsV2Enabled()) {
-      const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Secret-output approval cards are disabled under v2. Ask the user for confirmation conversationally before retrying.`;
-      const durationMs = Date.now() - startTime;
-
-      emitLifecycleEvent(context, {
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel: RiskLevel.High,
-        decision: "deny",
-        reason: "Secret output blocked without deterministic prompt under v2",
-        durationMs,
-      });
-
-      return {
-        result: { content: blockedContent, isError: true },
-        earlyReturn: true,
-      };
-    }
-
-    // Non-interactive sessions: auto-block secret output instead of waiting for prompt
-    if (context.isInteractive === false) {
-      const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). No interactive client available to approve.`;
-      const durationMs = Date.now() - startTime;
-
-      emitLifecycleEvent(context, {
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel: RiskLevel.High,
-        decision: "deny",
-        reason: "Non-interactive session: auto-blocked secret output",
-        durationMs,
-      });
-
-      return {
-        result: { content: blockedContent, isError: true },
-        earlyReturn: true,
-      };
-    }
-
-    const promptInput = {
-      _secretDetection: true,
-      summary: `Tool output contains ${allMatches.length} potential secret(s): ${types}`,
-      tool: name,
-    };
+    const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Ask the user for confirmation conversationally before retrying.`;
+    const durationMs = Date.now() - startTime;
 
     emitLifecycleEvent(context, {
-      type: "permission_prompt",
+      type: "permission_denied",
       toolName: name,
       executionTarget,
-      input: promptInput,
+      input,
       workingDir: context.workingDir,
       conversationId: context.conversationId,
       requestId: context.requestId,
       riskLevel: RiskLevel.High,
-      reason: `Secret detected in tool output: ${types}`,
-      allowlistOptions: [],
-      scopeOptions: [],
-      persistentDecisionsAllowed: false,
+      decision: "deny",
+      reason: "Secret output blocked without deterministic prompt",
+      durationMs,
     });
 
-    const response = await this.prompter.prompt(
-      name,
-      promptInput,
-      RiskLevel.High,
-      [], // no allowlist options
-      [], // no scope options
-      undefined, // no diff
-      context.conversationId,
-      executionTarget,
-      false, // no persistent decisions
-      context.signal,
-    );
-
-    if (response.decision === "deny" || response.decision === "always_deny") {
-      const blockedContent = `Tool output blocked: user denied output containing ${allMatches.length} potential secret(s) (${types}).`;
-      const durationMs = Date.now() - startTime;
-
-      emitLifecycleEvent(context, {
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel: RiskLevel.High,
-        decision: response.decision === "always_deny" ? "always_deny" : "deny",
-        reason: `User denied output containing secrets: ${types}`,
-        durationMs,
-      });
-
-      return {
-        result: { content: blockedContent, isError: true },
-        earlyReturn: true,
-      };
-    }
-
-    // User allowed - pass content through unchanged
-    return { result: execResult, earlyReturn: false };
+    return {
+      result: { content: blockedContent, isError: true },
+      earlyReturn: true,
+    };
   }
 }

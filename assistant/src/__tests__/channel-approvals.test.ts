@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -9,9 +9,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Conversation } from "../daemon/conversation.js";
-import * as trustStore from "../permissions/trust-store.js";
 import type {
   ApprovalDecisionResult,
   ChannelApprovalPrompt,
@@ -82,7 +80,6 @@ function registerPendingConfirmation(
 
 describe("getChannelApprovalPrompt", () => {
   beforeEach(() => {
-    _setOverridesForTesting({});
     pendingInteractions.clear();
   });
 
@@ -97,16 +94,13 @@ describe("getChannelApprovalPrompt", () => {
     const result = getChannelApprovalPrompt("conv-1");
     expect(result).not.toBeNull();
     expect(result!.promptText).toContain("shell");
-    expect(result!.actions).toHaveLength(5);
+    expect(result!.actions).toHaveLength(2);
     expect(result!.actions.map((a) => a.id)).toEqual([
       "approve_once",
-      "approve_10m",
-      "approve_conversation",
-      "approve_always",
       "reject",
     ]);
     expect(result!.plainTextFallback).toContain("yes");
-    expect(result!.plainTextFallback).toContain("always");
+    expect(result!.plainTextFallback).not.toContain("always");
     expect(result!.plainTextFallback).toContain("no");
   });
 
@@ -120,61 +114,8 @@ describe("getChannelApprovalPrompt", () => {
     expect(result!.promptText).toMatch(/shell|file_edit/);
   });
 
-  test("excludes approve_always action when persistentDecisionsAllowed is false", () => {
-    registerPendingConfirmation("req-1", "conv-1", "shell", {
-      persistentDecisionsAllowed: false,
-    });
-
-    const result = getChannelApprovalPrompt("conv-1");
-    expect(result).not.toBeNull();
-    expect(result!.actions.map((a) => a.id)).toEqual([
-      "approve_once",
-      "reject",
-    ]);
-    expect(result!.plainTextFallback).not.toContain("always");
-  });
-
-  test("includes approve_always when persistentDecisionsAllowed is undefined", () => {
+  test("returns approve_once + reject only (one-time decision pattern)", () => {
     registerPendingConfirmation("req-1", "conv-1", "shell");
-
-    const result = getChannelApprovalPrompt("conv-1");
-    expect(result).not.toBeNull();
-    expect(result!.actions.map((a) => a.id)).toEqual([
-      "approve_once",
-      "approve_10m",
-      "approve_conversation",
-      "approve_always",
-      "reject",
-    ]);
-    expect(result!.plainTextFallback).toContain("always");
-  });
-
-  test("includes approve_always when persistentDecisionsAllowed is true", () => {
-    registerPendingConfirmation("req-1", "conv-1", "shell", {
-      persistentDecisionsAllowed: true,
-    });
-
-    const result = getChannelApprovalPrompt("conv-1");
-    expect(result).not.toBeNull();
-    expect(result!.actions.map((a) => a.id)).toEqual([
-      "approve_once",
-      "approve_10m",
-      "approve_conversation",
-      "approve_always",
-      "reject",
-    ]);
-  });
-
-  test("does not return prompts for other conversations", () => {
-    registerPendingConfirmation("req-1", "conv-1", "shell");
-
-    const result = getChannelApprovalPrompt("conv-2");
-    expect(result).toBeNull();
-  });
-
-  test("returns approve_once + reject only under v2", () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-    registerPendingConfirmation("req-v2", "conv-1", "shell");
 
     const result = getChannelApprovalPrompt("conv-1");
     expect(result).not.toBeNull();
@@ -184,6 +125,13 @@ describe("getChannelApprovalPrompt", () => {
     ]);
     expect(result!.plainTextFallback).not.toContain("10 minutes");
     expect(result!.plainTextFallback).not.toContain("always");
+  });
+
+  test("does not return prompts for other conversations", () => {
+    registerPendingConfirmation("req-1", "conv-1", "shell");
+
+    const result = getChannelApprovalPrompt("conv-2");
+    expect(result).toBeNull();
   });
 });
 
@@ -257,7 +205,6 @@ describe("buildApprovalUIMetadata", () => {
 
 describe("handleChannelDecision", () => {
   beforeEach(() => {
-    _setOverridesForTesting({});
     pendingInteractions.clear();
   });
 
@@ -339,16 +286,8 @@ describe("handleChannelDecision", () => {
     expect(result.requestId).toBeUndefined();
   });
 
-  test('approve_always adds a trust rule and calls handleConfirmationResponse with "allow"', () => {
-    registerPendingConfirmation("req-1", "conv-1", "shell", {
-      executionTarget: "sandbox",
-      allowlistOptions: [
-        { label: "rm pattern", description: "rm pattern", pattern: "rm -rf *" },
-      ],
-      scopeOptions: [{ label: "project dir", scope: "/tmp/project" }],
-    });
-
-    const addRuleSpy = spyOn(trustStore, "addRule");
+  test("approve_always collapses to one-time allow without persisting rules", () => {
+    registerPendingConfirmation("req-1", "conv-1", "shell");
     const interaction = pendingInteractions.get("req-1");
     const decision: ApprovalDecisionResult = {
       action: "approve_always",
@@ -356,98 +295,13 @@ describe("handleChannelDecision", () => {
     };
 
     const result = handleChannelDecision("conv-1", decision);
+
+    // approve_always is collapsed to a one-time allow — no addRule side-effect
     expect(result.applied).toBe(true);
     expect(result.requestId).toBe("req-1");
-
-    // Trust rule added with first allowlist and scope option.
-    // executionTarget is undefined for core tools like 'shell' — only
-    // skill-origin tools persist it (see channel-approvals.ts).
-    expect(addRuleSpy).toHaveBeenCalledWith(
-      "shell",
-      "rm -rf *",
-      "/tmp/project",
-      "allow",
-      100,
-      { executionTarget: undefined },
-    );
-
-    // The session is approved with "allow"
     expect(
       interaction!.conversation!.handleConfirmationResponse,
     ).toHaveBeenCalledWith("req-1", "allow");
-
-    addRuleSpy.mockRestore();
-  });
-
-  test("approve_always does not persist rule when no allowlist/scope options are available", () => {
-    registerPendingConfirmation("req-1", "conv-1", "bash", {
-      allowlistOptions: [],
-      scopeOptions: [],
-    });
-
-    const addRuleSpy = spyOn(trustStore, "addRule");
-    const interaction = pendingInteractions.get("req-1");
-    const decision: ApprovalDecisionResult = {
-      action: "approve_always",
-      source: "telegram_button",
-    };
-
-    const result = handleChannelDecision("conv-1", decision);
-
-    // Rule should NOT be persisted — no blanket "**"/"everywhere" fallback
-    expect(addRuleSpy).not.toHaveBeenCalled();
-
-    // The decision should still be applied as a one-time approval
-    expect(result.applied).toBe(true);
-    expect(
-      interaction!.conversation!.handleConfirmationResponse,
-    ).toHaveBeenCalledWith("req-1", "allow");
-
-    addRuleSpy.mockRestore();
-  });
-
-  test("approve_always does not persist rule when persistentDecisionsAllowed is false", () => {
-    registerPendingConfirmation("req-1", "conv-1", "shell", {
-      persistentDecisionsAllowed: false,
-    });
-
-    const addRuleSpy = spyOn(trustStore, "addRule");
-    const interaction = pendingInteractions.get("req-1");
-    const decision: ApprovalDecisionResult = {
-      action: "approve_always",
-      source: "telegram_button",
-    };
-
-    const result = handleChannelDecision("conv-1", decision);
-
-    // Persistence blocked — rule must not be created
-    expect(addRuleSpy).not.toHaveBeenCalled();
-
-    // The current invocation should still be approved (one-time allow)
-    expect(result.applied).toBe(true);
-    expect(
-      interaction!.conversation!.handleConfirmationResponse,
-    ).toHaveBeenCalledWith("req-1", "allow");
-
-    addRuleSpy.mockRestore();
-  });
-
-  test("v2 collapses legacy approval actions to one-time allow without persisting rules", () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-    registerPendingConfirmation("req-v2", "conv-1", "shell");
-
-    const addRuleSpy = spyOn(trustStore, "addRule");
-    const result = handleChannelDecision("conv-1", {
-      action: "approve_always",
-      requestId: "req-v2",
-      source: "plain_text",
-    });
-
-    expect(result).toEqual({
-      applied: true,
-      requestId: "req-v2",
-    });
-    expect(addRuleSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -456,10 +310,6 @@ describe("handleChannelDecision", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("buildGuardianApprovalPrompt", () => {
-  beforeEach(() => {
-    _setOverridesForTesting({});
-  });
-
   test("prompt includes requester identifier and tool name", () => {
     const approvalInfo: PendingApprovalInfo = {
       requestId: "req-g1",
@@ -497,8 +347,7 @@ describe("buildGuardianApprovalPrompt", () => {
     expect(prompt.plainTextFallback).toContain("no");
   });
 
-  test("uses approve_once + reject only under v2", () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
+  test("uses approve_once + reject only (one-time decision pattern)", () => {
     const approvalInfo: PendingApprovalInfo = {
       requestId: "req-g4",
       toolName: "shell",

@@ -2196,18 +2196,9 @@ describe("Terminal trace events on rejection/failure", () => {
 // ---------------------------------------------------------------------------
 
 describe("Conversation host attachment directives", () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     pendingRuns = [];
     mockedConversationHostAccess.clear();
-    const { _setOverridesForTesting } =
-      await import("../config/assistant-feature-flags.js");
-    _setOverridesForTesting({ "permission-controls-v2": true });
-  });
-
-  afterEach(async () => {
-    const { _setOverridesForTesting } =
-      await import("../config/assistant-feature-flags.js");
-    _setOverridesForTesting({});
   });
 
   test("host attachment prompts and resolves when user allows", async () => {

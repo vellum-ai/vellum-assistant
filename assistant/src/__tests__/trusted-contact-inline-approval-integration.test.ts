@@ -162,7 +162,6 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   createCanonicalGuardianRequest,
@@ -253,7 +252,6 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
     events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
-    _setOverridesForTesting({});
     mockGuardianBinding = {
       id: "binding-1",
       assistantId: "self",
@@ -1169,7 +1167,7 @@ describe("cross-milestone integration checks", () => {
   });
 });
 
-describe("(g) v2 trusted-contact flow: model-mediated guardian consent", () => {
+describe("(g) trusted-contact host-access gate", () => {
   const handler = new ToolApprovalHandler({
     inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
   });
@@ -1179,7 +1177,6 @@ describe("(g) v2 trusted-contact flow: model-mediated guardian consent", () => {
     events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
-    _setOverridesForTesting({ "permission-controls-v2": true });
     mockGuardianBinding = {
       id: "binding-1",
       assistantId: "self",
@@ -1191,7 +1188,7 @@ describe("(g) v2 trusted-contact flow: model-mediated guardian consent", () => {
     };
   });
 
-  test("trusted-contact host tools do not create tool_grant_request rows under v2", async () => {
+  test("trusted-contact host tools do not create tool_grant_request rows when host access not enabled", async () => {
     const conv = createConversation("trusted contact v2 host gate");
     const result = await handler.checkPreExecutionGates(
       "bash",
@@ -1240,32 +1237,4 @@ describe("(g) v2 trusted-contact flow: model-mediated guardian consent", () => {
     expect(result.allowed).toBe(true);
   });
 
-  test("confirmation_request guardian bridge is disabled for trusted contacts under v2", () => {
-    const canonicalRequest = createCanonicalGuardianRequest({
-      id: `req-v2-skip-${Date.now()}`,
-      kind: "tool_approval",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-v2-skip",
-      requesterExternalUserId: "requester-1",
-      guardianExternalUserId: "guardian-1",
-      guardianPrincipalId: "test-principal-id",
-      toolName: "bash",
-      status: "pending",
-      expiresAt: Date.now() + 5 * 60_000,
-    });
-
-    const result = bridgeConfirmationRequestToGuardian({
-      canonicalRequest,
-      trustContext: makeTrustedContactTrustContext(),
-      conversationId: "conv-v2-skip",
-      toolName: "bash",
-    });
-
-    expect("skipped" in result && result.skipped).toBe(true);
-    if ("skipped" in result) {
-      expect(result.reason).toBe("v2_model_mediated");
-    }
-    expect(emittedSignals).toHaveLength(0);
-  });
 });

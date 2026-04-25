@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
@@ -16,7 +15,6 @@ describe("VellumAcpClientHandler", () => {
   let handler: VellumAcpClientHandler;
 
   beforeEach(() => {
-    _setOverridesForTesting({});
     sent = [];
     sendToVellum = (msg) => sent.push(msg);
     handler = new VellumAcpClientHandler(
@@ -231,9 +229,7 @@ describe("VellumAcpClientHandler", () => {
       expect(msg.riskLevel).toBe("medium");
     });
 
-    test("suppresses ACP confirmation UI under v2 and chooses the allow option", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-
+    test("suppresses ACP confirmation UI and chooses the allow option (auto-allow)", async () => {
       const result = await handler.requestPermission({
         toolCall: {
           title: "Read file",
@@ -253,9 +249,7 @@ describe("VellumAcpClientHandler", () => {
       expect(handler.pendingRequestIds.size).toBe(0);
     });
 
-    test("suppresses ACP confirmation UI under v2 and cancels when no allow option exists", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-
+    test("suppresses ACP confirmation UI and cancels when no allow option exists", async () => {
       const result = await handler.requestPermission({
         toolCall: {
           title: "Read file",

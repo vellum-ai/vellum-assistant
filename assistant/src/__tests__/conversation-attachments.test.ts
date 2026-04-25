@@ -1,8 +1,6 @@
 import { existsSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -84,7 +82,6 @@ function makeBase64(bytes: number): string {
 describe("resolveAssistantAttachments", () => {
   beforeEach(() => {
     resetTables();
-    _setOverridesForTesting({});
     checkSpy.mockClear();
     addRuleSpy.mockClear();
   });
@@ -214,13 +211,11 @@ describe("resolveAssistantAttachments", () => {
 describe("approveHostAttachmentRead", () => {
   beforeEach(() => {
     resetTables();
-    _setOverridesForTesting({});
     checkSpy.mockClear();
     addRuleSpy.mockClear();
   });
 
-  test("uses the conversation-scoped host-access prompt under v2", async () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
+  test("uses the conversation-scoped host-access prompt", async () => {
     const conversation = createConversation("attachment-host-gate");
     const promptSpy = mock(() =>
       Promise.resolve({ decision: "allow" as const }),
@@ -249,7 +244,6 @@ describe("approveHostAttachmentRead", () => {
   });
 
   test("auto-allows host attachment reads when the conversation already has host access", async () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
     const conversation = createConversation("attachment-host-allowed");
     updateConversationHostAccess(conversation.id, true);
     const promptSpy = mock(() =>

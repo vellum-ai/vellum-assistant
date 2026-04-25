@@ -17,7 +17,6 @@ import type { UserDecision } from "../../permissions/types.js";
 import {
   isConversationHostAccessDecision,
   isConversationHostAccessEnablePrompt,
-  isPermissionControlsV2Enabled,
 } from "../../permissions/v2-consent-policy.js";
 import { getTool } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
@@ -29,34 +28,14 @@ import * as pendingInteractions from "../pending-interactions.js";
 
 const log = getLogger("approval-routes");
 
-function canonicalizeV2ConfirmDecision(params: {
+function canonicalizeConfirmDecision(params: {
   decision: string;
   interaction: NonNullable<ReturnType<typeof pendingInteractions.get>>;
 }): UserDecision | null {
-  const { decision, interaction } = params;
+  const { decision } = params;
   if (decision === "allow" || decision === "deny") {
     return decision;
   }
-
-  const details = interaction.confirmationDetails;
-  if (!details || isConversationHostAccessEnablePrompt(details)) {
-    return null;
-  }
-
-  if (
-    (decision === "allow_10m" || decision === "allow_conversation") &&
-    details.temporaryOptionsAvailable?.includes(decision)
-  ) {
-    return "allow";
-  }
-
-  if (
-    (decision === "always_allow" || decision === "always_deny") &&
-    details.persistentDecisionsAllowed
-  ) {
-    return decision === "always_deny" ? "deny" : "allow";
-  }
-
   return null;
 }
 
@@ -101,31 +80,15 @@ export async function handleConfirm(
     );
   }
 
-  const v2Enabled = isPermissionControlsV2Enabled();
-  const effectiveDecision = v2Enabled
-    ? typeof decision === "string"
-      ? canonicalizeV2ConfirmDecision({ decision, interaction: peeked })
-      : null
-    : decision;
-  const validConfirmDecisions = [
-    "allow",
-    "allow_10m",
-    "allow_conversation",
-    "deny",
-    "always_allow",
-    "always_deny",
-  ];
-  if (
-    (v2Enabled && effectiveDecision == null) ||
-    (!v2Enabled &&
-      (typeof decision !== "string" ||
-        !validConfirmDecisions.includes(decision)))
-  ) {
+  const effectiveDecision =
+    typeof decision === "string"
+      ? canonicalizeConfirmDecision({ decision, interaction: peeked })
+      : null;
+
+  if (effectiveDecision == null) {
     return httpError(
       "BAD_REQUEST",
-      v2Enabled
-        ? "decision must resolve to allow or deny under permission-controls-v2"
-        : `decision must be one of: ${validConfirmDecisions.join(", ")}`,
+      "decision must resolve to allow or deny",
       400,
     );
   }
@@ -140,62 +103,6 @@ export async function handleConfirm(
       "Conversation host-access prompts only accept allow or deny",
       403,
     );
-  }
-
-  if (v2Enabled && (selectedPattern || selectedScope)) {
-    return httpError(
-      "FORBIDDEN",
-      "Scoped or persistent approval selections are not supported under permission-controls-v2",
-      403,
-    );
-  }
-
-  // For decisions that persist trust rules, validate that selectedPattern
-  // and selectedScope are among the options the server actually offered.
-  // This prevents a crafted request from injecting overly-broad rules.
-  const persistsRule =
-    decision === "always_allow" || decision === "always_deny";
-  if (persistsRule && (selectedPattern || selectedScope)) {
-    const confirmation = peeked.confirmationDetails;
-    if (!confirmation) {
-      return httpError(
-        "CONFLICT",
-        "No confirmation details available for this request",
-        409,
-      );
-    }
-
-    if (selectedPattern) {
-      const validPatterns = (confirmation.allowlistOptions ?? []).map(
-        (o) => o.pattern,
-      );
-      if (!validPatterns.includes(selectedPattern)) {
-        return httpError(
-          "FORBIDDEN",
-          "selectedPattern does not match any server-provided allowlist option",
-          403,
-        );
-      }
-    }
-
-    if (selectedScope) {
-      const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
-      if (validScopes.length === 0) {
-        if (selectedScope !== "everywhere") {
-          return httpError(
-            "FORBIDDEN",
-            'non-scoped tools only accept scope "everywhere"',
-            403,
-          );
-        }
-      } else if (!validScopes.includes(selectedScope)) {
-        return httpError(
-          "FORBIDDEN",
-          "selectedScope does not match any server-provided scope option",
-          403,
-        );
-      }
-    }
   }
 
   // Validation passed — consume the pending interaction.
@@ -315,14 +222,6 @@ export async function handleTrustRule(
 ): Promise<Response> {
   const authError = requireBoundGuardian(authContext);
   if (authError) return authError;
-
-  if (isPermissionControlsV2Enabled()) {
-    return httpError(
-      "FORBIDDEN",
-      "Persistent trust rules are not supported under permission-controls-v2",
-      403,
-    );
-  }
 
   const body = (await req.json()) as {
     requestId?: string;

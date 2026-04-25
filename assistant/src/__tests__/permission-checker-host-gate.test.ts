@@ -1,19 +1,15 @@
 /**
  * Tests for the host-access gate in the permission checker.
  *
- * When the `permission-controls-v2` feature flag is enabled, the permission
- * checker replaces the risk-classification path with a simple binary check:
+ * The permission checker uses a simple binary check:
  *   - Host tools + hostAccess=false → falls through to interactive prompter
  *   - Host tools + hostAccess=true → auto-allowed
  *   - Non-host tools → auto-allowed (no risk classification)
  *   - requireFreshApproval → falls through to interactive prompter
  *   - forcePromptSideEffects + side-effect tool → falls through to prompter
- *
- * When the flag is off, existing risk-level behavior is completely unchanged.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { PermissionChecker } from "../tools/permission-checker.js";
@@ -87,12 +83,10 @@ const executionTarget: ExecutionTarget = "host";
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  _setOverridesForTesting({});
   hostAccessByConversation.clear();
 });
 
 afterEach(() => {
-  _setOverridesForTesting({});
   hostAccessByConversation.clear();
 });
 
@@ -100,13 +94,8 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("permission-checker host-access gate (v2)", () => {
-  describe("when permission-controls-v2 flag is ON", () => {
-    beforeEach(() => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-    });
-
-    const HOST_TOOL_NAMES = [
+describe("permission-checker host-access gate", () => {
+  const HOST_TOOL_NAMES = [
       "host_bash",
       "host_file_read",
       "host_file_write",
@@ -439,50 +428,4 @@ describe("permission-checker host-access gate (v2)", () => {
       expect(denied.decision).toBe("deny");
       expect(promptSpy).toHaveBeenCalledTimes(1);
     });
-  });
-
-  describe("when permission-controls-v2 flag is OFF", () => {
-    beforeEach(() => {
-      _setOverridesForTesting({ "permission-controls-v2": false });
-    });
-
-    test("host_bash falls through to existing risk classification (returns allow from mocked checker)", async () => {
-      const checker = new PermissionChecker(makePrompter());
-      const result = await checker.checkPermission(
-        "host_bash",
-        {},
-        makeTool("host_bash"),
-        makeContext(),
-        executionTarget,
-        noopEmit,
-        Date.now(),
-        noopDiff,
-      );
-
-      // The mocked checker returns 'allow', so the result should be
-      // allowed with the old risk-classification path's risk level.
-      expect(result.allowed).toBe(true);
-      expect(result.decision).toBe("allow");
-      // When flag is off, riskLevel comes from classifyRisk (mocked as "low")
-      expect(result.riskLevel).toBe(RiskLevel.Low);
-    });
-
-    test("non-host tools also follow old path", async () => {
-      const checker = new PermissionChecker(makePrompter());
-      const result = await checker.checkPermission(
-        "bash",
-        { command: "echo hello" },
-        makeTool("bash"),
-        makeContext(),
-        "sandbox",
-        noopEmit,
-        Date.now(),
-        noopDiff,
-      );
-
-      expect(result.allowed).toBe(true);
-      expect(result.decision).toBe("allow");
-      expect(result.riskLevel).toBe(RiskLevel.Low);
-    });
-  });
 });

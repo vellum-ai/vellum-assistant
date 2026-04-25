@@ -19,15 +19,11 @@ import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
-import { isPermissionControlsV2Enabled } from "../../permissions/v2-consent-policy.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
-import {
-  buildDecisionActions,
-  buildOneTimeDecisionActions,
-} from "../guardian-decision-types.js";
+import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -97,18 +93,6 @@ export async function handleGuardianActionDecision(
 
   if (!action || typeof action !== "string") {
     return httpError("BAD_REQUEST", "action is required", 400);
-  }
-
-  if (
-    isPermissionControlsV2Enabled() &&
-    action !== "approve_once" &&
-    action !== "reject"
-  ) {
-    return httpError(
-      "FORBIDDEN",
-      "permission-controls-v2 only accepts approve_once or reject for guardian actions",
-      403,
-    );
   }
 
   // Resolve the actor's guardian principal ID. For JWT-verified actors this
@@ -206,17 +190,13 @@ export function listGuardianDecisionPrompts(params: {
  * Map a canonical guardian request to the client-facing prompt format.
  *
  * Generates kind-specific questionText and action sets:
- * - `tool_approval`: temporal modes (approve_once, approve_10m, approve_conversation) + reject in legacy mode,
- *   approve_once + reject only under v2
+ * - `tool_approval`: approve_once + reject only
  * - `pending_question`: approve_once + reject only
  * - `access_request`: approve_once + reject only, with text fallback instructions
  *   (request code + "open invite flow")
  * - `tool_grant_request`: approve_once + reject only
  *
- * Under permission-controls-v2 we collapse all deterministic guardian action
- * prompts to approve_once + reject only. Outside v2, only `tool_approval`
- * receives temporal modes because time-scoped grants are meaningful only for
- * tool execution.
+ * All guardian action prompts use approve_once + reject only.
  */
 function mapCanonicalRequestToPrompt(
   req: CanonicalGuardianRequest,
@@ -224,11 +204,7 @@ function mapCanonicalRequestToPrompt(
 ): GuardianDecisionPrompt {
   const questionText = buildKindAwareQuestionText(req);
 
-  const actions = isPermissionControlsV2Enabled()
-    ? buildOneTimeDecisionActions()
-    : req.kind === "tool_approval"
-      ? buildDecisionActions({ forGuardianOnBehalf: true })
-      : buildOneTimeDecisionActions();
+  const actions = buildOneTimeDecisionActions();
 
   const expiresAt = req.expiresAt
     ? new Date(req.expiresAt).getTime()

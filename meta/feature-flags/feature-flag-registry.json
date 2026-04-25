@@ -274,14 +274,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "permission-controls-v2",
-      "scope": "assistant",
-      "key": "permission-controls-v2",
-      "label": "Permission Controls V2",
-      "description": "Replace risk-level permission system with two independent controls: 'Ask before acting' (LLM behavior toggle) and 'Host access' (system-enforced gate)",
-      "defaultEnabled": false
-    },
-    {
       "id": "apple-container",
       "scope": "macos",
       "key": "apple-container",

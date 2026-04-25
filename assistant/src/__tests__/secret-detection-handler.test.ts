@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
-
 const scanTextMock = mock(() => [
   { type: "api_key", redactedValue: "sk-***redacted***" },
 ]);
@@ -25,15 +23,12 @@ mock.module("../security/secret-scanner.js", () => ({
 
 import { SecretDetectionHandler } from "../tools/secret-detection-handler.js";
 
-describe("SecretDetectionHandler under v2", () => {
+describe("SecretDetectionHandler", () => {
   beforeEach(() => {
-    _setOverridesForTesting({});
     scanTextMock.mockClear();
   });
 
   test("blocks secret output without opening a deterministic approval prompt", async () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-
     const promptMock = mock(async () => ({ decision: "allow" as const }));
     const handler = new SecretDetectionHandler({
       prompt: promptMock,
@@ -59,9 +54,7 @@ describe("SecretDetectionHandler under v2", () => {
 
     expect(result.earlyReturn).toBe(true);
     expect(result.result.isError).toBe(true);
-    expect(result.result.content).toContain(
-      "Secret-output approval cards are disabled under v2",
-    );
+    expect(result.result.content).toContain("Ask the user for confirmation conversationally");
     expect(promptMock).not.toHaveBeenCalled();
     expect(emitLifecycleEvent).toHaveBeenCalledWith(
       expect.anything(),
