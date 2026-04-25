@@ -378,9 +378,16 @@ export class SkillHostClient implements SkillHost {
       throw new Error("SkillHostClient: cannot connect after close()");
     }
     if (this.connectingPromise) return this.connectingPromise;
-    if (this.socket && !this.socket.destroyed) return;
+    // Fully connected: live socket *and* prefetch already populated.
+    // If the socket survived but a prior `prefetchSyncState()` rejected,
+    // the caches are still null and sync accessors would throw — fall
+    // through and re-run prefetch over the existing socket.
+    const socketAlive = !!this.socket && !this.socket.destroyed;
+    const prefetchDone = this.cachedInternalAssistantId !== null;
+    if (socketAlive && prefetchDone) return;
 
-    this.connectingPromise = this.doConnect()
+    const ensureSocket = socketAlive ? Promise.resolve() : this.doConnect();
+    this.connectingPromise = ensureSocket
       .then(async () => {
         await this.prefetchSyncState();
       })
@@ -452,6 +459,15 @@ export class SkillHostClient implements SkillHost {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        // The client may have been `close()`d while `connect()` was
+        // still pending. If we attach now we'd reintroduce a live
+        // socket on a closed client and leak the server-side connection
+        // until process teardown.
+        if (this.closed) {
+          socket.destroy();
+          reject(new Error("SkillHostClient: closed during connect"));
+          return;
+        }
         this.attachSocket(socket);
         resolve();
       });
@@ -540,11 +556,52 @@ export class SkillHostClient implements SkillHost {
       disposed: false,
     };
     this.subscriptions.set(fresh.id, fresh);
-    this.writeFrame({
-      id: fresh.id,
-      method: "host.events.subscribe",
-      params: { filter: fresh.filter },
+    // Mirror `openSubscription`: pre-register a pending entry so the
+    // server's `{ id, result: { subscribed: true } }` ack frame is
+    // matched (otherwise `handleFrame` silently drops it) and so we
+    // tear the subscription down on ack timeout instead of leaking it.
+    this.registerSubscribeAck(fresh);
+    try {
+      this.writeFrame({
+        id: fresh.id,
+        method: "host.events.subscribe",
+        params: { filter: fresh.filter },
+      });
+    } catch (err) {
+      this.cancelSubscribeAck(fresh);
+      swallow(err);
+    }
+  }
+
+  private registerSubscribeAck(active: ActiveSubscription): void {
+    const ackTimer = setTimeout(() => {
+      if (this.pending.delete(active.id)) {
+        active.disposed = true;
+        this.subscriptions.delete(active.id);
+      }
+    }, this.options.callTimeoutMs);
+    this.pending.set(active.id, {
+      resolve: () => {
+        clearTimeout(ackTimer);
+      },
+      reject: (err) => {
+        clearTimeout(ackTimer);
+        active.disposed = true;
+        this.subscriptions.delete(active.id);
+        swallow(err);
+      },
+      timer: ackTimer,
     });
+  }
+
+  private cancelSubscribeAck(active: ActiveSubscription): void {
+    const entry = this.pending.get(active.id);
+    if (entry) {
+      clearTimeout(entry.timer);
+      this.pending.delete(active.id);
+    }
+    active.disposed = true;
+    this.subscriptions.delete(active.id);
   }
 
   // ── Internal: frame I/O ─────────────────────────────────────────────────
@@ -964,25 +1021,7 @@ export class SkillHostClient implements SkillHost {
     // Pre-register a pending call for the open ack. The server writes a
     // `{ id, result: { subscribed: true } }` frame back; subsequent
     // `delivery` frames share the same id.
-    const ackTimer = setTimeout(() => {
-      if (this.pending.delete(id)) {
-        // Ack timeout — dispose the subscription silently.
-        active.disposed = true;
-        this.subscriptions.delete(id);
-      }
-    }, this.options.callTimeoutMs);
-    this.pending.set(id, {
-      resolve: () => {
-        clearTimeout(ackTimer);
-      },
-      reject: (err) => {
-        clearTimeout(ackTimer);
-        active.disposed = true;
-        this.subscriptions.delete(id);
-        swallow(err);
-      },
-      timer: ackTimer,
-    });
+    this.registerSubscribeAck(active);
     try {
       this.writeFrame({
         id,
@@ -990,10 +1029,7 @@ export class SkillHostClient implements SkillHost {
         params: { filter },
       });
     } catch (err) {
-      this.pending.delete(id);
-      clearTimeout(ackTimer);
-      active.disposed = true;
-      this.subscriptions.delete(id);
+      this.cancelSubscribeAck(active);
       throw err;
     }
 

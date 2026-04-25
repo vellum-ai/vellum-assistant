@@ -833,3 +833,25 @@ describe("SkillHostClient: close() drains pending calls", () => {
     await expect(call).rejects.toThrow(/closed/);
   });
 });
+
+describe("SkillHostClient: connect() retry semantics", () => {
+  test("re-runs prefetch over an existing socket after a failed bootstrap", async () => {
+    // Force the assistant-name prefetch to throw on first attempt only.
+    let nameCalls = 0;
+    server!.register("host.identity.getAssistantName", () => {
+      nameCalls += 1;
+      if (nameCalls === 1) throw new Error("boom");
+      return "Recovered Assistant";
+    });
+    client = new SkillHostClient({ socketPath, skillId: "test-skill" });
+    await expect(client.connect()).rejects.toThrow(/boom/);
+    // Sync accessors should still throw — the cache wasn't populated.
+    expect(() => client!.identity.internalAssistantId).toThrow(/not connected/);
+    // Second connect() must retry prefetch instead of short-circuiting on
+    // the still-alive socket.
+    await client.connect();
+    expect(client.identity.internalAssistantId).toBe("self");
+    expect(client.identity.getAssistantName()).toBe("Recovered Assistant");
+    expect(nameCalls).toBe(2);
+  });
+});
