@@ -10,8 +10,7 @@ public protocol ToolClientProtocol {
         toolName: String,
         input: [String: AnyCodable],
         workingDir: String?,
-        isInteractive: Bool?,
-        forcePromptSideEffects: Bool?
+        isInteractive: Bool?
     ) async throws -> ToolPermissionSimulateResponseMessage
 }
 
@@ -46,8 +45,7 @@ public struct ToolClient: ToolClientProtocol {
         toolName: String,
         input: [String: AnyCodable],
         workingDir: String? = nil,
-        isInteractive: Bool? = nil,
-        forcePromptSideEffects: Bool? = nil
+        isInteractive: Bool? = nil
     ) async throws -> ToolPermissionSimulateResponseMessage {
         var body: [String: Any] = [
             "toolName": toolName,
@@ -62,7 +60,6 @@ public struct ToolClient: ToolClientProtocol {
 
         if let workingDir { body["workingDir"] = workingDir }
         if let isInteractive { body["isInteractive"] = isInteractive }
-        if let forcePromptSideEffects { body["forcePromptSideEffects"] = forcePromptSideEffects }
 
         let response = try await GatewayHTTPClient.post(
             path: "assistants/{assistantId}/tools/simulate-permission", json: body, timeout: 10

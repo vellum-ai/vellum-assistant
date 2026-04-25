@@ -58,7 +58,6 @@ final class ToolPermissionTesterModel: ObservableObject {
     @Published var toolName: String = ""
     @Published var workingDir: String = ""
     @Published var isInteractive: Bool = true
-    @Published var forcePromptSideEffects: Bool = false
 
     // MARK: - Dynamic Input Fields
 
@@ -341,8 +340,7 @@ final class ToolPermissionTesterModel: ObservableObject {
                     toolName: toolName,
                     input: parsed,
                     workingDir: workingDir.isEmpty ? nil : workingDir,
-                    isInteractive: isInteractive,
-                    forcePromptSideEffects: forcePromptSideEffects
+                    isInteractive: isInteractive
                 )
                 handleSimulateResponse(response)
             } catch {
