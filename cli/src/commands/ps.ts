@@ -9,8 +9,9 @@ import {
 import { loadGuardianToken } from "../lib/guardian-token";
 import {
   checkHealth,
-  checkManagedConnectionStatus,
   checkManagedHealth,
+  fetchManagedPs,
+  type ManagedProcessEntry,
 } from "../lib/health-check";
 import { dockerResourceNames } from "../lib/docker";
 import { existsSync } from "fs";
@@ -67,6 +68,51 @@ function printTable(rows: TableRow[]): void {
   for (const row of rows) {
     console.log(formatRow(row, colWidths));
   }
+}
+
+// ── Managed process tree rendering ──────────────────────────────
+
+function processStatusLabel(s: ManagedProcessEntry["status"]): string {
+  switch (s) {
+    case "running":
+      return "running";
+    case "not_running":
+      return "not running";
+    case "unreachable":
+      return "unreachable";
+  }
+}
+
+function flattenProcessTree(
+  entries: ManagedProcessEntry[],
+  depth = 0,
+): TableRow[] {
+  const rows: TableRow[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const children = entry.children ?? [];
+    const hasChildren = children.length > 0;
+
+    rows.push({
+      name:
+        depth === 0 ? entry.name : `${"  ".repeat(depth - 1)}├─ ${entry.name}`,
+      status: withStatusEmoji(processStatusLabel(entry.status)),
+      info: entry.info ?? "",
+    });
+
+    if (hasChildren) {
+      for (let j = 0; j < children.length; j++) {
+        const child = children[j];
+        const isLast = j === children.length - 1;
+        rows.push({
+          name: `${"  ".repeat(depth)}${isLast ? "└─" : "├─"} ${child.name}`,
+          status: withStatusEmoji(processStatusLabel(child.status)),
+          info: child.info ?? "",
+        });
+      }
+    }
+  }
+  return rows;
 }
 
 // ── Remote process listing via SSH ──────────────────────────────
@@ -343,12 +389,9 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   if (cloud === "vellum") {
     console.log(`  Platform ID: ${entry.assistantId}\n`);
 
-    const connStatus = await checkManagedConnectionStatus(
-      entry.runtimeUrl,
-      entry.assistantId,
-    );
+    const psData = await fetchManagedPs(entry.runtimeUrl, entry.assistantId);
 
-    if (!connStatus) {
+    if (!psData) {
       const rows: TableRow[] = [
         {
           name: "assistant",
@@ -360,50 +403,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
       return;
     }
 
-    const stateToStatus = (state: string): string => {
-      switch (state) {
-        case "ready":
-          return "running";
-        case "waking":
-          return "waking";
-        case "crash_loop":
-          return "error";
-        case "not_found":
-          return "not running";
-        default:
-          return state;
-      }
-    };
-
-    const assistantStatus = stateToStatus(connStatus.state);
-    const rows: TableRow[] = [
-      {
-        name: "assistant",
-        status: withStatusEmoji(assistantStatus),
-        info: connStatus.detail ?? connStatus.state,
-      },
-      {
-        name: "├─ qdrant",
-        status: withStatusEmoji(
-          assistantStatus === "running" ? "running" : assistantStatus,
-        ),
-        info: "",
-      },
-      {
-        name: "└─ embed-worker",
-        status: withStatusEmoji(
-          assistantStatus === "running" ? "running" : assistantStatus,
-        ),
-        info: "",
-      },
-      {
-        name: "gateway",
-        status: withStatusEmoji(
-          assistantStatus === "running" ? "running" : assistantStatus,
-        ),
-        info: entry.runtimeUrl,
-      },
-    ];
+    const rows = flattenProcessTree(psData.processes);
     printTable(rows);
     return;
   }

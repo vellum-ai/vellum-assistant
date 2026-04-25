@@ -71,17 +71,21 @@ export async function checkManagedHealth(
   }
 }
 
-export interface ManagedConnectionStatus {
-  state: string;
-  is_awake: boolean;
-  pod_status: string | null;
-  detail: string | null;
+export interface ManagedProcessEntry {
+  name: string;
+  status: "running" | "not_running" | "unreachable";
+  children?: ManagedProcessEntry[];
+  info?: string;
 }
 
-export async function checkManagedConnectionStatus(
+export interface ManagedPsResponse {
+  processes: ManagedProcessEntry[];
+}
+
+export async function fetchManagedPs(
   runtimeUrl: string,
   assistantId: string,
-): Promise<ManagedConnectionStatus | null> {
+): Promise<ManagedPsResponse | null> {
   const { readPlatformToken, authHeaders } =
     await import("./platform-client.js");
   const token = readPlatformToken();
@@ -95,12 +99,11 @@ export async function checkManagedConnectionStatus(
   }
 
   try {
-    const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/connection-status/`;
+    const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/ps/`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const response = await fetch(url, {
-      method: "POST",
       signal: controller.signal,
       headers,
     });
@@ -109,7 +112,7 @@ export async function checkManagedConnectionStatus(
 
     if (!response.ok) return null;
 
-    return (await response.json()) as ManagedConnectionStatus;
+    return (await response.json()) as ManagedPsResponse;
   } catch {
     return null;
   }

@@ -75,6 +75,7 @@ import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
+import { createPsHandler } from "./http/routes/ps.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
@@ -341,6 +342,7 @@ async function main() {
   const oauthAppsProxy = createOAuthAppsProxyHandler(config);
   const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
+  const psHandler = createPsHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
@@ -500,6 +502,14 @@ async function main() {
       method: "GET",
       auth: "edge",
       handler: (req) => runtimeHealthProxy.handleRuntimeHealth(req),
+    },
+
+    // ── Process status ──
+    {
+      path: "/v1/ps",
+      method: "GET",
+      auth: "edge",
+      handler: () => psHandler.handlePs(),
     },
 
     // ── Brain graph ──
