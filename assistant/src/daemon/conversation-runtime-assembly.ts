@@ -222,7 +222,7 @@ export function resolveChannelCapabilities(
       case "desktop":
       case "http-api":
       case "dashboard":
-        iface = "vellum";
+        iface = "web";
         break;
       default:
         iface = null;
@@ -238,7 +238,7 @@ export function resolveChannelCapabilities(
       return {
         channel,
         dashboardCapable: supportsDesktopUi,
-        supportsDynamicUi: supportsDesktopUi || iface === "vellum",
+        supportsDynamicUi: supportsDesktopUi || iface === "web",
         supportsVoiceInput: supportsDesktopUi,
         clientOS: iface ?? undefined,
         chatType: resolvedChatType,

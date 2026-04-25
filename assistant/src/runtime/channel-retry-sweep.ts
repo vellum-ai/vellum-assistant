@@ -123,7 +123,7 @@ export async function sweepFailedEvents(
     const sourceInterface =
       parseInterfaceId(payload.interface) ??
       parseInterfaceId(payload.sourceChannel) ??
-      "vellum";
+      "web";
     const sourceMetadata = payload.sourceMetadata as
       | Record<string, unknown>
       | undefined;

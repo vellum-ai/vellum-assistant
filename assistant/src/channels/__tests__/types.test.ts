@@ -124,8 +124,8 @@ describe("supportsHostProxy", () => {
     expect(supportsHostProxy("telegram", "host_browser")).toBe(false);
   });
 
-  test("vellum returns false (no capability)", () => {
-    expect(supportsHostProxy("vellum")).toBe(false);
+  test("web returns false (no capability)", () => {
+    expect(supportsHostProxy("web")).toBe(false);
   });
 
   test("email returns false for host_browser", () => {

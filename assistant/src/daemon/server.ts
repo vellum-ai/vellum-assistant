@@ -168,7 +168,7 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   }
   // Interface and channel are orthogonal dimensions; default explicitly
   // instead of deriving interface from channel.
-  return "vellum";
+  return "web";
 }
 
 function resolveCanonicalRequestSourceType(
