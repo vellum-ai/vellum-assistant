@@ -75,8 +75,8 @@ final class InferenceProfilesSheetTests: XCTestCase {
 
     // MARK: - Built-in detection
 
-    /// The badge wiring uses `BuiltInInferenceProfile.allNames.contains`,
-    /// so the row's badge presence should match the enum exactly.
+    /// The badge wiring uses `builtInInferenceProfileNames.contains`, so
+    /// the row's badge presence should match the constant exactly.
     func testBuiltInProfilesShowBadgeAndCustomDoesNot() {
         seedBuiltInsAndCustom(includeCustom: true)
         XCTAssertEqual(store.profiles.count, 4)
@@ -87,17 +87,17 @@ final class InferenceProfilesSheetTests: XCTestCase {
         XCTAssertTrue(names.contains("cost-optimized"))
         XCTAssertTrue(names.contains("experimental"))
 
-        // The badge predicate is defined on the static enum so the row
-        // can stay declarative. Verify it directly here so the contract
-        // doesn't drift.
+        // The badge predicate is defined as a top-level constant so the
+        // row can stay declarative. Verify it directly here so the
+        // contract doesn't drift.
         for name in ["quality-optimized", "balanced", "cost-optimized"] {
             XCTAssertTrue(
-                BuiltInInferenceProfile.allNames.contains(name),
+                builtInInferenceProfileNames.contains(name),
                 "\(name) must render with a Built-in badge"
             )
         }
         XCTAssertFalse(
-            BuiltInInferenceProfile.allNames.contains("experimental"),
+            builtInInferenceProfileNames.contains("experimental"),
             "Custom profiles must not render the Built-in badge"
         )
     }
@@ -294,6 +294,95 @@ final class InferenceProfilesSheetTests: XCTestCase {
         // `cost-optimized` and before `quality-optimized`.
         let names = store.profiles.map(\.name)
         XCTAssertEqual(names, names.sorted(), "Profiles list must remain alphabetically sorted")
+    }
+
+    // MARK: - Rename flow
+
+    /// Renaming the active profile must atomically migrate the
+    /// `activeProfile` pointer and any callsite overrides onto the new
+    /// name BEFORE deleting the old key, so the rename never leaves a
+    /// stale dangling reference. Mirrors the orchestration in
+    /// `commitEditor` — exercised here at the store level.
+    func testRenameActiveProfileMigratesActivePointerAndDropsOldKey() async {
+        seedBuiltInsAndCustom()
+        XCTAssertEqual(store.activeProfile, "balanced")
+
+        // Step 1: write the new key with the migrated draft.
+        let renamed = InferenceProfile(
+            name: "balanced-renamed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+            maxTokens: 16000,
+            effort: "high"
+        )
+        let setSuccess = await store.setProfile(name: "balanced-renamed", fragment: renamed)
+        XCTAssertTrue(setSuccess)
+
+        // Step 2: re-target the active pointer.
+        let activeSuccess = await store.setActiveProfile("balanced-renamed")
+        XCTAssertTrue(activeSuccess)
+
+        // Step 3: drop the old key. After re-targeting, this must
+        // succeed (no `.blockedByActive`).
+        let result = await store.deleteProfile(name: "balanced")
+        XCTAssertEqual(result, .deleted)
+
+        XCTAssertEqual(store.activeProfile, "balanced-renamed")
+        XCTAssertFalse(store.profiles.contains(where: { $0.name == "balanced" }))
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "balanced-renamed" }))
+    }
+
+    /// Renaming a profile referenced by call sites must re-target every
+    /// override to the new name BEFORE deleting the source.
+    func testRenameProfileReferencedByCallSitesMigratesOverridesAndDropsOldKey() async {
+        seedBuiltInsAndCustom(includeCustom: true)
+        store.loadCallSiteOverrides(config: [
+            "llm": [
+                "callSites": [
+                    "mainAgent": ["profile": "experimental"],
+                    "memoryRetrieval": ["profile": "experimental"],
+                ]
+            ]
+        ])
+        // Sanity: the source profile is referenced by two call sites.
+        let referencedIds = store.callSiteOverrides
+            .filter { $0.profile == "experimental" }
+            .map(\.id)
+        XCTAssertEqual(Set(referencedIds), ["mainAgent", "memoryRetrieval"])
+
+        // Step 1: write the new key.
+        let renamed = InferenceProfile(
+            name: "experimental-renamed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+        let setSuccess = await store.setProfile(name: "experimental-renamed", fragment: renamed)
+        XCTAssertTrue(setSuccess)
+
+        // Step 2: re-target every conflicting override onto the new name.
+        for override in store.callSiteOverrides where override.profile == "experimental" {
+            let task = store.replaceCallSiteOverride(
+                override.id,
+                provider: override.provider,
+                model: override.model,
+                profile: "experimental-renamed"
+            )
+            let replaceSuccess = await task.value
+            XCTAssertTrue(replaceSuccess)
+        }
+
+        // Step 3: delete the old key. Must succeed (no `.blockedByCallSites`).
+        let result = await store.deleteProfile(name: "experimental")
+        XCTAssertEqual(result, .deleted)
+
+        // Every override now points at the new name; none reference the
+        // dropped one.
+        let stillReferencingOld = store.callSiteOverrides.filter { $0.profile == "experimental" }
+        XCTAssertTrue(stillReferencingOld.isEmpty)
+        let referencingNew = store.callSiteOverrides
+            .filter { $0.profile == "experimental-renamed" }
+            .map(\.id)
+        XCTAssertEqual(Set(referencingNew), ["mainAgent", "memoryRetrieval"])
     }
 
     /// The "+ New profile" toolbar action seeds a draft with the default

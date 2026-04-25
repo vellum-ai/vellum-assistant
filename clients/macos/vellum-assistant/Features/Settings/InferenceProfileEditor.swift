@@ -108,7 +108,7 @@ struct InferenceProfileEditor: View {
                 Text("Edit Inference Profile")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                if BuiltInInferenceProfile.allNames.contains(profile.name) {
+                if builtInInferenceProfileNames.contains(profile.name) {
                     Text("Built-in profile")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(.secondary)
@@ -280,12 +280,13 @@ struct InferenceProfileEditor: View {
     }
 
     private var temperatureField: some View {
-        labeled(
+        let currentValue = profile.temperature.doubleValue
+        return labeled(
             "Temperature",
             spacing: VSpacing.sm,
             accessory: {
                 Spacer(minLength: 0)
-                Text(profile.temperature.map { String(format: "%.2f", $0) } ?? "—")
+                Text(currentValue.map { String(format: "%.2f", $0) } ?? "—")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -293,20 +294,25 @@ struct InferenceProfileEditor: View {
             HStack(spacing: VSpacing.md) {
                 VSlider(
                     value: Binding(
-                        get: { profile.temperature ?? 0.7 },
-                        set: { profile.temperature = $0 }
+                        get: { profile.temperature.doubleValue ?? 0.7 },
+                        set: { profile.temperature = .value($0) }
                     ),
                     range: 0...2,
                     step: 0.05
                 )
-                .disabled(profile.temperature == nil)
+                .disabled(currentValue == nil)
                 VToggle(
                     isOn: Binding(
-                        get: { profile.temperature != nil },
+                        get: { profile.temperature.doubleValue != nil },
                         set: { newValue in
                             // OFF: clear so the resolver falls back to the
                             // model-default temperature instead of pinning 0.7.
-                            profile.temperature = newValue ? 0.7 : nil
+                            // Maps to `.unset` rather than `.explicitNull` —
+                            // the editor doesn't surface the explicit-null
+                            // distinction; daemon-emitted explicit-null
+                            // values still round-trip through the JSON
+                            // mapper untouched.
+                            profile.temperature = newValue ? .value(0.7) : .unset
                         }
                     ),
                     label: "Set"
