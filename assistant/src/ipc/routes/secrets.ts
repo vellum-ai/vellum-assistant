@@ -26,10 +26,27 @@ const SecretReadParams = z.object({
   reveal: z.boolean().optional(),
 });
 
-/**
- * Factory: returns secrets IPC routes that capture the daemon-owned
- * deps (CES client, provider credential refresh).
- */
+// ---------------------------------------------------------------------------
+// Daemon-owned dependency — set at startup via registerSecretRouteDeps()
+// ---------------------------------------------------------------------------
+
+let secretDeps: SecretRouteDeps | null = null;
+
+export function registerSecretRouteDeps(deps: SecretRouteDeps): void {
+  secretDeps = deps;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getDeps(): SecretRouteDeps {
+  if (!secretDeps) {
+    throw new Error("secrets: SecretRouteDeps not registered");
+  }
+  return secretDeps;
+}
+
 function extractErrorMessage(
   body: Record<string, unknown>,
   fallback: string,
@@ -42,64 +59,68 @@ function extractErrorMessage(
   return fallback;
 }
 
-export function makeSecretsRoutes(deps: SecretRouteDeps): IpcRoute[] {
-  return [
-    {
-      method: "secrets/write",
-      handler: async (params) => {
-        const { type, name, value } = SecretWriteParams.parse(params);
-        const fakeReq = new Request("http://localhost/v1/secrets", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type, name, value }),
-        });
-        const res = await handleAddSecret(fakeReq, deps);
-        const body = (await res.json()) as Record<string, unknown>;
-        if (!res.ok) {
-          throw new Error(
-            extractErrorMessage(body, `Secret write failed (${res.status})`),
-          );
-        }
-        return body;
-      },
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
+export const secretsRoutes: IpcRoute[] = [
+  {
+    method: "secrets/write",
+    handler: async (params) => {
+      const deps = getDeps();
+      const { type, name, value } = SecretWriteParams.parse(params);
+      const fakeReq = new Request("http://localhost/v1/secrets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, name, value }),
+      });
+      const res = await handleAddSecret(fakeReq, deps);
+      const body = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          extractErrorMessage(body, `Secret write failed (${res.status})`),
+        );
+      }
+      return body;
     },
-    {
-      method: "secrets/delete",
-      handler: async (params) => {
-        const { type, name } = SecretDeleteParams.parse(params);
-        const fakeReq = new Request("http://localhost/v1/secrets", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type, name }),
-        });
-        const res = await handleDeleteSecret(fakeReq, deps);
-        const body = (await res.json()) as Record<string, unknown>;
-        if (!res.ok) {
-          throw new Error(
-            extractErrorMessage(body, `Secret delete failed (${res.status})`),
-          );
-        }
-        return body;
-      },
+  },
+  {
+    method: "secrets/delete",
+    handler: async (params) => {
+      const deps = getDeps();
+      const { type, name } = SecretDeleteParams.parse(params);
+      const fakeReq = new Request("http://localhost/v1/secrets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, name }),
+      });
+      const res = await handleDeleteSecret(fakeReq, deps);
+      const body = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          extractErrorMessage(body, `Secret delete failed (${res.status})`),
+        );
+      }
+      return body;
     },
-    {
-      method: "secrets/read",
-      handler: async (params) => {
-        const { type, name, reveal } = SecretReadParams.parse(params);
-        const fakeReq = new Request("http://localhost/v1/secrets/read", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type, name, reveal }),
-        });
-        const res = await handleReadSecret(fakeReq);
-        const body = (await res.json()) as Record<string, unknown>;
-        if (!res.ok) {
-          throw new Error(
-            extractErrorMessage(body, `Secret read failed (${res.status})`),
-          );
-        }
-        return body;
-      },
+  },
+  {
+    method: "secrets/read",
+    handler: async (params) => {
+      const { type, name, reveal } = SecretReadParams.parse(params);
+      const fakeReq = new Request("http://localhost/v1/secrets/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, name, reveal }),
+      });
+      const res = await handleReadSecret(fakeReq);
+      const body = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          extractErrorMessage(body, `Secret read failed (${res.status})`),
+        );
+      }
+      return body;
     },
-  ];
-}
+  },
+];

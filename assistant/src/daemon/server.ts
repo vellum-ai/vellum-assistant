@@ -28,6 +28,8 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
+import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
+import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -315,14 +317,7 @@ export class DaemonServer {
   // Composed subsystems
   private configWatcher = new ConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
-  private cliIpc = new AssistantIpcServer({
-    destroyConversation: (id) => this.destroyConversation(id),
-    secretRouteDeps: {
-      getCesClient: () => this.getCesClient(),
-      onProviderCredentialsChanged: () =>
-        this.refreshConversationsForProviderChange(),
-    },
-  });
+  private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
 
   // CES (Credential Execution Service) — process-level singleton.
@@ -914,6 +909,12 @@ export class DaemonServer {
       };
     });
 
+    registerDestroyConversation((id) => this.destroyConversation(id));
+    registerSecretRouteDeps({
+      getCesClient: () => this.getCesClient(),
+      onProviderCredentialsChanged: () =>
+        this.refreshConversationsForProviderChange(),
+    });
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
