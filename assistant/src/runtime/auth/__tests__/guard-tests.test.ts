@@ -8,7 +8,6 @@
  * 2. No X-Actor-Token references in production code.
  * 3. No legacy gateway-origin proof in production code.
  * 4. Scope profile contract — every profile resolves to the expected scopes.
- * 5. CURRENT_POLICY_EPOCH sync — the constant matches across all packages.
  */
 
 import { execSync } from "node:child_process";
@@ -16,10 +15,6 @@ import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-// Cross-package import: gateway duplicates the epoch constant and both must
-// stay in sync. Importing directly is more reliable than regex-extracting.
-import { CURRENT_POLICY_EPOCH as GATEWAY_POLICY_EPOCH } from "../../../../../gateway/src/auth/policy.js";
-import { CURRENT_POLICY_EPOCH } from "../policy.js";
 import { resolveScopeProfile } from "../scopes.js";
 import type { Scope, ScopeProfile } from "../types.js";
 
@@ -332,19 +327,5 @@ describe("scope profile contract", () => {
       const scopes = resolveScopeProfile(profile);
       expect(scopes.size).toBeGreaterThan(0);
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 5. CURRENT_POLICY_EPOCH sync across packages
-// ---------------------------------------------------------------------------
-
-describe("CURRENT_POLICY_EPOCH sync", () => {
-  test("assistant and gateway export the same CURRENT_POLICY_EPOCH value", () => {
-    expect(
-      CURRENT_POLICY_EPOCH,
-      `CURRENT_POLICY_EPOCH mismatch: assistant=${CURRENT_POLICY_EPOCH}, gateway=${GATEWAY_POLICY_EPOCH}. ` +
-        "The canonical source is assistant/src/runtime/auth/policy.ts.",
-    ).toBe(GATEWAY_POLICY_EPOCH);
   });
 });

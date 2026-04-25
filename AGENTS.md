@@ -142,6 +142,12 @@ Migrations must be **idempotent** (safe to re-run if interrupted) and **append-o
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
 
+## Cross-Package Import Boundary
+
+`assistant/` must never import from `gateway/` via relative paths (e.g. `../gateway/src/...`), and vice versa. Each package is an independent build unit — the assistant Docker image and CI typecheck job only install assistant dependencies, so any static import into `../gateway/` breaks the build.
+
+When you need shared logic across packages, extract it into a `packages/` shared module (e.g. `packages/gateway-client`). For test helpers that need the other package's runtime behavior, mock the IPC responses directly — do not import the real handler.
+
 ## Public API / Webhook Ingress
 
 All inbound HTTP endpoints must be routed through the gateway (`gateway/`). See `gateway/AGENTS.md` for full rules including gateway-only API consumption, SKILL.md patterns, and channel identity vocabulary. Guard test: `gateway-only-guard.test.ts`.
