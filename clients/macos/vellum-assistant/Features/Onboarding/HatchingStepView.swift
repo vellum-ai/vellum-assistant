@@ -606,13 +606,6 @@ struct HatchingStepView: View {
     }
 
     private func startRemoteHatch() {
-        var providerApiKeys: [String: String] = [:]
-        if let envVar = VellumCli.providerEnvVars[state.selectedProvider],
-           let key = APIKeyManager.getKey(for: state.selectedProvider),
-           !key.isEmpty {
-            providerApiKeys[envVar] = key
-        }
-
         let config = VellumCli.RemoteHatchConfig(
             remote: state.cloudProvider,
             gcpProjectId: state.gcpProjectId,
@@ -622,7 +615,6 @@ struct HatchingStepView: View {
             sshHost: state.sshHost,
             sshUser: state.sshUser,
             sshPrivateKey: state.sshPrivateKey,
-            providerApiKeys: providerApiKeys,
             configValues: buildOnboardingConfigValues()
         )
 
