@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { getDb } from "../../memory/db.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -8,7 +9,6 @@ import {
   type UsageGroupBreakdown,
   type UsageTotals,
 } from "../../memory/llm-usage-store.js";
-import { connectDb } from "../db.js";
 import { log } from "../logger.js";
 
 // ── Formatting helpers ───────────────────────────────────────────
@@ -223,7 +223,7 @@ Examples:
     )
     .action(
       (opts: { range: string; from?: string; to?: string; json?: boolean }) => {
-        connectDb();
+        getDb();
         const { from, to } = resolveRange(opts);
         const totals = getUsageTotals({ from, to });
         if (opts.json) {
@@ -254,7 +254,7 @@ Examples:
     )
     .action(
       (opts: { range: string; from?: string; to?: string; json?: boolean }) => {
-        connectDb();
+        getDb();
         const { from, to } = resolveRange(opts);
         const buckets = getUsageDayBuckets({ from, to });
         if (opts.json) {
@@ -315,7 +315,7 @@ Examples:
           );
           process.exit(1);
         }
-        connectDb();
+        getDb();
         const { from, to } = resolveRange(opts);
         const breakdown = getUsageGroupBreakdown(
           { from, to },
