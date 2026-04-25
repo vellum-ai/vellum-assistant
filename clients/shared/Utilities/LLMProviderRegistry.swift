@@ -258,7 +258,7 @@ private let fallbackCatalog = LLMProviderCatalog(
                 url: "https://platform.openai.com/api-keys",
                 linkLabel: "Open OpenAI Platform"
             ),
-            defaultModel: "gpt-5.4",
+            defaultModel: "gpt-5.5",
             models: [
                 LLMModelEntry(id: "gpt-5.5", displayName: "GPT-5.5"),
                 LLMModelEntry(id: "gpt-5.4", displayName: "GPT-5.4"),

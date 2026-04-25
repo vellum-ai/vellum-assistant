@@ -208,7 +208,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
     ],
-    defaultModel: "gpt-5.4",
+    defaultModel: "gpt-5.5",
     apiKeyUrl: "https://platform.openai.com/api-keys",
     apiKeyPlaceholder: "sk-proj-...",
   },

@@ -35,6 +35,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         XCTAssertEqual(openai?.displayName, "OpenAI")
         XCTAssertEqual(openai?.setupMode, .apiKey)
         XCTAssertEqual(openai?.envVar, "OPENAI_API_KEY")
+        XCTAssertEqual(openai?.defaultModel, "gpt-5.5")
 
         let ollama = LLMProviderRegistry.provider(id: "ollama")
         XCTAssertNotNil(ollama)
