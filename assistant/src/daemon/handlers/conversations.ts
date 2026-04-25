@@ -237,6 +237,7 @@ export async function switchConversation(
   title: string;
   conversationType: ReturnType<typeof normalizeConversationType>;
   hostAccess: boolean;
+  inferenceProfile?: string;
 } | null> {
   const conversation = getConversation(conversationId);
   if (!conversation) {
@@ -260,6 +261,7 @@ export async function switchConversation(
     title: conversation.title ?? "Untitled",
     conversationType: normalizeConversationType(conversation.conversationType),
     hostAccess: conversation.hostAccess === 1,
+    inferenceProfile: conversation.inferenceProfile ?? undefined,
   };
 }
 
@@ -282,6 +284,7 @@ export async function handleConversationSwitch(
     title: result.title,
     conversationType: result.conversationType,
     hostAccess: result.hostAccess,
+    inferenceProfile: result.inferenceProfile,
   });
 }
 
