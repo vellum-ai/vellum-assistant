@@ -51,16 +51,16 @@ describe("SUBAGENT_ROLE_REGISTRY", () => {
     }
   });
 
-  test('researcher includes "recall" for memory access', () => {
+  test('researcher includes "recall" for local information access', () => {
     const tools = SUBAGENT_ROLE_REGISTRY.researcher.allowedTools!;
     expect(tools).toContain("recall");
   });
 
-  test('coder includes "recall" for memory access', () => {
+  test('coder includes "recall" for local information access', () => {
     expect(SUBAGENT_ROLE_REGISTRY.coder.allowedTools!).toContain("recall");
   });
 
-  test('planner includes "recall" for memory access', () => {
+  test('planner includes "recall" for local information access', () => {
     expect(SUBAGENT_ROLE_REGISTRY.planner.allowedTools!).toContain("recall");
   });
 

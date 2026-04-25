@@ -62,7 +62,7 @@ export interface AgenticRecallDebug {
   fallbackDetail?: string;
 }
 
-export interface AgenticRecallResult extends RecallAnswer {
+export interface AgenticRecallAnswer extends RecallAnswer {
   content: string;
   debug: AgenticRecallDebug;
 }
@@ -75,7 +75,7 @@ export async function runAgenticRecall(
   input: RecallInput,
   context: RecallSearchContext,
   options: RunAgenticRecallOptions = {},
-): Promise<AgenticRecallResult> {
+): Promise<AgenticRecallAnswer> {
   const normalizedInput = normalizeRecallInput(input);
   const roundLimit = normalizedInput.sourceRounds;
   const debug: AgenticRecallDebug = {
@@ -381,7 +381,7 @@ function deterministicFallback(
   debug: AgenticRecallDebug,
   reason: AgenticRecallFallbackReason,
   detail: string,
-): AgenticRecallResult {
+): AgenticRecallAnswer {
   const fallback = formatDeterministicRecallAnswer(result);
   return {
     content: fallback.answer,
