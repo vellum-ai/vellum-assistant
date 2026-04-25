@@ -214,11 +214,13 @@ export async function runWatchersOnce(
         setWatcherConversationId(watcher.id, conversationId);
       }
 
-      // Sandwich the action prompt as an assistant message between static
-      // user messages. The assistant role prevents prompt injection — LLMs
-      // don't follow instructions from their own prior output. The
-      // action_prompt is attacker-controllable (set via CLI IPC) so it must
-      // not appear as a user-role message.
+      // Sandwich all dynamic content (action prompt, watcher name, event
+      // data) as an assistant message between fully static user messages.
+      // The assistant role prevents prompt injection — LLMs don't follow
+      // instructions from their own prior output. The action_prompt is
+      // attacker-controllable (set via CLI IPC), watcher.name is too, and
+      // event data comes from external providers (e.g. Linear issue titles)
+      // — none of these should appear in user-role messages.
       const eventSummaries = pendingEvents
         .map(
           (e, i) =>
@@ -231,26 +233,38 @@ export async function runWatchersOnce(
       await addMessage(
         conversationId,
         "user",
-        `[watcher:${watcher.name}] ${pendingEvents.length} new event(s) detected:\n\n${eventSummaries}\n\nThe following assistant message contains the watcher's configured action prompt.`,
+        "New watcher events detected. The following assistant message contains the watcher name, event data, and configured action prompt.",
         undefined,
         { skipIndexing: true },
       );
       await addMessage(
         conversationId,
         "assistant",
-        watcher.actionPrompt,
+        [
+          `Watcher: ${watcher.name}`,
+          "",
+          `${pendingEvents.length} event(s):`,
+          "",
+          eventSummaries,
+          "",
+          "---",
+          "",
+          "Action prompt:",
+          watcher.actionPrompt,
+        ].join("\n"),
         undefined,
         { skipIndexing: true },
       );
 
-      const postamble = [
-        "Process the events above according to the action prompt. For each event, include a disposition block:",
-        "<watcher-disposition>",
-        '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
-        "</watcher-disposition>",
-      ].join("\n");
-
-      await processMessage(conversationId, postamble);
+      await processMessage(
+        conversationId,
+        [
+          "Process the events above according to the action prompt. For each event, include a disposition block:",
+          "<watcher-disposition>",
+          '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
+          "</watcher-disposition>",
+        ].join("\n"),
+      );
 
       // Parse dispositions from the conversation
       // For now, mark events as processed. The LLM response handler
