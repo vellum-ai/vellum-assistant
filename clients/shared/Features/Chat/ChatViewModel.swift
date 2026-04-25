@@ -322,6 +322,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.pendingUserMessageDisplayText = nil
                     self.pendingUserAttachments = nil
                     self.pendingUserMessageAutomated = false
+                    self.pendingUserMessageClientMessageId = nil
+                    self.pendingUserInferenceProfile = nil
                     // Queue tracking state
                     self.pendingQueuedCount = 0
                     self.pendingMessageIds.removeAll()
@@ -703,6 +705,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// actual POST, so the echo dedup in ChatActionHandler can match even when
     /// the conversation was not yet created at send-intent time.
     @ObservationIgnored var pendingUserMessageClientMessageId: String?
+    /// Inference profile selected while this chat is still a draft. Included
+    /// in the first POST so the first assistant turn uses the staged profile.
+    public var pendingInferenceProfile: String?
+    @ObservationIgnored var pendingUserInferenceProfile: String?
     /// Optional callback for sending notifications when tool-use messages complete
     @ObservationIgnored public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.

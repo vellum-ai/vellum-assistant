@@ -29,6 +29,8 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     var pendingUserMessageDisplayText: String? { get set }
     var pendingUserMessageAutomated: Bool { get set }
     var pendingUserMessageClientMessageId: String? { get set }
+    var pendingInferenceProfile: String? { get set }
+    var pendingUserInferenceProfile: String? { get set }
     var pendingUserAttachments: [UserMessageAttachment]? { get set }
     var pendingVoiceMessage: Bool { get set }
     var lastFailedMessageText: String? { get set }
@@ -215,6 +217,7 @@ final class MessageSendCoordinator {
                 delegate.pendingUserMessageDisplayText = rawText
                 delegate.pendingUserMessageAutomated = hidden
                 delegate.pendingUserMessageClientMessageId = clientMessageId
+                delegate.pendingUserInferenceProfile = delegate.pendingInferenceProfile
                 delegate.pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
                 }
@@ -340,6 +343,7 @@ final class MessageSendCoordinator {
         }
         delegate.pendingUserMessage = userMessage
         delegate.pendingUserAttachments = attachments
+        delegate.pendingUserInferenceProfile = userMessage == nil ? nil : delegate.pendingInferenceProfile
 
         // Generate a unique correlation ID so this ChatViewModel only claims
         // the conversation_info response that belongs to its own conversation_create request.
@@ -370,6 +374,7 @@ final class MessageSendCoordinator {
                     delegate.pendingUserAttachments = nil
                     delegate.pendingUserMessageAutomated = false
                     delegate.pendingUserMessageClientMessageId = nil
+                    delegate.pendingUserInferenceProfile = nil
                     self.errorManager.errorText = delegate.lastFailedSendError
                     return
                 }
@@ -398,12 +403,20 @@ final class MessageSendCoordinator {
                 let pendingAttachments = delegate.pendingUserAttachments
                 let automated = delegate.pendingUserMessageAutomated
                 let pendingClientMessageId = delegate.pendingUserMessageClientMessageId
+                let pendingInferenceProfile = delegate.pendingUserInferenceProfile
                 delegate.pendingUserMessage = nil
                 delegate.pendingUserMessageDisplayText = nil
                 delegate.pendingUserAttachments = nil
                 delegate.pendingUserMessageAutomated = false
                 delegate.pendingUserMessageClientMessageId = nil
-                self.sendUserMessage(pending, attachments: pendingAttachments, automated: automated, clientMessageId: pendingClientMessageId)
+                delegate.pendingUserInferenceProfile = nil
+                self.sendUserMessage(
+                    pending,
+                    attachments: pendingAttachments,
+                    automated: automated,
+                    clientMessageId: pendingClientMessageId,
+                    inferenceProfile: pendingInferenceProfile
+                )
             } else {
                 self.messageManager.isSending = false
                 self.messageManager.isThinking = false
@@ -413,7 +426,16 @@ final class MessageSendCoordinator {
 
     // MARK: - Send User Message
 
-    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false, clientMessageId: String? = nil) {
+    func sendUserMessage(
+        _ text: String,
+        displayText: String? = nil,
+        attachments: [UserMessageAttachment]? = nil,
+        queuedMessageId: UUID? = nil,
+        automated: Bool = false,
+        bypassSecretCheck: Bool = false,
+        clientMessageId: String? = nil,
+        inferenceProfile: String? = nil
+    ) {
         guard let delegate else { return }
         guard let conversationId = delegate.conversationId else { return }
 
@@ -503,7 +525,8 @@ final class MessageSendCoordinator {
             automated: automated ? true : nil,
             bypassSecretCheck: bypassSecretCheck ? true : nil,
             onboarding: onboarding,
-            clientMessageId: clientMessageId
+            clientMessageId: clientMessageId,
+            inferenceProfile: inferenceProfile
         )
     }
 
@@ -518,6 +541,7 @@ final class MessageSendCoordinator {
         delegate.pendingUserAttachments = nil
         delegate.pendingUserMessageAutomated = false
         delegate.pendingUserMessageClientMessageId = nil
+        delegate.pendingUserInferenceProfile = nil
         messageManager.isWorkspaceRefinementInFlight = false
         messageManager.refinementMessagePreview = nil
         messageManager.refinementStreamingText = nil
@@ -560,6 +584,7 @@ final class MessageSendCoordinator {
             delegate.pendingUserAttachments = nil
             delegate.pendingUserMessageAutomated = false
             delegate.pendingUserMessageClientMessageId = nil
+            delegate.pendingUserInferenceProfile = nil
             delegate.bootstrapCorrelationId = nil
             messageManager.isWorkspaceRefinementInFlight = false
             messageManager.refinementMessagePreview = nil

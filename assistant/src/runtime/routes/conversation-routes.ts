@@ -62,7 +62,11 @@ import {
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
 import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
-import { getAttachmentById, getAttachmentMetadataForMessage, getAttachmentsByIds } from "../../memory/attachments-store.js";
+import {
+  getAttachmentById,
+  getAttachmentMetadataForMessage,
+  getAttachmentsByIds,
+} from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -78,6 +82,7 @@ import {
   hasMessages,
   type MessageRow,
   provenanceFromTrustContext,
+  setConversationInferenceProfile,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../../memory/conversation-crud.js";
@@ -1432,6 +1437,7 @@ export async function handleSendMessage(
     hostUsername?: string;
     clientId?: string;
     clientMessageId?: string;
+    inferenceProfile?: string | null;
     onboarding?: {
       tools: string[];
       tasks: string[];
@@ -1444,6 +1450,39 @@ export async function handleSendMessage(
   const { conversationKey, content, attachmentIds } = body;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
+  const requestedInferenceProfile =
+    typeof body.inferenceProfile === "string"
+      ? body.inferenceProfile
+      : undefined;
+  if (
+    body.inferenceProfile != null &&
+    typeof body.inferenceProfile !== "string"
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      "inferenceProfile must be a non-empty string or null",
+      400,
+    );
+  }
+  if (requestedInferenceProfile === "") {
+    return httpError(
+      "BAD_REQUEST",
+      "inferenceProfile must be a non-empty string or null",
+      400,
+    );
+  }
+  if (requestedInferenceProfile !== undefined) {
+    const profiles = getConfig().llm.profiles ?? {};
+    if (
+      !Object.prototype.hasOwnProperty.call(profiles, requestedInferenceProfile)
+    ) {
+      return httpError(
+        "BAD_REQUEST",
+        `Profile "${requestedInferenceProfile}" is not defined in llm.profiles`,
+        400,
+      );
+    }
+  }
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
     return httpError("BAD_REQUEST", "sourceChannel is required", 400);
   }
@@ -1589,6 +1628,13 @@ export async function handleSendMessage(
     mapping.conversationId,
     { transport },
   );
+
+  if (requestedInferenceProfile !== undefined) {
+    setConversationInferenceProfile(
+      mapping.conversationId,
+      requestedInferenceProfile,
+    );
+  }
 
   // Store pre-chat onboarding context on the conversation when this is the
   // very first message (no prior messages loaded). Artifact persistence
@@ -2664,6 +2710,7 @@ export function conversationRouteDefinitions(deps: {
           .optional(),
         conversationType: z.string().optional(),
         slashCommand: z.string().optional(),
+        inferenceProfile: z.string().nullable().optional(),
       }),
       handler: async ({ req, authContext }) =>
         handleSendMessage(
