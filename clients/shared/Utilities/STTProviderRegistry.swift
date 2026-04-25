@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "STTProviderRegistry")
 
 // MARK: - Types
 
@@ -52,7 +55,7 @@ public struct STTCredentialsGuide: Decodable {
     public let linkLabel: String
 }
 
-/// A single entry in the client-facing STT provider catalog.
+/// A single entry in the STT provider catalog.
 ///
 /// This struct captures the subset of provider metadata that client apps
 /// need for display and setup UX — identity, display strings, hints
@@ -71,25 +74,16 @@ public struct STTProviderCatalogEntry: Decodable {
     public let setupHint: String
     /// The credential provider name used when persisting the API key via
     /// `APIKeyManager`. Maps the STT provider id to the `api_key` secret
-    /// name in the daemon's secret catalog. For example, `openai-whisper`
-    /// shares the `openai` API key while `deepgram` uses `deepgram`.
+    /// name in the daemon's secret catalog.
     public let apiKeyProviderName: String
-    /// Conversation streaming capability for this provider. Clients use
-    /// this to decide whether to attempt WebSocket streaming for real-time
-    /// transcription or fall back to batch STT.
+    /// Conversation streaming capability for this provider.
     public let conversationStreamingMode: STTConversationStreamingMode
     /// Guide for obtaining API credentials from this provider.
     public let credentialsGuide: STTCredentialsGuide?
 }
 
-/// Client-side STT provider registry.
-///
-/// Contains hardcoded provider metadata used by the Settings UI. This is a
-/// temporary measure — the client will eventually fetch this data from an
-/// assistant API endpoint. The canonical source of truth is the assistant's
-/// `provider-catalog.ts`.
+/// STT provider registry loaded from the assistant API.
 public struct STTProviderRegistry: Decodable {
-    public let version: Int
     public let providers: [STTProviderCatalogEntry]
 
     /// Look up a provider entry by its identifier.
@@ -129,14 +123,7 @@ public struct STTProviderRegistry: Decodable {
     ///
     /// When `true`, the app can use the assistant's STT service for
     /// transcription and native `SFSpeechRecognizer` permission is not
-    /// required. The value is derived from the `sttProvider` key in
-    /// `UserDefaults`, which is only set when the assistant syncs its
-    /// configuration via `client_settings_update` (see `SettingsStore`).
-    ///
-    /// Note: credentials are managed by the assistant (daemon-side), not
-    /// stored in the client's `APIKeyManager`. The `sttProvider` key is
-    /// only populated when the assistant broadcasts a valid config, so
-    /// its presence reliably indicates the service is operational.
+    /// required.
     public static var isServiceConfigured: Bool {
         guard let value = UserDefaults.standard.string(forKey: "sttProvider") else {
             return false
@@ -145,81 +132,36 @@ public struct STTProviderRegistry: Decodable {
     }
 }
 
-// MARK: - Built-in Registry
-
-/// Built-in provider registry.
-///
-/// TODO: Replace with an API call to the assistant to fetch provider metadata
-/// dynamically. Until then, keep in sync with the assistant's
-/// `assistant/src/providers/speech-to-text/provider-catalog.ts`.
-private let builtInRegistry = STTProviderRegistry(
-    version: 0,
-    providers: [
-        STTProviderCatalogEntry(
-            id: "deepgram",
-            displayName: "Deepgram",
-            subtitle: "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your Deepgram API key to enable speech-to-text.",
-            apiKeyProviderName: "deepgram",
-            conversationStreamingMode: .realtimeWs,
-            credentialsGuide: STTCredentialsGuide(
-                description: "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
-                url: "https://console.deepgram.com/",
-                linkLabel: "Open Deepgram Console"
-            )
-        ),
-        STTProviderCatalogEntry(
-            id: "google-gemini",
-            displayName: "Google Gemini",
-            subtitle: "Multimodal speech-to-text powered by Google Gemini. Requires a Gemini API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your Gemini API key to enable Google Gemini transcription.",
-            apiKeyProviderName: "gemini",
-            conversationStreamingMode: .realtimeWs,
-            credentialsGuide: STTCredentialsGuide(
-                description: "Visit Google AI Studio, sign in with your Google account, and create an API key.",
-                url: "https://aistudio.google.com/apikey",
-                linkLabel: "Open Google AI Studio"
-            )
-        ),
-        STTProviderCatalogEntry(
-            id: "openai-whisper",
-            displayName: "OpenAI Whisper",
-            subtitle: "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your OpenAI API key to enable Whisper transcription.",
-            apiKeyProviderName: "openai",
-            conversationStreamingMode: .incrementalBatch,
-            credentialsGuide: STTCredentialsGuide(
-                description: "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
-                url: "https://platform.openai.com/api-keys",
-                linkLabel: "Open OpenAI Platform"
-            )
-        ),
-        STTProviderCatalogEntry(
-            id: "xai",
-            displayName: "xAI",
-            subtitle: "Real-time speech-to-text powered by xAI. Requires an xAI API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your xAI API key to enable xAI transcription.",
-            apiKeyProviderName: "xai",
-            conversationStreamingMode: .realtimeWs,
-            credentialsGuide: STTCredentialsGuide(
-                description: "Sign in to the xAI console, navigate to API Keys, and create a new key.",
-                url: "https://console.x.ai/",
-                linkLabel: "Open xAI Console"
-            )
-        ),
-    ]
-)
-
 // MARK: - Loader
 
-/// Returns the built-in STT provider registry.
+/// Cached registry, populated by `refreshSTTProviderRegistry()`.
+/// Falls back to an empty registry until the first successful fetch.
+private var _cachedSTTProviderRegistry = STTProviderRegistry(providers: [])
+
+/// Returns the cached STT provider registry.
 ///
-/// TODO: Replace with an API call to fetch provider metadata from the
-/// assistant dynamically.
+/// Call `refreshSTTProviderRegistry()` at app launch to populate from the
+/// assistant's `GET /v1/stt/providers` API.
 public func loadSTTProviderRegistry() -> STTProviderRegistry {
-    builtInRegistry
+    _cachedSTTProviderRegistry
+}
+
+/// Fetches the STT provider catalog from the assistant API and caches it.
+///
+/// Called at app launch (or whenever the assistant connection is
+/// established). Failures are logged but non-fatal — the registry stays
+/// empty until a successful fetch.
+public func refreshSTTProviderRegistry() async {
+    do {
+        let (registry, _): (STTProviderRegistry?, GatewayHTTPClient.Response) =
+            try await GatewayHTTPClient.get(path: "stt/providers")
+        if let registry, !registry.providers.isEmpty {
+            _cachedSTTProviderRegistry = registry
+            log.info("Loaded \(registry.providers.count) STT providers from API")
+        } else {
+            log.warning("STT providers API returned empty or nil response")
+        }
+    } catch {
+        log.error("Failed to fetch STT providers: \(error.localizedDescription, privacy: .public)")
+    }
 }

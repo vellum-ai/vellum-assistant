@@ -1951,6 +1951,22 @@ paths:
               required:
                 - provider
               additionalProperties: false
+  /v1/config/llm/profiles/{name}:
+    put:
+      operationId: config_llm_profiles_by_name_put
+      summary: Replace an inference profile
+      description: Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/config/platform:
     get:
       operationId: config_platform_get
@@ -8601,6 +8617,16 @@ paths:
       operationId: slack_share_post
       tags:
         - share
+      responses:
+        "200":
+          description: Successful response
+  /v1/stt/providers:
+    get:
+      operationId: stt_providers_get
+      summary: List STT providers
+      description: Return the catalog of available STT providers with client-facing metadata.
+      tags:
+        - stt
       responses:
         "200":
           description: Successful response
