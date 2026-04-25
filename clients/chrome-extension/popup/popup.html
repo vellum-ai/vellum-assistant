@@ -8,24 +8,26 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0d1017;
-      --surface: #141820;
-      --surface-2: #1a1f2b;
-      --border: rgba(255, 255, 255, 0.07);
-      --border-hover: rgba(255, 255, 255, 0.12);
-      --text-1: #e4e7ed;
-      --text-2: #8990a0;
-      --text-3: #4e5568;
-      --green: #4ade80;
-      --green-soft: rgba(74, 222, 128, 0.08);
-      --green-border: rgba(74, 222, 128, 0.2);
-      --amber: #fbbf24;
-      --amber-soft: rgba(251, 191, 36, 0.08);
-      --amber-border: rgba(251, 191, 36, 0.2);
-      --red: #fb7185;
-      --red-soft: rgba(251, 113, 133, 0.08);
-      --red-border: rgba(251, 113, 133, 0.2);
-      --accent: #818cf8;
+      /* Vellum design tokens (dark theme from ColorTokens.swift) */
+      --bg: #17191C;               /* surfaceDarkBase */
+      --surface: #1C2024;           /* surfaceDarkOverlay */
+      --surface-2: #24292E;         /* surfaceDarkLift */
+      --border: #24292E;            /* borderDarkBase */
+      --border-hover: #2D3339;      /* borderDarkHover */
+      --text-1: #F6F5F4;            /* contentDarkDefault */
+      --text-2: #A9B2BB;            /* contentDarkSecondary */
+      --text-3: #5A6672;            /* borderDarkElement / contentDarkTertiary */
+      --green: #4C9B50;             /* funGreen */
+      --green-soft: rgba(76, 155, 80, 0.08);
+      --green-border: rgba(76, 155, 80, 0.18);
+      --yellow: #F1B21E;            /* systemDarkMidStrong */
+      --yellow-soft: rgba(241, 178, 30, 0.08);
+      --yellow-border: rgba(241, 178, 30, 0.18);
+      --red: #EF4400;               /* funRed */
+      --red-soft: rgba(239, 68, 0, 0.08);
+      --red-border: rgba(239, 68, 0, 0.18);
+      --accent: #FDFDFCE0;          /* primaryDarkBase with slight transparency */
+      --accent-bg: #24292E;         /* surfaceDarkLift */
     }
 
     body {
@@ -172,7 +174,7 @@
     }
 
     .status-card:has(.status-dot.paused) {
-      border-color: var(--amber-border);
+      border-color: var(--yellow-border);
     }
 
     .status-card:has(.status-dot.disconnected) {
@@ -212,7 +214,7 @@
     }
 
     .status-dot.paused {
-      background: var(--amber);
+      background: var(--yellow);
       box-shadow: 0 0 6px rgba(251, 191, 36, 0.3);
     }
 
@@ -260,8 +262,8 @@
     }
 
     .status-badge.paused {
-      background: var(--amber-soft);
-      color: var(--amber);
+      background: var(--yellow-soft);
+      color: var(--yellow);
     }
 
     .status-badge.disconnected {
@@ -327,9 +329,9 @@
 
     .setup-message {
       font-size: 12px;
-      color: var(--amber);
-      background: var(--amber-soft);
-      border: 1px solid var(--amber-border);
+      color: var(--yellow);
+      background: var(--yellow-soft);
+      border: 1px solid var(--yellow-border);
       border-radius: 8px;
       padding: 10px 12px;
       margin-bottom: 10px;
@@ -369,7 +371,7 @@
       background-position: right 10px center;
     }
 
-    select:focus { border-color: var(--accent); }
+    select:focus { border-color: var(--text-2); }
 
     /* ── Base label ──────────────────────────────────────────────── */
 
@@ -470,7 +472,7 @@
       margin-bottom: 12px;
     }
 
-    input[type="text"]:focus { border-color: var(--accent); }
+    input[type="text"]:focus { border-color: var(--text-2); }
 
     .hint {
       font-size: 10px;
@@ -548,9 +550,9 @@
     }
 
     .welcome-logo {
-      width: 48px;
-      height: 48px;
-      color: var(--accent);
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
       margin-bottom: 20px;
       opacity: 0;
       transform: translateY(6px);
@@ -609,21 +611,23 @@
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      background: var(--accent);
-      color: #fff;
+      background: #FDFDFC;           /* primaryDarkBase */
+      color: #17191C;                /* surfaceDarkBase */
       transition: all 0.15s ease;
     }
 
     .btn-primary:hover:not(:disabled) {
-      background: #6d7ce8;
+      background: #F2F0EE;           /* primaryDarkHover */
     }
 
     .btn-primary:active:not(:disabled) {
+      background: #E9E6E2;           /* primaryDarkActive */
       transform: scale(0.98);
     }
 
     .btn-primary:disabled {
-      opacity: 0.5;
+      background: #2D3339;           /* primaryDarkDisabled */
+      color: #5A6672;
       cursor: default;
     }
 
@@ -730,12 +734,12 @@
       width: 32px;
       height: 32px;
       border-radius: 8px;
-      background: rgba(129, 140, 248, 0.1);
+      background: var(--surface-2);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      color: var(--accent);
+      color: var(--text-2);
     }
 
     .assistant-row-name {
@@ -771,12 +775,12 @@
       width: 34px;
       height: 34px;
       border-radius: 9px;
-      background: rgba(129, 140, 248, 0.1);
+      background: var(--surface-2);
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      color: var(--accent);
+      color: var(--text-2);
     }
 
     .assistant-meta {
@@ -825,11 +829,7 @@
        ═══════════════════════════════════════════════════════════════ -->
   <div id="screen-welcome" class="screen">
     <div class="welcome-container">
-      <svg class="welcome-logo" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-        <path d="M20 2L38 20L20 38L2 20L20 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-        <path d="M20 10L30 20L20 30L10 20L20 10Z" fill="currentColor" opacity="0.2"/>
-        <path d="M20 14L26 20L20 26L14 20L20 14Z" fill="currentColor" opacity="0.15"/>
-      </svg>
+      <img class="welcome-logo" src="../icons/icon128.png" alt="Vellum" />
 
       <h1 class="welcome-title">Vellum Assistant</h1>
       <p class="welcome-subtitle">Bridge your browser to your personal assistant.</p>
