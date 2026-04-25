@@ -7,8 +7,10 @@ import XCTest
 /// - Rows with `{ profile: name }` render the named profile in the picker.
 /// - Legacy rows with `{ provider, model }` render `"Custom"` and surface
 ///   the inline form so the user can keep editing the raw fragment.
-/// - Switching from `Custom` to a named profile clears the fragment fields
-///   in the patch payload (verified end-to-end against `SettingsStore`).
+/// - Switching from `Custom` to a named profile drops the legacy fragment
+///   fields via `replaceCallSiteOverride`'s two-step PATCH flow: an
+///   entry-level NSNull clear-PATCH followed by a SET-PATCH containing
+///   only `{ profile }`.
 @MainActor
 final class CallSiteOverridesSheetTests: XCTestCase {
 
@@ -38,9 +40,10 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         wait(for: [expectation], timeout: timeout)
     }
 
-    /// Returns the most recent `llm.callSites.<id>` entry written to the
-    /// mock client. Walks the patch history newest-first so test cases can
-    /// assert against the final state.
+    /// Returns the most recent `llm.callSites.<id>` SET payload (a
+    /// dictionary entry) written to the mock client. Walks the patch
+    /// history newest-first and skips clear-PATCHes (which encode the
+    /// entry as `NSNull`).
     private func lastEntryPatch(for id: String) -> [String: Any]? {
         for payload in mockSettingsClient.patchConfigCalls.reversed() {
             guard let llm = payload["llm"] as? [String: Any],
@@ -49,6 +52,18 @@ final class CallSiteOverridesSheetTests: XCTestCase {
             return entry
         }
         return nil
+    }
+
+    /// Returns true if any patch in history nulled `llm.callSites.<id>`
+    /// at the entry level. `replaceCallSiteOverride` emits a clear-PATCH
+    /// (`[id: NSNull()]`) first, then a set-PATCH with the new fields.
+    private func didClearEntry(for id: String) -> Bool {
+        for payload in mockSettingsClient.patchConfigCalls {
+            guard let llm = payload["llm"] as? [String: Any],
+                  let sites = llm["callSites"] as? [String: Any] else { continue }
+            if sites[id] is NSNull { return true }
+        }
+        return false
     }
 
     // MARK: - Profile picker value derivation
@@ -150,11 +165,12 @@ final class CallSiteOverridesSheetTests: XCTestCase {
     // MARK: - Profile selection clears stale fragment fields
 
     /// End-to-end: a row that was previously a `{provider, model}` Custom
-    /// override switches to the `"balanced"` profile. The persisted patch
-    /// must scrub the legacy fragment fields so the resolver layers the
-    /// profile cleanly without stale `provider`/`model` overrides shadowing
-    /// it. See `replaceCallSiteOverride` in `SettingsStore.swift` for the
-    /// server-side null-write that PR 11 introduced.
+    /// override switches to the `"balanced"` profile. `replaceCallSiteOverride`
+    /// emits a two-patch sequence — first an entry-level NSNull clear that
+    /// wipes any stale `provider`/`model`/`maxTokens`/etc. on the daemon,
+    /// then a set-PATCH containing only the new `{ profile }` shape. The
+    /// resolver then layers the profile cleanly without legacy fragments
+    /// shadowing it.
     func testSelectingProfileClearsLegacyFragmentFieldsInPatch() {
         // Arrange: pre-populate a Custom-style override.
         store.loadCallSiteOverrides(config: [
@@ -180,18 +196,23 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         // and then the final entry write.
         waitForPatchCount(2)
 
-        // Assert: the final patch sets `profile` and explicitly nulls every
-        // fragment leaf so the daemon's deep-merge deletes them. This is the
-        // critical invariant — without the null leaves the resolver would
-        // continue to layer the stale `{ provider, model }` fragment on top
-        // of the profile, defeating the point of the picker.
+        // Assert: an entry-level clear-PATCH preceded the SET-PATCH, so any
+        // stale fragment leaves on the daemon are deleted. The SET-PATCH
+        // then contains only `{ profile }` — no NSNull leaves are needed
+        // because the entry was already wiped.
+        XCTAssertTrue(
+            didClearEntry(for: "memoryRetrieval"),
+            "replaceCallSiteOverride must first NSNull-clear the entry"
+        )
         let entry = lastEntryPatch(for: "memoryRetrieval")
         XCTAssertEqual(entry?["profile"] as? String, "balanced")
-        XCTAssertTrue(entry?["provider"] is NSNull, "provider must be nulled when switching to a profile")
-        XCTAssertTrue(entry?["model"] is NSNull, "model must be nulled when switching to a profile")
-        XCTAssertTrue(entry?["maxTokens"] is NSNull, "maxTokens must be nulled when switching to a profile")
-        XCTAssertTrue(entry?["effort"] is NSNull, "effort must be nulled when switching to a profile")
-        XCTAssertTrue(entry?["thinking"] is NSNull, "thinking must be nulled when switching to a profile")
+        // SET-PATCH carries only `profile`; the entry-level clear deletes
+        // all legacy fragment fields, so no NSNull leaves are needed here.
+        XCTAssertNil(entry?["provider"])
+        XCTAssertNil(entry?["model"])
+        XCTAssertNil(entry?["maxTokens"])
+        XCTAssertNil(entry?["effort"])
+        XCTAssertNil(entry?["thinking"])
 
         // Local cache reflects the new profile-only override.
         let cached = store.callSiteOverrides.first(where: { $0.id == "memoryRetrieval" })
@@ -202,7 +223,8 @@ final class CallSiteOverridesSheetTests: XCTestCase {
 
     /// Selecting a profile when the row was already on a profile is a
     /// no-stale-fields case but should still produce a clean
-    /// `profile: <name>` entry without surprise leaves.
+    /// `profile: <name>` entry — the SET-PATCH carries only `profile`,
+    /// preceded by the standard entry-level clear.
     func testSelectingProfileFromAnotherProfileEmitsCleanEntry() {
         store.loadCallSiteOverrides(config: [
             "llm": [
@@ -220,9 +242,10 @@ final class CallSiteOverridesSheetTests: XCTestCase {
         )
         waitForPatchCount(2)
 
+        XCTAssertTrue(didClearEntry(for: "mainAgent"))
         let entry = lastEntryPatch(for: "mainAgent")
         XCTAssertEqual(entry?["profile"] as? String, "balanced")
-        XCTAssertTrue(entry?["provider"] is NSNull)
-        XCTAssertTrue(entry?["model"] is NSNull)
+        XCTAssertNil(entry?["provider"])
+        XCTAssertNil(entry?["model"])
     }
 }
