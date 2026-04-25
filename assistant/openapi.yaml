@@ -8963,15 +8963,12 @@ paths:
                   additionalProperties: {}
                 workingDir:
                   type: string
-                forcePromptSideEffects:
-                  type: boolean
                 isInteractive:
                   type: boolean
               required:
                 - toolName
                 - input
                 - workingDir
-                - forcePromptSideEffects
                 - isInteractive
               additionalProperties: false
   /v1/trace-events:

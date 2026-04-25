@@ -26,8 +26,6 @@ export interface ToolPermissionSimulateRequest {
   workingDir?: string;
   /** Whether the simulated context is interactive (default true). */
   isInteractive?: boolean;
-  /** When true, side-effect tools that would normally be auto-allowed get promoted to prompt. */
-  forcePromptSideEffects?: boolean;
 }
 
 export interface ToolNamesListRequest {
