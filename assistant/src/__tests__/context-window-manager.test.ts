@@ -72,6 +72,31 @@ describe("ContextWindowManager", () => {
     expect(result.reason).toBe("below compaction threshold");
   });
 
+  test("explains forced compaction skip when conversation already fits target", async () => {
+    const provider = createProvider(() => {
+      throw new Error("summarizer should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 10_000,
+        targetBudgetRatio: 0.5,
+      }),
+    });
+    const history = [message("user", "hello"), message("assistant", "hi")];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+
+    expect(result.compacted).toBe(false);
+    expect(result.messages).toEqual(history);
+    expect(result.reason).toBe(
+      "conversation already fits within the compaction target",
+    );
+  });
+
   test("compacts old turns and keeps recent user turns", async () => {
     let summaryCalls = 0;
     const provider = createProvider(() => {

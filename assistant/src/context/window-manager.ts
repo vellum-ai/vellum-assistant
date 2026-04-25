@@ -513,7 +513,7 @@ export class ContextWindowManager {
         summaryText: existingSummary ?? "",
         reason: didTruncate
           ? "truncated tool results without summarization"
-          : "unable to compact while keeping recent turns",
+          : "conversation already fits within the compaction target",
       };
     }
 
