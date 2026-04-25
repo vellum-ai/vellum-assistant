@@ -30,6 +30,10 @@ describe("model intents", () => {
     );
   });
 
+  test("uses GPT-5.5 as the OpenAI provider default", () => {
+    expect(getProviderDefaultModel("openai")).toBe("gpt-5.5");
+  });
+
   test("falls back to provider default for unknown providers", () => {
     expect(getProviderDefaultModel("unknown-provider")).toBe(
       "claude-sonnet-4-6",

@@ -95,7 +95,7 @@
         "url": "https://platform.openai.com/api-keys",
         "linkLabel": "Open OpenAI Platform"
       },
-      "defaultModel": "gpt-5.4",
+      "defaultModel": "gpt-5.5",
       "models": [
         {
           "id": "gpt-5.5",
