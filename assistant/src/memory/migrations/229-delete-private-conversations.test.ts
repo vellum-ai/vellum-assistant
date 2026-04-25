@@ -133,6 +133,20 @@ function bootstrapTables(raw: Database): void {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE memory_jobs (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      deferrals INTEGER NOT NULL DEFAULT 0,
+      run_after INTEGER NOT NULL,
+      last_error TEXT,
+      started_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE attachments (
       id TEXT PRIMARY KEY,
       original_filename TEXT NOT NULL,
@@ -156,6 +170,65 @@ function bootstrapTables(raw: Database): void {
       state_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE memory_graph_nodes (
+      id                    TEXT PRIMARY KEY,
+      content               TEXT NOT NULL,
+      type                  TEXT NOT NULL,
+      created               INTEGER NOT NULL,
+      last_accessed         INTEGER NOT NULL,
+      last_consolidated     INTEGER NOT NULL,
+      emotional_charge      TEXT NOT NULL,
+      fidelity              TEXT NOT NULL DEFAULT 'vivid',
+      confidence            REAL NOT NULL,
+      significance          REAL NOT NULL,
+      stability             REAL NOT NULL DEFAULT 14,
+      reinforcement_count   INTEGER NOT NULL DEFAULT 0,
+      last_reinforced       INTEGER NOT NULL,
+      source_conversations  TEXT NOT NULL DEFAULT '[]',
+      source_type           TEXT NOT NULL DEFAULT 'inferred',
+      narrative_role        TEXT,
+      part_of_story         TEXT,
+      scope_id              TEXT NOT NULL DEFAULT 'default',
+      event_date            INTEGER,
+      image_refs            TEXT
+    );
+
+    CREATE TABLE memory_graph_edges (
+      id              TEXT PRIMARY KEY,
+      source_node_id  TEXT NOT NULL REFERENCES memory_graph_nodes(id) ON DELETE CASCADE,
+      target_node_id  TEXT NOT NULL REFERENCES memory_graph_nodes(id) ON DELETE CASCADE,
+      relationship    TEXT NOT NULL,
+      weight          REAL NOT NULL DEFAULT 1.0,
+      created         INTEGER NOT NULL
+    );
+
+    CREATE TABLE memory_graph_triggers (
+      id                   TEXT PRIMARY KEY,
+      node_id              TEXT NOT NULL REFERENCES memory_graph_nodes(id) ON DELETE CASCADE,
+      type                 TEXT NOT NULL,
+      schedule             TEXT,
+      condition            TEXT,
+      condition_embedding  BLOB,
+      threshold            REAL,
+      event_date           INTEGER,
+      ramp_days            INTEGER,
+      follow_up_days       INTEGER,
+      recurring            INTEGER NOT NULL DEFAULT 0,
+      consumed             INTEGER NOT NULL DEFAULT 0,
+      cooldown_ms          INTEGER,
+      last_fired           INTEGER
+    );
+
+    CREATE TABLE memory_graph_node_edits (
+      id                TEXT PRIMARY KEY,
+      node_id           TEXT NOT NULL REFERENCES memory_graph_nodes(id) ON DELETE CASCADE,
+      previous_content  TEXT NOT NULL,
+      new_content       TEXT NOT NULL,
+      source            TEXT NOT NULL,
+      conversation_id   TEXT,
+      created           INTEGER NOT NULL
     );
 
     CREATE TABLE call_sessions (
@@ -284,6 +357,94 @@ function bootstrapTables(raw: Database): void {
       card_type TEXT NOT NULL DEFAULT 'chip',
       created_at INTEGER NOT NULL
     );
+  `);
+}
+
+function seedGraphRows(raw: Database, now: number): void {
+  raw.exec(/*sql*/ `
+    INSERT INTO memory_graph_nodes (
+      id,
+      content,
+      type,
+      created,
+      last_accessed,
+      last_consolidated,
+      emotional_charge,
+      fidelity,
+      confidence,
+      significance,
+      stability,
+      reinforcement_count,
+      last_reinforced,
+      source_conversations,
+      source_type,
+      scope_id
+    ) VALUES
+      ('graph-private-a', 'private a', 'semantic', ${now}, ${now}, ${now}, '{"kind":"neutral","intensity":0}', 'vivid', 0.9, 0.8, 14, 0, ${now}, '["conv-private"]', 'inferred', 'private:conv-private'),
+      ('graph-private-b', 'private b', 'episodic', ${now}, ${now}, ${now}, '{"kind":"neutral","intensity":0}', 'vivid', 0.9, 0.7, 14, 0, ${now}, '["conv-private"]', 'inferred', 'private:other'),
+      ('graph-standard', 'standard', 'semantic', ${now}, ${now}, ${now}, '{"kind":"neutral","intensity":0}', 'vivid', 0.9, 0.8, 14, 0, ${now}, '["conv-standard"]', 'inferred', 'default'),
+      ('graph-background', 'background', 'semantic', ${now}, ${now}, ${now}, '{"kind":"neutral","intensity":0}', 'vivid', 0.9, 0.8, 14, 0, ${now}, '["conv-background"]', 'inferred', 'background:conv-background');
+
+    INSERT INTO memory_graph_edges (id, source_node_id, target_node_id, relationship, weight, created)
+    VALUES
+      ('edge-private-source', 'graph-private-a', 'graph-standard', 'reminds-of', 1.0, ${now}),
+      ('edge-private-target', 'graph-standard', 'graph-private-b', 'reminds-of', 1.0, ${now}),
+      ('edge-standard-background', 'graph-standard', 'graph-background', 'reminds-of', 1.0, ${now});
+
+    INSERT INTO memory_graph_triggers (
+      id,
+      node_id,
+      type,
+      schedule,
+      condition,
+      threshold,
+      recurring,
+      consumed
+    ) VALUES
+      ('trigger-private', 'graph-private-a', 'semantic', NULL, 'private condition', 0.8, 0, 0),
+      ('trigger-standard', 'graph-standard', 'semantic', NULL, 'standard condition', 0.8, 0, 0),
+      ('trigger-background', 'graph-background', 'semantic', NULL, 'background condition', 0.8, 0, 0);
+
+    INSERT INTO memory_graph_node_edits (
+      id,
+      node_id,
+      previous_content,
+      new_content,
+      source,
+      conversation_id,
+      created
+    ) VALUES
+      ('edit-private', 'graph-private-a', 'old private', 'new private', 'manual', 'conv-private', ${now}),
+      ('edit-standard', 'graph-standard', 'old standard', 'new standard', 'manual', 'conv-standard', ${now}),
+      ('edit-background', 'graph-background', 'old background', 'new background', 'manual', 'conv-background', ${now});
+
+    INSERT INTO memory_embeddings (
+      id,
+      target_type,
+      target_id,
+      provider,
+      model,
+      dimensions,
+      vector_json,
+      created_at,
+      updated_at
+    ) VALUES
+      ('graph-private-a-embedding', 'graph_node', 'graph-private-a', 'test-provider', 'test-model', 3, '[0,0,0]', ${now}, ${now}),
+      ('graph-private-b-embedding', 'graph_node', 'graph-private-b', 'test-provider', 'test-model', 3, '[0,0,0]', ${now}, ${now}),
+      ('graph-standard-embedding', 'graph_node', 'graph-standard', 'test-provider', 'test-model', 3, '[0,0,0]', ${now}, ${now}),
+      ('graph-background-embedding', 'graph_node', 'graph-background', 'test-provider', 'test-model', 3, '[0,0,0]', ${now}, ${now});
+
+    INSERT INTO memory_jobs (
+      id,
+      type,
+      payload,
+      status,
+      attempts,
+      run_after,
+      created_at,
+      updated_at
+    ) VALUES
+      ('job-standard-embed-graph-node', 'embed_graph_node', '{"nodeId":"graph-standard"}', 'pending', 0, ${now}, ${now}, ${now});
   `);
 }
 
@@ -568,6 +729,33 @@ function seedGuardianAndApprovalRows(raw: Database, now: number): void {
   `);
 }
 
+function seedSharedAttachment(raw: Database, now: number): void {
+  raw.exec(/*sql*/ `
+    INSERT INTO attachments (
+      id,
+      original_filename,
+      mime_type,
+      size_bytes,
+      kind,
+      data_base64,
+      created_at
+    ) VALUES (
+      'attachment-shared-private-standard',
+      'shared.txt',
+      'text/plain',
+      1,
+      'text',
+      'eA==',
+      ${now}
+    );
+
+    INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at)
+    VALUES
+      ('message-attachment-shared-private', 'conv-private-message', 'attachment-shared-private-standard', 1, ${now}),
+      ('message-attachment-shared-standard', 'conv-standard-message', 'attachment-shared-private-standard', 1, ${now});
+  `);
+}
+
 function countWhere(raw: Database, table: string, where: string): number {
   return (
     raw
@@ -589,6 +777,8 @@ describe("migrateDeletePrivateConversations", () => {
     seedConversation(raw, "conv-standard", "standard");
     seedConversation(raw, "conv-background", "background");
     seedGuardianAndApprovalRows(raw, now);
+    seedGraphRows(raw, now);
+    seedSharedAttachment(raw, now);
 
     raw.exec(/*sql*/ `
       INSERT INTO memory_summaries (id, scope_id, summary, created_at, updated_at)
@@ -670,6 +860,108 @@ describe("migrateDeletePrivateConversations", () => {
         raw,
         "memory_embeddings",
         `id = 'summary-background-embedding'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "memory_graph_nodes", `scope_id LIKE 'private:%'`),
+    ).toBe(0);
+    expect(countWhere(raw, "memory_graph_nodes", `id = 'graph-standard'`)).toBe(
+      1,
+    );
+    expect(
+      countWhere(raw, "memory_graph_nodes", `id = 'graph-background'`),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "memory_graph_edges",
+        `id IN ('edge-private-source', 'edge-private-target')`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "memory_graph_edges", `id = 'edge-standard-background'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "memory_graph_triggers", `id = 'trigger-private'`),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "memory_graph_triggers", `id = 'trigger-standard'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "memory_graph_triggers", `id = 'trigger-background'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "memory_graph_node_edits", `id = 'edit-private'`),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "memory_graph_node_edits", `id = 'edit-standard'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "memory_graph_node_edits", `id = 'edit-background'`),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "memory_embeddings",
+        `id IN ('graph-private-a-embedding', 'graph-private-b-embedding')`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "memory_embeddings", `id = 'graph-standard-embedding'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "memory_embeddings", `id = 'graph-background-embedding'`),
+    ).toBe(1);
+
+    const vectorCleanupJobs = raw
+      .query(
+        `SELECT id, payload FROM memory_jobs
+         WHERE type = 'delete_qdrant_vectors'
+         ORDER BY id`,
+      )
+      .all() as Array<{ id: string; payload: string }>;
+    expect(vectorCleanupJobs).toEqual([
+      {
+        id: "migration-229-delete-private-graph-node-vector:graph-private-a",
+        payload: '{"targetType":"graph_node","targetId":"graph-private-a"}',
+      },
+      {
+        id: "migration-229-delete-private-graph-node-vector:graph-private-b",
+        payload: '{"targetType":"graph_node","targetId":"graph-private-b"}',
+      },
+    ]);
+    expect(
+      countWhere(raw, "memory_jobs", `id = 'job-standard-embed-graph-node'`),
+    ).toBe(1);
+
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-private-attachment'`),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-standard-attachment'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "attachments", `id = 'conv-background-attachment'`),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "attachments",
+        `id = 'attachment-shared-private-standard'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "message_attachments",
+        `id = 'message-attachment-shared-private'`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
+        "message_attachments",
+        `id = 'message-attachment-shared-standard'`,
       ),
     ).toBe(1);
     expect(

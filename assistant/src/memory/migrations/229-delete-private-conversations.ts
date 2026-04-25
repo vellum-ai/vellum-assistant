@@ -7,6 +7,10 @@ const PRIVATE_CONVERSATION_IDS = /*sql*/ `
   SELECT id FROM conversations WHERE conversation_type = ${REMOVED_CONVERSATION_TYPE_SQL}
 `;
 
+const PRIVATE_GRAPH_NODE_IDS = /*sql*/ `
+  SELECT id FROM memory_graph_nodes WHERE scope_id LIKE 'private:%'
+`;
+
 export function migrateDeletePrivateConversations(database: DrizzleDb): void {
   database.run(/*sql*/ `
     DELETE FROM tool_invocations
@@ -74,6 +78,69 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
       AND target_id IN (
         SELECT id FROM memory_summaries
         WHERE scope_id LIKE 'private:%'
+      )
+  `);
+  database.run(/*sql*/ `
+    INSERT OR IGNORE INTO memory_jobs (
+      id,
+      type,
+      payload,
+      status,
+      attempts,
+      run_after,
+      created_at,
+      updated_at
+    )
+    SELECT
+      'migration-229-delete-private-graph-node-vector:' || id,
+      'delete_qdrant_vectors',
+      json_object('targetType', 'graph_node', 'targetId', id),
+      'pending',
+      0,
+      0,
+      0,
+      0
+    FROM memory_graph_nodes
+    WHERE scope_id LIKE 'private:%'
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM memory_embeddings
+    WHERE target_type = 'graph_node'
+      AND target_id IN (${PRIVATE_GRAPH_NODE_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM memory_graph_node_edits
+    WHERE node_id IN (${PRIVATE_GRAPH_NODE_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM memory_graph_triggers
+    WHERE node_id IN (${PRIVATE_GRAPH_NODE_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM memory_graph_edges
+    WHERE source_node_id IN (${PRIVATE_GRAPH_NODE_IDS})
+       OR target_node_id IN (${PRIVATE_GRAPH_NODE_IDS})
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM memory_graph_nodes
+    WHERE scope_id LIKE 'private:%'
+  `);
+  database.run(/*sql*/ `
+    DELETE FROM attachments
+    WHERE EXISTS (
+      SELECT 1
+      FROM message_attachments ma
+      JOIN messages m ON m.id = ma.message_id
+      WHERE ma.attachment_id = attachments.id
+        AND m.conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+    )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM message_attachments ma
+        JOIN messages m ON m.id = ma.message_id
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE ma.attachment_id = attachments.id
+          AND c.conversation_type != ${REMOVED_CONVERSATION_TYPE_SQL}
       )
   `);
   database.run(/*sql*/ `
