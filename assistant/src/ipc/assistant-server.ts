@@ -58,8 +58,8 @@ export type IpcRoute = {
 
 /** Daemon-owned dependencies injected into the IPC server at construction. */
 export interface AssistantIpcDeps {
-  destroyConversation: (conversationId: string) => void;
-  secretRouteDeps: SecretRouteDeps;
+  destroyConversation?: (conversationId: string) => void;
+  secretRouteDeps?: SecretRouteDeps;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ export class AssistantIpcServer {
   private methods = new Map<string, IpcMethodHandler>();
   private socketPath: string;
 
-  constructor(deps: AssistantIpcDeps) {
+  constructor(deps: AssistantIpcDeps = {}) {
     const socketResolution = resolveIpcSocketPath("assistant.sock");
     this.socketPath = socketResolution.path;
     if (socketResolution.source !== "workspace") {
@@ -90,11 +90,15 @@ export class AssistantIpcServer {
       this.methods.set(route.method, route.handler);
     }
 
-    const wipeRoute = makeWipeConversationRoute(deps.destroyConversation);
-    this.methods.set(wipeRoute.method, wipeRoute.handler);
+    if (deps.destroyConversation) {
+      const wipeRoute = makeWipeConversationRoute(deps.destroyConversation);
+      this.methods.set(wipeRoute.method, wipeRoute.handler);
+    }
 
-    for (const route of makeSecretsRoutes(deps.secretRouteDeps)) {
-      this.methods.set(route.method, route.handler);
+    if (deps.secretRouteDeps) {
+      for (const route of makeSecretsRoutes(deps.secretRouteDeps)) {
+        this.methods.set(route.method, route.handler);
+      }
     }
   }
 
