@@ -91,9 +91,30 @@ export interface SkillIpcStream {
    * closed (client disconnect, explicit close, or server shutdown).
    */
   send(payload: unknown): void;
+  /**
+   * Terminate the stream from the server side. Sends a final error frame to
+   * the client (if `errorMessage` is provided and the socket is still
+   * writable), invokes the handler-returned dispose, and unregisters the
+   * stream from the per-socket subscription map. Idempotent — subsequent
+   * calls are no-ops. Use from `onEvict`-style callbacks where the upstream
+   * source has decided to terminate the subscription, or to surface
+   * unrecoverable conditions like backpressure.
+   */
+  close(errorMessage?: string): void;
   /** True until the stream has been disposed. */
   readonly active: boolean;
 }
+
+/**
+ * Maximum bytes Node may have queued in the socket's outbound buffer before
+ * the next streaming `send` will close the stream with a backpressure error.
+ * `socket.write()` returns `false` once the kernel buffer is full and Node
+ * starts queueing in user-space; without a cap, a slow or stalled subscriber
+ * would let that queue grow without bound and OOM the daemon. 1 MiB is large
+ * enough to absorb normal token-burst spikes but small enough to fail-fast
+ * on a genuinely stuck consumer.
+ */
+const STREAM_BACKPRESSURE_BYTES = 1024 * 1024;
 
 /**
  * Handler signature for long-lived streaming methods (e.g.
@@ -593,6 +614,36 @@ export class SkillIpcServer {
     }
 
     let active = true;
+    let userDispose: (() => void) | null = null;
+
+    const close = (errorMessage?: string): void => {
+      if (!active) return;
+      active = false;
+      if (errorMessage && !socket.destroyed) {
+        try {
+          socket.write(
+            JSON.stringify({ id: req.id, error: errorMessage }) + "\n",
+          );
+        } catch (err) {
+          log.warn(
+            { err, method: req.method },
+            "Skill IPC streaming close write error",
+          );
+        }
+      }
+      if (userDispose) {
+        try {
+          userDispose();
+        } catch (err) {
+          log.warn(
+            { err, method: req.method },
+            "Skill IPC streaming dispose error",
+          );
+        }
+      }
+      this.subscriptions.get(socket)?.delete(req.id);
+    };
+
     const stream: SkillIpcStream = {
       id: req.id,
       get active() {
@@ -600,6 +651,17 @@ export class SkillIpcServer {
       },
       send: (payload) => {
         if (!active || socket.destroyed) return;
+        // Fail-fast on slow/stalled consumers: when Node has more than
+        // STREAM_BACKPRESSURE_BYTES queued in user-space, terminate the
+        // stream rather than letting the buffer grow unbounded. The
+        // client sees a terminal error frame and the hub subscription
+        // is disposed in the same call.
+        if (socket.writableLength > STREAM_BACKPRESSURE_BYTES) {
+          close(
+            `Stream ${req.id} closed: client not draining (socket buffer exceeded ${STREAM_BACKPRESSURE_BYTES} bytes)`,
+          );
+          return;
+        }
         socket.write(
           JSON.stringify({
             id: req.id,
@@ -608,11 +670,11 @@ export class SkillIpcServer {
           }) + "\n",
         );
       },
+      close,
     };
 
-    let dispose: () => void;
     try {
-      dispose = handler(stream, req.params);
+      userDispose = handler(stream, req.params);
     } catch (err) {
       log.warn(
         { err, method: req.method },
@@ -624,18 +686,7 @@ export class SkillIpcServer {
 
     const map = existing ?? new Map<string, () => void>();
     if (!existing) this.subscriptions.set(socket, map);
-    map.set(req.id, () => {
-      if (!active) return;
-      active = false;
-      try {
-        dispose();
-      } catch (err) {
-        log.warn(
-          { err, method: req.method },
-          "Skill IPC streaming dispose error",
-        );
-      }
-    });
+    map.set(req.id, () => close());
 
     // Acknowledge the subscription open so the client can flip its
     // correlation entry from "pending" to "streaming" before deliveries
