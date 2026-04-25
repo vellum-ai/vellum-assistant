@@ -177,8 +177,10 @@ struct CallSiteOverridesSheet: View {
                                 let models = store.dynamicProviderModels(provider)
                                 return models.first { $0.id == modelId }?.displayName ?? modelId
                             },
+                            profiles: store.profiles,
                             onSave: { save(id: entry.id) },
-                            onClear: { clear(id: entry.id) }
+                            onClear: { clear(id: entry.id) },
+                            onSelectProfile: { name in selectProfile(id: entry.id, name: name) }
                         )
                     }
                 } header: {
@@ -280,6 +282,21 @@ struct CallSiteOverridesSheet: View {
         drafts[id]?.profile = nil
         store.clearCallSiteOverride(id)
         // Baseline now matches the cleared draft (no override).
+        lastSyncedFromStore[id] = drafts[id]
+    }
+
+    private func selectProfile(id: String, name: String) {
+        // Picking a profile name persists immediately — no Save click
+        // required. Update the local draft to match (provider/model
+        // cleared, profile set) so the row converges before the next
+        // config push, and route the write through `replaceCallSiteOverride`
+        // which also clears stale fragment leaves server-side per PR 11.
+        drafts[id]?.provider = nil
+        drafts[id]?.model = nil
+        drafts[id]?.profile = name
+        store.replaceCallSiteOverride(id, provider: nil, model: nil, profile: name)
+        // The draft now matches the new persisted state — bump the baseline
+        // so the next external `onChange` doesn't re-flag the row as touched.
         lastSyncedFromStore[id] = drafts[id]
     }
 

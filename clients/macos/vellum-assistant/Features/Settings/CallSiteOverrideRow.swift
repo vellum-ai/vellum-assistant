@@ -3,8 +3,9 @@ import VellumAssistantShared
 
 /// Single editable row in `CallSiteOverridesSheet`. Renders a call site's
 /// display name plus a compact summary, an "Override default" toggle, and
-/// — when the toggle is ON — provider/model pickers with Save/Reset
-/// actions.
+/// — when the toggle is ON — a profile picker. Most rows pick a named
+/// inference profile; the `"Custom"` sentinel reveals the legacy
+/// provider+model form for one-off overrides that don't fit any profile.
 ///
 /// State ownership:
 /// - The `draft` binding is the row's working copy. The parent sheet owns
@@ -26,13 +27,27 @@ struct CallSiteOverrideRow: View {
     let providerDisplayName: (String) -> String
     let availableModels: [String: [String]]
     let modelDisplayName: (String, String) -> String
+    /// Named inference profiles available for selection. Sourced from
+    /// `store.profiles` by the parent sheet.
+    let profiles: [InferenceProfile]
     let onSave: () -> Void
     let onClear: () -> Void
+    /// Invoked when the user picks a named profile from the picker. The
+    /// parent sheet routes this through
+    /// `store.replaceCallSiteOverride(id:profile:)` which clears any
+    /// stale fragment fields server-side, and refreshes the draft so the
+    /// row converges immediately.
+    let onSelectProfile: (String) -> Void
 
     /// Local expansion state. Defaults to "expanded when the row already has
     /// an override or when the user toggles it on" so a freshly-opened sheet
     /// shows configured rows expanded but leaves untouched rows collapsed.
     @State private var isExpanded: Bool = false
+
+    /// Sentinel value used in the profile picker to surface the legacy
+    /// provider+model form. Selecting it keeps the row in raw-fragment
+    /// mode; the existing Save button persists the fragment.
+    static let customSentinel = "Custom"
 
     // MARK: - Computed State
 
@@ -63,9 +78,31 @@ struct CallSiteOverrideRow: View {
         return nil
     }
 
+    /// True when the user is editing a raw fragment (Custom) rather than
+    /// picking a profile. Drives the visibility of the provider+model form
+    /// and the per-row Save button (profile selection persists immediately
+    /// via `onSelectProfile` so no Save click is needed).
+    private var isCustomMode: Bool {
+        Self.profilePickerValue(for: draft) == Self.customSentinel
+    }
+
     private var canSave: Bool {
         guard hasUnsavedChanges else { return false }
         return validationError == nil
+    }
+
+    /// Computes the profile picker's current value from the draft's state.
+    /// Returns the profile name when set, `"Custom"` when raw
+    /// provider/model fields are populated without a profile, or `""`
+    /// when no override is active.
+    static func profilePickerValue(for draft: CallSiteOverride) -> String {
+        if let profile = draft.profile, !profile.isEmpty {
+            return profile
+        }
+        if draft.provider != nil || draft.model != nil {
+            return Self.customSentinel
+        }
+        return ""
     }
 
     var body: some View {
@@ -126,22 +163,17 @@ struct CallSiteOverrideRow: View {
                     get: { isOverrideOn },
                     set: { newValue in
                         if newValue {
-                            // Switching ON: seed with the user's actual
-                            // default provider so the picker starts where
-                            // the user already operates. Falling back to
-                            // catalog order would silently pin a different
-                            // provider on Save when the catalog's first
-                            // entry isn't the user's default.
+                            // Switching ON: default new rows to the first
+                            // profile when one is available so the common
+                            // case is one click. Fall back to a Custom
+                            // fragment seeded with the user's default
+                            // provider when no profiles exist.
                             if !draft.hasOverride {
-                                let seedProvider: String
-                                if providerIds.contains(defaultProvider) {
-                                    seedProvider = defaultProvider
+                                if let firstProfile = profiles.first {
+                                    draft.profile = firstProfile.name
                                 } else {
-                                    seedProvider = providerIds.first ?? "anthropic"
+                                    seedCustomFragment()
                                 }
-                                draft.provider = seedProvider
-                                let firstModel = availableModels[seedProvider]?.first ?? ""
-                                draft.model = firstModel.isEmpty ? nil : firstModel
                             }
                             withAnimation(VAnimation.fast) { isExpanded = true }
                         } else {
@@ -162,17 +194,21 @@ struct CallSiteOverrideRow: View {
         }
     }
 
-    // MARK: - Editor (provider/model pickers + actions)
+    // MARK: - Editor (profile picker + optional provider/model form)
 
     private var editor: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            providerPicker
-            modelPicker
+            profilePicker
 
-            if let error = validationError {
-                Text(error)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.systemNegativeStrong)
+            if isCustomMode {
+                providerPicker
+                modelPicker
+
+                if let error = validationError {
+                    Text(error)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                }
             }
 
             HStack(spacing: VSpacing.sm) {
@@ -183,16 +219,70 @@ struct CallSiteOverrideRow: View {
                     onClear()
                 }
                 Spacer(minLength: 0)
-                VButton(
-                    label: "Save",
-                    style: .primary,
-                    isDisabled: !canSave
-                ) {
-                    onSave()
+                if isCustomMode {
+                    VButton(
+                        label: "Save",
+                        style: .primary,
+                        isDisabled: !canSave
+                    ) {
+                        onSave()
+                    }
                 }
             }
         }
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: 0, trailing: 0))
+    }
+
+    private var profilePicker: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Profile")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+            VDropdown(
+                placeholder: "Select a profile\u{2026}",
+                selection: Binding(
+                    get: { Self.profilePickerValue(for: draft) },
+                    set: { newValue in
+                        let current = Self.profilePickerValue(for: draft)
+                        guard newValue != current else { return }
+                        if newValue == Self.customSentinel {
+                            // Switch to Custom: drop the profile reference
+                            // and seed provider/model from the default so
+                            // the form renders valid values.
+                            draft.profile = nil
+                            if draft.provider == nil && draft.model == nil {
+                                seedCustomFragment()
+                            }
+                        } else {
+                            // Switch to a named profile: clear fragment
+                            // fields locally and persist via the parent's
+                            // `onSelectProfile` callback, which routes
+                            // through `replaceCallSiteOverride` to clear
+                            // stale fragment leaves server-side.
+                            draft.provider = nil
+                            draft.model = nil
+                            draft.profile = newValue
+                            onSelectProfile(newValue)
+                        }
+                    }
+                ),
+                options: profiles.map { (label: $0.name, value: $0.name) }
+                    + [(label: Self.customSentinel, value: Self.customSentinel)]
+            )
+        }
+    }
+
+    /// Populates `draft.provider` and `draft.model` with the user's default
+    /// provider and that provider's first model so a fresh Custom row
+    /// renders with valid values rather than empty pickers (which would
+    /// also fail Save validation).
+    private func seedCustomFragment() {
+        let seedProvider = providerIds.contains(defaultProvider)
+            ? defaultProvider
+            : (providerIds.first ?? "anthropic")
+        draft.provider = seedProvider
+        let firstModel = availableModels[seedProvider]?.first ?? ""
+        draft.model = firstModel.isEmpty ? nil : firstModel
     }
 
     private var providerPicker: some View {
@@ -260,15 +350,14 @@ struct CallSiteOverrideRow: View {
             return "Follows default"
         }
         var parts: [String] = []
-        if let provider = draft.provider, let model = draft.model {
+        if let profile = draft.profile {
+            parts.append("Profile: \(profile)")
+        } else if let provider = draft.provider, let model = draft.model {
             parts.append("\(providerDisplayName(provider)) \u{00B7} \(modelDisplayName(provider, model))")
         } else if let model = draft.model {
             parts.append(model)
         } else if let provider = draft.provider {
             parts.append("Provider: \(providerDisplayName(provider))")
-        }
-        if let profile = draft.profile {
-            parts.append("Profile: \(profile)")
         }
         if hasUnsavedChanges {
             parts.append("Unsaved")
