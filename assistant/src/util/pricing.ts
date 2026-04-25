@@ -4,6 +4,17 @@ import type { PricingResult, PricingUsage } from "../usage/types.js";
 interface ModelPricing {
   inputPer1M: number; // USD per 1M input tokens
   outputPer1M: number; // USD per 1M output tokens
+  /**
+   * Optional long-context pricing tier. When total input tokens exceed
+   * `thresholdTokens`, **all** tokens in the request are billed at the
+   * higher rates (not just those above the threshold). This matches
+   * OpenAI's tiered pricing model for large-context requests.
+   */
+  longContext?: {
+    thresholdTokens: number;
+    inputPer1M: number;
+    outputPer1M: number;
+  };
 }
 
 const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
@@ -28,7 +39,15 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "claude-haiku-4": { inputPer1M: 0.8, outputPer1M: 4 },
   },
   openai: {
-    "gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15 },
+    "gpt-5.4": {
+      inputPer1M: 2.5,
+      outputPer1M: 15,
+      longContext: {
+        thresholdTokens: 272_000,
+        inputPer1M: 5,
+        outputPer1M: 22.5,
+      },
+    },
     "gpt-5.4-mini": { inputPer1M: 0.5, outputPer1M: 3 },
     "gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
     "gpt-5.2": { inputPer1M: 1.75, outputPer1M: 14 },
@@ -192,6 +211,26 @@ function getAnthropicCacheWriteTokens(usage: PricingUsage): {
 }
 
 /**
+ * Resolve the effective base rates, applying long-context tier pricing when
+ * total input tokens exceed the model's threshold.
+ */
+function resolveEffectiveRates(
+  pricing: ModelPricing,
+  totalInputTokens: number,
+): { inputPer1M: number; outputPer1M: number } {
+  if (
+    pricing.longContext &&
+    totalInputTokens > pricing.longContext.thresholdTokens
+  ) {
+    return {
+      inputPer1M: pricing.longContext.inputPer1M,
+      outputPer1M: pricing.longContext.outputPer1M,
+    };
+  }
+  return { inputPer1M: pricing.inputPer1M, outputPer1M: pricing.outputPer1M };
+}
+
+/**
  * Calculate provider-aware usage cost from normalized token categories.
  */
 function calculateUsageCost(
@@ -201,14 +240,23 @@ function calculateUsageCost(
   usage: PricingUsage,
 ): number {
   const useAnthropicRules = usesAnthropicPricingRules(provider, model);
+
+  // Determine total input tokens for long-context threshold check
+  const totalInputTokens =
+    Math.max(usage.directInputTokens, 0) +
+    Math.max(usage.cacheCreationInputTokens, 0) +
+    Math.max(usage.cacheReadInputTokens, 0);
+
+  const baseRates = resolveEffectiveRates(pricing, totalInputTokens);
+
   // Anthropic fast mode: 6x multiplier on base rates (cache multipliers stack on top)
   const speedMultiplier =
     useAnthropicRules && usage.speed === "fast"
       ? ANTHROPIC_FAST_MODE_MULTIPLIER
       : 1;
-  const effectivePricing: ModelPricing = {
-    inputPer1M: pricing.inputPer1M * speedMultiplier,
-    outputPer1M: pricing.outputPer1M * speedMultiplier,
+  const effectivePricing = {
+    inputPer1M: baseRates.inputPer1M * speedMultiplier,
+    outputPer1M: baseRates.outputPer1M * speedMultiplier,
   };
 
   const directInputCost = calculateTokenCost(

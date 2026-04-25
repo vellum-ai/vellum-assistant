@@ -306,7 +306,11 @@ describe("fast mode pricing", () => {
       speed: "fast",
     };
 
-    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     // Base: $5 input + $25 output = $30; fast: $30 * 6 = $180
     expect(result.pricingStatus).toBe("priced");
@@ -323,7 +327,11 @@ describe("fast mode pricing", () => {
       speed: "standard",
     };
 
-    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     expect(result.pricingStatus).toBe("priced");
     expect(result.estimatedCostUsd).toBe(5 + 25);
@@ -339,7 +347,11 @@ describe("fast mode pricing", () => {
       speed: null,
     };
 
-    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     expect(result.pricingStatus).toBe("priced");
     expect(result.estimatedCostUsd).toBe(5 + 25);
@@ -374,7 +386,9 @@ describe("fast mode pricing", () => {
     expect(fastResult.pricingStatus).toBe("priced");
     expect(standardResult.pricingStatus).toBe("priced");
     // Fast mode applies 6x to base rates; cache multipliers stack on top
-    expect(fastResult.estimatedCostUsd).toBe(standardResult.estimatedCostUsd! * 6);
+    expect(fastResult.estimatedCostUsd).toBe(
+      standardResult.estimatedCostUsd! * 6,
+    );
   });
 
   test("does not apply fast mode multiplier for non-Anthropic providers", () => {
@@ -566,7 +580,11 @@ describe("Anthropic models on OpenRouter", () => {
       "anthropic/claude-opus-4.6",
       usage,
     );
-    const direct = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const direct = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     // Cache-read tokens are charged at 10% of input rate for Anthropic models.
     expect(openRouter.pricingStatus).toBe("priced");
@@ -621,9 +639,79 @@ describe("Anthropic models on OpenRouter", () => {
   });
 });
 
+describe("long-context pricing", () => {
+  test("uses standard rates when below threshold", () => {
+    // 200K input tokens — below 272K threshold
+    const result = resolvePricing("openai", "gpt-5.4", 200_000, 100_000);
+    expect(result.pricingStatus).toBe("priced");
+    // Standard: $2.50/1M input + $15/1M output
+    expect(result.estimatedCostUsd).toBeCloseTo(0.2 * 2.5 + 0.1 * 15, 10);
+  });
+
+  test("uses long-context rates when above threshold", () => {
+    // 300K input tokens — above 272K threshold
+    const result = resolvePricing("openai", "gpt-5.4", 300_000, 100_000);
+    expect(result.pricingStatus).toBe("priced");
+    // Long-context: $5/1M input + $22.50/1M output (all tokens at higher rate)
+    expect(result.estimatedCostUsd).toBeCloseTo(0.3 * 5 + 0.1 * 22.5, 10);
+  });
+
+  test("uses standard rates at exactly the threshold", () => {
+    // Exactly 272K — threshold is exclusive (>272K triggers long-context)
+    const result = resolvePricing("openai", "gpt-5.4", 272_000, 100_000);
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.272 * 2.5 + 0.1 * 15, 10);
+  });
+
+  test("uses long-context rates at one token above threshold", () => {
+    const result = resolvePricing("openai", "gpt-5.4", 272_001, 100_000);
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.272001 * 5 + 0.1 * 22.5, 10);
+  });
+
+  test("long-context pricing applies via prefix match", () => {
+    // gpt-5.4-2026-04-23 should match gpt-5.4 prefix and get long-context pricing
+    const result = resolvePricing(
+      "openai",
+      "gpt-5.4-2026-04-23",
+      300_000,
+      100_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.3 * 5 + 0.1 * 22.5, 10);
+  });
+
+  test("models without long-context tier are unaffected by high token counts", () => {
+    // gpt-5.4-mini has no long-context tier — same rate regardless of input size
+    const result = resolvePricing("openai", "gpt-5.4-mini", 300_000, 100_000);
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(0.3 * 0.5 + 0.1 * 3, 10);
+  });
+
+  test("long-context threshold considers total input tokens including cache", () => {
+    // 200K direct + 50K cache-read + 50K cache-write = 300K total → above threshold
+    const usage: PricingUsage = {
+      directInputTokens: 200_000,
+      outputTokens: 100_000,
+      cacheCreationInputTokens: 50_000,
+      cacheReadInputTokens: 50_000,
+      anthropicCacheCreation: null,
+    };
+    const result = resolvePricingForUsage("openai", "gpt-5.4", usage);
+    expect(result.pricingStatus).toBe("priced");
+    // Long-context rates: $5/1M input, $22.50/1M output
+    // OpenAI doesn't differentiate cache pricing, so all input tokens use input rate
+    const expectedCost =
+      (300_000 / 1_000_000) * 5 + (100_000 / 1_000_000) * 22.5;
+    expect(result.estimatedCostUsd).toBeCloseTo(expectedCost, 10);
+  });
+});
+
 describe("usesAnthropicPricingRules", () => {
   test("returns true for direct Anthropic", () => {
-    expect(usesAnthropicPricingRules("anthropic", "claude-opus-4-6")).toBe(true);
+    expect(usesAnthropicPricingRules("anthropic", "claude-opus-4-6")).toBe(
+      true,
+    );
   });
 
   test("returns true for anthropic/* on OpenRouter", () => {
