@@ -64,7 +64,7 @@ function findRefreshByHash(tokenHash: string) {
 
 function markRotated(tokenHash: string): boolean {
   const now = Date.now();
-  const result = getGatewayDb()
+  const rows = getGatewayDb()
     .update(actorRefreshTokenRecords)
     .set({ status: "rotated", lastUsedAt: now, updatedAt: now })
     .where(
@@ -73,8 +73,9 @@ function markRotated(tokenHash: string): boolean {
         eq(actorRefreshTokenRecords.status, "active"),
       ),
     )
-    .run();
-  return result.changes > 0;
+    .returning({ id: actorRefreshTokenRecords.id })
+    .all();
+  return rows.length > 0;
 }
 
 function revokeFamily(familyId: string): void {
