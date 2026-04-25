@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
@@ -28,9 +37,34 @@ interface SearchCall {
   signal?: AbortSignal;
 }
 
-function makeContext(signal?: AbortSignal): RecallSearchContext {
+const testDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of testDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTempDir(): string {
+  const dir = realpathSync(
+    mkdtempSync(join(tmpdir(), "context-search-agent-runner-")),
+  );
+  testDirs.push(dir);
+  return dir;
+}
+
+function writeWorkspaceFile(root: string, relativePath: string, text: string) {
+  const filePath = join(root, relativePath);
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, text);
+}
+
+function makeContext(
+  signal?: AbortSignal,
+  workingDir = "/workspace",
+): RecallSearchContext {
   return {
-    workingDir: "/workspace",
+    workingDir,
     memoryScopeId: "scope-123",
     conversationId: "conv-xyz",
     config: {} as AssistantConfig,
@@ -248,6 +282,157 @@ describe("runAgenticRecall", () => {
         reason: "Need the explicit decision.",
         evidenceCount: 1,
       },
+    ]);
+  });
+
+  test("executes inspect_workspace_paths for surfaced workspace paths", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "scratch/handoff.md",
+      ["# Handoff", "Use the crimson folder for the next review."].join("\n"),
+    );
+    const providerCalls: unknown[][] = [];
+    configuredProvider = makeProvider(
+      [
+        toolResponse("inspect_workspace_paths", {
+          paths: ["scratch/handoff.md"],
+          reason: "Need the exact handoff file.",
+        }),
+        toolResponse("finish_recall", {
+          answer: "The handoff says to use the crimson folder.",
+          confidence: "high",
+          citation_ids: ["workspace:scratch/handoff.md:1:path"],
+        }),
+      ],
+      providerCalls,
+    );
+
+    const result = await runAgenticRecall(
+      { query: "handoff", sources: ["workspace"], max_results: 5 },
+      makeContext(undefined, root),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              handoff: [
+                makeEvidence("workspace:pointer", {
+                  excerpt: "The current handoff file is scratch/handoff.md.",
+                }),
+              ],
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(providerCalls).toHaveLength(2);
+    expect(result.content).toContain("crimson folder");
+    expect(result.debug.inspectCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          round: 1,
+          paths: ["scratch/handoff.md"],
+          evidenceCount: 1,
+        }),
+      ]),
+    );
+    expect(result.evidence).toEqual([
+      expect.objectContaining({
+        id: "workspace:scratch/handoff.md:1:path",
+        title: "scratch/handoff.md",
+      }),
+    ]);
+  });
+
+  test("auto-inspects exact workspace paths before deterministic fallback", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(root, "scratch/handoff.md", "handoff exact truth");
+
+    const result = await runAgenticRecall(
+      { query: "handoff", sources: ["workspace"], max_results: 5 },
+      makeContext(undefined, root),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              handoff: [
+                makeEvidence("workspace:pointer", {
+                  excerpt: "The exact note is at scratch/handoff.md.",
+                }),
+              ],
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(result.debug).toMatchObject({
+      mode: "deterministic_fallback",
+      fallbackReason: "no_provider",
+      inspectCalls: [
+        {
+          round: 0,
+          paths: ["scratch/handoff.md"],
+          evidenceCount: 1,
+        },
+      ],
+    });
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "workspace:pointer",
+      "workspace:scratch/handoff.md:1:path",
+    ]);
+  });
+
+  test("rejects unsafe inspect_workspace_paths requests as unresolved evidence", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("inspect_workspace_paths", {
+        paths: ["../secret.md"],
+        reason: "Try an unsafe path.",
+      }),
+      toolResponse("finish_recall", {
+        answer: "The requested file could not be inspected safely.",
+        confidence: "low",
+        citation_ids: ["workspace:inspect-error:1:0"],
+        unresolved: ["The path was not surfaced as a safe workspace file."],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      { query: "unsafe handoff", sources: ["workspace"], max_results: 5 },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              "unsafe handoff": [makeEvidence("workspace:seed")],
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(result.content).toContain("could not be inspected safely");
+    expect(result.debug.inspectCalls).toEqual([
+      {
+        round: 1,
+        paths: ["../secret.md"],
+        reason: "Try an unsafe path.",
+        evidenceCount: 1,
+        errors: [
+          {
+            path: "../secret.md",
+            reason:
+              "path was not a safe relative workspace file surfaced by the query or prior evidence",
+          },
+        ],
+      },
+    ]);
+    expect(result.evidence).toEqual([
+      expect.objectContaining({
+        id: "workspace:inspect-error:1:0",
+        locator: "../secret.md",
+      }),
     ]);
   });
 

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import {
+  inspectWorkspacePaths,
   searchWorkspaceSource,
   WORKSPACE_SOURCE_MAX_FILE_SIZE_BYTES,
   WORKSPACE_SOURCE_MAX_SCANNED_FILES,
@@ -106,6 +107,11 @@ describe("searchWorkspaceSource", () => {
   test("allows safe hidden paths while skipping generated, dependency, and secret-shaped paths", async () => {
     const root = makeTempDir();
     writeWorkspaceFile(root, ".hidden.md", "needle hidden");
+    writeWorkspaceFile(
+      root,
+      ".birthday-builds/.format-rec.md",
+      "needle safe hidden file",
+    );
     writeWorkspaceFile(root, ".birthday-builds/cake.md", "needle safe hidden");
     writeWorkspaceFile(root, ".git/config.md", "needle git");
     writeWorkspaceFile(root, ".private/notes.md", "needle private");
@@ -130,6 +136,7 @@ describe("searchWorkspaceSource", () => {
     const result = await searchWorkspaceSource("needle", makeContext(root), 10);
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
+      ".birthday-builds/.format-rec.md:1",
       ".birthday-builds/cake.md:1",
       ".hidden.md:1",
       "src/readme.md:1",
@@ -160,6 +167,228 @@ describe("searchWorkspaceSource", () => {
     expect(result.evidence.map((item) => item.locator)).toEqual([
       "journal/today.md:1",
     ]);
+  });
+
+  test("gives each traversal bucket enough budget for later authored truth", async () => {
+    const root = makeTempDir();
+    for (
+      let index = 0;
+      index < WORKSPACE_SOURCE_MAX_SCANNED_FILES;
+      index += 1
+    ) {
+      writeWorkspaceFile(
+        root,
+        `scratch/${String(index).padStart(3, "0")}.md`,
+        "sharedneedle scratch filler",
+      );
+    }
+    writeWorkspaceFile(
+      root,
+      ".birthday-builds/format.md",
+      "formatneedle hidden authored decision",
+    );
+    writeWorkspaceFile(root, "work/source.md", "workneedle live authored doc");
+    writeWorkspaceFile(
+      root,
+      "data/apps/example-app.json",
+      JSON.stringify({
+        name: "Example App",
+        description: "appneedle current app metadata",
+        dirName: "example-app",
+      }),
+    );
+
+    const result = await searchWorkspaceSource(
+      "sharedneedle formatneedle workneedle appneedle",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence.map((item) => item.title)).toEqual(
+      expect.arrayContaining([
+        ".birthday-builds/format.md",
+        "work/source.md",
+        "data/apps/example-app.json",
+      ]),
+    );
+  });
+
+  test("skips nested repo checkouts under scratch", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "scratch/vellum-assistant/notes.md",
+      "deepneedle generated checkout",
+    );
+    writeWorkspaceFile(root, "work/notes.md", "deepneedle live authored note");
+
+    const result = await searchWorkspaceSource(
+      "deepneedle",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence.map((item) => item.title)).toEqual([
+      "work/notes.md",
+    ]);
+  });
+
+  test("ranks live work documents above archive references", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "backups/archive.md",
+      "launch architecture decision exists in a separate work document",
+    );
+    writeWorkspaceFile(
+      root,
+      "work/decision.md",
+      "launch architecture decision: keep the local-first design",
+    );
+
+    const result = await searchWorkspaceSource(
+      "launch architecture decision local-first",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence[0]?.title).toBe("work/decision.md");
+    expect(result.evidence[0]?.excerpt).toContain("local-first design");
+  });
+
+  test("ranks current location tracker JSON above older PKB summaries", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "pkb/archive/location.md",
+      "home current place metadata was summarized previously",
+    );
+    writeWorkspaceFile(
+      root,
+      "scratch/location-tracker/named_places.json",
+      JSON.stringify({
+        places: [
+          {
+            name: "Home",
+            description: "current place metadata",
+            lat: 12.34,
+            lon: 56.78,
+            radius_m: 90,
+          },
+        ],
+      }),
+    );
+
+    const result = await searchWorkspaceSource(
+      "home current place metadata",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      title: "scratch/location-tracker/named_places.json",
+      metadata: { retrieval: "structured-json" },
+    });
+    expect(result.evidence[0]?.excerpt).toContain('"radius_m": 90');
+  });
+
+  test("returns the matching markdown section with heading metadata", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "scratch/cases.md",
+      [
+        "# Case Notes",
+        "A general index with voluntary mentions.",
+        "",
+        "## Voluntary Silence Case",
+        "The remedy is to wait for an explicit opt-in before sending updates.",
+        "The boundary applies to quiet periods and follow-up prompts.",
+        "",
+        "## Other Case",
+        "This section should not be returned for the remedy query.",
+      ].join("\n"),
+    );
+
+    const result = await searchWorkspaceSource(
+      "voluntary silence case remedy boundary",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      title: "scratch/cases.md",
+      locator: "scratch/cases.md:4",
+      metadata: {
+        retrieval: "section",
+        heading: "Voluntary Silence Case",
+      },
+    });
+    expect(result.evidence[0]?.excerpt).toContain(
+      "4: ## Voluntary Silence Case",
+    );
+    expect(result.evidence[0]?.excerpt).toContain(
+      "wait for an explicit opt-in",
+    );
+  });
+
+  test("returns compact structured JSON excerpts for app metadata", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "data/apps/example-app.json",
+      JSON.stringify({
+        name: "Example Apartment",
+        description: "A small apartment inventory app with current metadata.",
+        dirName: "example-apartment",
+        nested: {
+          name: "Nested Tool",
+          description: "Nested fields should be compact.",
+          veryLargeField: "x".repeat(2_000),
+        },
+      }),
+    );
+
+    const result = await searchWorkspaceSource(
+      "apartment app current metadata",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      title: "data/apps/example-app.json",
+      locator: "data/apps/example-app.json:1",
+      metadata: { retrieval: "structured-json" },
+    });
+    expect(result.evidence[0]?.excerpt).toContain(
+      '"name": "Example Apartment"',
+    );
+    expect(result.evidence[0]?.excerpt).toContain(
+      '"dirName": "example-apartment"',
+    );
+    expect(result.evidence[0]?.excerpt.length).toBeLessThanOrEqual(1_400);
+  });
+
+  test("returns exact safe path literals even when file text does not match", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "scratch/handoff.md",
+      ["# Handoff", "Use the crimson folder for the next review."].join("\n"),
+    );
+
+    const result = await searchWorkspaceSource(
+      "inspect scratch/handoff.md",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      title: "scratch/handoff.md",
+      locator: "scratch/handoff.md:1",
+      metadata: { retrieval: "path", path: "scratch/handoff.md" },
+    });
+    expect(result.evidence[0]?.excerpt).toContain("crimson folder");
   });
 
   test("skips conversation metadata files in workspace search", async () => {
@@ -283,5 +512,34 @@ describe("searchWorkspaceSource", () => {
     );
 
     expect(result.evidence).toEqual([]);
+  });
+});
+
+describe("inspectWorkspacePaths", () => {
+  test("inspects up to five safe surfaced files and reports unsafe paths", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(root, "scratch/handoff.md", "handoff exact truth");
+    writeWorkspaceFile(
+      root,
+      ".birthday-builds/format.md",
+      "hidden exact truth",
+    );
+
+    const result = await inspectWorkspacePaths(
+      ["scratch/handoff.md", ".birthday-builds/format.md", "../secret.md"],
+      "unrelated query terms",
+      makeContext(root),
+    );
+
+    expect(result.evidence.map((item) => item.title)).toEqual([
+      "scratch/handoff.md",
+      ".birthday-builds/format.md",
+    ]);
+    expect(result.errors).toEqual([
+      {
+        path: "../secret.md",
+        reason: "path is not a safe relative workspace path",
+      },
+    ]);
   });
 });

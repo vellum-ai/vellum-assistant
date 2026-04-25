@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildRecallAgentPrompt,
   FINISH_RECALL_TOOL_DEFINITION,
+  INSPECT_WORKSPACE_PATHS_TOOL_DEFINITION,
   RECALL_AGENT_TOOL_DEFINITIONS,
   SEARCH_SOURCES_TOOL_DEFINITION,
   truncateRecallEvidenceToBudget,
@@ -35,9 +36,10 @@ function schemaProperties(tool: {
 }
 
 describe("recall agent protocol tool definitions", () => {
-  test("defines bounded search_sources and finish_recall provider tools", () => {
+  test("defines bounded recall provider tools", () => {
     expect(RECALL_AGENT_TOOL_DEFINITIONS.map((tool) => tool.name)).toEqual([
       "search_sources",
+      "inspect_workspace_paths",
       "finish_recall",
     ]);
 
@@ -57,6 +59,18 @@ describe("recall agent protocol tool definitions", () => {
       type: "integer",
       minimum: 1,
       maximum: 20,
+    });
+
+    expect(
+      INSPECT_WORKSPACE_PATHS_TOOL_DEFINITION.input_schema.required,
+    ).toEqual(["paths", "reason"]);
+    expect(
+      schemaProperties(INSPECT_WORKSPACE_PATHS_TOOL_DEFINITION).paths,
+    ).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 5,
+      uniqueItems: true,
     });
 
     expect(FINISH_RECALL_TOOL_DEFINITION.input_schema.required).toEqual([
@@ -93,6 +107,8 @@ describe("buildRecallAgentPrompt", () => {
     expect(prompt).not.toContain("pkb: personal knowledge base");
     expect(prompt).toContain("Do not use external web");
     expect(prompt).toContain("Do not guess");
+    expect(prompt).toContain("inspect_workspace_paths");
+    expect(prompt).toContain("concrete workspace file");
     expect(prompt).toContain("For indirect references");
     expect(prompt).toContain("search those candidates");
     expect(prompt).toContain("not mandatory search terms");

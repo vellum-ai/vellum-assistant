@@ -24,6 +24,11 @@ import {
   type DeterministicRecallSearchResult,
   runDeterministicRecallSearch,
 } from "./search.js";
+import {
+  extractWorkspacePathLiterals,
+  inspectWorkspacePaths,
+  isSafeWorkspaceRelativePath,
+} from "./sources/workspace.js";
 import type {
   RecallAnswer,
   RecallEvidence,
@@ -50,6 +55,14 @@ export interface AgenticRecallSearchDebug {
   error?: string;
 }
 
+export interface AgenticRecallInspectDebug {
+  round: number;
+  paths: string[];
+  reason: string;
+  evidenceCount: number;
+  errors?: Array<{ path: string; reason: string }>;
+}
+
 export interface AgenticRecallDebug {
   mode: "agentic" | "deterministic_fallback";
   normalizedInput: NormalizedRecallInput;
@@ -57,6 +70,7 @@ export interface AgenticRecallDebug {
   roundsUsed: number;
   seedEvidenceCount: number;
   searchCalls: AgenticRecallSearchDebug[];
+  inspectCalls: AgenticRecallInspectDebug[];
   finish?: {
     confidence: string;
     citationIds: string[];
@@ -154,6 +168,7 @@ export async function runAgenticRecall(
     roundsUsed: 0,
     seedEvidenceCount: 0,
     searchCalls: [],
+    inspectCalls: [],
   };
 
   const provider = await getConfiguredProvider("recall");
@@ -163,9 +178,21 @@ export async function runAgenticRecall(
       context,
       options.searchOptions,
     );
-    debug.seedEvidenceCount = fallbackResult.evidence.length;
+    const autoInspect = await runAutomaticWorkspaceInspection(
+      normalizedInput,
+      context,
+      fallbackResult.evidence,
+    );
+    if (autoInspect.debug) {
+      debug.inspectCalls.push(autoInspect.debug);
+    }
+    const fallbackEvidence = mergeEvidence(
+      fallbackResult.evidence,
+      autoInspect.evidence,
+    );
+    debug.seedEvidenceCount = fallbackEvidence.length;
     return deterministicFallback(
-      fallbackResult,
+      withFallbackEvidence(fallbackResult, fallbackEvidence),
       debug,
       "no_provider",
       "No recall provider is configured.",
@@ -177,8 +204,17 @@ export async function runAgenticRecall(
     context,
     options.searchOptions,
   );
-  debug.seedEvidenceCount = seedResult.evidence.length;
   let evidence = [...seedResult.evidence];
+  const autoInspect = await runAutomaticWorkspaceInspection(
+    normalizedInput,
+    context,
+    evidence,
+  );
+  if (autoInspect.debug) {
+    debug.inspectCalls.push(autoInspect.debug);
+    evidence = mergeEvidence(evidence, autoInspect.evidence);
+  }
+  debug.seedEvidenceCount = evidence.length;
   let fallbackReason: AgenticRecallFallbackReason = "no_valid_finish";
   let fallbackDetail = "Recall provider did not return a valid finish_recall.";
 
@@ -226,34 +262,51 @@ export async function runAgenticRecall(
       }
     }
 
+    const inspectTools = toolUses.filter(
+      (tool) => tool.name === "inspect_workspace_paths",
+    );
     const searchTools = toolUses.filter(
       (tool) => tool.name === "search_sources",
     );
-    if (searchTools.length === 0) {
+    if (inspectTools.length === 0 && searchTools.length === 0) {
       fallbackReason = "no_valid_finish";
       fallbackDetail =
-        "Recall provider returned no search_sources or finish_recall tool call.";
+        "Recall provider returned no search_sources, inspect_workspace_paths, or finish_recall tool call.";
       break;
     }
 
-    const remainingSearchBudget = roundLimit - debug.searchCalls.length;
-    if (remainingSearchBudget <= 0) {
-      fallbackReason = "round_limit";
-      fallbackDetail =
-        "Recall provider exhausted the configured search budget.";
-      break;
-    }
-
-    for (const searchTool of searchTools.slice(0, remainingSearchBudget)) {
-      const searchResult = await executeSearchSources(
-        searchTool.input,
+    for (const inspectTool of inspectTools) {
+      const inspectResult = await executeInspectWorkspacePaths(
+        inspectTool.input,
         normalizedInput,
         context,
+        evidence,
         round,
-        options.searchOptions,
       );
-      debug.searchCalls.push(searchResult.debug);
-      evidence = mergeEvidence(evidence, searchResult.evidence);
+      debug.inspectCalls.push(inspectResult.debug);
+      evidence = mergeEvidence(evidence, inspectResult.evidence);
+    }
+
+    if (searchTools.length > 0) {
+      const remainingSearchBudget = roundLimit - debug.searchCalls.length;
+      if (remainingSearchBudget <= 0) {
+        fallbackReason = "round_limit";
+        fallbackDetail =
+          "Recall provider exhausted the configured search budget.";
+        break;
+      }
+
+      for (const searchTool of searchTools.slice(0, remainingSearchBudget)) {
+        const searchResult = await executeSearchSources(
+          searchTool.input,
+          normalizedInput,
+          context,
+          round,
+          options.searchOptions,
+        );
+        debug.searchCalls.push(searchResult.debug);
+        evidence = mergeEvidence(evidence, searchResult.evidence);
+      }
     }
 
     if (round === roundLimit) {
@@ -548,6 +601,125 @@ async function executeSearchSources(
   }
 }
 
+async function executeInspectWorkspacePaths(
+  payload: Record<string, unknown>,
+  input: NormalizedRecallInput,
+  context: RecallSearchContext,
+  evidence: readonly RecallEvidence[],
+  round: number,
+): Promise<{
+  evidence: RecallEvidence[];
+  debug: AgenticRecallInspectDebug;
+}> {
+  const reason = readSearchReason(payload.reason);
+  const requestedPaths = readInspectPaths(payload.paths);
+  const allowedPaths = collectInspectableWorkspacePaths(input.query, evidence);
+  const acceptedPaths = requestedPaths.filter((path) => allowedPaths.has(path));
+  const rejectedPaths = requestedPaths.filter(
+    (path) => !allowedPaths.has(path),
+  );
+
+  const debug: AgenticRecallInspectDebug = {
+    round,
+    paths: requestedPaths,
+    reason,
+    evidenceCount: 0,
+  };
+
+  if (requestedPaths.length === 0) {
+    return {
+      evidence: [
+        makeWorkspaceInspectionErrorEvidence({
+          round,
+          index: 0,
+          path: "inspect_workspace_paths",
+          reason: "inspect_workspace_paths paths must be non-empty strings",
+        }),
+      ],
+      debug: {
+        ...debug,
+        errors: [
+          {
+            path: "inspect_workspace_paths",
+            reason: "paths must be non-empty strings",
+          },
+        ],
+      },
+    };
+  }
+
+  const errors = rejectedPaths.map((path) => ({
+    path,
+    reason:
+      "path was not a safe relative workspace file surfaced by the query or prior evidence",
+  }));
+
+  let inspectionEvidence: RecallEvidence[] = [];
+  if (acceptedPaths.length > 0) {
+    const inspectionResult = await inspectWorkspacePaths(
+      acceptedPaths,
+      input.query,
+      context,
+    );
+    inspectionEvidence = inspectionResult.evidence;
+    errors.push(...inspectionResult.errors);
+  }
+
+  const errorEvidence = errors.map((error, index) =>
+    makeWorkspaceInspectionErrorEvidence({
+      round,
+      index,
+      path: error.path,
+      reason: error.reason,
+    }),
+  );
+  const allEvidence = [...inspectionEvidence, ...errorEvidence];
+
+  return {
+    evidence: allEvidence,
+    debug: {
+      ...debug,
+      evidenceCount: allEvidence.length,
+      ...(errors.length > 0 ? { errors } : {}),
+    },
+  };
+}
+
+async function runAutomaticWorkspaceInspection(
+  input: NormalizedRecallInput,
+  context: RecallSearchContext,
+  evidence: readonly RecallEvidence[],
+): Promise<{
+  evidence: RecallEvidence[];
+  debug?: AgenticRecallInspectDebug;
+}> {
+  if (!input.sources.includes("workspace")) {
+    return { evidence: [] };
+  }
+
+  const paths = collectAutomaticWorkspaceInspectionPaths(input.query, evidence);
+  if (paths.length === 0) {
+    return { evidence: [] };
+  }
+
+  const inspectionResult = await inspectWorkspacePaths(
+    paths,
+    input.query,
+    context,
+  );
+  const debug: AgenticRecallInspectDebug = {
+    round: 0,
+    paths,
+    reason:
+      "Automatically inspect exact workspace paths surfaced by seed evidence.",
+    evidenceCount: inspectionResult.evidence.length,
+    ...(inspectionResult.errors.length > 0
+      ? { errors: inspectionResult.errors }
+      : {}),
+  };
+  return { evidence: inspectionResult.evidence, debug };
+}
+
 function readSearchQuery(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -561,6 +733,85 @@ function readSearchLimit(value: unknown): number | undefined {
     return undefined;
   }
   return value;
+}
+
+function readInspectPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  ].slice(0, 5);
+}
+
+function collectAutomaticWorkspaceInspectionPaths(
+  query: string,
+  evidence: readonly RecallEvidence[],
+): string[] {
+  const paths = new Set(extractWorkspacePathLiterals(query));
+  for (const item of evidence) {
+    if (item.source !== "workspace") {
+      continue;
+    }
+    for (const path of extractWorkspacePathLiterals(item.excerpt)) {
+      paths.add(path);
+    }
+  }
+  return [...paths].filter(isSafeWorkspaceRelativePath).slice(0, 3);
+}
+
+function collectInspectableWorkspacePaths(
+  query: string,
+  evidence: readonly RecallEvidence[],
+): Set<string> {
+  const paths = new Set(extractWorkspacePathLiterals(query));
+  for (const item of evidence) {
+    const metadataPath = item.metadata?.path;
+    if (
+      typeof metadataPath === "string" &&
+      isSafeWorkspaceRelativePath(metadataPath)
+    ) {
+      paths.add(metadataPath);
+    }
+
+    for (const path of extractWorkspacePathLiterals(item.locator)) {
+      paths.add(path);
+    }
+    for (const path of extractWorkspacePathLiterals(item.title)) {
+      paths.add(path);
+    }
+    for (const path of extractWorkspacePathLiterals(item.excerpt)) {
+      paths.add(path);
+    }
+  }
+  return paths;
+}
+
+function makeWorkspaceInspectionErrorEvidence(options: {
+  round: number;
+  index: number;
+  path: string;
+  reason: string;
+}): RecallEvidence {
+  return {
+    id: `workspace:inspect-error:${options.round}:${options.index}`,
+    source: "workspace",
+    title: "Workspace path inspection",
+    locator: options.path,
+    excerpt: `Could not inspect workspace path: ${options.reason}.`,
+    score: 0,
+    metadata: {
+      retrieval: "path",
+      inspectError: true,
+      path: options.path,
+      reason: options.reason,
+    },
+  };
 }
 
 function narrowSearchSources(

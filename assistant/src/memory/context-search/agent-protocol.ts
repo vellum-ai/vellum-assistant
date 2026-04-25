@@ -96,6 +96,34 @@ export const SEARCH_SOURCES_TOOL_DEFINITION: RecallAgentToolDefinition = {
   },
 };
 
+export const INSPECT_WORKSPACE_PATHS_TOOL_DEFINITION: RecallAgentToolDefinition =
+  {
+    name: "inspect_workspace_paths",
+    description:
+      "Inspect exact safe workspace-relative files that were surfaced by the query or prior evidence.",
+    input_schema: {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          description:
+            "Safe relative workspace file paths to inspect, such as scratch/handoff.md.",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 5,
+          uniqueItems: true,
+        },
+        reason: {
+          type: "string",
+          description:
+            "Brief reason these exact paths need inspection before answering.",
+        },
+      },
+      required: ["paths", "reason"],
+      additionalProperties: false,
+    },
+  };
+
 export const FINISH_RECALL_TOOL_DEFINITION: RecallAgentToolDefinition = {
   name: "finish_recall",
   description:
@@ -131,7 +159,11 @@ export const FINISH_RECALL_TOOL_DEFINITION: RecallAgentToolDefinition = {
 };
 
 export const RECALL_AGENT_TOOL_DEFINITIONS: readonly RecallAgentToolDefinition[] =
-  [SEARCH_SOURCES_TOOL_DEFINITION, FINISH_RECALL_TOOL_DEFINITION] as const;
+  [
+    SEARCH_SOURCES_TOOL_DEFINITION,
+    INSPECT_WORKSPACE_PATHS_TOOL_DEFINITION,
+    FINISH_RECALL_TOOL_DEFINITION,
+  ] as const;
 
 export function buildRecallAgentPrompt(
   options: RecallAgentPromptOptions,
@@ -163,6 +195,8 @@ export function buildRecallAgentPromptBundle(
     "Rules:",
     "- Use search_sources when more evidence is needed. Keep searches focused and explain the reason.",
     `- Do not make more than ${maxSearchCalls} search_sources calls unless the engine gives you a new budget.`,
+    "- Use inspect_workspace_paths when the user query or evidence points at a concrete workspace file. Inspect the file before saying the answer is missing.",
+    "- inspect_workspace_paths only accepts safe relative paths that appeared in the query or evidence; if inspection fails, report that uncertainty instead of guessing.",
     "- For indirect references (for example, 'the cake Bob asked about'), first find the referring exchange, then search likely candidate referents named or implied by that evidence before finishing.",
     "- If evidence says a referent is unresolved but gives candidate events, objects, or adjacent facts, search those candidates and report the caveat instead of stopping at 'unresolved'.",
     "- Treat requested output fields like flavor, decoration, message, recipient, timing, or plan details as things to answer, not mandatory search terms.",
