@@ -140,7 +140,6 @@ export async function setStoredGatewayUrl(url: string): Promise<void> {
  *
  * The gateway requires:
  *   - Localhost peer IP (satisfied by fetching 127.0.0.1)
- *   - `x-vellum-native-host: 1` marker header
  *   - `{ extensionOrigin }` body with the extension's origin
  *
  * Returns the stored token shape after persisting it.
@@ -161,7 +160,6 @@ export async function bootstrapDirectPairToken(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-vellum-native-host': '1',
       },
       body: JSON.stringify({ extensionOrigin }),
       signal: controller.signal,
