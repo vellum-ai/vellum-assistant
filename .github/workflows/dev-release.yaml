@@ -792,15 +792,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Inject CWS extension ID into allowlist
-        if: vars.CWS_EXTENSION_ID != ''
-        working-directory: .
-        run: |
-          jq --arg id "${{ vars.CWS_EXTENSION_ID }}" \
-            '.allowedExtensionIds += [$id]' \
-            meta/browser-extension/chrome-extension-allowlist.json > tmp.json \
-            && mv tmp.json meta/browser-extension/chrome-extension-allowlist.json
-
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
 
