@@ -134,7 +134,7 @@ describe('cloudUrlsForEnvironment', () => {
     },
     {
       env: 'local',
-      expectedApiBaseUrl: 'http://localhost:8080',
+      expectedApiBaseUrl: 'http://localhost:8000',
       expectedWebBaseUrl: 'http://localhost:3000',
     },
   ];

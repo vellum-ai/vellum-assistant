@@ -127,7 +127,7 @@ export function cloudUrlsForEnvironment(env: ExtensionEnvironment): CloudUrls {
       };
     case 'local':
       return {
-        apiBaseUrl: 'http://localhost:8080',
+        apiBaseUrl: 'http://localhost:8000',
         webBaseUrl: 'http://localhost:3000',
       };
   }

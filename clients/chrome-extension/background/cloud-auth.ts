@@ -208,7 +208,7 @@ export async function fetchAssistants(
 ): Promise<CloudAssistant[]> {
   const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
 
-  const response = await fetch(`${apiBaseUrl}/api/assistants/`, {
+  const response = await fetch(`${apiBaseUrl}/v1/assistants/`, {
     credentials: 'include',
     headers: { Accept: 'application/json' },
   });
