@@ -58,21 +58,12 @@ describe("resolveIpcSocketPath", () => {
   test("falls back to tmpdir when workspace path exceeds AF_UNIX limit", () => {
     delete process.env.GATEWAY_IPC_SOCKET_DIR;
     // 90-char workspace dir + /gateway.sock = well over 103 bytes
-    const longDir = "/tmp/" + "a".repeat(85) + "/workspace";
+    process.env.VELLUM_WORKSPACE_DIR = "/tmp/" + "a".repeat(85) + "/workspace";
 
-    const resolved = resolveIpcSocketPath("gateway", longDir);
+    const resolved = resolveIpcSocketPath("gateway");
 
     expect(["tmp-hash", "tmp-short-hash"]).toContain(resolved.source);
     expect(resolved.path.startsWith(tmpdir())).toBe(true);
-  });
-
-  test("accepts explicit workspaceDir parameter", () => {
-    delete process.env.GATEWAY_IPC_SOCKET_DIR;
-
-    const resolved = resolveIpcSocketPath("gateway", "/custom/workspace");
-
-    expect(resolved.source).toBe("workspace");
-    expect(resolved.path).toBe("/custom/workspace/gateway.sock");
   });
 
   test("derives env var name from socket name", () => {

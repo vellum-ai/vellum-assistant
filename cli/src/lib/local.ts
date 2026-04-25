@@ -51,6 +51,26 @@ function computeIpcSocketDirOverride(workspaceDir: string): string | undefined {
   return join(tmpdir(), `vellum-ipc-${hash}`);
 }
 
+/**
+ * If the workspace path is too long for AF_UNIX sockets on macOS, compute
+ * a short override directory and set all IPC socket env vars on the target
+ * env object. No-op on non-macOS or when paths are within limits.
+ */
+function applyIpcSocketDirOverride(
+  env: Record<string, string>,
+): void {
+  const workspaceDir =
+    env.VELLUM_WORKSPACE_DIR ||
+    join(homedir(), ".vellum", "workspace");
+  const override = computeIpcSocketDirOverride(workspaceDir);
+  if (!override) return;
+
+  mkdirSync(override, { recursive: true });
+  env.GATEWAY_IPC_SOCKET_DIR = override;
+  env.ASSISTANT_IPC_SOCKET_DIR = override;
+  env.ASSISTANT_SKILL_IPC_SOCKET_DIR = override;
+}
+
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
   if (!existsSync(pkgPath) || !existsSync(join(dir, "src", "index.ts")))
@@ -949,19 +969,7 @@ export async function startLocalDaemon(
         daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
       }
 
-      // On macOS, if the effective workspace path would produce IPC socket
-      // paths exceeding the 103-byte AF_UNIX limit, compute a short tmpdir-
-      // based override so both daemon and gateway use the same safe location.
-      const effectiveWorkspaceDir =
-        daemonEnv.VELLUM_WORKSPACE_DIR ||
-        join(daemonEnv.BASE_DATA_DIR || homedir(), ".vellum", "workspace");
-      const ipcSocketDirOverride = computeIpcSocketDirOverride(
-        effectiveWorkspaceDir,
-      );
-      if (ipcSocketDirOverride) {
-        mkdirSync(ipcSocketDirOverride, { recursive: true });
-        daemonEnv.GATEWAY_IPC_SOCKET_DIR = ipcSocketDirOverride;
-      }
+      applyIpcSocketDirOverride(daemonEnv);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
@@ -1137,16 +1145,7 @@ export async function startGateway(
       : {}),
   };
 
-  // On macOS, if the effective workspace path would produce IPC socket
-  // paths exceeding the 103-byte AF_UNIX limit, set a short override.
-  const gwWorkspaceDir =
-    gatewayEnv.VELLUM_WORKSPACE_DIR ||
-    join(gatewayEnv.BASE_DATA_DIR || homedir(), ".vellum", "workspace");
-  const gwIpcOverride = computeIpcSocketDirOverride(gwWorkspaceDir);
-  if (gwIpcOverride) {
-    mkdirSync(gwIpcOverride, { recursive: true });
-    gatewayEnv.GATEWAY_IPC_SOCKET_DIR = gwIpcOverride;
-  }
+  applyIpcSocketDirOverride(gatewayEnv);
 
   if (publicUrl) {
     console.log(`   Ingress URL: ${publicUrl}`);

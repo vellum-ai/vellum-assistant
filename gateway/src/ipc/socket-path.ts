@@ -59,8 +59,8 @@ function deriveSocketNames(socketName: string): {
  */
 export function resolveIpcSocketPath(
   socketName: string,
-  workspaceDir: string = getWorkspaceDir(),
 ): IpcSocketPathResolution {
+  const workspaceDir = getWorkspaceDir();
   const { envVar, fileName } = deriveSocketNames(socketName);
 
   // Explicit override via env var.
