@@ -75,7 +75,7 @@ export interface ActorContext {
 }
 
 /** The decision being applied. */
-export interface ResolverDecision {
+interface ResolverDecision {
   /** The effective action after any downgrade (e.g. approve_always -> approve_once). */
   action: ApprovalAction;
   /** Optional user-supplied text (e.g. answer text for pending questions). */
@@ -102,7 +102,7 @@ export interface ResolverEmissionContext {
 }
 
 /** Context passed to each resolver after CAS resolution succeeds. */
-export interface ResolverContext {
+interface ResolverContext {
   /** The canonical request record (already resolved to its terminal status). */
   request: CanonicalGuardianRequest;
   /** The decision being applied. */
@@ -116,7 +116,7 @@ export interface ResolverContext {
 }
 
 /** Discriminated result from a resolver. */
-export type ResolverResult =
+type ResolverResult =
   | {
       ok: true;
       applied: true;
@@ -137,7 +137,7 @@ function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
 }
 
 /** Interface that kind-specific resolvers implement. */
-export interface GuardianRequestResolver {
+interface GuardianRequestResolver {
   /** The request kind this resolver handles (matches canonical_guardian_requests.kind). */
   kind: string;
   /** Execute kind-specific side effects after CAS resolution. */

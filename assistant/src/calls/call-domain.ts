@@ -66,20 +66,20 @@ function postFailedCallPointer(
 
 // ── Result types ─────────────────────────────────────────────────────
 
-export interface StartCallResult {
+interface StartCallResult {
   ok: true;
   session: CallSession;
   callSid: string;
   callerIdentityMode: "assistant_number" | "user_number";
 }
 
-export interface CallError {
+interface CallError {
   ok: false;
   error: string;
   status?: number;
 }
 
-export type StartCallInput = {
+type StartCallInput = {
   phoneNumber: string;
   task: string;
   context?: string;
@@ -89,32 +89,32 @@ export type StartCallInput = {
   skipDisclosure?: boolean;
 };
 
-export type CancelCallInput = {
+type CancelCallInput = {
   callSessionId: string;
   reason?: string;
 };
 
-export type AnswerCallInput = {
+type AnswerCallInput = {
   callSessionId: string;
   answer: string;
   /** When provided, the answer is matched to this specific pending question/consultation. */
   pendingQuestionId?: string;
 };
 
-export type RelayInstructionInput = {
+type RelayInstructionInput = {
   callSessionId: string;
   instructionText: string;
 };
 
 // ── Caller identity resolution ───────────────────────────────────────
 
-export type CallerIdentitySource =
+type CallerIdentitySource =
   | "per_call_override"
   | "implicit_default"
   | "user_config"
   | "secure_key";
 
-export type CallerIdentityResult =
+type CallerIdentityResult =
   | {
       ok: true;
       mode: "assistant_number" | "user_number";
@@ -247,14 +247,14 @@ export async function resolveCallerIdentity(
 
 // ── Inbound voice session bootstrap ──────────────────────────────────
 
-export type CreateInboundVoiceSessionInput = {
+type CreateInboundVoiceSessionInput = {
   callSid: string;
   fromNumber: string;
   toNumber: string;
   assistantId?: string;
 };
 
-export type CreateInboundVoiceSessionResult = {
+type CreateInboundVoiceSessionResult = {
   session: CallSession;
   created: boolean;
 };
@@ -897,7 +897,7 @@ export async function relayInstruction(
 
 // ── Verification call ─────────────────────────────────────────────────
 
-export type StartVerificationCallInput = {
+type StartVerificationCallInput = {
   phoneNumber: string;
   verificationSessionId: string;
   assistantId?: string;
@@ -905,7 +905,7 @@ export type StartVerificationCallInput = {
   originConversationId?: string;
 };
 
-export type StartVerificationCallResult =
+type StartVerificationCallResult =
   | { ok: true; callSessionId: string; callSid: string }
   | CallError;
 
@@ -1032,14 +1032,14 @@ export async function startVerificationCall(
 
 // ── Invite call ───────────────────────────────────────────────────────
 
-export type StartInviteCallInput = {
+type StartInviteCallInput = {
   phoneNumber: string;
   friendName: string;
   guardianName: string;
   assistantId?: string;
 };
 
-export type StartInviteCallResult = { ok: true; callSid: string } | CallError;
+type StartInviteCallResult = { ok: true; callSid: string } | CallError;
 
 /**
  * Initiate an outbound call to deliver a voice invite to a contact.

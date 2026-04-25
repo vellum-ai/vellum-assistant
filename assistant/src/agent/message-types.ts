@@ -4,8 +4,6 @@ import {
   type MessageAttachmentInput,
 } from "./attachments.js";
 
-export type { ContentBlock, Message, TextContent } from "../providers/types.js";
-
 export function createUserMessage(
   text: string,
   attachments: MessageAttachmentInput[] = [],
