@@ -74,7 +74,7 @@ import {
 // The effective environment drives URL resolution. Precedence:
 //   1. Popup override persisted in chrome.storage.local
 //   2. Build-time default injected via `--define` at bundle time
-//   3. Fallback to 'dev' (see resolveBuildDefaultEnvironment)
+//   3. Fallback to 'production' (see resolveBuildDefaultEnvironment)
 //
 // The popup can read and write the override via `environment-get` and
 // `environment-set` worker messages without requiring an extension reload.

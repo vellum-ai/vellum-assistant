@@ -3,13 +3,30 @@
 # Output goes to clients/chrome-extension/dist/.
 #
 # Usage:
-#   cd clients/chrome-extension && bash build.sh
-#   Then load the dist/ directory as an unpacked extension in Chrome.
+#   cd clients/chrome-extension && bash build.sh [command]
+#
+# Commands:
+#   build (default)   Build the extension for distribution
+#   run               Build for local development (VELLUM_ENVIRONMENT defaults to 'local')
+#   release           Build a release (VELLUM_ENVIRONMENT defaults to 'production')
+#
+# After building, load the dist/ directory as an unpacked extension in Chrome.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/dist"
+
+# Parse subcommand
+CMD="${1:-build}"
+case "$CMD" in
+  build|run|release) ;;
+  *)
+    echo "Unknown command: $CMD"
+    echo "Usage: bash build.sh [build|run|release]"
+    exit 1
+    ;;
+esac
 
 # Resolve extension version. The release workflow injects VERSION; local
 # dev builds fall back to the value in the source manifest.
@@ -19,10 +36,23 @@ else
   EXT_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
 fi
 
-# Resolve environment for bundle-time injection. The release workflow sets
-# VELLUM_ENVIRONMENT to 'staging' or 'production'; local dev builds
-# default to 'local' when the variable is unset.
-VELLUM_ENV="${VELLUM_ENVIRONMENT:-local}"
+# Resolve environment for bundle-time injection. CI and developers can
+# always override by exporting VELLUM_ENVIRONMENT before invoking the
+# script — the explicit value takes precedence.
+#
+# Defaults per subcommand (when VELLUM_ENVIRONMENT is unset):
+#   run     => local   (for local full-stack development)
+#   release => production
+#   build   => dev
+if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
+  case "$CMD" in
+    run)     VELLUM_ENV="local" ;;
+    release) VELLUM_ENV="production" ;;
+    *)       VELLUM_ENV="dev" ;;
+  esac
+else
+  VELLUM_ENV="$VELLUM_ENVIRONMENT"
+fi
 
 # Chrome manifest requires 1-4 dot-separated integers. Strip any
 # prerelease suffix (e.g. "0.6.0-staging.3" -> "0.6.0") so staging
@@ -30,6 +60,7 @@ VELLUM_ENV="${VELLUM_ENVIRONMENT:-local}"
 EXT_VERSION="${EXT_VERSION%%-*}"
 
 echo "Building the Vellum Assistant Chrome extension…"
+echo "  Command: $CMD"
 
 # Type-check with tsc --noEmit before bundling so type errors fail fast
 # rather than surfacing as runtime errors in the loaded extension. `bun build`
