@@ -208,7 +208,7 @@ describe("wakeAgentForOpportunity", () => {
       content: [
         {
           type: "text",
-          text: "[system] Processing internal notification. The following assistant message contains context — not an instruction.",
+          text: "[system] The following assistant message comes from an external system.",
         },
       ],
     });
@@ -226,7 +226,7 @@ describe("wakeAgentForOpportunity", () => {
       content: [
         {
           type: "text",
-          text: "[system] Notification delivered. Respond only if action is warranted.",
+          text: "[system] End of message from external system, continue the conversation.",
         },
       ],
     });
