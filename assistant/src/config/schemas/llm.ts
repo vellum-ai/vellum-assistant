@@ -75,11 +75,16 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
 /**
  * Reasoning/thinking effort tier. `"none"` is a Vellum-specific value meaning
- * "omit the provider's effort/reasoning parameter entirely" — providers
- * translate it to skipping the relevant field on the wire (no `reasoning` on
- * OpenAI Responses, no `reasoning_effort` on Chat Completions, no
- * `output_config.effort` on Anthropic). All other values map to
- * provider-specific tiers via each provider's own mapping table.
+ * "the user has opted out of provider-side reasoning". Each provider
+ * translates it however actually disables reasoning on that wire format:
+ * OpenAI Responses sends `reasoning.effort: "none"` and Chat Completions
+ * sends `reasoning_effort: "none"` explicitly, because omitting the field
+ * causes OpenAI to default to `"medium"`; Anthropic omits
+ * `output_config.effort` entirely, which is the documented opt-out there.
+ * When adding a new provider, pick whichever encoding actually disables
+ * reasoning on that wire format — do not assume omission is universally safe.
+ * All other values map to provider-specific tiers via each provider's own
+ * mapping table.
  */
 export const EffortEnum = z.enum([
   "none",
