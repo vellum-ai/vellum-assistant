@@ -6,6 +6,7 @@
  * POST   /v1/conversations/fork           — fork an existing conversation
  * GET    /v1/conversations/:id/host-access — read host access for one conversation
  * PATCH  /v1/conversations/:id/host-access — update host access for one conversation
+ * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -20,6 +21,7 @@
 
 import { z } from "zod";
 
+import { loadConfig } from "../../config/loader.js";
 import {
   archiveConversation,
   batchSetDisplayOrders,
@@ -28,6 +30,7 @@ import {
   getConversation,
   getConversationHostAccess,
   PRIVATE_CONVERSATION_FORK_ERROR,
+  setConversationInferenceProfile,
   unarchiveConversation,
   updateConversationHostAccess,
   wipeConversation,
@@ -359,6 +362,87 @@ export function conversationManagementRouteDefinitions(
           conversationId: resolvedId,
           hostAccess: nextHostAccess,
         });
+      },
+    },
+    {
+      endpoint: "conversations/:id/inference-profile",
+      method: "PUT",
+      policyKey: "conversations/inference-profile",
+      summary: "Set conversation inference profile",
+      description:
+        "Override the LLM inference profile for a single conversation. Pass `null` to clear the override and fall back to the workspace `llm.activeProfile`.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        profile: z.string().nullable(),
+      }),
+      responseBody: z.object({
+        conversationId: z.string(),
+        profile: z.string().nullable(),
+      }),
+      handler: async ({ req, params }) => {
+        const resolvedId = resolveConversationId(params.id) ?? params.id;
+        const conversation = getConversation(resolvedId);
+        if (!conversation) {
+          return httpError(
+            "NOT_FOUND",
+            `Conversation ${params.id} not found`,
+            404,
+          );
+        }
+
+        let body: { profile?: unknown };
+        try {
+          body = (await req.json()) as { profile?: unknown };
+        } catch {
+          return httpError("BAD_REQUEST", "Invalid request body", 400);
+        }
+        if (body == null || typeof body !== "object" || Array.isArray(body)) {
+          return httpError("BAD_REQUEST", "Invalid request body", 400);
+        }
+        if (
+          body.profile !== null &&
+          (typeof body.profile !== "string" || body.profile.length === 0)
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            "profile must be a non-empty string or null",
+            400,
+          );
+        }
+
+        const profile = body.profile as string | null;
+        if (profile !== null) {
+          const profiles = loadConfig().llm?.profiles ?? {};
+          if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
+            return httpError(
+              "BAD_REQUEST",
+              `Profile "${profile}" is not defined in llm.profiles`,
+              400,
+            );
+          }
+        }
+
+        await setConversationInferenceProfile(resolvedId, profile);
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(
+              DAEMON_INTERNAL_ASSISTANT_ID,
+              {
+                type: "conversation_inference_profile_updated",
+                conversationId: resolvedId,
+                profile,
+              },
+              resolvedId,
+            ),
+          )
+          .catch((err) => {
+            log.warn(
+              { err, conversationId: resolvedId },
+              "Failed to publish conversation_inference_profile_updated event",
+            );
+          });
+
+        return Response.json({ conversationId: resolvedId, profile });
       },
     },
     {
