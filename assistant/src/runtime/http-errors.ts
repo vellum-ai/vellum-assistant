@@ -24,6 +24,7 @@ export type HttpErrorCode =
   | "GONE"
   | "RATE_LIMITED"
   | "UNPROCESSABLE_ENTITY"
+  | "FAILED_DEPENDENCY"
   | "INTERNAL_ERROR"
   | "NOT_IMPLEMENTED"
   | "SERVICE_UNAVAILABLE";
@@ -94,6 +95,8 @@ export function httpErrorCodeFromStatus(status: number): HttpErrorCode {
       return "GONE";
     case 422:
       return "UNPROCESSABLE_ENTITY";
+    case 424:
+      return "FAILED_DEPENDENCY";
     case 429:
       return "RATE_LIMITED";
     case 501:

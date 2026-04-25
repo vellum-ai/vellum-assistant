@@ -19,7 +19,15 @@ let mockAcpConfig: MockAcpConfig = {
   agents: {},
 };
 
+// Spread the real loader's named exports so transitive importers that pull
+// `loadConfig`, `invalidateConfigCache`, etc. from the same module path
+// still resolve at parse time. Bun's `mock.module` is process-global and
+// returns *exactly* the keys the factory returns — without the spread, any
+// module evaluated after this test file errors at load with
+// "Export named '<X>' not found".
+const realLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
+  ...realLoader,
   getConfig: () => ({ acp: mockAcpConfig }),
 }));
 
@@ -80,10 +88,11 @@ describe("executeAcpListAgents", () => {
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content as string);
-    expect(parsed).toEqual({
-      enabled: false,
-      hint: "Set 'acp.enabled': true to use ACP agents.",
-    });
+    expect(parsed.enabled).toBe(false);
+    // Pulls from the shared ACP_DISABLED_HINT constant exported by
+    // resolve-agent.ts. The exact wording is checked in resolve-agent.test.ts.
+    expect(parsed.hint).toContain("acp.enabled");
+    expect(parsed.hint).toContain("config.json");
   });
 
   test("enabled, no user config: both defaults present with source 'default' and available based on Bun.which", async () => {

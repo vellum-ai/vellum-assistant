@@ -81,7 +81,15 @@ const defaultMockConfig: MockConfig = {
 
 let mockConfig: MockConfig = structuredClone(defaultMockConfig);
 
+// Spread the real loader's named exports so transitive importers that pull
+// `loadConfig`, `invalidateConfigCache`, etc. from the same module path still
+// resolve at parse time. Bun's `mock.module` is process-global and returns
+// *exactly* the keys the factory returns — without the spread, any module
+// evaluated after this test file errors at load with
+// "Export named '<X>' not found".
+const realLoader = await import("../../config/loader.js");
 mock.module("../../config/loader.js", () => ({
+  ...realLoader,
   getConfig: () => mockConfig,
 }));
 
@@ -120,7 +128,15 @@ const spawnMock = mock(
   }),
 );
 
+// Spread the real module's exports so transitive importers that pull other
+// names from `../../acp/index.js` (e.g. `broadcastToAllClients` from the
+// HTTP route layer) still resolve at parse time. Bun's `mock.module` is
+// process-global and returns *exactly* the keys the factory returns —
+// without the spread, any module evaluated after this test file errors at
+// load with "Export named '<X>' not found".
+const realAcpModule = await import("../../acp/index.js");
 mock.module("../../acp/index.js", () => ({
+  ...realAcpModule,
   getAcpSessionManager: () => ({ spawn: spawnMock }),
 }));
 
@@ -354,5 +370,41 @@ describe("executeAcpSpawn — input validation", () => {
     // The agentConfig handed to spawn() should be the bundled default.
     const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
     expect(agentConfigArg.command).toBe("codex-acp");
+  });
+});
+
+describe("executeAcpSpawn — per-agent resume hint", () => {
+  test("claude payload includes the `claude --resume` hint", async () => {
+    execScripts.set("npm ls", { error: new Error("npm not installed") });
+    execScripts.set("npm view", { error: new Error("npm not installed") });
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const [payloadJson] = result.content.split("\n\n");
+    const payload = JSON.parse(payloadJson);
+    expect(payload.message).toContain("claude --resume");
+    expect(payload.message).toContain("To resume this session later");
+  });
+
+  test("non-claude payload omits the `claude --resume` hint", async () => {
+    // `claude --resume <id>` is Claude Code-specific. Codex (and any other
+    // adapter) should not have that command suggested back to the user.
+    execScripts.set("npm ls", { error: new Error("npm not installed") });
+    execScripts.set("npm view", { error: new Error("npm not installed") });
+
+    const result = await executeAcpSpawn(
+      { agent: "codex", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const [payloadJson] = result.content.split("\n\n");
+    const payload = JSON.parse(payloadJson);
+    expect(payload.message).not.toContain("claude --resume");
+    expect(payload.message).not.toContain("To resume this session later");
   });
 });

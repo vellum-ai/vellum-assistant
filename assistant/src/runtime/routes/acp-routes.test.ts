@@ -152,7 +152,7 @@ describe("POST /v1/acp/spawn", () => {
     );
   });
 
-  test("returns 400 with command + install hint when the agent binary is missing", async () => {
+  test("returns 424 FAILED_DEPENDENCY with command + install hint when the agent binary is missing", async () => {
     setConfig({ agents: {} });
     setWhich({}); // no commands on PATH
 
@@ -165,11 +165,11 @@ describe("POST /v1/acp/spawn", () => {
       }),
     );
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(424);
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.code).toBe("FAILED_DEPENDENCY");
     expect(body.error.message).toContain("codex-acp is not on PATH");
     // Same install hint the LLM tool surfaces.
     expect(body.error.message).toContain("npm i -g @zed-industries/codex-acp");
