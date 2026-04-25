@@ -1,0 +1,364 @@
+import SwiftUI
+import XCTest
+@testable import VellumAssistantLib
+@testable import VellumAssistantShared
+
+/// Structural tests for `InferenceProfilesSheet`. We exercise the view's
+/// pure helpers (summary string, identifiable IDs) plus the store-backed
+/// invariants that drive the list, badge, and delete-flow behavior. The
+/// SwiftUI tree itself is constructed without rendering (mirrors the
+/// `InferenceProfileEditorTests` pattern) so we don't take a snapshot
+/// dependency; combined with the SettingsStore-level coverage in
+/// `SettingsStoreInferenceProfilesTests`, this validates the full
+/// management UX.
+@MainActor
+final class InferenceProfilesSheetTests: XCTestCase {
+
+    private var mockSettingsClient: MockSettingsClient!
+    private var store: SettingsStore!
+
+    override func setUp() {
+        super.setUp()
+        mockSettingsClient = MockSettingsClient()
+        mockSettingsClient.patchConfigResponse = true
+        store = SettingsStore(settingsClient: mockSettingsClient)
+        // Tiny deterministic catalog so summary lookups produce stable
+        // human-readable strings without depending on the live registry.
+        store.providerCatalog = [
+            ProviderCatalogEntry(
+                id: "anthropic",
+                displayName: "Anthropic",
+                models: [
+                    CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
+                    CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
+                    CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
+                ],
+                defaultModel: "claude-sonnet-4-6",
+                apiKeyUrl: nil,
+                apiKeyPlaceholder: nil
+            ),
+        ]
+    }
+
+    override func tearDown() {
+        store = nil
+        mockSettingsClient = nil
+        super.tearDown()
+    }
+
+    // MARK: - Helpers
+
+    /// Seeds the store with the three canonical built-in profiles plus an
+    /// optional custom one. Mirrors the daemon's migration-052 seed shape.
+    private func seedBuiltInsAndCustom(includeCustom: Bool = false) {
+        var profiles: [String: Any] = [
+            "quality-optimized": [
+                "provider": "anthropic",
+                "model": "claude-opus-4-7",
+                "maxTokens": 32000,
+                "effort": "max",
+                "thinking": ["enabled": true, "streamThinking": true],
+            ],
+            "balanced": [
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "maxTokens": 16000,
+                "effort": "high",
+                "thinking": ["enabled": true, "streamThinking": true],
+            ],
+            "cost-optimized": [
+                "provider": "anthropic",
+                "model": "claude-haiku-4-5-20251001",
+                "maxTokens": 8192,
+                "effort": "low",
+                "thinking": ["enabled": false, "streamThinking": false],
+            ],
+        ]
+        if includeCustom {
+            profiles["experimental"] = [
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-6",
+                "effort": "medium",
+            ]
+        }
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profiles": profiles,
+            ]
+        ])
+    }
+
+    private func makeSheet() -> InferenceProfilesSheet {
+        let isPresented = Binding<Bool>(get: { true }, set: { _ in })
+        return InferenceProfilesSheet(store: store, isPresented: isPresented)
+    }
+
+    // MARK: - Body construction
+
+    func testSheetBuildsForEmptyProfileList() {
+        let sheet = makeSheet()
+        XCTAssertNotNil(sheet.body, "Body must be constructible when no profiles are loaded")
+    }
+
+    func testSheetBuildsWithBuiltInProfiles() {
+        seedBuiltInsAndCustom()
+        let sheet = makeSheet()
+        XCTAssertNotNil(sheet.body)
+    }
+
+    // MARK: - Built-in detection
+
+    /// The badge wiring uses `BuiltInInferenceProfile.allNames.contains`,
+    /// so the row's badge presence should match the enum exactly.
+    func testBuiltInProfilesShowBadgeAndCustomDoesNot() {
+        seedBuiltInsAndCustom(includeCustom: true)
+        XCTAssertEqual(store.profiles.count, 4)
+
+        let names = Set(store.profiles.map(\.name))
+        XCTAssertTrue(names.contains("quality-optimized"))
+        XCTAssertTrue(names.contains("balanced"))
+        XCTAssertTrue(names.contains("cost-optimized"))
+        XCTAssertTrue(names.contains("experimental"))
+
+        // The badge predicate is defined on the static enum so the row
+        // can stay declarative. Verify it directly here so the contract
+        // doesn't drift.
+        for name in ["quality-optimized", "balanced", "cost-optimized"] {
+            XCTAssertTrue(
+                BuiltInInferenceProfile.allNames.contains(name),
+                "\(name) must render with a Built-in badge"
+            )
+        }
+        XCTAssertFalse(
+            BuiltInInferenceProfile.allNames.contains("experimental"),
+            "Custom profiles must not render the Built-in badge"
+        )
+    }
+
+    // MARK: - Summary line
+
+    func testSummaryComposesProviderModelEffortThinkingForFullFragment() {
+        let profile = InferenceProfile(
+            name: "quality-optimized",
+            provider: "anthropic",
+            model: "claude-opus-4-7",
+            effort: "max",
+            thinkingEnabled: true
+        )
+        let summary = InferenceProfilesSheet.summary(for: profile, store: store)
+        XCTAssertEqual(summary, "Claude Opus 4.7 \u{00B7} max effort \u{00B7} thinking on")
+    }
+
+    func testSummaryReportsThinkingOff() {
+        let profile = InferenceProfile(
+            name: "cost-optimized",
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001",
+            effort: "low",
+            thinkingEnabled: false
+        )
+        let summary = InferenceProfilesSheet.summary(for: profile, store: store)
+        XCTAssertEqual(summary, "Claude Haiku 4.5 \u{00B7} low effort \u{00B7} thinking off")
+    }
+
+    func testSummaryFallsBackToInheritsDefaultsForEmptyFragment() {
+        let profile = InferenceProfile(name: "empty")
+        let summary = InferenceProfilesSheet.summary(for: profile, store: store)
+        XCTAssertEqual(summary, "Inherits defaults")
+    }
+
+    func testSummaryFallsBackToProviderWhenModelIsNil() {
+        let profile = InferenceProfile(name: "p", provider: "anthropic")
+        let summary = InferenceProfilesSheet.summary(for: profile, store: store)
+        XCTAssertEqual(summary, "Anthropic")
+    }
+
+    func testSummaryUsesRawModelWhenCatalogMissesIt() {
+        let profile = InferenceProfile(
+            name: "x",
+            provider: "anthropic",
+            model: "experimental-vintage-1"
+        )
+        let summary = InferenceProfilesSheet.summary(for: profile, store: store)
+        // The catalog has no display name for this model, so we fall back
+        // to the raw model id.
+        XCTAssertEqual(summary, "experimental-vintage-1")
+    }
+
+    // MARK: - EditorState identifiable
+
+    func testEditorStateIDsAreStable() {
+        XCTAssertEqual(InferenceProfilesSheet.EditorState.create.id, "create")
+        XCTAssertEqual(
+            InferenceProfilesSheet.EditorState.edit(name: "balanced").id,
+            "edit:balanced"
+        )
+        XCTAssertEqual(
+            InferenceProfilesSheet.EditorState.duplicate(name: "balanced").id,
+            "duplicate:balanced"
+        )
+    }
+
+    func testEditorStateEquatableDistinguishesNames() {
+        XCTAssertEqual(
+            InferenceProfilesSheet.EditorState.edit(name: "a"),
+            InferenceProfilesSheet.EditorState.edit(name: "a")
+        )
+        XCTAssertNotEqual(
+            InferenceProfilesSheet.EditorState.edit(name: "a"),
+            InferenceProfilesSheet.EditorState.edit(name: "b")
+        )
+        XCTAssertNotEqual(
+            InferenceProfilesSheet.EditorState.edit(name: "a"),
+            InferenceProfilesSheet.EditorState.duplicate(name: "a")
+        )
+    }
+
+    // MARK: - BlockedDeleteState identifiable
+
+    func testBlockedDeleteStateIDsAreStable() {
+        let active = InferenceProfilesSheet.BlockedDeleteState.active(
+            profileName: "balanced",
+            activeProfile: "balanced"
+        )
+        XCTAssertEqual(active.id, "active:balanced")
+
+        let callSites = InferenceProfilesSheet.BlockedDeleteState.callSites(
+            profileName: "fast",
+            callSiteIds: ["mainAgent", "memoryRetrieval"]
+        )
+        XCTAssertEqual(callSites.id, "callSites:fast")
+    }
+
+    // MARK: - Delete flow integration with store
+
+    /// Deleting the active profile produces `.blockedByActive`. The sheet
+    /// uses this to drive its `BlockedDeleteState.active` presentation.
+    func testDeletingActiveProfileReturnsBlockedByActiveResult() async {
+        seedBuiltInsAndCustom()
+        XCTAssertEqual(store.activeProfile, "balanced")
+
+        let result = await store.deleteProfile(name: "balanced")
+        XCTAssertEqual(result, .blockedByActive("balanced"))
+    }
+
+    /// Deleting a profile that's referenced by call sites returns
+    /// `.blockedByCallSites`. The sheet maps this to its callSites
+    /// confirmation surface.
+    func testDeletingCallSiteReferencedProfileReturnsBlockedByCallSitesResult() async {
+        seedBuiltInsAndCustom(includeCustom: true)
+        store.loadCallSiteOverrides(config: [
+            "llm": [
+                "callSites": [
+                    "mainAgent": ["profile": "experimental"],
+                    "memoryRetrieval": ["profile": "experimental"],
+                ]
+            ]
+        ])
+
+        let result = await store.deleteProfile(name: "experimental")
+        if case .blockedByCallSites(let ids) = result {
+            XCTAssertEqual(Set(ids), ["mainAgent", "memoryRetrieval"])
+        } else {
+            XCTFail("Expected .blockedByCallSites, got \(result)")
+        }
+    }
+
+    /// Deleting a custom profile that nothing references succeeds and
+    /// removes it from the store. The sheet's row count drops by one as
+    /// a result.
+    func testDeletingUnreferencedCustomProfileSucceedsAndShrinksList() async {
+        seedBuiltInsAndCustom(includeCustom: true)
+        XCTAssertEqual(store.profiles.count, 4)
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "experimental" }))
+
+        let result = await store.deleteProfile(name: "experimental")
+        XCTAssertEqual(result, .deleted)
+        XCTAssertEqual(store.profiles.count, 3)
+        XCTAssertFalse(store.profiles.contains(where: { $0.name == "experimental" }))
+    }
+
+    /// Built-in profiles remain deletable when nothing references them —
+    /// the badge is informational, not a guard. This protects the
+    /// invariant called out in the plan: "Built-ins render with the badge
+    /// but remain editable and deletable when not referenced."
+    func testBuiltInProfileIsDeletableWhenNotReferenced() async {
+        seedBuiltInsAndCustom()
+        // Make a non-built-in the active profile so the built-in target
+        // isn't blocked by the active-profile check. Use a fresh custom
+        // entry to avoid colliding with the seeded set.
+        let custom = InferenceProfile(
+            name: "alt",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+        let saved = await store.setProfile(name: "alt", fragment: custom)
+        XCTAssertTrue(saved)
+        let switched = await store.setActiveProfile("alt")
+        XCTAssertTrue(switched)
+
+        // Now delete a built-in. No call-site override references it, so
+        // the result must be .deleted.
+        let result = await store.deleteProfile(name: "quality-optimized")
+        XCTAssertEqual(result, .deleted)
+        XCTAssertFalse(store.profiles.contains(where: { $0.name == "quality-optimized" }))
+    }
+
+    // MARK: - "+ New profile" flow
+
+    /// Adding a new profile via the store path the sheet uses extends the
+    /// list. The sheet's beginCreate/commitEditor flow ultimately routes
+    /// through `setProfile`, so verifying that path covers the row append.
+    func testAddingNewProfileViaStoreAppendsToList() async {
+        seedBuiltInsAndCustom()
+        let countBefore = store.profiles.count
+
+        let new = InferenceProfile(
+            name: "new-profile",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6"
+        )
+        let success = await store.setProfile(name: "new-profile", fragment: new)
+        XCTAssertTrue(success)
+
+        XCTAssertEqual(store.profiles.count, countBefore + 1)
+        XCTAssertTrue(store.profiles.contains(where: { $0.name == "new-profile" }))
+        // List is sorted alphabetically — `new-profile` should land after
+        // `cost-optimized` and before `quality-optimized`.
+        let names = store.profiles.map(\.name)
+        XCTAssertEqual(names, names.sorted(), "Profiles list must remain alphabetically sorted")
+    }
+
+    /// The "+ New profile" toolbar action seeds a draft with the default
+    /// name `"new-profile"`. The static helper avoids collisions by
+    /// appending `-2`, `-3`, etc. when the default is already in use.
+    func testNextAvailableProfileNameAvoidsCollisions() {
+        let unused = InferenceProfilesSheet.nextAvailableProfileName(
+            prefix: "new-profile",
+            existing: []
+        )
+        XCTAssertEqual(unused, "new-profile")
+
+        let onePresent = InferenceProfilesSheet.nextAvailableProfileName(
+            prefix: "new-profile",
+            existing: ["new-profile"]
+        )
+        XCTAssertEqual(onePresent, "new-profile-2")
+
+        let twoPresent = InferenceProfilesSheet.nextAvailableProfileName(
+            prefix: "new-profile",
+            existing: ["new-profile", "new-profile-2"]
+        )
+        XCTAssertEqual(twoPresent, "new-profile-3")
+
+        // Holes in the suffix sequence are not back-filled; the helper
+        // monotonically advances. This keeps the algorithm O(n) and the
+        // user never sees the same candidate name twice in one session.
+        let hole = InferenceProfilesSheet.nextAvailableProfileName(
+            prefix: "balanced-copy",
+            existing: ["balanced-copy", "balanced-copy-3"]
+        )
+        XCTAssertEqual(hole, "balanced-copy-2")
+    }
+}

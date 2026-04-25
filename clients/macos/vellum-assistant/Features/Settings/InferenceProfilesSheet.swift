@@ -1,0 +1,533 @@
+import SwiftUI
+import VellumAssistantShared
+
+/// Management sheet for the user's inference profiles. Lists every entry in
+/// `store.profiles`, surfaces a "Built-in" badge for the canonical profiles
+/// seeded by workspace migration 052, and exposes Edit / Duplicate / Delete
+/// per row plus a `+ New profile` toolbar action.
+///
+/// State ownership:
+/// - The list mirrors `store.profiles` directly. Edits route through
+///   `store.setProfile(name:fragment:)` which updates the published state
+///   optimistically, so the sheet does not maintain a separate draft cache
+///   for the list rows.
+/// - The editor is presented modally over the sheet via the
+///   `editorState` @State. The editor has its own draft binding —
+///   committing pushes the fragment to the store and dismisses the editor.
+/// - Delete blocked-by-references confirmation surfaces via `blockedState`.
+///   The user can re-target every conflicting reference to a replacement
+///   profile, which retries the delete after the patches land.
+///
+/// Built-in profiles are *not* protected — the badge is informational only.
+/// Users can edit, duplicate, or delete a built-in profile. Re-running the
+/// seed migration is idempotent and skips entries the user has touched, so
+/// deleted built-ins stay deleted across daemon restarts.
+@MainActor
+struct InferenceProfilesSheet: View {
+    @ObservedObject var store: SettingsStore
+    @Binding var isPresented: Bool
+
+    @State private var editorState: EditorState?
+
+    /// Local working copy for the active editor session. Bound into
+    /// `InferenceProfileEditor` so the user's edits flow through without
+    /// requiring the store to allocate intermediate state.
+    @State private var editorDraft: InferenceProfile = InferenceProfile(name: "")
+
+    /// Original profile name when an edit session begins. Drives the rename
+    /// detection in `commitEditor` — when the user changes the name we
+    /// delete the old key after the new one writes successfully.
+    @State private var editorOriginalName: String?
+
+    @State private var blockedState: BlockedDeleteState?
+
+    /// Picked replacement profile name in the blocked-delete dialog. Drives
+    /// the "Pick replacement" affordance.
+    @State private var replacementSelection: String = ""
+
+    /// Inline error surfaced when a save or delete fails. Cleared at the
+    /// start of every action.
+    @State private var actionError: String?
+
+    enum EditorState: Equatable {
+        case create
+        case edit(name: String)
+        case duplicate(name: String)
+    }
+
+    /// Conflict surface for a blocked delete. Mirrors
+    /// `SettingsStore.DeleteProfileResult.blockedBy*` so the UI can render a
+    /// per-shape message + remediation affordance.
+    enum BlockedDeleteState: Equatable {
+        case active(profileName: String, activeProfile: String)
+        case callSites(profileName: String, callSiteIds: [String])
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            SettingsDivider()
+            profilesList
+            SettingsDivider()
+            footer
+        }
+        .frame(width: 560, height: 540)
+        .background(VColor.surfaceLift)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .sheet(item: $editorState) { _ in
+            editorSheet
+        }
+        .sheet(item: $blockedState) { _ in
+            blockedDeleteSheet
+        }
+        .onChange(of: editorState) { _, newValue in
+            // Clear the draft when the editor dismisses so the next
+            // session starts from a clean slate. Re-seeding happens in
+            // `beginCreate` / `beginEdit` / `beginDuplicate`.
+            if newValue == nil {
+                editorDraft = InferenceProfile(name: "")
+                editorOriginalName = nil
+            }
+        }
+        .onChange(of: blockedState) { _, newValue in
+            if newValue == nil {
+                replacementSelection = ""
+            }
+        }
+    }
+
+    // MARK: - Header / Footer
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Inference Profiles")
+                    .font(VFont.titleSmall)
+                    .foregroundStyle(VColor.contentDefault)
+                Text("Bundle a provider, model, and tuning into a named profile. Assign profiles to call sites or pick one for a single chat.")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "+ New Profile", style: .primary) {
+                    beginCreate()
+                }
+                VButton(
+                    label: "Close",
+                    iconOnly: VIcon.x.rawValue,
+                    style: .ghost,
+                    tintColor: VColor.contentTertiary
+                ) {
+                    isPresented = false
+                }
+            }
+        }
+        .padding(VSpacing.lg)
+    }
+
+    private var footer: some View {
+        HStack {
+            if let actionError {
+                Text(actionError)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+            }
+            Spacer()
+            VButton(label: "Done", style: .outlined) {
+                isPresented = false
+            }
+        }
+        .padding(VSpacing.lg)
+    }
+
+    // MARK: - Profiles List
+
+    private var profilesList: some View {
+        List {
+            if store.profiles.isEmpty {
+                emptyState
+                    .listRowSeparator(.hidden)
+            } else {
+                ForEach(store.profiles) { profile in
+                    profileRow(profile)
+                        .contextMenu {
+                            Button("Edit") { beginEdit(profile.name) }
+                            Button("Duplicate") { beginDuplicate(profile.name) }
+                            Divider()
+                            Button("Delete", role: .destructive) {
+                                Task { await attemptDelete(profile.name) }
+                            }
+                        }
+                }
+            }
+        }
+        .listStyle(.inset)
+        .frame(maxHeight: .infinity)
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .center, spacing: VSpacing.sm) {
+            Text("No inference profiles configured")
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(VColor.contentDefault)
+            Text("Add a profile to bundle a provider, model, and tuning under a name you can reuse across call sites and chats.")
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(VSpacing.xl)
+    }
+
+    /// Single row: name + optional badge on the leading column, summary on
+    /// the trailing column. Tapping opens the editor; the context menu
+    /// surfaces Duplicate and Delete in addition.
+    private func profileRow(_ profile: InferenceProfile) -> some View {
+        HStack(alignment: .center, spacing: VSpacing.md) {
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                HStack(spacing: VSpacing.xs) {
+                    Text(profile.name)
+                        .font(VFont.bodyMediumEmphasised)
+                        .foregroundStyle(VColor.contentDefault)
+                    if BuiltInInferenceProfile.allNames.contains(profile.name) {
+                        VBadge(label: "Built-in", tone: .neutral, emphasis: .subtle)
+                    }
+                }
+                Text(InferenceProfilesSheet.summary(for: profile, store: store))
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+            Spacer(minLength: 0)
+            VButton(label: "Edit", style: .ghost) {
+                beginEdit(profile.name)
+            }
+        }
+        .padding(.vertical, VSpacing.xs)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - Editor Sheet
+
+    private var editorSheet: some View {
+        InferenceProfileEditor(
+            store: store,
+            profile: $editorDraft,
+            onSave: {
+                Task { await commitEditor() }
+            },
+            onCancel: {
+                editorState = nil
+            }
+        )
+    }
+
+    // MARK: - Blocked Delete Sheet
+
+    private var blockedDeleteSheet: some View {
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            blockedDeleteHeader
+            blockedDeleteBody
+            blockedDeleteActions
+        }
+        .padding(VSpacing.xl)
+        .frame(width: 460)
+        .background(VColor.surfaceOverlay)
+    }
+
+    private var blockedDeleteHeader: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Can't Delete Profile")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+            Text(blockedSummary)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var blockedDeleteBody: some View {
+        switch blockedState {
+        case .active:
+            EmptyView()
+        case .callSites(_, let ids):
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Call sites using this profile:")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                ForEach(ids, id: \.self) { id in
+                    Text("• \(callSiteDisplayName(id))")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                }
+            }
+        case .none:
+            EmptyView()
+        }
+    }
+
+    private var blockedDeleteActions: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            if !replacementOptions.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Pick replacement")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                    VDropdown(
+                        placeholder: "Select a replacement profile\u{2026}",
+                        selection: $replacementSelection,
+                        options: replacementOptions.map { (label: $0, value: $0) }
+                    )
+                }
+            }
+            HStack(spacing: VSpacing.sm) {
+                Spacer(minLength: 0)
+                VButton(label: "Cancel", style: .ghost) {
+                    blockedState = nil
+                }
+                VButton(
+                    label: "Reassign and Delete",
+                    style: .danger,
+                    isDisabled: replacementSelection.isEmpty
+                ) {
+                    Task { await retargetAndDelete() }
+                }
+            }
+        }
+    }
+
+    private var blockedSummary: String {
+        switch blockedState {
+        case .active(let profileName, let active):
+            return "\"\(profileName)\" is the active profile (\"\(active)\"). Pick a different active profile or a replacement below to delete it."
+        case .callSites(let profileName, let ids):
+            let count = ids.count
+            let suffix = count == 1 ? "call site" : "call sites"
+            return "\"\(profileName)\" is in use by \(count) \(suffix). Pick a replacement to re-target the references, or cancel and clear them manually."
+        case .none:
+            return ""
+        }
+    }
+
+    /// Replacement candidates are every profile except the one we're trying
+    /// to delete. Sorted alphabetically to match the list ordering.
+    private var replacementOptions: [String] {
+        let blockedName: String?
+        switch blockedState {
+        case .active(let name, _):
+            blockedName = name
+        case .callSites(let name, _):
+            blockedName = name
+        case .none:
+            blockedName = nil
+        }
+        return store.profiles
+            .map(\.name)
+            .filter { $0 != blockedName }
+            .sorted()
+    }
+
+    // MARK: - Actions
+
+    private func beginCreate() {
+        actionError = nil
+        let baseName = "new-profile"
+        let uniqueName = uniqueProfileName(prefix: baseName)
+        editorDraft = InferenceProfile(name: uniqueName)
+        editorOriginalName = nil
+        editorState = .create
+    }
+
+    private func beginEdit(_ name: String) {
+        actionError = nil
+        guard let existing = store.profiles.first(where: { $0.name == name }) else { return }
+        editorDraft = existing
+        editorOriginalName = name
+        editorState = .edit(name: name)
+    }
+
+    private func beginDuplicate(_ name: String) {
+        actionError = nil
+        guard let source = store.profiles.first(where: { $0.name == name }) else { return }
+        var copy = source
+        copy.name = uniqueProfileName(prefix: "\(name)-copy")
+        editorDraft = copy
+        editorOriginalName = nil
+        editorState = .duplicate(name: name)
+    }
+
+    private func commitEditor() async {
+        let draft = editorDraft
+        let originalName = editorOriginalName
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Refuse to commit empty or whitespace-only names — the daemon
+        // would accept them but the row would render unusably.
+        guard !name.isEmpty else { return }
+
+        let success = await store.setProfile(name: name, fragment: draft)
+        guard success else {
+            actionError = "Couldn't save profile. Please try again."
+            return
+        }
+
+        // Renaming an existing profile: drop the old key. We do this only
+        // when the rename succeeded so a failed rename leaves the source
+        // intact.
+        if let originalName, originalName != name {
+            // Best-effort delete — the editor doesn't surface
+            // blocked-by errors here because the user just renamed; the
+            // worst case is a stale entry the user can clean up manually.
+            _ = await store.deleteProfile(name: originalName)
+        }
+
+        editorState = nil
+    }
+
+    private func attemptDelete(_ name: String) async {
+        actionError = nil
+        let result = await store.deleteProfile(name: name)
+        switch result {
+        case .deleted:
+            break
+        case .blockedByActive(let active):
+            blockedState = .active(profileName: name, activeProfile: active)
+        case .blockedByCallSites(let ids):
+            blockedState = .callSites(profileName: name, callSiteIds: ids)
+        case .failed:
+            actionError = "Couldn't delete \"\(name)\". Please try again."
+        }
+    }
+
+    /// Re-targets every conflicting reference to `replacementSelection`,
+    /// then retries the delete. Used by the "Pick replacement" affordance
+    /// in the blocked-delete sheet.
+    private func retargetAndDelete() async {
+        guard !replacementSelection.isEmpty,
+              let blocked = blockedState else { return }
+        let replacement = replacementSelection
+        let blockedName: String
+        switch blocked {
+        case .active(let name, _):
+            blockedName = name
+            // Re-target the active profile pointer.
+            _ = await store.setActiveProfile(replacement)
+        case .callSites(let name, let ids):
+            blockedName = name
+            for id in ids {
+                _ = store.replaceCallSiteOverride(
+                    id,
+                    provider: nil,
+                    model: nil,
+                    profile: replacement
+                )
+            }
+            // Wait for the optimistic local cache to reflect the
+            // replacement so the next deleteProfile reference scan
+            // doesn't re-trip on stale state. The store updates the
+            // cache synchronously in `replaceCallSiteOverride` before
+            // dispatching the daemon PATCH, so the published list is
+            // already correct here — but the daemon-side patches are in
+            // flight. We optimistically retry; the deleteProfile
+            // reference scan reads the local cache, not the daemon.
+        }
+        // Dismiss the blocked sheet first so the retry can re-present it
+        // if needed (otherwise SwiftUI would suppress a second sheet
+        // presentation).
+        blockedState = nil
+        // Retry the delete now that references are pointing at the
+        // replacement.
+        await attemptDelete(blockedName)
+    }
+
+    /// Generates a name that doesn't collide with any existing profile.
+    /// `"new-profile"` becomes `"new-profile-2"`, `"new-profile-3"`, etc.
+    static func nextAvailableProfileName(prefix: String, existing: Set<String>) -> String {
+        if !existing.contains(prefix) {
+            return prefix
+        }
+        var suffix = 2
+        while existing.contains("\(prefix)-\(suffix)") {
+            suffix += 1
+        }
+        return "\(prefix)-\(suffix)"
+    }
+
+    private func uniqueProfileName(prefix: String) -> String {
+        Self.nextAvailableProfileName(
+            prefix: prefix,
+            existing: Set(store.profiles.map(\.name))
+        )
+    }
+
+    /// Resolves a callsite ID to its catalog display name when known,
+    /// falling back to the raw ID if the catalog has no entry.
+    private func callSiteDisplayName(_ id: String) -> String {
+        CallSiteCatalog.byId[id]?.displayName ?? id
+    }
+
+    // MARK: - Static Helpers
+
+    /// Composes the row's summary line. Resolves provider+model display
+    /// names against the store's catalog when present so the user sees the
+    /// human-readable label rather than the wire ID, then appends effort
+    /// and thinking summaries when they're set on the fragment.
+    static func summary(for profile: InferenceProfile, store: SettingsStore) -> String {
+        var pieces: [String] = []
+        if let provider = profile.provider, !provider.isEmpty {
+            if let model = profile.model, !model.isEmpty {
+                let models = store.dynamicProviderModels(provider)
+                let label = models.first(where: { $0.id == model })?.displayName ?? model
+                pieces.append(label)
+            } else {
+                pieces.append(store.dynamicProviderDisplayName(provider))
+            }
+        } else if let model = profile.model, !model.isEmpty {
+            pieces.append(model)
+        }
+        if let effort = profile.effort, !effort.isEmpty {
+            pieces.append("\(effort) effort")
+        }
+        if let thinkingEnabled = profile.thinkingEnabled {
+            pieces.append("thinking \(thinkingEnabled ? "on" : "off")")
+        }
+        if pieces.isEmpty {
+            return "Inherits defaults"
+        }
+        return pieces.joined(separator: " \u{00B7} ")
+    }
+}
+
+// MARK: - Identifiable Conformance
+
+/// `EditorState` is used as an `Identifiable` value via `.sheet(item:)`.
+/// Each variant maps to a stable string id so SwiftUI can drive the sheet's
+/// presentation lifecycle.
+extension InferenceProfilesSheet.EditorState: Identifiable {
+    var id: String {
+        switch self {
+        case .create:
+            return "create"
+        case .edit(let name):
+            return "edit:\(name)"
+        case .duplicate(let name):
+            return "duplicate:\(name)"
+        }
+    }
+}
+
+extension InferenceProfilesSheet.BlockedDeleteState: Identifiable {
+    var id: String {
+        switch self {
+        case .active(let name, _):
+            return "active:\(name)"
+        case .callSites(let name, _):
+            return "callSites:\(name)"
+        }
+    }
+}
