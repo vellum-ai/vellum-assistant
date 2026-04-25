@@ -2,20 +2,11 @@ import { execFile } from "node:child_process";
 
 import { getAcpSessionManager } from "../../acp/index.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import { DEFAULT_AGENT_NPM_PACKAGES } from "../../config/acp-defaults.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("acp:spawn");
-
-/**
- * Maps adapter binary commands to their npm package names. The version
- * check is best-effort and only runs for known adapters; unknown commands
- * skip the check entirely.
- */
-const ADAPTER_NPM_PACKAGES: Record<string, string> = {
-  "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-  "codex-acp": "@zed-industries/codex-acp",
-};
 
 /** Per-call timeout for `npm` probes. Best-effort: timeouts are non-fatal. */
 const NPM_PROBE_TIMEOUT_MS = 5_000;
@@ -79,7 +70,7 @@ async function checkAdapterVersion(
     return adapterVersionCache.get(command) ?? null;
   }
 
-  const packageName = ADAPTER_NPM_PACKAGES[command];
+  const packageName = DEFAULT_AGENT_NPM_PACKAGES[command];
   if (!packageName) {
     adapterVersionCache.set(command, null);
     return null;
@@ -157,9 +148,15 @@ export async function executeAcpSpawn(
         };
       case "binary_not_found":
         return {
-          content: `${resolved.agent.command} is not on PATH. ${resolved.hint}`,
+          content: `${resolved.command} is not on PATH. ${resolved.hint}`,
           isError: true,
         };
+      default: {
+        const _exhaustive: never = resolved;
+        throw new Error(
+          `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
+        );
+      }
     }
   }
   const agentConfig = resolved.agent;
@@ -190,6 +187,12 @@ export async function executeAcpSpawn(
       sendToClient as (msg: unknown) => void,
     );
 
+    // `claude --resume <id>` is Claude Code-specific; codex and other
+    // adapters resume differently or not at all, so the hint is gated.
+    const resumeHint =
+      agent === "claude"
+        ? ` To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`
+        : "";
     const payload = JSON.stringify({
       acpSessionId,
       protocolSessionId,
@@ -198,8 +201,7 @@ export async function executeAcpSpawn(
       status: "running",
       message:
         `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
-        `Results stream back via SSE. You will be notified when it completes. ` +
-        `To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`,
+        `Results stream back via SSE. You will be notified when it completes.${resumeHint}`,
     });
 
     let content = payload;

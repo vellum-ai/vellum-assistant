@@ -7,8 +7,8 @@
  * config required. The result is a discriminated union covering every reason
  * a spawn might fail before we even start the agent process: ACP disabled,
  * unknown agent id, or binary missing from PATH. Callers (acp_spawn,
- * acp_list_agents, acp_steer) get a single source of truth and matching
- * actionable hints.
+ * acp_list_agents, and the `/v1/acp/spawn` HTTP route) get a single source
+ * of truth and matching actionable hints.
  *
  * `listAcpAgents()` exposes the merged catalog with availability info for
  * the `acp_list_agents` tool — same merge semantics, plus per-entry
@@ -24,21 +24,20 @@ import { getConfig } from "../config/loader.js";
 
 /**
  * Whether this agent's entry came from user config (wins over default) or
- * fell back to the bundled default profile. Surfaced in tool output so users
- * can see at a glance which agents they've customized.
+ * fell back to the bundled default profile. Surfaced in `acp_list_agents`
+ * output so users can see at a glance which agents they've customized.
  */
 export type AcpAgentSource = "config" | "default";
 
 export type ResolveAcpAgentResult =
-  | { ok: true; agent: AcpAgentConfig; source: AcpAgentSource }
+  | { ok: true; agent: AcpAgentConfig }
   | { ok: false; reason: "acp_disabled"; hint: string }
-  | { ok: false; reason: "unknown_agent"; hint: string; available: string[] }
+  | { ok: false; reason: "unknown_agent"; available: string[] }
   | {
       ok: false;
       reason: "binary_not_found";
       hint: string;
-      agent: AcpAgentConfig;
-      source: AcpAgentSource;
+      command: string;
     };
 
 export interface AcpAgentEntry {
@@ -51,7 +50,12 @@ export interface AcpAgentEntry {
   setupHint?: string;
 }
 
-const ACP_DISABLED_HINT =
+/**
+ * Single-source-of-truth hint for "ACP is disabled". Exported so any caller
+ * that surfaces a disabled-state message (resolver, list-agents tool) reads
+ * the same string instead of duplicating near-identical copy.
+ */
+export const ACP_DISABLED_HINT =
   "Set 'acp.enabled': true in ~/.vellum/workspace/config.json (or via the runtime config endpoint).";
 
 function installHintFor(command: string): string {
@@ -113,23 +117,21 @@ export function resolveAcpAgent(id: string): ResolveAcpAgentResult {
     return {
       ok: false,
       reason: "unknown_agent",
-      hint: `Unknown agent "${id}". Set 'acp.agents.${id}' in config or use one of the bundled defaults.`,
       available: mergedAgentIds(userAgents),
     };
   }
 
-  const { agent, source } = found;
+  const { agent } = found;
   if (!Bun.which(agent.command)) {
     return {
       ok: false,
       reason: "binary_not_found",
       hint: installHintFor(agent.command),
-      agent,
-      source,
+      command: agent.command,
     };
   }
 
-  return { ok: true, agent, source };
+  return { ok: true, agent };
 }
 
 /**

@@ -18,7 +18,15 @@ let mockAcpConfig: MockAcpConfig = {
   agents: {},
 };
 
+// Spread the real loader's named exports so transitive importers that pull
+// `loadConfig`, `invalidateConfigCache`, etc. from the same module path
+// still resolve at parse time. Bun's `mock.module` is process-global and
+// returns *exactly* the keys the factory returns — without the spread, any
+// module evaluated after this test file errors at load with
+// "Export named '<X>' not found".
+const realLoader = await import("../config/loader.js");
 mock.module("../config/loader.js", () => ({
+  ...realLoader,
   getConfig: () => ({ acp: mockAcpConfig }),
 }));
 
@@ -94,7 +102,6 @@ describe("resolveAcpAgent", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.source).toBe("config");
     expect(result.agent.command).toBe("my-custom-claude");
     expect(result.agent.args).toEqual(["--my-flag"]);
     expect(result.agent.description).toBe("user override");
@@ -107,7 +114,6 @@ describe("resolveAcpAgent", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.source).toBe("default");
     expect(result.agent.command).toBe("codex-acp");
     expect(result.agent.description).toContain("@zed-industries/codex-acp");
   });
@@ -119,7 +125,6 @@ describe("resolveAcpAgent", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.source).toBe("default");
     expect(result.agent.command).toBe("claude-agent-acp");
   });
 
@@ -138,7 +143,6 @@ describe("resolveAcpAgent", () => {
     if (result.reason !== "unknown_agent") return;
     // Defaults plus user-only ids, deduped, in stable order (defaults first).
     expect(result.available).toEqual(["claude", "codex", "user-only"]);
-    expect(result.hint).toContain("nonexistent");
   });
 
   test("unknown_agent available list contains both defaults when user config is empty", () => {
@@ -165,8 +169,7 @@ describe("resolveAcpAgent", () => {
     expect(result.reason).toBe("binary_not_found");
     if (result.reason !== "binary_not_found") return;
     expect(result.hint).toBe("npm i -g @agentclientprotocol/claude-agent-acp");
-    expect(result.agent.command).toBe("claude-agent-acp");
-    expect(result.source).toBe("default");
+    expect(result.command).toBe("claude-agent-acp");
   });
 
   test("binary_not_found uses generic hint for user-only commands without a registered hint", () => {
@@ -186,7 +189,7 @@ describe("resolveAcpAgent", () => {
     expect(result.hint).toBe(
       "Install 'unknown-binary' and ensure it is on PATH.",
     );
-    expect(result.source).toBe("config");
+    expect(result.command).toBe("unknown-binary");
   });
 
   test("binary_not_found uses the install hint based on the resolved command, not the agent id", () => {
@@ -220,7 +223,6 @@ describe("resolveAcpAgent", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.source).toBe("config");
     expect(result.agent.args).toEqual(["--verbose"]);
   });
 });
