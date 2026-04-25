@@ -158,6 +158,115 @@ function bootstrapTables(raw: Database): void {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE call_sessions (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      from_number TEXT NOT NULL,
+      to_number TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'initiated',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE call_pending_questions (
+      id TEXT PRIMARY KEY,
+      call_session_id TEXT NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,
+      question_text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      asked_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE guardian_action_requests (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      source_channel TEXT NOT NULL,
+      source_conversation_id TEXT NOT NULL,
+      call_session_id TEXT NOT NULL REFERENCES call_sessions(id) ON DELETE CASCADE,
+      pending_question_id TEXT NOT NULL REFERENCES call_pending_questions(id) ON DELETE CASCADE,
+      question_text TEXT NOT NULL,
+      request_code TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE guardian_action_deliveries (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES guardian_action_requests(id) ON DELETE CASCADE,
+      destination_channel TEXT NOT NULL,
+      destination_conversation_id TEXT,
+      destination_chat_id TEXT,
+      destination_external_user_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE canonical_guardian_requests (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_channel TEXT,
+      conversation_id TEXT,
+      request_code TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE canonical_guardian_deliveries (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES canonical_guardian_requests(id) ON DELETE CASCADE,
+      destination_channel TEXT NOT NULL,
+      destination_conversation_id TEXT,
+      destination_chat_id TEXT,
+      destination_message_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE scoped_approval_grants (
+      id TEXT PRIMARY KEY,
+      scope_mode TEXT NOT NULL,
+      request_id TEXT,
+      tool_name TEXT,
+      input_digest TEXT,
+      request_channel TEXT NOT NULL,
+      decision_channel TEXT NOT NULL,
+      execution_channel TEXT,
+      conversation_id TEXT,
+      call_session_id TEXT,
+      requester_external_user_id TEXT,
+      guardian_external_user_id TEXT,
+      status TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER,
+      consumed_by_request_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE channel_guardian_approval_requests (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      request_id TEXT,
+      conversation_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      requester_external_user_id TEXT NOT NULL,
+      requester_chat_id TEXT NOT NULL,
+      guardian_external_user_id TEXT NOT NULL,
+      guardian_chat_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE memory_summaries (
       id TEXT PRIMARY KEY,
       scope_id TEXT NOT NULL DEFAULT 'default',
@@ -333,6 +442,132 @@ function seedConversation(raw: Database, id: string, conversationType: string) {
     .run(id, now, now);
 }
 
+function seedGuardianAndApprovalRows(raw: Database, now: number): void {
+  raw.exec(/*sql*/ `
+    INSERT INTO call_sessions (
+      id,
+      conversation_id,
+      provider,
+      from_number,
+      to_number,
+      status,
+      created_at,
+      updated_at
+    ) VALUES
+      ('call-standard-guardian', 'conv-standard', 'test-provider', '+15550100', '+15550101', 'initiated', ${now}, ${now});
+
+    INSERT INTO call_pending_questions (
+      id,
+      call_session_id,
+      question_text,
+      status,
+      asked_at
+    ) VALUES
+      ('question-standard-guardian', 'call-standard-guardian', 'Approve?', 'pending', ${now});
+
+    INSERT INTO guardian_action_requests (
+      id,
+      kind,
+      source_channel,
+      source_conversation_id,
+      call_session_id,
+      pending_question_id,
+      question_text,
+      request_code,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    ) VALUES
+      ('legacy-request-private-source', 'ask_guardian', 'phone', 'conv-private', 'call-standard-guardian', 'question-standard-guardian', 'Private source?', 'PRIV01', 'pending', ${now + 60000}, ${now}, ${now}),
+      ('legacy-request-private-destination', 'ask_guardian', 'phone', 'conv-standard', 'call-standard-guardian', 'question-standard-guardian', 'Private destination?', 'PRIV02', 'pending', ${now + 60000}, ${now}, ${now}),
+      ('legacy-request-standard', 'ask_guardian', 'phone', 'conv-standard', 'call-standard-guardian', 'question-standard-guardian', 'Standard?', 'STND01', 'pending', ${now + 60000}, ${now}, ${now});
+
+    INSERT INTO guardian_action_deliveries (
+      id,
+      request_id,
+      destination_channel,
+      destination_conversation_id,
+      destination_chat_id,
+      destination_external_user_id,
+      status,
+      created_at,
+      updated_at
+    ) VALUES
+      ('legacy-delivery-private-request', 'legacy-request-private-source', 'vellum', 'conv-standard', 'chat-standard', 'user-123', 'pending', ${now}, ${now}),
+      ('legacy-delivery-private-destination', 'legacy-request-private-destination', 'vellum', 'conv-private', 'chat-private', 'user-123', 'pending', ${now}, ${now}),
+      ('legacy-delivery-standard', 'legacy-request-standard', 'vellum', 'conv-standard', 'chat-standard', 'user-123', 'pending', ${now}, ${now});
+
+    INSERT INTO canonical_guardian_requests (
+      id,
+      kind,
+      source_type,
+      source_channel,
+      conversation_id,
+      request_code,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    ) VALUES
+      ('canonical-request-private-source', 'tool_approval', 'conversation', 'vellum', 'conv-private', 'CANP01', 'pending', ${now + 60000}, ${now}, ${now}),
+      ('canonical-request-private-destination', 'tool_approval', 'conversation', 'vellum', 'conv-standard', 'CANP02', 'pending', ${now + 60000}, ${now}, ${now}),
+      ('canonical-request-standard', 'tool_approval', 'conversation', 'vellum', 'conv-standard', 'CANS01', 'pending', ${now + 60000}, ${now}, ${now});
+
+    INSERT INTO canonical_guardian_deliveries (
+      id,
+      request_id,
+      destination_channel,
+      destination_conversation_id,
+      destination_chat_id,
+      destination_message_id,
+      status,
+      created_at,
+      updated_at
+    ) VALUES
+      ('canonical-delivery-private-request', 'canonical-request-private-source', 'vellum', 'conv-standard', 'chat-standard', 'message-standard', 'pending', ${now}, ${now}),
+      ('canonical-delivery-private-destination', 'canonical-request-private-destination', 'vellum', 'conv-private', 'chat-private', 'message-private', 'pending', ${now}, ${now}),
+      ('canonical-delivery-standard', 'canonical-request-standard', 'vellum', 'conv-standard', 'chat-standard', 'message-standard', 'pending', ${now}, ${now});
+
+    INSERT INTO scoped_approval_grants (
+      id,
+      scope_mode,
+      request_id,
+      tool_name,
+      input_digest,
+      request_channel,
+      decision_channel,
+      conversation_id,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    ) VALUES
+      ('scoped-grant-private', 'request_id', 'canonical-request-private-source', NULL, NULL, 'vellum', 'vellum', 'conv-private', 'active', ${now + 60000}, ${now}, ${now}),
+      ('scoped-grant-standard', 'request_id', 'canonical-request-standard', NULL, NULL, 'vellum', 'vellum', 'conv-standard', 'active', ${now + 60000}, ${now}, ${now}),
+      ('scoped-grant-unscoped', 'tool_signature', NULL, 'test_tool', 'digest-123', 'vellum', 'vellum', NULL, 'active', ${now + 60000}, ${now}, ${now});
+
+    INSERT INTO channel_guardian_approval_requests (
+      id,
+      run_id,
+      request_id,
+      conversation_id,
+      channel,
+      requester_external_user_id,
+      requester_chat_id,
+      guardian_external_user_id,
+      guardian_chat_id,
+      tool_name,
+      status,
+      expires_at,
+      created_at,
+      updated_at
+    ) VALUES
+      ('channel-approval-private', 'run-private', 'request-private', 'conv-private', 'telegram', 'user-123', 'chat-private', 'guardian-123', 'guardian-chat', 'test_tool', 'pending', ${now + 60000}, ${now}, ${now}),
+      ('channel-approval-standard', 'run-standard', 'request-standard', 'conv-standard', 'telegram', 'user-123', 'chat-standard', 'guardian-123', 'guardian-chat', 'test_tool', 'pending', ${now + 60000}, ${now}, ${now});
+  `);
+}
+
 function countWhere(raw: Database, table: string, where: string): number {
   return (
     raw
@@ -353,6 +588,7 @@ describe("migrateDeletePrivateConversations", () => {
     seedConversation(raw, "conv-private", "private");
     seedConversation(raw, "conv-standard", "standard");
     seedConversation(raw, "conv-background", "background");
+    seedGuardianAndApprovalRows(raw, now);
 
     raw.exec(/*sql*/ `
       INSERT INTO memory_summaries (id, scope_id, summary, created_at, updated_at)
@@ -441,6 +677,100 @@ describe("migrateDeletePrivateConversations", () => {
     ).toBe(1);
     expect(
       countWhere(raw, "conversation_starters", `scope_id LIKE 'background:%'`),
+    ).toBe(1);
+
+    expect(
+      countWhere(
+        raw,
+        "canonical_guardian_requests",
+        `id = 'canonical-request-private-source'`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
+        "canonical_guardian_requests",
+        `id = 'canonical-request-private-destination'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "canonical_guardian_requests",
+        `id = 'canonical-request-standard'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "canonical_guardian_deliveries",
+        `id IN ('canonical-delivery-private-request', 'canonical-delivery-private-destination')`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
+        "canonical_guardian_deliveries",
+        `id = 'canonical-delivery-standard'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "scoped_approval_grants", `id = 'scoped-grant-private'`),
+    ).toBe(0);
+    expect(
+      countWhere(raw, "scoped_approval_grants", `id = 'scoped-grant-standard'`),
+    ).toBe(1);
+    expect(
+      countWhere(raw, "scoped_approval_grants", `id = 'scoped-grant-unscoped'`),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "guardian_action_requests",
+        `id = 'legacy-request-private-source'`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
+        "guardian_action_requests",
+        `id = 'legacy-request-private-destination'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "guardian_action_requests",
+        `id = 'legacy-request-standard'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "guardian_action_deliveries",
+        `id IN ('legacy-delivery-private-request', 'legacy-delivery-private-destination')`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
+        "guardian_action_deliveries",
+        `id = 'legacy-delivery-standard'`,
+      ),
+    ).toBe(1);
+    expect(
+      countWhere(
+        raw,
+        "channel_guardian_approval_requests",
+        `id = 'channel-approval-private'`,
+      ),
+    ).toBe(0);
+    expect(
+      countWhere(
+        raw,
+        "channel_guardian_approval_requests",
+        `id = 'channel-approval-standard'`,
+      ),
     ).toBe(1);
   });
 });
