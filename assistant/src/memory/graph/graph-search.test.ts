@@ -91,3 +91,94 @@ describe("searchGraphNodes — _meta filter parity", () => {
     expect(metaClause?.match.value).toBe(true);
   });
 });
+
+describe("searchGraphNodes — excludeScopeIds", () => {
+  beforeEach(() => {
+    breakerOpen = false;
+    hybridSearchCalls.length = 0;
+    searchCalls.length = 0;
+  });
+
+  test("hybrid path adds memory_scope_id must_not when excludeScopeIds provided", async () => {
+    await searchGraphNodes(
+      [0.1],
+      5,
+      undefined,
+      { indices: [1], values: [1] },
+      undefined,
+      ["private:abc", "private:xyz"],
+    );
+
+    expect(hybridSearchCalls).toHaveLength(1);
+    const filter = hybridSearchCalls[0]?.filter as {
+      must_not: Array<Record<string, unknown>>;
+    };
+    const scopeExclude = filter.must_not.find(
+      (c) => c.key === "memory_scope_id",
+    ) as { match: { any: string[] } } | undefined;
+    expect(scopeExclude?.match.any).toEqual(["private:abc", "private:xyz"]);
+  });
+
+  test("dense-only path adds memory_scope_id must_not when excludeScopeIds provided", async () => {
+    await searchGraphNodes([0.1], 5, undefined, undefined, undefined, [
+      "private:abc",
+    ]);
+
+    expect(searchCalls).toHaveLength(1);
+    const filter = searchCalls[0]?.filter as {
+      must_not: Array<Record<string, unknown>>;
+    };
+    const scopeExclude = filter.must_not.find(
+      (c) => c.key === "memory_scope_id",
+    ) as { match: { any: string[] } } | undefined;
+    expect(scopeExclude?.match.any).toEqual(["private:abc"]);
+  });
+
+  test("hybrid path omits memory_scope_id must_not when excludeScopeIds is empty", async () => {
+    await searchGraphNodes(
+      [0.1],
+      5,
+      undefined,
+      { indices: [1], values: [1] },
+      undefined,
+      [],
+    );
+
+    expect(hybridSearchCalls).toHaveLength(1);
+    const filter = hybridSearchCalls[0]?.filter as {
+      must_not: Array<Record<string, unknown>>;
+    };
+    const scopeExclude = filter.must_not.find(
+      (c) => c.key === "memory_scope_id",
+    );
+    expect(scopeExclude).toBeUndefined();
+  });
+});
+
+describe("searchGraphNodes — prefetch floor", () => {
+  beforeEach(() => {
+    breakerOpen = false;
+    hybridSearchCalls.length = 0;
+    searchCalls.length = 0;
+  });
+
+  test("hybrid prefetchLimit floors at 200 for small limits", async () => {
+    await searchGraphNodes([0.1], 10, ["default"], {
+      indices: [1],
+      values: [1],
+    });
+
+    expect(hybridSearchCalls).toHaveLength(1);
+    expect(hybridSearchCalls[0]?.prefetchLimit).toBe(200);
+  });
+
+  test("hybrid prefetchLimit scales with limit when limit*10 exceeds floor", async () => {
+    await searchGraphNodes([0.1], 50, ["default"], {
+      indices: [1],
+      values: [1],
+    });
+
+    expect(hybridSearchCalls).toHaveLength(1);
+    expect(hybridSearchCalls[0]?.prefetchLimit).toBe(500);
+  });
+});

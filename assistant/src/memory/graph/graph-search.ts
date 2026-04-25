@@ -37,6 +37,9 @@ export interface GraphSearchResult {
  * that the caller can hydrate from the graph store.
  *
  * Filters to `target_type: "graph_node"` and optionally by scope.
+ * `excludeScopeIds` adds a `must_not` against `memory_scope_id`, used by
+ * recall to keep private-conversation memories from leaking into public
+ * scopes.
  */
 export async function searchGraphNodes(
   queryVector: number[],
@@ -44,6 +47,7 @@ export async function searchGraphNodes(
   scopeIds?: string[],
   sparseVector?: QdrantSparseVector,
   dateRange?: { afterMs?: number; beforeMs?: number },
+  excludeScopeIds?: string[],
 ): Promise<GraphSearchResult[]> {
   if (isQdrantBreakerOpen()) {
     log.warn("Qdrant circuit breaker open, skipping graph search");
@@ -51,6 +55,16 @@ export async function searchGraphNodes(
   }
 
   const client = getQdrantClient();
+
+  const mustNot: Record<string, unknown>[] = [
+    { key: "_meta", match: { value: true } },
+  ];
+  if (excludeScopeIds && excludeScopeIds.length > 0) {
+    mustNot.push({
+      key: "memory_scope_id",
+      match: { any: excludeScopeIds },
+    });
+  }
 
   // Use hybrid search (dense + sparse with RRF fusion) when a non-empty
   // sparse vector is available; otherwise fall back to dense-only search.
@@ -67,10 +81,12 @@ export async function searchGraphNodes(
     if (dateRange?.beforeMs != null) {
       must.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
     }
-    const filter = {
-      must,
-      must_not: [{ key: "_meta", match: { value: true } }],
-    };
+    const filter = { must, must_not: mustNot };
+
+    // RRF fuses per-modality top-N. A small prefetch (e.g. limit*3) silently
+    // truncates good matches when the query is wordy or low-similarity, so
+    // give RRF a meaningful candidate window with a generous floor.
+    const prefetchLimit = Math.max(limit * 10, 200);
 
     const results: QdrantSearchResult[] = await withQdrantBreaker(() =>
       client.hybridSearch({
@@ -78,7 +94,7 @@ export async function searchGraphNodes(
         sparseVector,
         filter,
         limit,
-        prefetchLimit: limit * 3,
+        prefetchLimit,
       }),
     );
 
@@ -112,7 +128,7 @@ export async function searchGraphNodes(
 
   const filter: Record<string, unknown> = {
     must: denseMusts,
-    must_not: [{ key: "_meta", match: { value: true } }],
+    must_not: mustNot,
   };
 
   const results: QdrantSearchResult[] = await withQdrantBreaker(async () => {

@@ -25,6 +25,10 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
+import {
+  isPrivateScopeId,
+  PRIVATE_SCOPE_PREFIX,
+} from "../../memory/conversation-crud.js";
 import { getDb } from "../../memory/db.js";
 import {
   embedWithBackend,
@@ -161,8 +165,8 @@ function resolveScopeLabel(
   titleMap: Map<string, string | null>,
 ): string | null {
   if (scopeId === "default") return null;
-  if (scopeId.startsWith("private:")) {
-    const conversationId = scopeId.slice("private:".length);
+  if (isPrivateScopeId(scopeId)) {
+    const conversationId = scopeId.slice(PRIVATE_SCOPE_PREFIX.length);
     const title = titleMap.get(conversationId);
     return title ? `Private · ${title}` : "Private";
   }
@@ -177,8 +181,8 @@ function buildConversationTitleMap(
   scopeIds: string[],
 ): Map<string, string | null> {
   const conversationIds = scopeIds
-    .filter((s) => s.startsWith("private:"))
-    .map((s) => s.slice("private:".length));
+    .filter(isPrivateScopeId)
+    .map((s) => s.slice(PRIVATE_SCOPE_PREFIX.length));
 
   const uniqueIds = [...new Set(conversationIds)];
   if (uniqueIds.length === 0) return new Map();

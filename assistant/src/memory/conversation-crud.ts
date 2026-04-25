@@ -63,6 +63,19 @@ import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 
 const log = getLogger("conversation-store");
 
+/** Prefix for private-conversation memory scope IDs (`private:<convId>`). */
+export const PRIVATE_SCOPE_PREFIX = "private:";
+
+/** Build the memory scope ID for a private conversation. */
+export function privateScopeId(conversationId: string): string {
+  return `${PRIVATE_SCOPE_PREFIX}${conversationId}`;
+}
+
+/** True if the scope ID belongs to a private conversation. */
+export function isPrivateScopeId(scopeId: string): boolean {
+  return scopeId.startsWith(PRIVATE_SCOPE_PREFIX);
+}
+
 // ── Message metadata Zod schema ──────────────────────────────────────
 // Validates the JSON stored in messages.metadata. Known fields are typed;
 // extra keys are allowed via passthrough so callers can attach ad-hoc data.
@@ -275,7 +288,7 @@ export function createConversation(
   const groupId = opts.groupId;
   const id = uuid();
   const memoryScopeId =
-    conversationType === "private" ? `private:${id}` : "default";
+    conversationType === "private" ? privateScopeId(id) : "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
   // even when this conversation has no groupId (a subsequent query or
@@ -451,6 +464,21 @@ export function getConversationType(
 export function getConversationMemoryScopeId(conversationId: string): string {
   const conv = getConversation(conversationId);
   return conv?.memoryScopeId ?? "default";
+}
+
+/**
+ * Return the list of memory scope IDs that belong to private conversations.
+ * Used by recall to exclude private-conversation memories when called from
+ * a non-private scope, so private conversations stay isolated.
+ */
+export function listPrivateMemoryScopeIds(): string[] {
+  const db = getDb();
+  const rows = db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.conversationType, "private"))
+    .all();
+  return rows.map((r) => privateScopeId(r.id));
 }
 
 export function getConversationHostAccess(conversationId: string): boolean {
@@ -711,7 +739,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
   const memoryScopeId = convBeforeDelete?.memoryScopeId;
-  const isPrivateScope = memoryScopeId?.startsWith("private:") ?? false;
+  const isPrivateScope = memoryScopeId
+    ? isPrivateScopeId(memoryScopeId)
+    : false;
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
