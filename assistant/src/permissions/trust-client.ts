@@ -1,12 +1,13 @@
 /**
  * Assistant-side trust rule client.
  *
- * Delegates transport logic to `@vellumai/gateway-client/http-trust-rules`
- * (`TrustRulesClient` class) while preserving the free-function API that
- * existing call sites (trust-store.ts) expect.
+ * Async methods use IPC over the gateway socket (no HTTP auth needed).
+ * Sync methods still delegate to the HTTP-based `TrustRulesClient` from
+ * `@vellumai/gateway-client/http-trust-rules` — these will be converted
+ * to async IPC in a follow-up once the trust-store is made async.
  *
- * Auth context (token minting, gateway base URL) is injected from the
- * assistant's own config/auth modules so the package stays transport-focused.
+ * Auth context (token minting, gateway base URL) for the sync path is
+ * injected from the assistant's own config/auth modules.
  */
 
 import {
@@ -14,8 +15,10 @@ import {
   TrustRulesClient,
 } from "@vellumai/gateway-client/http-trust-rules";
 import type { TrustRule } from "@vellumai/service-contracts/trust-rules";
+import { parseTrustRule } from "@vellumai/service-contracts/trust-rules";
 
 import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { ipcCall } from "../ipc/gateway-client.js";
 import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
 import { getLogger } from "../util/logger.js";
 
@@ -24,33 +27,38 @@ export type { AcceptStarterBundleResult };
 
 const log = getLogger("trust-client");
 
-/**
- * Lazily-created singleton client instance. Constructed on first use so
- * env resolution and token minting hooks are available.
- */
-let _client: TrustRulesClient | undefined;
+// ---------------------------------------------------------------------------
+// IPC response parsing
+// ---------------------------------------------------------------------------
 
-function getClient(): TrustRulesClient {
-  if (!_client) {
-    _client = new TrustRulesClient({
-      gatewayBaseUrl: getGatewayInternalBaseUrl(),
-      mintToken: mintEdgeRelayToken,
-      log,
-    });
+function parseRuleResponse(raw: unknown): TrustRule {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Trust rule response is not a valid object");
   }
-  return _client;
+  const { rule } = parseTrustRule(raw as Record<string, unknown>);
+  return rule as TrustRule;
+}
+
+function parseRulesResponse(raw: unknown[]): TrustRule[] {
+  return raw.map((r) => parseRuleResponse(r));
 }
 
 // ---------------------------------------------------------------------------
-// Public API — preserves existing free-function signatures
+// Public async API — IPC over gateway socket
 // ---------------------------------------------------------------------------
 
-/** Fetch all trust rules from the gateway. */
+/** Fetch all trust rules from the gateway via IPC. */
 export async function getAllRules(): Promise<TrustRule[]> {
-  return getClient().getAllRules();
+  const result = (await ipcCall("list_trust_rules")) as {
+    rules: unknown[];
+  } | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: list_trust_rules");
+  }
+  return parseRulesResponse(result.rules);
 }
 
-/** Create a new trust rule. */
+/** Create a new trust rule via IPC. */
 export async function addRule(params: {
   tool: string;
   pattern: string;
@@ -59,10 +67,23 @@ export async function addRule(params: {
   priority?: number;
   executionTarget?: string;
 }): Promise<TrustRule> {
-  return getClient().addRule(params);
+  const result = (await ipcCall("add_trust_rule", {
+    tool: params.tool,
+    pattern: params.pattern,
+    ...(params.scope != null && { scope: params.scope }),
+    ...(params.decision != null && { decision: params.decision }),
+    ...(params.priority != null && { priority: params.priority }),
+    ...(params.executionTarget != null && {
+      executionTarget: params.executionTarget,
+    }),
+  })) as { rule: unknown } | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: add_trust_rule");
+  }
+  return parseRuleResponse(result.rule);
 }
 
-/** Update an existing trust rule by ID. */
+/** Update an existing trust rule by ID via IPC. */
 export async function updateRule(
   id: string,
   updates: {
@@ -74,16 +95,29 @@ export async function updateRule(
     executionTarget?: string;
   },
 ): Promise<TrustRule> {
-  return getClient().updateRule(id, updates);
+  const result = (await ipcCall("update_trust_rule", {
+    id,
+    ...updates,
+  })) as { rule: unknown } | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: update_trust_rule");
+  }
+  return parseRuleResponse(result.rule);
 }
 
-/** Remove a trust rule by ID. Returns true if the rule was found and deleted. */
+/** Remove a trust rule by ID via IPC. Returns true if deleted. */
 export async function removeRule(id: string): Promise<boolean> {
-  return getClient().removeRule(id);
+  const result = (await ipcCall("remove_trust_rule", { id })) as {
+    success: boolean;
+  } | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: remove_trust_rule");
+  }
+  return result.success;
 }
 
 /**
- * Find the highest-priority matching rule for a tool invocation.
+ * Find the highest-priority matching rule for a tool invocation via IPC.
  *
  * @param tool          Tool name (e.g. "host_bash")
  * @param candidates    Command candidates to match against rule patterns
@@ -98,21 +132,59 @@ export async function findMatchingRule(
   scope: string,
   resolvedPaths?: readonly string[],
 ): Promise<TrustRule | null> {
-  return getClient().findMatchingRule(tool, candidates, scope, resolvedPaths);
+  const result = (await ipcCall("match_trust_rule", {
+    tool,
+    commands: candidates,
+    scope,
+    ...(resolvedPaths &&
+      resolvedPaths.length > 0 && {
+        resolvedPaths: [...resolvedPaths],
+      }),
+  })) as { rule: unknown | null } | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: match_trust_rule");
+  }
+  return result.rule != null ? parseRuleResponse(result.rule) : null;
 }
 
-/** Accept the starter approval bundle, seeding common low-risk allow rules. */
+/** Accept the starter approval bundle via IPC. */
 export async function acceptStarterBundle(): Promise<AcceptStarterBundleResult> {
-  return getClient().acceptStarterBundle();
+  const result = (await ipcCall(
+    "accept_starter_bundle",
+  )) as AcceptStarterBundleResult | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: accept_starter_bundle");
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
-// Synchronous API — used by the gateway trust store adapter
+// Synchronous API — HTTP-based, used by GatewayTrustStoreAdapter
+//
+// These still go through the HTTP TrustRulesClient because the trust-store
+// backend interface is synchronous. Phase 2 will make the interface async,
+// then Phase 3 will delete these sync methods entirely.
 // ---------------------------------------------------------------------------
+
+/**
+ * Lazily-created singleton HTTP client for sync methods only.
+ */
+let _httpClient: TrustRulesClient | undefined;
+
+function getHttpClient(): TrustRulesClient {
+  if (!_httpClient) {
+    _httpClient = new TrustRulesClient({
+      gatewayBaseUrl: getGatewayInternalBaseUrl(),
+      mintToken: mintEdgeRelayToken,
+      log,
+    });
+  }
+  return _httpClient;
+}
 
 /** Fetch all trust rules from the gateway (synchronous). */
 export function getAllRulesSync(): TrustRule[] {
-  return getClient().getAllRulesSync();
+  return getHttpClient().getAllRulesSync();
 }
 
 /** Create a new trust rule (synchronous). */
@@ -124,7 +196,7 @@ export function addRuleSync(params: {
   priority?: number;
   executionTarget?: string;
 }): TrustRule {
-  return getClient().addRuleSync(params);
+  return getHttpClient().addRuleSync(params);
 }
 
 /** Update an existing trust rule by ID (synchronous). */
@@ -139,20 +211,20 @@ export function updateRuleSync(
     executionTarget?: string;
   },
 ): TrustRule {
-  return getClient().updateRuleSync(id, updates);
+  return getHttpClient().updateRuleSync(id, updates);
 }
 
 /** Remove a trust rule by ID (synchronous). Returns true if deleted. */
 export function removeRuleSync(id: string): boolean {
-  return getClient().removeRuleSync(id);
+  return getHttpClient().removeRuleSync(id);
 }
 
 /** Clear all user trust rules (synchronous). */
 export function clearRulesSync(): void {
-  getClient().clearRulesSync();
+  getHttpClient().clearRulesSync();
 }
 
 /** Accept the starter approval bundle (synchronous). */
 export function acceptStarterBundleSync(): AcceptStarterBundleResult {
-  return getClient().acceptStarterBundleSync();
+  return getHttpClient().acceptStarterBundleSync();
 }
