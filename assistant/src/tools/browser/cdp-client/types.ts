@@ -1,5 +1,4 @@
 /**
-import type { BrowserBackend } from "../../../browser-session/types.js";
  * Minimal typed surface over Chrome DevTools Protocol. Implemented by
  * LocalCdpClient (Playwright-backed, same-process Chromium),
  * ExtensionCdpClient (routes through HostBrowserProxy to the user's
@@ -8,6 +7,9 @@ import type { BrowserBackend } from "../../../browser-session/types.js";
  * `send(method, params)` with a CDP method name and return the raw
  * CDP result object; errors are thrown as {@link CdpError}.
  */
+
+import type { BrowserBackend } from "../../../browser-session/types.js";
+
 export interface CdpClient {
   /**
    * Send a CDP command and await the result. `method` must be a

@@ -1,5 +1,4 @@
 /**
-import type { CdpWsTransport } from "./ws-transport.js";
  * DevTools discovery helpers for the `cdp-inspect` backend.
  *
  * Two discovery strategies are provided:
@@ -25,6 +24,8 @@ import type { CdpWsTransport } from "./ws-transport.js";
  * cross-origin requests on behalf of an attacker-controlled config
  * value.
  */
+
+import type { CdpWsTransport } from "./ws-transport.js";
 
 /**
  * Stable error codes surfaced by discovery helpers.
