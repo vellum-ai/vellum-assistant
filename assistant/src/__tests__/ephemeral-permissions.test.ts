@@ -54,7 +54,7 @@ mockIpcResponse("classify_risk", {
   matchType: "shell",
 });
 
-import { check, classifyRisk } from "../permissions/checker.js";
+import { check, classifyRisk, clearRiskCache } from "../permissions/checker.js";
 import {
   addRule,
   clearCache,
@@ -164,6 +164,7 @@ describe("ephemeral-permissions", () => {
 
   describe("findHighestPriorityRule with ephemeral rules", () => {
     beforeEach(() => {
+      clearRiskCache();
       clearCache();
     });
 
@@ -263,6 +264,7 @@ describe("ephemeral-permissions", () => {
 
   describe("check() with ephemeral rules", () => {
     beforeEach(() => {
+      clearRiskCache();
       clearCache();
       testConfig.permissions.mode = "workspace";
     });
@@ -333,6 +335,7 @@ describe("ephemeral-permissions", () => {
 
   describe("canonical shape and scope fallback semantics", () => {
     beforeEach(() => {
+      clearRiskCache();
       clearCache();
     });
 
@@ -418,6 +421,12 @@ describe("ephemeral-permissions", () => {
 
   describe("workspace mode interactions", () => {
     beforeEach(() => {
+      mockIpcResponse("classify_risk", {
+        risk: "low",
+        reason: "test fixture",
+        matchType: "shell",
+      });
+      clearRiskCache();
       clearCache();
       testConfig.permissions.mode = "workspace";
     });

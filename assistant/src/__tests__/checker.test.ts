@@ -91,6 +91,11 @@ function mockRisk(
   });
 }
 
+/** Shorthand for tests that verify sandbox auto-approve behavior. */
+function mockRiskWithSandboxAutoApprove(): void {
+  mockRisk("low", { sandboxAutoApprove: true });
+}
+
 // Mutable guardian persona path so tests can toggle whether
 // getDefaultRuleTemplates emits the dynamic guardian-persona allow rules.
 // Defaults to null so existing tests see no extra rules, matching the
@@ -114,6 +119,7 @@ import * as envRegistry from "../config/env-registry.js";
 import {
   check,
   classifyRisk,
+  clearRiskCache,
   generateAllowlistOptions,
   generateScopeOptions,
   SCOPE_AWARE_TOOLS,
@@ -204,7 +210,8 @@ describe("Permission Checker", () => {
   beforeEach(() => {
     // Reset IPC mock to low risk (tests override as needed)
     mockRisk("low");
-    // Reset trust-store state between tests
+    // Reset trust-store state and risk classification cache between tests
+    clearRiskCache();
     clearCache();
     // Reset permissions mode to workspace (default) so existing tests are not affected
     testConfig.permissions = { mode: "workspace" };
@@ -244,7 +251,7 @@ describe("Permission Checker", () => {
     });
 
     test("bash low risk → sandbox auto-approve", async () => {
-      mockRisk("low");
+      mockRiskWithSandboxAutoApprove();
       const low = await check("bash", { command: "ls" }, "/tmp");
       expect(low.decision).toBe("allow");
       expect(low.reason).toContain("sandbox auto-approve");
@@ -2026,6 +2033,7 @@ describe("Permission Checker", () => {
     });
 
     test("containerized bash + allowlisted command auto-approves via sandbox auto-approve", async () => {
+      mockRiskWithSandboxAutoApprove();
       // `ls` is tagged with sandboxAutoApprove: true in the command registry.
       // In a containerized environment, this should auto-approve regardless of risk level.
       const containerSpy = spyOn(
@@ -2079,6 +2087,7 @@ describe("Permission Checker", () => {
     });
 
     test("pipeline with all allowlisted commands in containerized bash auto-approves", async () => {
+      mockRiskWithSandboxAutoApprove();
       // Both `cat` and `grep` are tagged with sandboxAutoApprove: true.
       const containerSpy = spyOn(
         envRegistry,
@@ -2220,6 +2229,7 @@ describe("Permission Checker", () => {
       test(
         "ls (no path args) → auto-approve",
         withNonContainerized(async () => {
+          mockRiskWithSandboxAutoApprove();
           const result = await check(
             "bash",
             { command: "ls" },
@@ -2233,6 +2243,7 @@ describe("Permission Checker", () => {
       test(
         "cat README.md with workingDir inside workspace → auto-approve",
         withNonContainerized(async () => {
+          mockRiskWithSandboxAutoApprove();
           const result = await check(
             "bash",
             { command: "cat README.md" },
@@ -2246,6 +2257,7 @@ describe("Permission Checker", () => {
       test(
         "mkdir -p src/utils with workingDir inside workspace → auto-approve",
         withNonContainerized(async () => {
+          mockRiskWithSandboxAutoApprove();
           const result = await check(
             "bash",
             { command: "mkdir -p src/utils" },
@@ -2259,6 +2271,7 @@ describe("Permission Checker", () => {
       test(
         "grep 'pattern' src/foo.ts → auto-approve (pattern skipped, paths in workspace)",
         withNonContainerized(async () => {
+          mockRiskWithSandboxAutoApprove();
           const result = await check(
             "bash",
             { command: "grep 'pattern' src/foo.ts" },
@@ -2272,6 +2285,7 @@ describe("Permission Checker", () => {
       test(
         "sed 's/old/new/' config.json → auto-approve (script skipped, path in workspace)",
         withNonContainerized(async () => {
+          mockRiskWithSandboxAutoApprove();
           const result = await check(
             "bash",
             { command: "sed 's/old/new/' config.json" },
@@ -2324,6 +2338,7 @@ describe("Permission Checker", () => {
       test(
         "pipeline: cat file.txt | grep pattern → auto-approve (all segments workspace-scoped)",
         withNonContainerized(async () => {
+          mockRiskWithSandboxAutoApprove();
           const result = await check(
             "bash",
             { command: "cat file.txt | grep pattern" },
@@ -3821,6 +3836,8 @@ describe("Permission Checker", () => {
 
 describe("bash network_mode=proxied — risk capped at medium", () => {
   beforeEach(() => {
+    mockRisk("low");
+    clearRiskCache();
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
@@ -3927,6 +3944,8 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
 
 describe("scope matching behavior", () => {
   beforeEach(() => {
+    mockRisk("low");
+    clearRiskCache();
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     try {
@@ -4072,6 +4091,8 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   const workspaceDir = "/home/user/my-project";
 
   beforeEach(() => {
+    mockRisk("low");
+    clearRiskCache();
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
@@ -4143,6 +4164,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   // ── bash (non-containerized) — workspace auto-allow blocked, risk-based fallback ──
 
   test("bash in workspace (low risk, allowlisted) → allow via sandbox auto-approve", async () => {
+    mockRiskWithSandboxAutoApprove();
     const result = await check("bash", { command: "ls -la" }, workspaceDir);
     expect(result.decision).toBe("allow");
     // ls has sandboxAutoApprove: true and no path args → sandbox auto-approve fires
@@ -4252,6 +4274,11 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
 });
 
 describe("shell command candidates wiring (PR 04)", () => {
+  beforeEach(() => {
+    mockRisk("low");
+    clearRiskCache();
+  });
+
   test("existing raw shell rule still matches", async () => {
     clearCache();
     addRule("bash", "git status", "everywhere");
@@ -4290,6 +4317,8 @@ describe("shell command candidates wiring (PR 04)", () => {
 
 describe("integration regressions (PR 11)", () => {
   beforeEach(() => {
+    mockRisk("low");
+    clearRiskCache();
     // Delete the trust file to prevent stale default rules from prior tests
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));

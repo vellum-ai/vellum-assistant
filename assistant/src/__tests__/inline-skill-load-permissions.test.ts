@@ -71,6 +71,7 @@ mockIpcResponse("classify_risk", {
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
+import { clearRiskCache } from "../permissions/checker.js";
 import { addRule, clearCache } from "../permissions/trust-store.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 
@@ -113,6 +114,7 @@ function writeDynamicSkill(
 
 describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
+    clearRiskCache();
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };

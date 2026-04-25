@@ -115,8 +115,8 @@ function riskCacheKey(
   return `${toolName}\0${hash}`;
 }
 
-/** Clear the risk classification cache. Called when trust rules change. */
-function clearRiskCache(): void {
+/** Clear the risk classification cache. Called when trust rules change. Exported for test setup. */
+export function clearRiskCache(): void {
   riskCache.clear();
   assessmentCache.clear();
 }
