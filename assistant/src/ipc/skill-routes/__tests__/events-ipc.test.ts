@@ -118,8 +118,15 @@ async function openClient(): Promise<TestClient> {
   };
 }
 
-function tick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 30));
+async function waitForSubscriberCount(
+  expected: number,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (assistantEventHub.subscriberCount() !== expected) {
+    if (Date.now() > deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -275,7 +282,7 @@ describe("host.events.subscribe", () => {
     ).toBe("e4");
 
     client.close();
-    await tick();
+    await waitForSubscriberCount(baseSubscribers);
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers);
   });
 
@@ -315,7 +322,7 @@ describe("host.events.subscribe", () => {
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
 
     client.close();
-    await tick();
+    await waitForSubscriberCount(baseSubscribers);
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers);
 
     // Further publishes do not reach the disposed subscription. If the
@@ -344,7 +351,7 @@ describe("host.events.subscribe", () => {
 
     server?.stop();
     server = null;
-    await tick();
+    await waitForSubscriberCount(baseSubscribers);
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers);
 
     // Clean up the client socket; the server already destroyed it.
