@@ -37,6 +37,7 @@
  */
 
 import type { AgentEvent, AgentLoop } from "../agent/loop.js";
+import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -352,6 +353,14 @@ export async function wakeAgentForOpportunity(
       buffered.push(event);
     };
 
+    // Honor the conversation's pinned inference-profile override (if any).
+    // Without this, scheduled-task wakes and other opportunity wakes bypass
+    // `runAgentLoopImpl` entirely and execute under workspace defaults,
+    // silently violating the user's pinned preference. Read before
+    // `markProcessing(true)` so a thrown DB read can't strand the
+    // processing flag.
+    const overrideProfile = getConversationOverrideProfile(conversationId);
+
     // Mark processing for the duration of the run so a concurrent user
     // send is queued by `enqueueMessage()` rather than spawning a second
     // concurrent agent loop on the same conversation (which would
@@ -371,6 +380,10 @@ export async function wakeAgentForOpportunity(
           onEvent,
           undefined, // no external abort signal
           `wake:${source}`,
+          undefined, // onCheckpoint
+          undefined, // callSite
+          undefined, // turnContext
+          overrideProfile,
         );
       } catch (err) {
         // Capture the error for post-finally logging, then short-circuit

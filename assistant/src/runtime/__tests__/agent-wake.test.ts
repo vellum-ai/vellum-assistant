@@ -15,7 +15,14 @@
  * `memory/conversation-crud.js`.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Stub the DB-backed override-profile read so unit tests don't need a
+// real SQLite database. The wake helper calls this on every invocation
+// to honor the conversation's pinned inference profile.
+mock.module("../../memory/conversation-crud.js", () => ({
+  getConversationOverrideProfile: () => undefined,
+}));
 
 import type { AgentEvent } from "../../agent/loop.js";
 import type { Message } from "../../providers/types.js";
@@ -199,7 +206,10 @@ describe("wakeAgentForOpportunity", () => {
     expect(input[2]).toEqual({
       role: "user",
       content: [
-        { type: "text", text: "[opportunity:unit-test] someone asked a question" },
+        {
+          type: "text",
+          text: "[opportunity:unit-test] someone asked a question",
+        },
       ],
     });
   });
@@ -723,9 +733,7 @@ describe("wakeAgentForOpportunity", () => {
     };
     const toolResultUserMsg: Message = {
       role: "user",
-      content: [
-        { type: "tool_result", tool_use_id: "tu-1", content: "ok" },
-      ],
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
     };
     const followup: Message = {
       role: "assistant",
@@ -776,9 +784,7 @@ describe("wakeAgentForOpportunity", () => {
       };
       const toolResultUserMsg: Message = {
         role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: "tu-1", content: "ok" },
-        ],
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
       };
       const followup: Message = {
         role: "assistant",
