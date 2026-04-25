@@ -68,10 +68,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "standard",
   getMessageById: () => null,
   getMessages: () => [],
-  isPrivateScopeId: (scopeId: string) => scopeId.startsWith("private:"),
-  listPrivateMemoryScopeIds: () => [],
   parseConversation: (row: unknown) => row,
-  privateScopeId: (conversationId: string) => `private:${conversationId}`,
   updateConversationTitle: () => undefined,
   updateConversationUsage: () => undefined,
 }));
@@ -173,7 +170,7 @@ describe("memory admin recall", () => {
   });
 
   test("uses the conversation memory scope and safe admin sources", async () => {
-    scopeByConversation.set("conv-admin", "private:conv-admin");
+    scopeByConversation.set("conv-admin", "scope:conv-admin");
 
     const result = await queryMemory("launch notes", "conv-admin");
 
@@ -184,7 +181,7 @@ describe("memory admin recall", () => {
     });
     expect(capturedSearches[0].context).toMatchObject({
       workingDir: getWorkspaceDir(),
-      memoryScopeId: "private:conv-admin",
+      memoryScopeId: "scope:conv-admin",
       conversationId: "conv-admin",
       config: testConfig,
     });

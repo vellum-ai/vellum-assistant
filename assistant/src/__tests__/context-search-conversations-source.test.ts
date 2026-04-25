@@ -100,23 +100,22 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return private conversations", async () => {
+  test("does not return excluded legacy conversation-type rows", async () => {
     const visible = await seedConversation({
       title: "Visible conversation",
       content: "privacytoken can be recalled from normal history.",
     });
-    const privateConversation = createConversation({
-      title: "Private conversation",
-      conversationType: "private",
+    const excludedConversation = createConversation({
+      title: "Excluded legacy conversation",
     });
     rawRun(
       "UPDATE conversations SET memory_scope_id = 'default', conversation_type = 'private' WHERE id = ?",
-      privateConversation.id,
+      excludedConversation.id,
     );
     await addMessage(
-      privateConversation.id,
+      excludedConversation.id,
       "user",
-      "privacytoken should not be recalled from private history.",
+      "privacytoken should not be recalled from excluded history.",
       undefined,
       { skipIndexing: true },
     );

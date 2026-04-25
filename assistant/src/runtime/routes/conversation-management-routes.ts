@@ -54,13 +54,6 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("conversation-management-routes");
 
-function normalizeManagedConversationCreateType(raw: unknown): "standard" {
-  const normalized = normalizeConversationType(
-    typeof raw === "string" ? raw : undefined,
-  );
-  return normalized === "standard" ? normalized : "standard";
-}
-
 // ---------------------------------------------------------------------------
 // Dependency types — injected by the daemon at wiring time
 // ---------------------------------------------------------------------------
@@ -109,7 +102,10 @@ export function conversationManagementRouteDefinitions(
         conversationKey: z
           .string()
           .describe("Idempotency key for the conversation"),
-        conversationType: z.string().describe("'standard' (default)"),
+        conversationType: z
+          .literal("standard")
+          .optional()
+          .describe("Only standard conversations are created by this endpoint"),
       }),
       responseBody: z.object({
         id: z.string(),
@@ -117,18 +113,15 @@ export function conversationManagementRouteDefinitions(
         conversationType: z.string(),
       }),
       handler: async ({ req }) => {
-        let body: { conversationKey?: string; conversationType?: string } = {};
+        let body: { conversationKey?: string } = {};
         try {
           body = (await req.json()) as typeof body;
         } catch {
           // Empty or malformed body — fall through with defaults.
         }
         const conversationKey = body.conversationKey ?? crypto.randomUUID();
-        const conversationType = normalizeManagedConversationCreateType(
-          body.conversationType,
-        );
         const result = getOrCreateConversation(conversationKey, {
-          conversationType,
+          conversationType: "standard",
         });
         if (result.created) {
           updateConversationTitle(result.conversationId, "New Conversation");

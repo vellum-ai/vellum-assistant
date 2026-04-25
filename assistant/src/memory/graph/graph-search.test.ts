@@ -106,7 +106,7 @@ describe("searchGraphNodes — excludeScopeIds", () => {
       undefined,
       { indices: [1], values: [1] },
       undefined,
-      ["private:abc", "private:xyz"],
+      ["scope:abc", "scope:xyz"],
     );
 
     expect(hybridSearchCalls).toHaveLength(1);
@@ -116,12 +116,12 @@ describe("searchGraphNodes — excludeScopeIds", () => {
     const scopeExclude = filter.must_not.find(
       (c) => c.key === "memory_scope_id",
     ) as { match: { any: string[] } } | undefined;
-    expect(scopeExclude?.match.any).toEqual(["private:abc", "private:xyz"]);
+    expect(scopeExclude?.match.any).toEqual(["scope:abc", "scope:xyz"]);
   });
 
   test("dense-only path adds memory_scope_id must_not when excludeScopeIds provided", async () => {
     await searchGraphNodes([0.1], 5, undefined, undefined, undefined, [
-      "private:abc",
+      "scope:abc",
     ]);
 
     expect(searchCalls).toHaveLength(1);
@@ -131,7 +131,7 @@ describe("searchGraphNodes — excludeScopeIds", () => {
     const scopeExclude = filter.must_not.find(
       (c) => c.key === "memory_scope_id",
     ) as { match: { any: string[] } } | undefined;
-    expect(scopeExclude?.match.any).toEqual(["private:abc"]);
+    expect(scopeExclude?.match.any).toEqual(["scope:abc"]);
   });
 
   test("hybrid path omits memory_scope_id must_not when excludeScopeIds is empty", async () => {

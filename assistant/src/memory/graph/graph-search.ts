@@ -37,9 +37,8 @@ export interface GraphSearchResult {
  * that the caller can hydrate from the graph store.
  *
  * Filters to `target_type: "graph_node"` and optionally by scope.
- * `excludeScopeIds` adds a `must_not` against `memory_scope_id`, used by
- * recall to keep private-conversation memories from leaking into public
- * scopes.
+ * `excludeScopeIds` adds a `must_not` against `memory_scope_id` for callers
+ * that need to omit specific scopes from a broader recall search.
  */
 export async function searchGraphNodes(
   queryVector: number[],

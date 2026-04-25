@@ -1,8 +1,8 @@
 // Side-effect tool classification - single source of truth.
 // Tools that modify state outside the assistant (filesystem writes,
 // shell commands, network requests that trigger actions, etc.).
-// Used by private-conversation gating and permission simulation to decide
-// whether a tool invocation requires explicit approval.
+// Used by permission simulation and forced approval paths to decide whether
+// a tool invocation requires explicit approval.
 
 const SIDE_EFFECT_TOOLS: ReadonlySet<string> = new Set([
   "file_write",

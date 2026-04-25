@@ -308,7 +308,7 @@ export interface ToolContext {
   isInteractive?: boolean;
   /** Memory scope ID from the conversation's memory policy, so memory tools can target the correct scope. */
   memoryScopeId?: string;
-  /** When true, tools with private side-effects should always prompt for confirmation. */
+  /** When true, tools with side effects should always prompt for confirmation. */
   forcePromptSideEffects?: boolean;
   /**
    * When true, the tool requires a fresh interactive approval for every

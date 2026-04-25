@@ -151,7 +151,7 @@ describe("initConversationDir", () => {
       id: "conv-init-null",
       title: null,
       createdAt: now,
-      conversationType: "private",
+      conversationType: "background",
       originChannel: null,
     });
 
@@ -159,7 +159,7 @@ describe("initConversationDir", () => {
     const meta = JSON.parse(readFileSync(join(dirPath, "meta.json"), "utf-8"));
     expect(meta.title).toBeNull();
     expect(meta.channel).toBeNull();
-    expect(meta.type).toBe("private");
+    expect(meta.type).toBe("background");
 
     rmSync(dirPath, { recursive: true, force: true });
   });
