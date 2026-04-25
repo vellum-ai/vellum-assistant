@@ -18,8 +18,8 @@ import type {
   ContactChannel,
   ContactWithChannels,
 } from "../../../contacts/types.js";
-import * as deliveryCrud from "../../../memory/delivery-crud.js";
-import * as deliveryStatus from "../../../memory/delivery-status.js";
+import { deleteInbound, recordInbound } from "../../../memory/delivery-crud.js";
+import { markProcessed } from "../../../memory/delivery-status.js";
 import {
   findByInviteCodeHash,
   findByInviteCodeHashAnyChannel,
@@ -865,7 +865,7 @@ async function handleInviteTokenIntercept(params: {
   // not be tracked: the first delivery redeems the invite and returns early,
   // then the retry finds an active member, passes ACL, and the raw
   // /start iv_<token> message leaks into the agent pipeline.
-  const dedupResult = deliveryCrud.recordInbound(
+  const dedupResult = recordInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
@@ -925,7 +925,7 @@ async function handleInviteTokenIntercept(params: {
         );
       }
     }
-    deliveryStatus.markProcessed(dedupResult.eventId);
+    markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -955,7 +955,7 @@ async function handleInviteTokenIntercept(params: {
   }
 
   if (outcome.ok && outcome.type === "redeemed") {
-    deliveryStatus.markProcessed(dedupResult.eventId);
+    markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -965,7 +965,7 @@ async function handleInviteTokenIntercept(params: {
   }
 
   // Failed redemption — inform the user and deny
-  deliveryStatus.markProcessed(dedupResult.eventId);
+  markProcessed(dedupResult.eventId);
   return Response.json({
     accepted: true,
     eventId: dedupResult.eventId,
@@ -1031,7 +1031,7 @@ async function handleInviteCodeIntercept(params: {
     if (crossChannelInvite) {
       // Record inbound for dedup tracking — without this, duplicate webhook
       // deliveries would re-enter ACL and send the mismatch reply again.
-      const dedupResult = deliveryCrud.recordInbound(
+      const dedupResult = recordInbound(
         sourceChannel,
         externalChatId,
         externalMessageId,
@@ -1065,7 +1065,7 @@ async function handleInviteCodeIntercept(params: {
           );
         }
       }
-      deliveryStatus.markProcessed(dedupResult.eventId);
+      markProcessed(dedupResult.eventId);
       return Response.json({
         accepted: true,
         eventId: dedupResult.eventId,
@@ -1081,7 +1081,7 @@ async function handleInviteCodeIntercept(params: {
   // deliveries could slip through: the first delivery redeems the invite and
   // activates membership, then a retry finds an active member, passes ACL,
   // and the raw 6-digit message leaks into the agent pipeline.
-  const dedupResult = deliveryCrud.recordInbound(
+  const dedupResult = recordInbound(
     sourceChannel,
     externalChatId,
     externalMessageId,
@@ -1114,7 +1114,7 @@ async function handleInviteCodeIntercept(params: {
       { err, sourceChannel, externalChatId },
       "Invite code intercept: redemption threw, rolling back dedup record",
     );
-    deliveryCrud.deleteInbound(dedupResult.eventId);
+    deleteInbound(dedupResult.eventId);
     throw err;
   }
 
@@ -1150,7 +1150,7 @@ async function handleInviteCodeIntercept(params: {
         );
       }
     }
-    deliveryStatus.markProcessed(dedupResult.eventId);
+    markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -1180,7 +1180,7 @@ async function handleInviteCodeIntercept(params: {
   }
 
   if (outcome.ok && outcome.type === "redeemed") {
-    deliveryStatus.markProcessed(dedupResult.eventId);
+    markProcessed(dedupResult.eventId);
     return Response.json({
       accepted: true,
       eventId: dedupResult.eventId,
@@ -1190,7 +1190,7 @@ async function handleInviteCodeIntercept(params: {
   }
 
   // Failed redemption (expired, revoked, etc.) — inform and deny
-  deliveryStatus.markProcessed(dedupResult.eventId);
+  markProcessed(dedupResult.eventId);
   return Response.json({
     accepted: true,
     eventId: dedupResult.eventId,

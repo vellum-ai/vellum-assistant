@@ -10,9 +10,9 @@
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
-import * as deliveryChannels from "../../../memory/delivery-channels.js";
-import * as deliveryCrud from "../../../memory/delivery-crud.js";
-import * as deliveryStatus from "../../../memory/delivery-status.js";
+import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
+import { linkMessage } from "../../../memory/delivery-crud.js";
+import { markProcessed, recordProcessingFailure } from "../../../memory/delivery-status.js";
 import {
   clearThreadTs,
   extractChannelFromCallbackUrl,
@@ -235,8 +235,8 @@ export function processChannelMessageInBackground(
         sourceChannel,
         sourceInterface,
       );
-      deliveryCrud.linkMessage(eventId, userMessageId);
-      deliveryStatus.markProcessed(eventId);
+      linkMessage(eventId, userMessageId);
+      markProcessed(eventId);
 
       if (replyCallbackUrl) {
         await deliverReplyViaCallback(
@@ -247,7 +247,7 @@ export function processChannelMessageInBackground(
           assistantId,
           {
             onSegmentDelivered: (count) =>
-              deliveryChannels.updateDeliveredSegmentCount(eventId, count),
+              updateDeliveredSegmentCount(eventId, count),
           },
         );
       }
@@ -277,7 +277,7 @@ export function processChannelMessageInBackground(
         { err, conversationId },
         "Background channel message processing failed",
       );
-      deliveryStatus.recordProcessingFailure(eventId, err);
+      recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
       clearSlackThinkingStatus?.();

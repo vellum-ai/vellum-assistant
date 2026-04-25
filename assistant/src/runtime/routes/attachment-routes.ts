@@ -12,7 +12,7 @@ import { join, resolve, sep } from "node:path";
 
 import { z } from "zod";
 
-import * as attachmentsStore from "../../memory/attachments-store.js";
+import { deleteAttachment, getAttachmentById, StoredAttachment, uploadAttachment, uploadAttachmentFromBytes, uploadFileBackedAttachment } from "../../memory/attachments-store.js";
 import {
   AttachmentUploadError,
   getFilePathForAttachment,
@@ -106,7 +106,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
  * Build the standard JSON success response for an uploaded attachment.
  */
 function attachmentResponse(
-  attachment: attachmentsStore.StoredAttachment,
+  attachment: StoredAttachment,
 ): Response {
   return Response.json({
     id: attachment.id,
@@ -192,7 +192,7 @@ async function handleMultipartUpload(
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
-  const attachment = attachmentsStore.uploadAttachmentFromBytes(
+  const attachment = uploadAttachmentFromBytes(
     filename,
     mimeType,
     bytes,
@@ -262,7 +262,7 @@ async function handleOctetStreamUpload(
 
   const bytes = new Uint8Array(rawBody);
 
-  const attachment = attachmentsStore.uploadAttachmentFromBytes(
+  const attachment = uploadAttachmentFromBytes(
     filename,
     mimeType,
     bytes,
@@ -315,7 +315,7 @@ async function handleJsonUpload(
     return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
 
-  let attachment: attachmentsStore.StoredAttachment;
+  let attachment: StoredAttachment;
 
   // File-backed upload: when filePath is provided and data is empty/missing,
   // register the attachment by path reference instead of requiring base64 data.
@@ -362,7 +362,7 @@ async function handleJsonUpload(
       return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
     }
     const sizeBytes = statSync(resolvedPath).size;
-    attachment = attachmentsStore.uploadFileBackedAttachment(
+    attachment = uploadFileBackedAttachment(
       filename,
       mimeType,
       resolvedPath,
@@ -374,7 +374,7 @@ async function handleJsonUpload(
     }
 
     try {
-      attachment = attachmentsStore.uploadAttachment(
+      attachment = uploadAttachment(
         filename,
         mimeType,
         data,
@@ -433,7 +433,7 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "attachmentId is required", 400);
   }
 
-  const result = attachmentsStore.deleteAttachment(attachmentId);
+  const result = deleteAttachment(attachmentId);
 
   if (result === "not_found") {
     return httpError("NOT_FOUND", "Attachment not found", 404);
@@ -458,7 +458,7 @@ function handleGetAttachment(attachmentId: string): Response {
   // Skip hydrating file data for file-backed attachments — clients should
   // fetch content via GET /attachments/:id/content (which validates the path
   // against the directory allowlist).
-  const attachment = attachmentsStore.getAttachmentById(attachmentId, {
+  const attachment = getAttachmentById(attachmentId, {
     hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
@@ -493,7 +493,7 @@ export function handleGetAttachmentContent(
   const filePath = getFilePathForAttachment(attachmentId);
   const isFileBacked = !!filePath;
 
-  const attachment = attachmentsStore.getAttachmentById(attachmentId, {
+  const attachment = getAttachmentById(attachmentId, {
     hydrateFileData: !isFileBacked,
   });
   if (!attachment) {

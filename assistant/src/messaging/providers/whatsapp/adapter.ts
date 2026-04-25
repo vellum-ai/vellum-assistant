@@ -5,7 +5,7 @@
  */
 
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
-import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import { upsertOutboundBinding } from "../../../memory/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
@@ -90,7 +90,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
       const { conversationId: internalId } =
         getOrCreateConversation(conversationKey);
       if (!assistantId || assistantId === "self") {
-        externalConversationStore.upsertOutboundBinding({
+        upsertOutboundBinding({
           conversationId: internalId,
           sourceChannel,
           externalChatId: conversationId,

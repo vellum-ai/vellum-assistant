@@ -43,7 +43,7 @@ import {
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
-import * as attachmentsStore from "../memory/attachments-store.js";
+import { getAttachmentsByIds, getSourcePathsForAttachments } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
@@ -972,11 +972,11 @@ export async function runDaemon(): Promise<void> {
           server.getConversationForMessages(conversationId, options),
         assistantEventHub,
         resolveAttachments: (attachmentIds) => {
-          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          const resolved = getAttachmentsByIds(attachmentIds, {
             hydrateFileData: true,
           });
           const sourcePaths =
-            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+            getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
@@ -1064,11 +1064,11 @@ export async function runDaemon(): Promise<void> {
       getOrCreateConversation: (conversationId, _transport) =>
         server.getConversationForMessages(conversationId),
       resolveAttachments: (attachmentIds) => {
-        const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+        const resolved = getAttachmentsByIds(attachmentIds, {
           hydrateFileData: true,
         });
         const sourcePaths =
-          attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          getSourcePathsForAttachments(attachmentIds);
         return resolved.map((a) => ({
           id: a.id,
           filename: a.originalFilename,

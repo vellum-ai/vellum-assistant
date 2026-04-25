@@ -68,7 +68,7 @@ import {
   listPinnedConversations,
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
-import * as externalConversationStore from "../memory/external-conversation-store.js";
+import { getBindingsForConversations } from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
@@ -1578,7 +1578,7 @@ export class RuntimeHttpServer {
       return null;
     }
 
-    const bindings = externalConversationStore.getBindingsForConversations([
+    const bindings = getBindingsForConversations([
       conversation.id,
     ]);
     const attentionStates = getAttentionStateByConversationIds([
@@ -1735,7 +1735,7 @@ export class RuntimeHttpServer {
           const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
-            externalConversationStore.getBindingsForConversations(
+            getBindingsForConversations(
               conversationIds,
             );
           const attentionStates =

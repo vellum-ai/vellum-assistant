@@ -4,7 +4,7 @@
  * is in use.
  */
 
-import * as encryptedStore from "./encrypted-store.js";
+import { deleteKey, getKey, listKeys, setKey } from "./encrypted-store.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,7 +67,7 @@ export class EncryptedStoreBackend implements CredentialBackend {
 
   async get(account: string): Promise<CredentialGetResult> {
     try {
-      return { value: encryptedStore.getKey(account), unreachable: false };
+      return { value: getKey(account), unreachable: false };
     } catch {
       return { value: undefined, unreachable: false };
     }
@@ -75,7 +75,7 @@ export class EncryptedStoreBackend implements CredentialBackend {
 
   async set(account: string, value: string): Promise<boolean> {
     try {
-      return encryptedStore.setKey(account, value);
+      return setKey(account, value);
     } catch {
       return false;
     }
@@ -83,7 +83,7 @@ export class EncryptedStoreBackend implements CredentialBackend {
 
   async delete(account: string): Promise<DeleteResult> {
     try {
-      return encryptedStore.deleteKey(account);
+      return deleteKey(account);
     } catch {
       return "error";
     }
@@ -91,7 +91,7 @@ export class EncryptedStoreBackend implements CredentialBackend {
 
   async list(): Promise<CredentialListResult> {
     try {
-      return { accounts: encryptedStore.listKeys(), unreachable: false };
+      return { accounts: listKeys(), unreachable: false };
     } catch {
       return { accounts: [], unreachable: true };
     }

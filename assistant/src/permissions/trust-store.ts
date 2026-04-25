@@ -21,7 +21,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
-import * as trustClient from "./trust-client.js";
+import { acceptStarterBundleSync, addRuleSync, clearRulesSync, getAllRulesSync, removeRuleSync, updateRuleSync } from "./trust-client.js";
 import type {
   AcceptStarterBundleResult,
   StarterBundleRule,
@@ -886,7 +886,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
   private ensureInitialized(): void {
     if (this.initialized) return;
     try {
-      this.rules = trustClient.getAllRulesSync();
+      this.rules = getAllRulesSync();
       this.rules.sort(ruleOrder);
       this.rebuildPatternCache();
       // Infer starterBundleAccepted from the fetched rules — if any starter
@@ -921,7 +921,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
   private refreshCache(): void {
     try {
-      const fresh = trustClient.getAllRulesSync();
+      const fresh = getAllRulesSync();
       fresh.sort(ruleOrder);
       const oldJson = JSON.stringify(this.rules);
       this.rules = fresh;
@@ -1083,7 +1083,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     }
 
     this.ensureInitialized();
-    const rule = trustClient.addRuleSync({
+    const rule = addRuleSync({
       tool: canonical.tool,
       pattern: canonical.pattern,
       // Only send scope for scoped tools — non-scoped tools omit it.
@@ -1122,7 +1122,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     // own updateRule merges and canonicalizes via parseTrustRule, so doing a
     // full-rule merge here against the local cache would risk overwriting
     // concurrent edits with stale cached values.
-    const rule = trustClient.updateRuleSync(id, updates);
+    const rule = updateRuleSync(id, updates);
     // Update local cache
     const idx = this.rules.findIndex((r) => r.id === id);
     if (idx >= 0) {
@@ -1139,7 +1139,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
   removeRule(id: string): boolean {
     this.ensureInitialized();
-    const success = trustClient.removeRuleSync(id);
+    const success = removeRuleSync(id);
     if (success) {
       this.rules = this.rules.filter((r) => r.id !== id);
       this.rebuildPatternCache();
@@ -1151,11 +1151,11 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
   clearAllRules(): void {
     this.ensureInitialized();
-    trustClient.clearRulesSync();
+    clearRulesSync();
     this.starterBundleAccepted = false;
     // Re-fetch to get the default rules the gateway preserves
     try {
-      this.rules = trustClient.getAllRulesSync();
+      this.rules = getAllRulesSync();
       this.rules.sort(ruleOrder);
     } catch {
       this.rules = [];
@@ -1167,11 +1167,11 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
   acceptStarterBundle(): AcceptStarterBundleResult {
     this.ensureInitialized();
-    const result = trustClient.acceptStarterBundleSync();
+    const result = acceptStarterBundleSync();
     this.starterBundleAccepted = true;
     // Refresh cache to include the newly added starter rules
     try {
-      this.rules = trustClient.getAllRulesSync();
+      this.rules = getAllRulesSync();
       this.rules.sort(ruleOrder);
     } catch {
       // Keep stale cache

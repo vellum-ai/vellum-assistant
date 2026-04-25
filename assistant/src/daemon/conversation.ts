@@ -64,7 +64,7 @@ import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
-import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
+import { clearMode } from "../runtime/conversation-approval-overrides.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -821,7 +821,7 @@ export class Conversation {
   }
 
   dispose(): void {
-    approvalOverrides.clearMode(this.conversationId);
+    clearMode(this.conversationId);
     // Cancel all pending standalone surfaces so callers get a clean
     // cancellation instead of hanging forever. Emit dismiss notifications
     // to the client so surfaces don't remain visually active if the client

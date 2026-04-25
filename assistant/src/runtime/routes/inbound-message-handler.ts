@@ -14,7 +14,7 @@ import {
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import type { TrustContext } from "../../daemon/conversation-runtime-assembly.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import * as attachmentsStore from "../../memory/attachments-store.js";
+import { getAttachmentsByIds } from "../../memory/attachments-store.js";
 import {
   recordConversationSeenSignal,
   type SignalType,
@@ -26,10 +26,10 @@ import {
   selectSlackMetaCandidateMetadata,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
-import * as deliveryChannels from "../../memory/delivery-channels.js";
-import * as deliveryCrud from "../../memory/delivery-crud.js";
-import * as deliveryStatus from "../../memory/delivery-status.js";
-import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { clearPendingVerificationReply, getPendingVerificationReply } from "../../memory/delivery-channels.js";
+import { findMessageBySourceId, linkMessage, recordInbound } from "../../memory/delivery-crud.js";
+import { markProcessed } from "../../memory/delivery-status.js";
+import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   backfillDm,
@@ -314,7 +314,7 @@ export async function handleChannelInbound(
     // that window is silently dropped and the deletion signal is lost.
     let original: { messageId: string; conversationId: string } | null = null;
     for (let attempt = 0; attempt <= deleteLookupRetries; attempt++) {
-      original = deliveryCrud.findMessageBySourceId(
+      original = findMessageBySourceId(
         sourceChannel,
         conversationExternalId,
         deletedMessageTs,
@@ -426,7 +426,7 @@ export async function handleChannelInbound(
   }
 
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+    const resolved = getAttachmentsByIds(attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -488,7 +488,7 @@ export async function handleChannelInbound(
   }
 
   // ── New message path ──
-  const result = deliveryCrud.recordInbound(
+  const result = recordInbound(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
@@ -502,7 +502,7 @@ export async function handleChannelInbound(
   // gateway retries (duplicates) re-attempt delivery here. On success the
   // pending marker is cleared so further duplicates short-circuit normally.
   if (result.duplicate && replyCallbackUrl) {
-    const pendingReply = deliveryChannels.getPendingVerificationReply(
+    const pendingReply = getPendingVerificationReply(
       result.eventId,
     );
     if (pendingReply) {
@@ -516,7 +516,7 @@ export async function handleChannelInbound(
           },
           mintBearerToken(),
         );
-        deliveryChannels.clearPendingVerificationReply(result.eventId);
+        clearPendingVerificationReply(result.eventId);
         log.info(
           { eventId: result.eventId },
           "Retried pending verification reply: delivered",
@@ -546,7 +546,7 @@ export async function handleChannelInbound(
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
   if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    externalConversationStore.upsertBinding({
+    upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId: conversationExternalId,
@@ -989,7 +989,7 @@ export async function handleChannelInbound(
 
     if (ingressResult.blocked) {
       // Intentional block — mark the event as processed (not failed/dead-lettered).
-      deliveryStatus.markProcessed(result.eventId);
+      markProcessed(result.eventId);
       log.info(
         {
           eventId: result.eventId,
@@ -1238,8 +1238,8 @@ async function persistSlackReactionAsMessage(params: {
     { slackMeta: writeSlackMetadata(slackMeta) },
     { skipIndexing: true },
   );
-  deliveryCrud.linkMessage(params.eventId, persisted.id);
-  deliveryStatus.markProcessed(params.eventId);
+  linkMessage(params.eventId, persisted.id);
+  markProcessed(params.eventId);
 }
 
 /**
