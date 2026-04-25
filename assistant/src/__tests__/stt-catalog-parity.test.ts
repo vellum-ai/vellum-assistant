@@ -14,8 +14,8 @@ import type { SttProviderId } from "../stt/types.js";
  *
  * The daemon maintains its canonical provider catalog in
  * `assistant/src/providers/speech-to-text/provider-catalog.ts`.
- * The client-facing metadata lives in `meta/stt-provider-catalog.json` and is
- * bundled into native clients at build time.
+ * The client-facing metadata lives in
+ * `assistant/src/providers/speech-to-text/stt-provider-catalog.json`.
  *
  * These tests enforce that both catalogs stay in sync on the fields they
  * share: provider IDs and credential-provider (apiKeyProviderName) mappings.
@@ -27,9 +27,9 @@ import type { SttProviderId } from "../stt/types.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Resolve repo root (tests run from assistant/) */
-function getRepoRoot(): string {
-  return join(process.cwd(), "..");
+/** Resolve assistant root (tests run from assistant/) */
+function getAssistantRoot(): string {
+  return process.cwd();
 }
 
 interface ClientCatalogEntry {
@@ -48,7 +48,13 @@ interface ClientCatalog {
 }
 
 function loadClientCatalog(): ClientCatalog {
-  const catalogPath = join(getRepoRoot(), "meta", "stt-provider-catalog.json");
+  const catalogPath = join(
+    getAssistantRoot(),
+    "src",
+    "providers",
+    "speech-to-text",
+    "stt-provider-catalog.json",
+  );
   const raw = readFileSync(catalogPath, "utf-8");
   return JSON.parse(raw);
 }
@@ -71,12 +77,12 @@ describe("STT catalog parity: daemon vs client", () => {
     const missingInClient = daemonIds.filter((id) => !clientIds.includes(id));
     if (missingInClient.length > 0) {
       const message = [
-        "Daemon catalog has provider IDs not present in meta/stt-provider-catalog.json.",
+        "Daemon catalog has provider IDs not present in stt-provider-catalog.json.",
         "",
         "Missing in client catalog:",
         ...missingInClient.map((id) => `  - ${id}`),
         "",
-        "Add entries for these providers to meta/stt-provider-catalog.json.",
+        "Add entries for these providers to stt-provider-catalog.json.",
       ].join("\n");
       expect(missingInClient, message).toEqual([]);
     }
@@ -87,7 +93,7 @@ describe("STT catalog parity: daemon vs client", () => {
     );
     if (missingInDaemon.length > 0) {
       const message = [
-        "Client catalog (meta/stt-provider-catalog.json) has provider IDs not present in daemon catalog.",
+        "Client catalog (stt-provider-catalog.json) has provider IDs not present in daemon catalog.",
         "",
         "Missing in daemon catalog:",
         ...missingInDaemon.map((id) => `  - ${id}`),
@@ -155,7 +161,7 @@ describe("STT catalog parity: daemon vs client", () => {
         "Violations:",
         ...violations.map((v) => `  - ${v}`),
         "",
-        "Update meta/stt-provider-catalog.json or assistant/src/providers/speech-to-text/provider-catalog.ts to match.",
+        "Update stt-provider-catalog.json or assistant/src/providers/speech-to-text/provider-catalog.ts to match.",
       ].join("\n");
       expect(violations, message).toEqual([]);
     }
@@ -193,7 +199,7 @@ describe("STT catalog parity: daemon vs client", () => {
         "Violations:",
         ...violations.map((v) => `  - ${v}`),
         "",
-        "Update meta/stt-provider-catalog.json or assistant/src/providers/speech-to-text/provider-catalog.ts to match.",
+        "Update stt-provider-catalog.json or assistant/src/providers/speech-to-text/provider-catalog.ts to match.",
       ].join("\n");
       expect(violations, message).toEqual([]);
     }

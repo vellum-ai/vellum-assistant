@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "STTProviderRegistry")
 
 // MARK: - Types
 
@@ -85,17 +82,12 @@ public struct STTProviderCatalogEntry: Decodable {
     public let credentialsGuide: STTCredentialsGuide?
 }
 
-/// Top-level schema for `stt-provider-catalog.json`.
+/// Client-side STT provider registry.
 ///
-/// The JSON file lives at `meta/stt-provider-catalog.json` and is copied
-/// into `Contents/Resources` by `build.sh`. It is the single source of
-/// truth for client-facing STT provider metadata.
-///
-/// The daemon maintains its own canonical catalog in
-/// `assistant/src/providers/speech-to-text/provider-catalog.ts`.
-/// A CI parity test (`stt-catalog-parity.test.ts`) enforces that provider
-/// IDs and credential-provider name mappings (`apiKeyProviderName`) remain
-/// aligned between the JSON file and the daemon catalog.
+/// Contains hardcoded provider metadata used by the Settings UI. This is a
+/// temporary measure — the client will eventually fetch this data from an
+/// assistant API endpoint. The canonical source of truth is the assistant's
+/// `provider-catalog.ts`.
 public struct STTProviderRegistry: Decodable {
     public let version: Int
     public let providers: [STTProviderCatalogEntry]
@@ -153,22 +145,14 @@ public struct STTProviderRegistry: Decodable {
     }
 }
 
-// MARK: - Fallback
+// MARK: - Built-in Registry
 
-/// Hard-coded fallback registry used when the bundled JSON is missing or
-/// corrupt. Keeps client startup resilient — the app can always show at
-/// least the current set of providers.
+/// Built-in provider registry.
 ///
-/// **Parity requirement**: The provider IDs and `apiKeyProviderName`
-/// mappings below MUST remain in sync with `meta/stt-provider-catalog.json`
-/// (the single source of truth for client-facing metadata) and with the
-/// daemon-side catalog in
+/// TODO: Replace with an API call to the assistant to fetch provider metadata
+/// dynamically. Until then, keep in sync with the assistant's
 /// `assistant/src/providers/speech-to-text/provider-catalog.ts`.
-/// A CI parity test (`stt-catalog-parity.test.ts`) enforces alignment
-/// between the daemon catalog and the JSON file. If you add or rename a
-/// provider here, update both the JSON catalog and the daemon catalog to
-/// keep all three in lockstep.
-private let fallbackRegistry = STTProviderRegistry(
+private let builtInRegistry = STTProviderRegistry(
     version: 0,
     providers: [
         STTProviderCatalogEntry(
@@ -232,41 +216,10 @@ private let fallbackRegistry = STTProviderRegistry(
 
 // MARK: - Loader
 
-/// Cached registry loaded once per process lifetime.
-/// The bundled `stt-provider-catalog.json` is immutable at runtime (baked
-/// into the app at build time), so reading it more than once is unnecessary
-/// I/O. Swift guarantees thread-safe lazy initialization of static
-/// properties.
-private let _cachedSTTProviderRegistry: STTProviderRegistry = {
-    guard let url = Bundle.main.url(forResource: "stt-provider-catalog", withExtension: "json") else {
-        log.warning("stt-provider-catalog.json not found in bundle — using fallback registry")
-        return fallbackRegistry
-    }
-    guard let data = try? Data(contentsOf: url) else {
-        log.error("Failed to read stt-provider-catalog.json from bundle")
-        return fallbackRegistry
-    }
-    do {
-        let registry = try JSONDecoder().decode(STTProviderRegistry.self, from: data)
-        guard !registry.providers.isEmpty else {
-            log.error("stt-provider-catalog.json decoded but contains no providers — using fallback registry")
-            return fallbackRegistry
-        }
-        return registry
-    } catch {
-        log.error("Failed to decode stt-provider-catalog.json: \(error.localizedDescription, privacy: .public)")
-        return fallbackRegistry
-    }
-}()
-
-/// Load the STT provider registry from the app bundle's Resources.
+/// Returns the built-in STT provider registry.
 ///
-/// Returns a cached result after the first call — the bundled JSON never
-/// changes at runtime so re-reading from disk is unnecessary.
-///
-/// If the JSON file is missing, unreadable, or corrupt the function
-/// returns a hard-coded fallback containing the current provider set so
-/// that client startup is never blocked.
+/// TODO: Replace with an API call to fetch provider metadata from the
+/// assistant dynamically.
 public func loadSTTProviderRegistry() -> STTProviderRegistry {
-    _cachedSTTProviderRegistry
+    builtInRegistry
 }
