@@ -118,7 +118,7 @@ export function deriveStatusDisplay(phase: ConnectionPhase): StatusDisplay {
   }
 }
 
-export function deriveSetupMessage(phase: ConnectionPhase): string | null {
+export function deriveSetupMessage(_phase: ConnectionPhase): string | null {
   return null;
 }
 

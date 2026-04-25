@@ -599,6 +599,7 @@ function createRelayConnection(
  * Wire an SseConnection up with the worker's message/open/close
  * callbacks for vellum-cloud assistants. Does NOT start it.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- vellum-cloud SSE path will be re-enabled in a follow-up PR
 function createSseConnection(mode: SseMode): SseConnection {
   return new SseConnection({
     mode,

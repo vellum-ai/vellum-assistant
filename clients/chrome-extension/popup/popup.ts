@@ -73,7 +73,7 @@ const environmentHint = document.getElementById(
 // ── Current state ───────────────────────────────────────────────────
 
 let currentAuthProfile: AssistantAuthProfile | null = null;
-let currentHealthState: ConnectionHealthState = 'paused';
+let _currentHealthState: ConnectionHealthState = 'paused';
 let currentDebugDetails: string | null = null;
 let currentBuildDefaultEnvironment: string | undefined;
 
@@ -113,7 +113,7 @@ function updateHealthDisplay(
   health: ConnectionHealthState,
   detail: ConnectionHealthDetail,
 ): void {
-  currentHealthState = health;
+  _currentHealthState = health;
   const phase = healthToPhase(health);
 
   // Status dot + text
