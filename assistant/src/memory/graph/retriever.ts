@@ -933,11 +933,10 @@ export async function retrieveForTurn(
   // hint search can pair it with the per-turn dense vector, pulling in
   // lexical matches (exact filenames, proper nouns, uncommon tokens) that
   // pure dense embeddings wash out. Computed locally with no network call.
-  // The dense `queryVector` for per-turn is the combined assistant+user
-  // embedding (it drives graph search), so this pairing is slightly
-  // asymmetric — the sparse signal is user-only while the dense is mixed.
-  // That's acceptable for PKB's purpose: lexical matches are overwhelmingly
-  // driven by the user's own wording.
+  // The surfaced `queryVector` is the combined assistant+user embedding
+  // (drives PKB hybrid search alongside this sparse signal). The graph
+  // search itself runs against both the combined embedding and a separate
+  // user-only embedding — see the user-only chunk added below.
   const trimmedUserLast = opts.userLastMessage.trim();
   let perTurnSparseVector: QdrantSparseVector | undefined = undefined;
   if (trimmedUserLast.length > 0) {
@@ -1042,6 +1041,19 @@ export async function retrieveForTurn(
       }
       if (current.length > 0) chunks.push(current);
     }
+  }
+
+  // Topic-pivot recovery: also embed the user message alone. When the
+  // assistant's prior message is long (e.g. includes <thinking>), the
+  // combined embedding is dominated by it and a short user pivot to a new
+  // topic gets drowned out. Searching with both vectors and unioning the
+  // candidates lets the pivot compete in scoring.
+  if (
+    trimmedUserLast.length > 0 &&
+    opts.userLastMessage.length <= maxQueryChars &&
+    !chunks.includes(opts.userLastMessage)
+  ) {
+    chunks.push(opts.userLastMessage);
   }
 
   // 2. Embed chunks and search (parallel)
