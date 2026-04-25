@@ -274,7 +274,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Build Environment (`VELLUM_ENVIRONMENT`)
 
-The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`.
+The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI, Chrome extension). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`, or injected via `--define` for the Chrome extension bundler.
 
 | Value | Use cases |
 |---|---|
@@ -287,8 +287,9 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 **Defaults**: `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset:
 - `test` command => `test`
 - `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
-- all other local build commands (`run`, plain build, etc.) => `dev`
-- if `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` points at a loopback `http://...` host (for example `vel up`), default to `local` regardless of command
+- `run` command => `local` (for local full-stack development, e.g. `vel up`)
+- all other local build commands (plain `build`, etc.) => `dev`
+- (macOS/iOS only) if `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` points at a loopback `http://...` host, default to `local` regardless of command
 
 CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
 
