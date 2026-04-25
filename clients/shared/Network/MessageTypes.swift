@@ -2121,8 +2121,8 @@ extension UpdateTrustRule {
 public typealias ToolPermissionSimulateMessage = ToolPermissionSimulateRequest
 
 extension ToolPermissionSimulateRequest {
-    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil, forcePromptSideEffects: Bool? = nil) {
-        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive, forcePromptSideEffects: forcePromptSideEffects)
+    public init(toolName: String, input: [String: AnyCodable], workingDir: String? = nil, isInteractive: Bool? = nil) {
+        self.init(type: "tool_permission_simulate", toolName: toolName, input: input, workingDir: workingDir, isInteractive: isInteractive)
     }
 }
 
