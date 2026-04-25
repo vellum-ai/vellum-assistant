@@ -3,6 +3,9 @@ import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * Create the actor_token_records table for hash-only actor token persistence.
+ *
+ * Stores the SHA-256 hash of each actor token alongside metadata for
+ * verification and revocation. The raw token plaintext is never stored.
  */
 export function createActorTokenRecordsTable(database: DrizzleDb): void {
   database.run(/*sql*/ `

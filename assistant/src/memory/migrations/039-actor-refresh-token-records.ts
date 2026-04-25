@@ -3,6 +3,10 @@ import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * Create the actor_refresh_token_records table for hash-only refresh token persistence.
+ *
+ * Stores the SHA-256 hash of each refresh token with family tracking,
+ * device binding, and dual expiry (absolute + inactivity).
+ * The raw token plaintext is never stored.
  */
 export function createActorRefreshTokenRecordsTable(database: DrizzleDb): void {
   database.run(/*sql*/ `
