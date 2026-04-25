@@ -615,6 +615,15 @@ export class SkillHostClient implements SkillHost {
       return;
     }
 
+    if (
+      !frame ||
+      typeof frame !== "object" ||
+      Array.isArray(frame) ||
+      typeof frame.id !== "string"
+    ) {
+      return;
+    }
+
     // Delivery frames route into the subscription callback.
     if (frame.event === "delivery") {
       const sub = this.subscriptions.get(frame.id);

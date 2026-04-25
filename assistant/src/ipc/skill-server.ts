@@ -516,6 +516,7 @@ export class SkillIpcServer {
       !frame ||
       typeof frame !== "object" ||
       Array.isArray(frame) ||
+      typeof frame.id !== "string" ||
       !frame.id
     ) {
       const id =
