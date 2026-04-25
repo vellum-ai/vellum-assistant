@@ -1,11 +1,14 @@
 /**
  * Popup UI for the Vellum browser-relay extension.
  *
- * The popup renders a concise primary status derived from the worker's
- * structured connection health state. The user configures a self-hosted
- * gateway URL (defaulted to http://127.0.0.1:7830) and toggles connection
- * on/off. Manual recovery controls (re-pair) and the environment selector
- * live in a collapsible Advanced section.
+ * Manages three screens:
+ * 1. Welcome — sign in with Vellum or connect to self-hosted
+ * 2. Assistant Picker — choose which cloud assistant to connect to
+ * 3. Main — connection toggle, status, settings
+ *
+ * The popup determines the initial screen by asking the worker for
+ * the current session state. If a session or self-hosted mode is
+ * already configured, it skips straight to Main.
  */
 
 import type { AssistantAuthProfile } from '../background/assistant-auth-profile.js';
@@ -24,7 +27,45 @@ import {
   type EnvironmentStateResponse,
 } from './popup-state.js';
 
-// ── DOM references ──────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Send a message to the service worker with automatic retry.
+ *
+ * Chrome MV3 service workers may not be awake when the popup first
+ * opens. If the message port closes before a response is received
+ * (`chrome.runtime.lastError` set, `response` is `undefined`), we
+ * retry once after a short delay to give the worker time to wake.
+ */
+function sendMessage<T>(
+  message: Record<string, unknown>,
+  callback: (response: T) => void,
+  retries = 1,
+): void {
+  chrome.runtime.sendMessage(message, (response: T) => {
+    if (chrome.runtime.lastError && response === undefined && retries > 0) {
+      setTimeout(() => sendMessage(message, callback, retries - 1), 200);
+      return;
+    }
+    callback(response);
+  });
+}
+
+// ── Screens ─────────────────────────────────────────────────────────
+
+const screenWelcome = document.getElementById('screen-welcome') as HTMLDivElement;
+const screenPicker = document.getElementById('screen-picker') as HTMLDivElement;
+const screenMain = document.getElementById('screen-main') as HTMLDivElement;
+
+type ScreenId = 'welcome' | 'picker' | 'main';
+
+function showScreen(id: ScreenId): void {
+  screenWelcome.style.display = id === 'welcome' ? 'block' : 'none';
+  screenPicker.style.display = id === 'picker' ? 'block' : 'none';
+  screenMain.style.display = id === 'main' ? 'block' : 'none';
+}
+
+// ── DOM references (Main screen) ────────────────────────────────────
 
 const connectionToggle = document.getElementById('connection-toggle') as HTMLInputElement;
 const connectionToggleHint = document.getElementById(
@@ -70,12 +111,38 @@ const environmentHint = document.getElementById(
   'environment-hint',
 ) as HTMLParagraphElement;
 
+const selfHostedSettings = document.getElementById(
+  'self-hosted-settings',
+) as HTMLDivElement;
+
+// Assistant info bar (cloud mode)
+const assistantInfo = document.getElementById('assistant-info') as HTMLDivElement;
+const assistantNameEl = document.getElementById('assistant-name') as HTMLParagraphElement;
+const assistantAccountEl = document.getElementById('assistant-account') as HTMLParagraphElement;
+
+// Session actions
+const sessionActions = document.getElementById('session-actions') as HTMLDivElement;
+
+// ── DOM references (Welcome screen) ─────────────────────────────────
+
+const btnSignIn = document.getElementById('btn-sign-in') as HTMLButtonElement;
+const btnSelfHosted = document.getElementById('btn-self-hosted') as HTMLButtonElement;
+
+// ── DOM references (Picker screen) ──────────────────────────────────
+
+const pickerBack = document.getElementById('picker-back') as HTMLButtonElement;
+const assistantList = document.getElementById('assistant-list') as HTMLDivElement;
+const pickerError = document.getElementById('picker-error') as HTMLParagraphElement;
+const pickerLoading = document.getElementById('picker-loading') as HTMLParagraphElement;
+
 // ── Current state ───────────────────────────────────────────────────
 
 let currentAuthProfile: AssistantAuthProfile | null = null;
 let _currentHealthState: ConnectionHealthState = 'paused';
 let currentDebugDetails: string | null = null;
 let currentBuildDefaultEnvironment: string | undefined;
+/** Tracks whether the user has an established mode (self-hosted or cloud). */
+let currentMode: 'self-hosted' | 'cloud' | null = null;
 
 // ── Connection phase management ─────────────────────────────────────
 
@@ -175,10 +242,25 @@ function updateHealthDisplay(
   }
 }
 
+// ── Main screen mode-specific visibility ────────────────────────────
+
+function applyMainScreenMode(): void {
+  if (currentMode === 'cloud') {
+    selfHostedSettings.style.display = 'none';
+    assistantInfo.style.display = 'flex';
+    sessionActions.style.display = 'flex';
+  } else {
+    // self-hosted
+    selfHostedSettings.style.display = 'block';
+    assistantInfo.style.display = 'none';
+    sessionActions.style.display = 'none';
+  }
+}
+
 // ── Gateway URL ─────────────────────────────────────────────────────
 
 function loadGatewayUrl(): void {
-  chrome.runtime.sendMessage({ type: 'gateway-url-get' }, (response: GatewayUrlGetResponse) => {
+  sendMessage<GatewayUrlGetResponse>({ type: 'gateway-url-get' }, (response) => {
     if (response?.ok && response.gatewayUrl) {
       gatewayUrlInput.value = response.gatewayUrl;
     }
@@ -190,7 +272,7 @@ gatewayUrlSave?.addEventListener('click', () => {
   if (!url) return;
   gatewayUrlSave.disabled = true;
   gatewayUrlSave.textContent = 'Saving\u2026';
-  chrome.runtime.sendMessage(
+  sendMessage(
     { type: 'gateway-url-set', gatewayUrl: url },
     () => {
       gatewayUrlSave.disabled = false;
@@ -210,9 +292,9 @@ gatewayUrlInput?.addEventListener('keydown', (e) => {
 
 connectionToggle.addEventListener('change', () => {
   if (connectionToggle.checked) {
-    chrome.runtime.sendMessage({ type: 'connect' });
+    sendMessage({ type: 'connect' }, () => {});
   } else {
-    chrome.runtime.sendMessage({ type: 'pause' });
+    sendMessage({ type: 'pause' }, () => {});
   }
 });
 
@@ -220,9 +302,9 @@ connectionToggle.addEventListener('change', () => {
 
 btnPairLocal?.addEventListener('click', () => {
   localStatus.textContent = 'Pairing\u2026';
-  chrome.runtime.sendMessage(
+  sendMessage<{ ok: boolean; error?: string }>(
     { type: 'self-hosted-pair' },
-    (response: { ok: boolean; error?: string }) => {
+    (response) => {
       if (response?.ok) {
         localStatus.textContent = 'Paired successfully';
       } else {
@@ -258,7 +340,7 @@ troubleshootToggle?.addEventListener('click', () => {
 // ── Environment selector ────────────────────────────────────────────
 
 function loadEnvironment(): void {
-  chrome.runtime.sendMessage({ type: 'environment-get' }, (response: EnvironmentStateResponse) => {
+  sendMessage<EnvironmentStateResponse>({ type: 'environment-get' }, (response) => {
     if (!response?.ok) return;
     currentBuildDefaultEnvironment = response.buildDefaultEnvironment;
     if (response.overrideEnvironment) {
@@ -276,9 +358,9 @@ function loadEnvironment(): void {
 environmentSelect?.addEventListener('change', () => {
   const value = environmentSelect.value;
   const isDefault = value === currentBuildDefaultEnvironment;
-  chrome.runtime.sendMessage(
+  sendMessage<EnvironmentStateResponse>(
     { type: 'environment-set', environment: isDefault ? null : value },
-    (response: EnvironmentStateResponse) => {
+    (response) => {
       if (response?.ok) {
         environmentHint.textContent = deriveEnvironmentHint(
           response.overrideEnvironment,
@@ -289,16 +371,176 @@ environmentSelect?.addEventListener('change', () => {
   );
 });
 
-// ── Initial load ────────────────────────────────────────────────────
+// ── Welcome screen handlers ─────────────────────────────────────────
+
+btnSignIn?.addEventListener('click', () => {
+  btnSignIn.disabled = true;
+  btnSignIn.textContent = 'Signing in\u2026';
+  sendMessage<{
+    ok: boolean;
+    session?: { email: string };
+    assistants?: Array<{ id: string; name: string }>;
+    error?: string;
+  }>({ type: 'cloud-login' }, (response) => {
+    btnSignIn.disabled = false;
+    btnSignIn.textContent = 'Sign in with Vellum';
+
+    if (!response?.ok) {
+      // Show inline error on welcome screen — keep it simple
+      const err = response?.error ?? 'Login failed';
+      // Re-use the welcome-subtitle to show the error briefly
+      const subtitle = screenWelcome.querySelector('.welcome-subtitle');
+      if (subtitle) {
+        subtitle.textContent = err;
+        subtitle.classList.add('error-text');
+        setTimeout(() => {
+          subtitle.textContent = 'Bridge your browser to your personal assistant.';
+          subtitle.classList.remove('error-text');
+        }, 4000);
+      }
+      return;
+    }
+
+    const assistants = response.assistants ?? [];
+    if (assistants.length === 1) {
+      // Single assistant — select it directly and go to main
+      selectAssistant(assistants[0].id, assistants[0].name, response.session?.email);
+    } else if (assistants.length > 1) {
+      // Multiple assistants — show picker
+      renderAssistantList(assistants, response.session?.email);
+      showScreen('picker');
+    } else {
+      // No assistants — go to main in cloud mode with no assistant selected yet
+      currentMode = 'cloud';
+      if (response.session?.email) {
+        assistantAccountEl.textContent = response.session.email;
+      }
+      applyMainScreenMode();
+      showScreen('main');
+      loadMainScreen();
+    }
+  });
+});
+
+btnSelfHosted?.addEventListener('click', () => {
+  currentMode = 'self-hosted';
+  sendMessage({ type: 'set-mode', mode: 'self-hosted' }, () => {});
+  applyMainScreenMode();
+  showScreen('main');
+  loadMainScreen();
+});
+
+// ── Picker screen handlers ──────────────────────────────────────────
+
+pickerBack?.addEventListener('click', () => {
+  showScreen('welcome');
+});
+
+function renderAssistantList(
+  assistants: Array<{ id: string; name: string }>,
+  email?: string,
+): void {
+  pickerLoading.style.display = 'none';
+  pickerError.style.display = 'none';
+  assistantList.innerHTML = '';
+
+  for (const a of assistants) {
+    const row = document.createElement('div');
+    row.className = 'assistant-row';
+    row.innerHTML = `
+      <div class="assistant-row-icon">
+        <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+          <path d="M12 2L22 12L12 22L2 12L12 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          <path d="M12 7L17 12L12 17L7 12L12 7Z" fill="currentColor" opacity="0.3"/>
+        </svg>
+      </div>
+      <span class="assistant-row-name">${escapeHtml(a.name)}</span>
+      <svg class="assistant-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+        <path d="M4 2L8 6L4 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+    row.addEventListener('click', () => selectAssistant(a.id, a.name, email));
+    assistantList.appendChild(row);
+  }
+}
+
+function selectAssistant(id: string, name: string, email?: string): void {
+  currentMode = 'cloud';
+  assistantNameEl.textContent = name;
+  assistantAccountEl.textContent = email ?? '';
+
+  sendMessage({ type: 'select-assistant', assistantId: id, assistantName: name }, () => {});
+  applyMainScreenMode();
+  showScreen('main');
+  loadMainScreen();
+}
+
+// ── Sign out ────────────────────────────────────────────────────────
+
+document.getElementById('btn-sign-out')?.addEventListener('click', () => {
+  sendMessage({ type: 'cloud-logout' }, () => {
+    currentMode = null;
+    showScreen('welcome');
+  });
+});
+
+// ── Main screen initialization ──────────────────────────────────────
+
+function loadMainScreen(): void {
+  loadGatewayUrl();
+  loadEnvironment();
+  refreshStatus();
+}
 
 function refreshStatus(): void {
-  chrome.runtime.sendMessage({ type: 'get_status' }, (response: GetStatusResponse) => {
+  sendMessage<GetStatusResponse>({ type: 'get_status' }, (response) => {
     if (!response) return;
     currentAuthProfile = response.authProfile;
     updateHealthDisplay(response.health, response.healthDetail);
   });
 }
 
-loadGatewayUrl();
-loadEnvironment();
-refreshStatus();
+// ── HTML escaping ───────────────────────────────────────────────────
+
+function escapeHtml(str: string): string {
+  const el = document.createElement('span');
+  el.textContent = str;
+  return el.innerHTML;
+}
+
+// ── Initial load ────────────────────────────────────────────────────
+//
+// Ask the worker whether a session / mode is already established.
+// If so, skip welcome and go straight to main.
+
+sendMessage<{
+  ok: boolean;
+  mode: 'self-hosted' | 'cloud' | null;
+  session?: { email: string } | null;
+  selectedAssistant?: { id: string; name: string } | null;
+}>({ type: 'get-session' }, (response) => {
+  if (!response?.ok) {
+    showScreen('welcome');
+    return;
+  }
+
+  if (response.mode === 'self-hosted') {
+    currentMode = 'self-hosted';
+    applyMainScreenMode();
+    showScreen('main');
+    loadMainScreen();
+  } else if (response.mode === 'cloud') {
+    currentMode = 'cloud';
+    if (response.selectedAssistant) {
+      assistantNameEl.textContent = response.selectedAssistant.name;
+    }
+    if (response.session?.email) {
+      assistantAccountEl.textContent = response.session.email;
+    }
+    applyMainScreenMode();
+    showScreen('main');
+    loadMainScreen();
+  } else {
+    showScreen('welcome');
+  }
+});
