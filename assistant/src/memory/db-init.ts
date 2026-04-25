@@ -37,6 +37,7 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrateAddConversationInferenceProfile,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
   migrateBackfillAudioAttachmentMimeTypes,
@@ -382,6 +383,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersManagedServiceIsPaid,
     migrateOAuthProvidersAvailableScopes,
     migrateScheduleWakeConversationId,
+    migrateAddConversationInferenceProfile,
   ];
 
   // Run each migration step, catching and logging individual failures so one
