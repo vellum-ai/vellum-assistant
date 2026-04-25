@@ -194,7 +194,7 @@ struct InferenceProfilesSheet: View {
                     Text(profile.name)
                         .font(VFont.bodyMediumEmphasised)
                         .foregroundStyle(VColor.contentDefault)
-                    if BuiltInInferenceProfile.allNames.contains(profile.name) {
+                    if builtInInferenceProfileNames.contains(profile.name) {
                         VBadge(label: "Built-in", tone: .neutral, emphasis: .subtle)
                     }
                 }

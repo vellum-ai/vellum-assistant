@@ -26,7 +26,7 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertNil(profile.effort)
         XCTAssertNil(profile.speed)
         XCTAssertNil(profile.verbosity)
-        XCTAssertNil(profile.temperature)
+        XCTAssertEqual(profile.temperature, .unset)
         XCTAssertNil(profile.thinkingEnabled)
         XCTAssertNil(profile.thinkingStreamThinking)
     }
@@ -153,19 +153,74 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertEqual(profile.id, "balanced")
     }
 
-    // MARK: - BuiltInInferenceProfile
+    // MARK: - Built-in profile names
 
-    func testBuiltInProfileNames() {
-        XCTAssertEqual(BuiltInInferenceProfile.qualityOptimized.rawValue, "quality-optimized")
-        XCTAssertEqual(BuiltInInferenceProfile.balanced.rawValue, "balanced")
-        XCTAssertEqual(BuiltInInferenceProfile.costOptimized.rawValue, "cost-optimized")
-    }
-
-    func testBuiltInAllNamesContainsEveryCase() {
+    func testBuiltInProfileNamesIsExactlyTheMigrationSeededTrio() {
         XCTAssertEqual(
-            BuiltInInferenceProfile.allNames,
+            builtInInferenceProfileNames,
             ["quality-optimized", "balanced", "cost-optimized"]
         )
-        XCTAssertEqual(BuiltInInferenceProfile.allNames.count, BuiltInInferenceProfile.allCases.count)
+    }
+
+    // MARK: - Temperature: explicit null vs unset
+
+    /// `null` and "absent" are NOT semantically equivalent in the daemon's
+    /// resolver. `assistant/src/config/llm-resolver.ts` deepMerge does
+    /// `if (value === undefined) continue;` — `null` is *not* skipped, so
+    /// a profile fragment with `temperature: null` overrides any non-null
+    /// value layered below. The Swift mapper must preserve the distinction.
+    func testExplicitNullTemperatureSurvivesRoundTrip() {
+        let json: [String: Any] = ["temperature": NSNull()]
+        let decoded = InferenceProfile(name: "explicit-null", json: json)
+        XCTAssertEqual(decoded.temperature, .explicitNull)
+
+        let reEncoded = decoded.toJSON()
+        XCTAssertTrue(
+            reEncoded["temperature"] is NSNull,
+            "Explicit null must round-trip as NSNull, not be omitted"
+        )
+    }
+
+    func testAbsentTemperatureRoundTripsAsUnset() {
+        let json: [String: Any] = [:]
+        let decoded = InferenceProfile(name: "absent", json: json)
+        XCTAssertEqual(decoded.temperature, .unset)
+
+        let reEncoded = decoded.toJSON()
+        XCTAssertNil(
+            reEncoded["temperature"],
+            "Unset temperature must remain absent on re-encode"
+        )
+    }
+
+    func testTemperatureValueRoundTripsAsValue() {
+        let json: [String: Any] = ["temperature": 0.42]
+        let decoded = InferenceProfile(name: "warm", json: json)
+        XCTAssertEqual(decoded.temperature, .value(0.42))
+
+        let reEncoded = decoded.toJSON()
+        XCTAssertEqual(reEncoded["temperature"] as? Double, 0.42)
+    }
+
+    /// The convenience `Optional<Double>` initializer maps `nil` to
+    /// `.unset` so existing call sites that constructed profiles with
+    /// `temperature: nil` keep producing fragments where the field is
+    /// absent (the previous behavior).
+    func testOptionalDoubleInitializerMapsNilToUnset() {
+        let profile = InferenceProfile(
+            name: "legacy",
+            temperature: Double?.none
+        )
+        XCTAssertEqual(profile.temperature, .unset)
+        XCTAssertNil(profile.toJSON()["temperature"])
+    }
+
+    func testOptionalDoubleInitializerMapsValueToValue() {
+        let profile = InferenceProfile(
+            name: "legacy-set",
+            temperature: 0.7
+        )
+        XCTAssertEqual(profile.temperature, .value(0.7))
+        XCTAssertEqual(profile.toJSON()["temperature"] as? Double, 0.7)
     }
 }
