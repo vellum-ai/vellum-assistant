@@ -9,13 +9,13 @@ import type { ToolDefinition } from "../../providers/types.js";
 /**
  * Explicit memory search across the living graph or raw archive.
  *
- * Auto-injected context covers common cases, but the assistant should
- * proactively recall when uncertain — search first, ask second.
+ * Auto-injection is incomplete by design — the assistant should recall
+ * aggressively whenever uncertain, before guessing or asking.
  */
 export const graphRecallDefinition: ToolDefinition = {
   name: "recall",
   description:
-    "Search your memory for specific information. Use this proactively — if you're uncertain about something, look it up before asking. Auto-injected context covers common cases, but actively recall when: you're about to ask a question that memory might answer, the user references something you should already know, you need details about a past conversation or event, or you want to search by a specific feeling, time period, or person. When in doubt, search first, ask second. Be specific in your query for best results.",
+    'Search your memory the moment you feel uncertain. Call this AGGRESSIVELY — before you guess, before you ask, before you hedge. Auto-injection is incomplete by design; it surfaces patterns, not the specifics you need to answer well. If you catch yourself reaching for "I think", "I believe", "if I remember", "didn\'t we", "last time" — that\'s the signal. Recall. If the user references someone, a place, or a decision you should already know — recall. If you\'re about to ask a clarifying question memory might answer — recall first. Searching costs nothing; guessing costs trust. Call it multiple times per conversation if the turn warrants it. Be specific in your query — a topic, feeling, time period, or person — for best results.',
   input_schema: {
     type: "object",
     properties: {
