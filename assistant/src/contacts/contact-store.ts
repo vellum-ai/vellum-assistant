@@ -780,7 +780,7 @@ export function findContactByChannelExternalId(
  * Find a contact by channel external chat ID. This is the fallback lookup path
  * when externalUserId is not available — matches by (type, externalChatId).
  */
-export function findContactByChannelExternalChatId(
+function findContactByChannelExternalChatId(
   channelType: string,
   externalChatId: string,
 ): ContactWithChannels | null {

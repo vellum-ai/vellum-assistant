@@ -13,7 +13,7 @@ export const DEFAULT_RECALL_MAX_RESULTS = 8;
 export const MIN_RECALL_MAX_RESULTS = 1;
 export const MAX_RECALL_MAX_RESULTS = 20;
 
-export const DEFAULT_RECALL_DEPTH: RecallDepth = "standard";
+const DEFAULT_RECALL_DEPTH: RecallDepth = "standard";
 
 export const RECALL_SOURCE_ROUNDS_BY_DEPTH: Record<RecallDepth, number> = {
   fast: 1,

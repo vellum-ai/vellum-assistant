@@ -8,7 +8,7 @@ import { safeStringSlice } from "../util/unicode.js";
 /**
  * Maximum share of the context window that a single tool result may occupy.
  */
-export const MAX_TOOL_RESULT_CONTEXT_SHARE = 0.3;
+const MAX_TOOL_RESULT_CONTEXT_SHARE = 0.3;
 
 /**
  * Absolute cap on tool-result characters (~100K tokens).

@@ -79,7 +79,7 @@ function scopeDifference(required: string[], granted: string[]): string[] {
 // ── Liveness ping ─────────────────────────────────────────────────────
 
 /** @internal Exposed for test injection. */
-export let _fetchFn: typeof fetch = fetch;
+let _fetchFn: typeof fetch = fetch;
 
 /** @internal Test-only: override the fetch function used for pings. */
 export function _setFetchFn(fn: typeof fetch): void {

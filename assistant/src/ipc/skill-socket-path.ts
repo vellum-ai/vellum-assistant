@@ -14,7 +14,7 @@ import {
   resolveIpcSocketPath,
 } from "./socket-path.js";
 
-export const SKILL_IPC_SOCKET_FILE_NAME = "assistant-skill.sock";
+const SKILL_IPC_SOCKET_FILE_NAME = "assistant-skill.sock";
 
 export function resolveSkillIpcSocketPath(
   workspaceDir: string = getWorkspaceDir(),

@@ -75,7 +75,7 @@ export const GRANT_TTL_10M_MS = 10 * 60 * 1000;
  *   conversation lifecycle manages cleanup)
  * - All others (`approve_once`, etc.) → 5 minutes from now (default)
  */
-export function computeGrantExpiresAt(action: ApprovalAction): number {
+function computeGrantExpiresAt(action: ApprovalAction): number {
   switch (action) {
     case "approve_10m":
       return Date.now() + GRANT_TTL_10M_MS;
@@ -99,15 +99,20 @@ export function computeGrantExpiresAt(action: ApprovalAction): number {
  * Fails silently on error -- grant minting is best-effort and must never block
  * the approval flow.
  */
-export function tryMintToolApprovalGrant(params: {
+function tryMintToolApprovalGrant(params: {
   approvalInfo: PendingApprovalInfo;
   approval: GuardianApprovalRequest;
   decisionChannel: ChannelId;
   guardianExternalUserId: string;
   effectiveAction: ApprovalAction;
 }): void {
-  const { approvalInfo, approval, decisionChannel, guardianExternalUserId, effectiveAction } =
-    params;
+  const {
+    approvalInfo,
+    approval,
+    decisionChannel,
+    guardianExternalUserId,
+    effectiveAction,
+  } = params;
 
   if (!approvalInfo.toolName) {
     return;
@@ -297,7 +302,8 @@ export function mintCanonicalRequestGrant(params: {
   guardianExternalUserId?: string;
   effectiveAction: ApprovalAction;
 }): { minted: boolean } {
-  const { request, actorChannel, guardianExternalUserId, effectiveAction } = params;
+  const { request, actorChannel, guardianExternalUserId, effectiveAction } =
+    params;
 
   if (!request.toolName || !request.inputDigest) {
     return { minted: false };
@@ -524,9 +530,7 @@ export async function applyCanonicalGuardianDecision(
   // 3. Downgrade approve_always to approve_once for guardian-on-behalf requests.
   // Time-bounded modes (approve_10m, approve_conversation) are permitted.
   const effectiveAction: ApprovalAction =
-    action === "approve_always"
-      ? "approve_once"
-      : action;
+    action === "approve_always" ? "approve_once" : action;
 
   // 4. CAS resolve: atomically transition from 'pending' to terminal status
   const targetStatus: CanonicalRequestStatus =
