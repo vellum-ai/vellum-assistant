@@ -39,7 +39,9 @@ import { sttRouteDefinitions } from "../stt-routes.js";
 
 function getTranscribeHandler() {
   const routes = sttRouteDefinitions();
-  return routes[0].handler;
+  const transcribe = routes.find((r) => r.endpoint === "stt/transcribe");
+  if (!transcribe) throw new Error("stt/transcribe route not found");
+  return transcribe.handler;
 }
 
 function makeRouteContext(body: unknown): RouteContext {
@@ -122,12 +124,19 @@ afterEach(() => {
 describe("stt-routes", () => {
   // -- Route metadata -------------------------------------------------------
 
-  test("exports a route definition for stt/transcribe", () => {
+  test("exports route definitions for stt/providers and stt/transcribe", () => {
     const routes = sttRouteDefinitions();
-    expect(routes).toHaveLength(1);
-    expect(routes[0].endpoint).toBe("stt/transcribe");
-    expect(routes[0].method).toBe("POST");
-    expect(routes[0].policyKey).toBe("stt/transcribe");
+    expect(routes).toHaveLength(2);
+
+    const providers = routes.find((r) => r.endpoint === "stt/providers");
+    expect(providers).toBeDefined();
+    expect(providers!.method).toBe("GET");
+    expect(providers!.policyKey).toBe("stt/providers");
+
+    const transcribe = routes.find((r) => r.endpoint === "stt/transcribe");
+    expect(transcribe).toBeDefined();
+    expect(transcribe!.method).toBe("POST");
+    expect(transcribe!.policyKey).toBe("stt/transcribe");
   });
 
   // -- Success path ---------------------------------------------------------
