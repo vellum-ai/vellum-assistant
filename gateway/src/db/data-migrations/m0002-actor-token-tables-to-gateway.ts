@@ -59,8 +59,21 @@ export function up(gwDb: Database): MigrationResult {
 
     // --- Migrate actor_token_records ---
     if (hasActorTokens) {
+      interface ActorTokenRow {
+        id: string;
+        token_hash: string;
+        guardian_principal_id: string;
+        hashed_device_id: string;
+        platform: string;
+        status: string;
+        issued_at: number;
+        expires_at: number | null;
+        created_at: number;
+        updated_at: number;
+      }
+
       const rows = assistantDb
-        .query<Record<string, unknown>, []>(
+        .query<ActorTokenRow, []>(
           `SELECT id, token_hash, guardian_principal_id, hashed_device_id,
                   platform, status, issued_at, expires_at, created_at, updated_at
            FROM actor_token_records`,
@@ -104,8 +117,24 @@ export function up(gwDb: Database): MigrationResult {
 
     // --- Migrate actor_refresh_token_records ---
     if (hasRefreshTokens) {
+      interface RefreshTokenRow {
+        id: string;
+        token_hash: string;
+        family_id: string;
+        guardian_principal_id: string;
+        hashed_device_id: string;
+        platform: string;
+        status: string;
+        issued_at: number;
+        absolute_expires_at: number;
+        inactivity_expires_at: number;
+        last_used_at: number | null;
+        created_at: number;
+        updated_at: number;
+      }
+
       const rows = assistantDb
-        .query<Record<string, unknown>, []>(
+        .query<RefreshTokenRow, []>(
           `SELECT id, token_hash, family_id, guardian_principal_id, hashed_device_id,
                   platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
                   last_used_at, created_at, updated_at
