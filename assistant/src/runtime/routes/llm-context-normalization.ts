@@ -466,6 +466,7 @@ function normalizeOpenAiResponsesResponsePayload(
   }
 
   const usage = asRecord(response.usage);
+  const inputTokensDetails = asRecord(usage?.input_tokens_details);
   const toolCallNames = toolCallSections
     .map((section) => section.toolName)
     .filter((name): name is string => typeof name === "string");
@@ -482,7 +483,7 @@ function normalizeOpenAiResponsesResponsePayload(
       inputTokens: asNumber(usage?.input_tokens),
       outputTokens: asNumber(usage?.output_tokens),
       cacheCreationInputTokens: undefined,
-      cacheReadInputTokens: undefined,
+      cacheReadInputTokens: asNumber(inputTokensDetails?.cached_tokens),
       stopReason,
       requestMessageCount: undefined,
       requestToolCount: undefined,
@@ -536,6 +537,7 @@ function normalizeOpenAiChatCompletionsResponsePayload(
   responseSections.push(...responseToolSections);
 
   const usage = asRecord(response.usage);
+  const promptTokensDetails = asRecord(usage?.prompt_tokens_details);
   const toolCallNames = responseToolSections
     .map((section) => section.toolName)
     .filter((name): name is string => typeof name === "string");
@@ -548,7 +550,7 @@ function normalizeOpenAiChatCompletionsResponsePayload(
       inputTokens: asNumber(usage?.prompt_tokens),
       outputTokens: asNumber(usage?.completion_tokens),
       cacheCreationInputTokens: undefined,
-      cacheReadInputTokens: undefined,
+      cacheReadInputTokens: asNumber(promptTokensDetails?.cached_tokens),
       stopReason: asString(firstChoice?.finish_reason),
       requestMessageCount: undefined,
       requestToolCount: undefined,

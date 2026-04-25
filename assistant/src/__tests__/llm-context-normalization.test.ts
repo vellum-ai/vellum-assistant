@@ -1521,6 +1521,71 @@ describe("normalizeLlmContextPayloads", () => {
     expect(normalized.summary?.stopReason).toBe("incomplete");
   });
 
+  test("extracts cached input tokens from Responses API input_tokens_details", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_027,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Be brief.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Hi" }],
+            type: "message",
+          },
+        ],
+      },
+      responsePayload: {
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Hey!" }],
+          },
+        ],
+        usage: {
+          input_tokens: 100,
+          output_tokens: 5,
+          input_tokens_details: { cached_tokens: 60 },
+        },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary?.cacheReadInputTokens).toBe(60);
+    expect(normalized.summary?.cacheCreationInputTokens).toBeUndefined();
+    expect(normalized.summary?.inputTokens).toBe(100);
+  });
+
+  test("extracts cached input tokens from Chat Completions prompt_tokens_details", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_028,
+      requestPayload: {
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "Hi" }],
+      },
+      responsePayload: {
+        model: "gpt-4.1",
+        choices: [
+          {
+            finish_reason: "stop",
+            message: { role: "assistant", content: "Hey!" },
+          },
+        ],
+        usage: {
+          prompt_tokens: 80,
+          completion_tokens: 4,
+          prompt_tokens_details: { cached_tokens: 40 },
+        },
+      },
+    });
+
+    expect(normalized.summary?.cacheReadInputTokens).toBe(40);
+    expect(normalized.summary?.cacheCreationInputTokens).toBeUndefined();
+    expect(normalized.summary?.inputTokens).toBe(80);
+  });
+
   test("legacy chat-completions payloads are still normalized correctly alongside Responses tests", () => {
     // This test verifies backward compatibility: existing chat-completions
     // logs stored in the database must continue to normalize correctly even
