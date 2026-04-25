@@ -204,7 +204,7 @@ describe("wakeAgentForOpportunity", () => {
     const input = target.runCalls[0]!.input;
     expect(input).toHaveLength(3); // 2 baseline + 1 hint
     expect(input[2]).toEqual({
-      role: "user",
+      role: "assistant",
       content: [
         {
           type: "text",

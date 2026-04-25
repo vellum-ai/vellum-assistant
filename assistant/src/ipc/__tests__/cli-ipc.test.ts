@@ -34,6 +34,10 @@ mock.module("../../runtime/agent-wake.js", () => ({
   registerDefaultWakeResolver: () => {},
 }));
 
+mock.module("../../memory/conversation-crud.js", () => ({
+  getConversation: (id: string) => ({ id, createdAt: Date.now() }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

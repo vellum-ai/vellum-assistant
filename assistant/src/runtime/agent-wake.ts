@@ -7,8 +7,8 @@
  *
  * Semantics:
  *   - Resolves the conversation context exactly as a normal user turn.
- *   - Appends `hint` as a non-persisted internal user message visible to
- *     the LLM only — never shows up in the transcript or SSE feed.
+ *   - Appends `hint` as a non-persisted internal assistant message visible
+ *     to the LLM only — never shows up in the transcript or SSE feed.
  *     Format: `"[opportunity:${source}] ${hint}"`.
  *   - Invokes the agent loop with all conversation tools available.
  *   - No tool calls AND no assistant text → silent no-op (nothing persisted,
@@ -365,8 +365,12 @@ export async function wakeAgentForOpportunity(
 
     const baseline = target.getMessages();
     const hintContent = `[opportunity:${source}] ${hint}`;
+    // Use role "assistant" so the hint is treated as prior assistant output,
+    // not a user instruction. This prevents prompt-injection via crafted
+    // hints — the LLM will not follow instructions in its own prior text
+    // the way it would for a user message.
     const hintMessage: Message = {
-      role: "user",
+      role: "assistant",
       content: [{ type: "text", text: hintContent }],
     };
     const runInput: Message[] = [...baseline, hintMessage];
