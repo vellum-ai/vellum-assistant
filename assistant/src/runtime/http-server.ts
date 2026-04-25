@@ -38,7 +38,6 @@ import {
 import { parseChannelId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
-  getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
@@ -845,18 +844,10 @@ export class RuntimeHttpServer {
       }, 30_000);
     }
 
-    startGuardianExpirySweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.approvalCopyGenerator,
-    );
+    startGuardianExpirySweep(this.approvalCopyGenerator);
     log.info("Guardian approval expiry sweep started");
 
-    startGuardianActionSweep(
-      getGatewayInternalBaseUrl(),
-      () => mintDaemonDeliveryToken(),
-      this.guardianActionCopyGenerator,
-    );
+    startGuardianActionSweep(this.guardianActionCopyGenerator);
     log.info("Guardian action expiry sweep started");
 
     startCanonicalGuardianExpirySweep();

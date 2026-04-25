@@ -8,7 +8,6 @@
  * barge-in, state machine, guardian verification).
  */
 
-import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -21,7 +20,6 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
@@ -1272,8 +1270,6 @@ export class CallController {
         void sendGuardianExpiryNotices(
           canonicalDeliveries,
           this.assistantId,
-          getGatewayInternalBaseUrl(),
-          () => mintDaemonDeliveryToken(),
         ).catch((err) => {
           log.error(
             {

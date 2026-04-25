@@ -25,17 +25,15 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
  * Sweep expired guardian approval requests, auto-deny the underlying requests,
- * and notify both the requester and guardian. This runs proactively on a
- * timer so expired approvals are closed without waiting for follow-up
- * traffic from either party.
+ * and notify both the requester and guardian. Runs proactively on a timer so
+ * expired approvals are closed without waiting for follow-up traffic from
+ * either party.
  *
- * Accepts a `gatewayBaseUrl` rather than a fixed delivery URL so that
- * each approval's notification is routed to the correct channel-specific
- * endpoint (e.g. `/deliver/telegram`, `/deliver/voice`).
+ * Delivery uses the direct-send path (assistant calls provider APIs directly)
+ * for all supported channels. The synthetic `/deliver/{channel}` URL is used
+ * only as a routing key for `deliverChannelReply`'s `isDirectDelivery()` guard.
  */
 export function sweepExpiredGuardianApprovals(
-  gatewayBaseUrl: string,
-  mintBearerToken?: () => string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
 ): void {
   const expired = getExpiredPendingApprovals();
@@ -50,8 +48,7 @@ export function sweepExpiredGuardianApprovals(
     };
     handleChannelDecision(approval.conversationId, expiredDecision);
 
-    // Construct the per-channel delivery URL from the approval's channel
-    const deliverUrl = `${gatewayBaseUrl}/deliver/${approval.channel}`;
+    const deliverUrl = `/deliver/${approval.channel}`;
 
     // Notify the requester that the approval expired
     void (async () => {
@@ -64,15 +61,11 @@ export function sweepExpiredGuardianApprovals(
         {},
         approvalCopyGenerator,
       );
-      await deliverChannelReply(
-        deliverUrl,
-        {
-          chatId: approval.requesterChatId,
-          text: requesterText,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-        },
-        mintBearerToken?.(),
-      );
+      await deliverChannelReply(deliverUrl, {
+        chatId: approval.requesterChatId,
+        text: requesterText,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      });
     })().catch((err) => {
       log.error(
         { err, approvalId: approval.id },
@@ -92,15 +85,11 @@ export function sweepExpiredGuardianApprovals(
         {},
         approvalCopyGenerator,
       );
-      await deliverChannelReply(
-        deliverUrl,
-        {
-          chatId: approval.guardianChatId,
-          text: guardianText,
-          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-        },
-        mintBearerToken?.(),
-      );
+      await deliverChannelReply(deliverUrl, {
+        chatId: approval.guardianChatId,
+        text: guardianText,
+        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+      });
     })().catch((err) => {
       log.error(
         { err, approvalId: approval.id },
@@ -120,18 +109,12 @@ export function sweepExpiredGuardianApprovals(
  * re-uses the same timer.
  */
 export function startGuardianExpirySweep(
-  gatewayBaseUrl: string,
-  mintBearerToken?: () => string,
   approvalCopyGenerator?: ApprovalCopyGenerator,
 ): void {
   if (expirySweepTimer) return;
   expirySweepTimer = setInterval(() => {
     try {
-      sweepExpiredGuardianApprovals(
-        gatewayBaseUrl,
-        mintBearerToken,
-        approvalCopyGenerator,
-      );
+      sweepExpiredGuardianApprovals(approvalCopyGenerator);
     } catch (err) {
       log.error({ err }, "Guardian expiry sweep failed");
     }

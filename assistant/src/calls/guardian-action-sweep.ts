@@ -49,8 +49,6 @@ export interface ExpiryDeliveryInfo {
 export async function sendGuardianExpiryNotices(
   deliveries: ExpiryDeliveryInfo[],
   assistantId: string,
-  gatewayBaseUrl: string,
-  mintBearerToken?: () => string,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<void> {
   for (const delivery of deliveries) {
@@ -83,17 +81,13 @@ export async function sendGuardianExpiryNotices(
           },
         );
       } else if (delivery.destinationChatId) {
-        // External channel — send expiry notice
-        const deliverUrl = `${gatewayBaseUrl}/deliver/${delivery.destinationChannel}`;
-        await deliverChannelReply(
-          deliverUrl,
-          {
-            chatId: delivery.destinationChatId,
-            text: expiryText,
-            assistantId,
-          },
-          mintBearerToken?.(),
-        );
+        // External channel — send expiry notice via direct delivery
+        const deliverUrl = `/deliver/${delivery.destinationChannel}`;
+        await deliverChannelReply(deliverUrl, {
+          chatId: delivery.destinationChatId,
+          text: expiryText,
+          assistantId,
+        });
       }
     } catch (err) {
       log.error(
@@ -108,8 +102,6 @@ export async function sendGuardianExpiryNotices(
  * Sweep expired guardian action requests and clean up.
  */
 export async function sweepExpiredGuardianActions(
-  gatewayBaseUrl: string,
-  mintBearerToken?: () => string,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): Promise<void> {
   const expired = getExpiredGuardianActionRequests();
@@ -132,16 +124,12 @@ export async function sweepExpiredGuardianActions(
     await sendGuardianExpiryNotices(
       deliveries,
       DAEMON_INTERNAL_ASSISTANT_ID,
-      gatewayBaseUrl,
-      mintBearerToken,
       guardianActionCopyGenerator,
     );
   }
 }
 
 export function startGuardianActionSweep(
-  gatewayBaseUrl: string,
-  mintBearerToken?: () => string,
   guardianActionCopyGenerator?: GuardianActionCopyGenerator,
 ): void {
   if (sweepTimer) return;
@@ -149,11 +137,7 @@ export function startGuardianActionSweep(
     if (sweepInProgress) return;
     sweepInProgress = true;
     try {
-      await sweepExpiredGuardianActions(
-        gatewayBaseUrl,
-        mintBearerToken,
-        guardianActionCopyGenerator,
-      );
+      await sweepExpiredGuardianActions(guardianActionCopyGenerator);
     } catch (err) {
       log.error({ err }, "Guardian action sweep failed");
     } finally {

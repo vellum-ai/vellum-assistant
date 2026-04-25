@@ -111,7 +111,7 @@ describe("guardian-action-sweep", () => {
       "sent",
     );
 
-    await sweepExpiredGuardianActions("http://localhost:3000");
+    await sweepExpiredGuardianActions();
 
     const updatedRequest = getGuardianActionRequest(request.id);
     expect(updatedRequest).not.toBeNull();
@@ -147,7 +147,7 @@ describe("guardian-action-sweep", () => {
     // Verify the question is still pending before sweep
     expect(getPendingQuestion(session.id)).not.toBeNull();
 
-    await sweepExpiredGuardianActions("http://localhost:3000");
+    await sweepExpiredGuardianActions();
 
     // Pending question should be expired
     expect(getPendingQuestion(session.id)).toBeNull();
@@ -176,7 +176,7 @@ describe("guardian-action-sweep", () => {
       expiresAt: Date.now() + 60_000, // expires in 60s
     });
 
-    await sweepExpiredGuardianActions("http://localhost:3000");
+    await sweepExpiredGuardianActions();
 
     const updatedRequest = getGuardianActionRequest(request.id);
     expect(updatedRequest!.status).toBe("pending");
@@ -212,7 +212,7 @@ describe("guardian-action-sweep", () => {
     });
     updateDeliveryStatus(delivery.id, "sent");
 
-    await sweepExpiredGuardianActions("http://localhost:3000");
+    await sweepExpiredGuardianActions();
 
     // Wait for the fire-and-forget async delivery to complete
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -252,16 +252,16 @@ describe("guardian-action-sweep", () => {
 
     deliveredMessages.length = 0;
 
-    await sweepExpiredGuardianActions("http://localhost:3000");
+    await sweepExpiredGuardianActions();
 
     // Should NOT have sent an expiry notice for a failed delivery
     expect(deliveredMessages).toHaveLength(0);
   });
 
   test("startGuardianActionSweep and stopGuardianActionSweep manage timer", () => {
-    startGuardianActionSweep("http://localhost:3000");
+    startGuardianActionSweep();
     // Calling start again should be a no-op (idempotent)
-    startGuardianActionSweep("http://localhost:3000");
+    startGuardianActionSweep();
 
     stopGuardianActionSweep();
     // Calling stop again should be safe

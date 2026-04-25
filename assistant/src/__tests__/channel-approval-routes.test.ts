@@ -1333,7 +1333,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
     });
 
     // Run the sweep
-    sweepExpiredGuardianApprovals("https://gateway.test", () => "token");
+    sweepExpiredGuardianApprovals();
 
     // Wait for async notifications
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -1361,7 +1361,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
     // Verify the delivery URL is constructed per-channel
     const allDeliverCalls = deliverSpy.mock.calls;
     for (const call of allDeliverCalls) {
-      expect(call[0]).toBe("https://gateway.test/deliver/telegram");
+      expect(call[0]).toBe("/deliver/telegram");
     }
 
     deliverSpy.mockRestore();
@@ -1391,7 +1391,7 @@ describe("expired guardian approval auto-denies via sweep", () => {
       expiresAt: Date.now() + 300_000, // still valid
     });
 
-    sweepExpiredGuardianApprovals("https://gateway.test", () => "token");
+    sweepExpiredGuardianApprovals();
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 

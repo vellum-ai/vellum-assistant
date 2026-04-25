@@ -12,7 +12,6 @@
  */
 
 import { answerCall } from "../calls/call-domain.js";
-import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
@@ -29,7 +28,6 @@ import { addRule } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
 import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
@@ -132,7 +130,7 @@ function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
     case "telegram":
     case "whatsapp":
     case "slack":
-      return `${getGatewayInternalBaseUrl()}/deliver/${channel}`;
+      return `/deliver/${channel}`;
     default:
       return null;
   }
@@ -417,7 +415,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     const decidedByExternalUserId = ctx.actor.actorExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
-    const desktopBearerToken = mintDaemonDeliveryToken();
 
     // Resolve display names from the contacts database for enriched payloads
     const requesterContactResult = requesterExternalUserId
@@ -463,7 +460,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
             denialPayload,
-            channelDeliveryContext.bearerToken,
           );
         } catch (err) {
           log.error(
@@ -517,15 +513,11 @@ const accessRequestResolver: GuardianRequestResolver = {
             ? requesterExternalUserId
             : requesterChatId;
         try {
-          await deliverChannelReply(
-            desktopDeliverUrl,
-            {
-              chatId: targetChatId,
-              text: "Your access request has been denied.",
-              assistantId,
-            },
-            desktopBearerToken,
-          );
+          await deliverChannelReply(desktopDeliverUrl, {
+            chatId: targetChatId,
+            text: "Your access request has been denied.",
+            assistantId,
+          });
         } catch (err) {
           log.error(
             { err, requesterChatId },
@@ -656,7 +648,6 @@ const accessRequestResolver: GuardianRequestResolver = {
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
           codePayload,
-          channelDeliveryContext.bearerToken,
         );
       } catch (err) {
         log.error(
@@ -688,15 +679,11 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
 
         try {
-          await deliverChannelReply(
-            dmCallbackUrl,
-            {
-              chatId: guardianUserId,
-              text: codeText,
-              assistantId,
-            },
-            channelDeliveryContext.bearerToken,
-          );
+          await deliverChannelReply(dmCallbackUrl, {
+            chatId: guardianUserId,
+            text: codeText,
+            assistantId,
+          });
         } catch (err) {
           // Best-effort: the code was already delivered in the shared channel
           log.warn(
@@ -740,11 +727,7 @@ const accessRequestResolver: GuardianRequestResolver = {
             approvalPayload.ephemeral = true;
             approvalPayload.user = requesterExternalUserId;
           }
-          await deliverChannelReply(
-            requesterCallbackUrl,
-            approvalPayload,
-            channelDeliveryContext.bearerToken,
-          );
+          await deliverChannelReply(requesterCallbackUrl, approvalPayload);
           requesterNotified = true;
         } catch (err) {
           log.error(
@@ -768,11 +751,7 @@ const accessRequestResolver: GuardianRequestResolver = {
             failurePayload.ephemeral = true;
             failurePayload.user = requesterExternalUserId;
           }
-          await deliverChannelReply(
-            requesterCallbackUrl,
-            failurePayload,
-            channelDeliveryContext.bearerToken,
-          );
+          await deliverChannelReply(requesterCallbackUrl, failurePayload);
         } catch (err) {
           log.error(
             { err, requesterChatId },
@@ -813,17 +792,13 @@ const accessRequestResolver: GuardianRequestResolver = {
           ? requesterExternalUserId
           : requesterChatId;
       try {
-        await deliverChannelReply(
-          desktopDeliverUrl,
-          {
-            chatId: targetChatId,
-            text:
-              "Your access request has been approved! " +
-              "Please enter the 6-digit verification code you receive from the guardian.",
-            assistantId,
-          },
-          desktopBearerToken,
-        );
+        await deliverChannelReply(desktopDeliverUrl, {
+          chatId: targetChatId,
+          text:
+            "Your access request has been approved! " +
+            "Please enter the 6-digit verification code you receive from the guardian.",
+          assistantId,
+        });
         requesterNotified = true;
       } catch (err) {
         log.error(
@@ -915,7 +890,6 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
           await deliverChannelReply(
             channelDeliveryContext.replyCallbackUrl,
             grantDenialPayload,
-            channelDeliveryContext.bearerToken,
           );
         } catch (err) {
           log.error(
@@ -1027,7 +1001,6 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
         await deliverChannelReply(
           channelDeliveryContext.replyCallbackUrl,
           grantApprovalPayload,
-          channelDeliveryContext.bearerToken,
         );
       } catch (err) {
         log.error(
