@@ -52,7 +52,6 @@ const getConversationMock = mock((id: string) => {
 });
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

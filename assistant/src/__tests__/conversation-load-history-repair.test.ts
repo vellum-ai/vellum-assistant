@@ -74,7 +74,6 @@ let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationType: () => "default",
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},

@@ -8,7 +8,7 @@
  * for voice facts; IDENTITY.md for assistant / hatched metadata) plus
  * the DB-authoritative conversation count (via
  * `conversation-queries.countConversations`, matching the UI's
- * `listConversations` filter — no `background` / `private` / `scheduled`)
+ * `listConversations` filter — no `background` / `scheduled`)
  * and the OAuth connection store (for capability tiers), and writes it
  * to `<workspace>/data/relationship-state.json`.
  *

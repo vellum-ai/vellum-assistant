@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // Mock conversation-crud before importing tool executors that depend on it.
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -120,11 +119,7 @@ describe("notify_parent tool definition", () => {
     expect(
       (schema.properties as Record<string, Record<string, unknown>>).urgency
         .enum,
-    ).toEqual([
-      "info",
-      "important",
-      "blocked",
-    ]);
+    ).toEqual(["info", "important", "blocked"]);
     expect(notifyParentTool.category).toBe("orchestration");
   });
 
@@ -185,10 +180,7 @@ describe("executeSubagentNotifyParent", () => {
 
     // Wire up the onSubagentFinished callback.
     let capturedMessage = "";
-    manager.onSubagentFinished = (
-      _parentId: string,
-      message: string,
-    ) => {
+    manager.onSubagentFinished = (_parentId: string, message: string) => {
       capturedMessage = message;
     };
 
@@ -221,10 +213,7 @@ describe("executeSubagentNotifyParent", () => {
     });
 
     let capturedMessage = "";
-    manager.onSubagentFinished = (
-      _parentId: string,
-      message: string,
-    ) => {
+    manager.onSubagentFinished = (_parentId: string, message: string) => {
       capturedMessage = message;
     };
 
@@ -287,10 +276,7 @@ describe("executeSubagentNotifyParent", () => {
     injectSubagent(manager, subagentId, parentConversationId, "running");
 
     let capturedMessage = "";
-    manager.onSubagentFinished = (
-      _parentId: string,
-      message: string,
-    ) => {
+    manager.onSubagentFinished = (_parentId: string, message: string) => {
       capturedMessage = message;
     };
 
@@ -315,19 +301,10 @@ describe("SubagentManager.notifyParent", () => {
   test("returns false for terminal subagents", () => {
     const manager = getSubagentManager();
 
-    for (const terminalStatus of [
-      "completed",
-      "failed",
-      "aborted",
-    ] as const) {
+    for (const terminalStatus of ["completed", "failed", "aborted"] as const) {
       const subagentId = `notify-terminal-${terminalStatus}`;
       const parentConversationId = `notify-terminal-parent-${terminalStatus}`;
-      injectSubagent(
-        manager,
-        subagentId,
-        parentConversationId,
-        terminalStatus,
-      );
+      injectSubagent(manager, subagentId, parentConversationId, terminalStatus);
 
       manager.onSubagentFinished = () => {};
 

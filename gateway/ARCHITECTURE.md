@@ -332,7 +332,7 @@ The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-clos
 
 ### Channel Approval Flow
 
-When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. This approval-aware path is always active when orchestrator + callback context are available. Guardian enforcement (fail-closed denial for unknown actors, `forceStrictSideEffects`, guardian-routed approval prompts) applies consistently to non-guardian/unverified actors.
+When the assistant requires tool-use confirmation during a channel session (e.g., Telegram), the approval flow intercepts the run and surfaces an interactive prompt to the user. This approval-aware path is always active when orchestrator + callback context are available. Guardian enforcement (fail-closed denial for unknown actors, explicit approval prompts for side effects, guardian-routed approval prompts) applies consistently to non-guardian/unverified actors.
 
 **State machine:**
 
@@ -367,7 +367,7 @@ Runtime detects needs_confirmation
 
 **Conversational approval turn:** When a text message arrives while an approval is pending (e.g., non-Telegram channels or user typing a reply instead of clicking a button), a **conversational approval turn** is run via `runApprovalConversationTurn()` from `approval-conversation-turn.ts`. The conversational engine uses LLM structured output (native `tool_use`) to classify user intent as: `keep_pending` (reply without deciding), `approve_once`, `approve_always`, or `reject`. Non-decision messages receive a natural assistant reply and the run stays pending — no reminder spam. The engine fails closed: any model failure returns `keep_pending` with a deterministic fallback asking the user to try again. Callback/button handling remains deterministic and unchanged. The `channelSupportsRichApprovalUI()` function determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). Currently only `telegram` is classified as a rich channel.
 
-**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forceStrictSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, approval requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`.
+**Guardian-aware routing:** When a guardian binding exists for the channel, the approval flow resolves the sender's actor role (`guardian` vs `non-guardian`). Non-guardian actors have `forcePromptSideEffects` set on the session so all side-effect tools trigger approval prompts regardless of existing allow rules. Approval prompts for non-guardian actions are routed to the guardian's delivery chat (not the requester's chat), and a `channelGuardianApprovalRequest` record is created. When the guardian approves or denies, the decision is applied to the underlying run and the requester's chat is notified of the outcome. Guardian actors follow the standard approval flow. Guardian approval follow-ups also use the conversational engine with role-specific context; `approve_always` is downgraded to `approve_once` for guardian approvals since permanent allow-rules require guardian authority. All guardian state (bindings, challenges, approval requests) is scoped to the `(assistantId, channel)` pair -- the `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`.
 
 **Proactive expiry sweep:** The runtime runs a periodic sweep every 60 seconds (`sweepExpiredGuardianApprovals`) that finds guardian approval requests past the 30-minute TTL, auto-denies the underlying runs, and notifies both the requester and guardian via the gateway's per-channel `/deliver/<channel>` endpoint. This ensures expired approvals are closed without waiting for follow-up traffic from either party. The sweep is started automatically whenever a run orchestrator is available.
 
@@ -489,10 +489,10 @@ This ordering ensures that ingress ACL decisions are finalized before any agent 
 
 #### Actor Role Resolution
 
-When a message arrives on a channel, the runtime resolves the sender's role. Role _classification_ runs unconditionally. Guardian enforcement (`forceStrictSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors whenever orchestrator + callback context are available:
+When a message arrives on a channel, the runtime resolves the sender's role. Role _classification_ runs unconditionally. Guardian enforcement (`forcePromptSideEffects`, fail-closed denial, guardian approval routing) applies to non-guardian/unverified actors whenever orchestrator + callback context are available:
 
 - **Guardian**: `actorExternalId` matches the binding's `guardianExternalUserId` (DB column) for the `(assistantId, channel)` pair. Self-approval is handled through the same approval-aware channel flow.
-- **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forceStrictSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
+- **Non-guardian**: A known sender who is not the guardian. Side-effect tools are forced through the confirmation flow (`forcePromptSideEffects`), and approval prompts are routed to the guardian's chat instead of the requester's chat.
 - **Unverified channel**: No guardian binding exists for the channel, or `actorExternalId` is absent. Sensitive actions are auto-denied immediately (fail-closed). This prevents unverified senders from self-approving actions or bypassing guardian enforcement by omitting identity data.
 
 #### Sensitive Action Gating (Non-Guardian Approval)
@@ -510,7 +510,7 @@ sequenceDiagram
     NG->>TG: Message triggers tool use
     TG->>GW: POST /webhooks/telegram
     GW->>Daemon: POST /v1/channels/inbound (JWT auth)
-    Daemon->>Daemon: Detect non-guardian, set forceStrictSideEffects
+    Daemon->>Daemon: Detect non-guardian, set forcePromptSideEffects
     Daemon->>Daemon: Tool needs confirmation → create GuardianApprovalRequest
     Daemon->>GW: POST /deliver/telegram (approval prompt + inline keyboard)
     GW->>Guardian: sendMessage (approval prompt)

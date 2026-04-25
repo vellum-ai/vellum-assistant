@@ -204,7 +204,7 @@ describe("file_write tool PKB re-index hook", () => {
 
     const ctx: ToolContext = {
       ...makeContext(workingDir),
-      memoryScopeId: "private:abc123",
+      memoryScopeId: "subagent:abc123",
     };
 
     const result = await fileWriteTool.execute(
@@ -263,8 +263,6 @@ describe("file_write tool PKB re-index hook", () => {
     // The mock throws, so nothing gets pushed to enqueueCalls. The critical
     // behavior is that the thrown error never surfaces through execute().
     expect(enqueueCalls).toHaveLength(0);
-    expect(
-      existsSync(join(workingDir, "pkb", "oops.md")),
-    ).toBe(true);
+    expect(existsSync(join(workingDir, "pkb", "oops.md"))).toBe(true);
   });
 });

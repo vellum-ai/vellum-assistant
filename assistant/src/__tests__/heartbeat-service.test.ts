@@ -61,7 +61,6 @@ const createdConversations: Array<{ title: string; conversationType: string }> =
 let conversationIdCounter = 0;
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
