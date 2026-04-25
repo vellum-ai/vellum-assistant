@@ -1237,13 +1237,18 @@ export class SkillHostClient implements SkillHost {
         "skill.dispatch_route: missing or invalid 'request.url' parameter",
       );
     }
+    // Resolve against a synthetic base so `new Request` accepts the URL
+    // (it rejects bare paths, but the daemon forwards `pathname + search`)
+    // and so the regex can run against `pathname` alone — keeps query
+    // strings out of anchored patterns like `^/v1/...$`.
+    const parsedUrl = new URL(req.url, "http://skill.local");
     // Reset lastIndex so a global/sticky regex doesn't carry state across
     // dispatches — `exec()` mutates lastIndex on g/y flags and the route's
     // RegExp may be reused across requests.
     if (route.pattern.global || route.pattern.sticky) {
       route.pattern.lastIndex = 0;
     }
-    const match = route.pattern.exec(req.url);
+    const match = route.pattern.exec(parsedUrl.pathname);
     if (!match) {
       throw new Error(`url did not match pattern: ${patternSource}`);
     }
@@ -1260,7 +1265,10 @@ export class SkillHostClient implements SkillHost {
     ) {
       init.body = req.body;
     }
-    const response = await route.handler(new Request(req.url, init), match);
+    const response = await route.handler(
+      new Request(parsedUrl.toString(), init),
+      match,
+    );
     const headers: Record<string, string> = {};
     response.headers.forEach((value, key) => {
       headers[key] = value;

@@ -653,6 +653,40 @@ describe("SkillHostClient: daemon-initiated dispatch", () => {
     expect(receivedMatch![1]).toBe("world");
   });
 
+  test("skill.dispatch_route matches path-anchored patterns against relative pathname", async () => {
+    server!.register("host.registries.register_skill_route", () => ({
+      patternSource: "^/v1/echo/([^/]+)$",
+      methods: ["POST"],
+    }));
+    client = await openClient();
+    let receivedReq: Request | null = null;
+    let receivedMatch: RegExpMatchArray | null = null;
+    const pattern = /^\/v1\/echo\/([^/]+)$/;
+    client.registries.registerSkillRoute({
+      pattern,
+      methods: ["POST"],
+      handler: async (req, match) => {
+        receivedReq = req;
+        receivedMatch = match;
+        return new Response("ok " + match[1]);
+      },
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    const response = await server!.sendRequest("skill.dispatch_route", {
+      patternSource: pattern.source,
+      request: {
+        method: "POST",
+        url: "/v1/echo/abc?ts=1",
+        headers: {},
+        body: "{}",
+      },
+    });
+    expect((response as { body: string }).body).toBe("ok abc");
+    expect(receivedReq).not.toBeNull();
+    expect(receivedMatch![1]).toBe("abc");
+  });
+
   test("skill.dispatch_route surfaces unknown route as a remote error", async () => {
     server!.register("host.registries.register_skill_route", () => ({
       patternSource: "/api/known",
