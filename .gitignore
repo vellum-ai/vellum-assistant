@@ -29,6 +29,11 @@ gateway/src/feature-flag-registry.json
 clients/ios/Resources/tts-provider-catalog.json
 clients/ios/Resources/llm-provider-catalog.json
 
+# Working copy overwritten on every macOS build by clients/macos/build.sh from
+# build-resources/icons/$VELLUM_ENVIRONMENT/. Source of truth lives in
+# build-resources/icons/<env>/.
+clients/macos/build-resources/AppIcon.icon/
+
 # misc
 worktrees/
 .worktrees/
