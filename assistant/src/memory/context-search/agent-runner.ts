@@ -5,15 +5,17 @@ import type {
   ToolUseContent,
 } from "../../providers/types.js";
 import {
-  buildRecallAgentPrompt,
+  buildRecallAgentPromptBundle,
   RECALL_AGENT_TOOL_DEFINITIONS,
   validateFinishRecallPayload,
 } from "./agent-protocol.js";
 import { formatDeterministicRecallAnswer } from "./format.js";
 import {
+  isRecallSource,
   type NormalizedRecallInput,
   normalizeRecallInput,
   normalizeRecallMaxResults,
+  normalizeRecallSources,
 } from "./limits.js";
 import {
   type DeterministicRecallSearchOptions,
@@ -115,11 +117,16 @@ export async function runAgenticRecall(
 
   for (let round = 1; round <= roundLimit; round++) {
     debug.roundsUsed = round;
+    const promptBundle = buildPromptBundle(
+      normalizedInput,
+      evidence,
+      roundLimit,
+    );
 
     let response: ProviderResponse;
     try {
       response = await provider.sendMessage(
-        [userTextMessage(buildPrompt(normalizedInput, evidence, roundLimit))],
+        [userTextMessage(promptBundle.prompt)],
         [...RECALL_AGENT_TOOL_DEFINITIONS],
         undefined,
         {
@@ -138,7 +145,7 @@ export async function runAgenticRecall(
     if (finishTool) {
       const validation = validateFinishRecallPayload(
         finishTool.input,
-        evidence,
+        promptBundle.evidence,
       );
       if (!validation.ok) {
         fallbackReason = "citation_validation_failed";
@@ -147,7 +154,10 @@ export async function runAgenticRecall(
       }
 
       const finish = validation.finish;
-      const citedEvidence = selectCitedEvidence(evidence, finish.citationIds);
+      const citedEvidence = selectCitedEvidence(
+        promptBundle.evidence,
+        finish.citationIds,
+      );
       debug.finish = {
         confidence: finish.confidence,
         citationIds: finish.citationIds,
@@ -199,19 +209,19 @@ export async function runAgenticRecall(
   }
 
   return deterministicFallback(
-    seedResult,
+    withFallbackEvidence(seedResult, evidence),
     debug,
     fallbackReason,
     fallbackDetail,
   );
 }
 
-function buildPrompt(
+function buildPromptBundle(
   input: NormalizedRecallInput,
   evidence: readonly RecallEvidence[],
   roundLimit: number,
-): string {
-  return buildRecallAgentPrompt({
+): ReturnType<typeof buildRecallAgentPromptBundle> {
+  return buildRecallAgentPromptBundle({
     query: input.query,
     availableSources: input.sources,
     evidence,
@@ -313,19 +323,15 @@ function narrowSearchSources(
 ): RecallSource[] {
   const allowed = new Set(allowedSources);
   const requested = Array.isArray(value)
-    ? dedupeSources(value.filter(isRecallSourceLike))
+    ? normalizeRequestedSources(value)
     : [...allowedSources];
 
   return requested.filter((source) => allowed.has(source));
 }
 
-function isRecallSourceLike(value: unknown): value is RecallSource {
-  return (
-    value === "memory" ||
-    value === "pkb" ||
-    value === "conversations" ||
-    value === "workspace"
-  );
+function normalizeRequestedSources(value: readonly unknown[]): RecallSource[] {
+  const sources = value.filter(isRecallSource);
+  return sources.length > 0 ? normalizeRecallSources(sources) : [];
 }
 
 function mergeEvidence(
@@ -355,16 +361,6 @@ function toRecallInput(input: NormalizedRecallInput): RecallInput {
   };
 }
 
-function dedupeSources(sources: readonly RecallSource[]): RecallSource[] {
-  const deduped: RecallSource[] = [];
-  for (const source of sources) {
-    if (!deduped.includes(source)) {
-      deduped.push(source);
-    }
-  }
-  return deduped;
-}
-
 function selectCitedEvidence(
   evidence: readonly RecallEvidence[],
   citationIds: readonly string[],
@@ -374,6 +370,28 @@ function selectCitedEvidence(
     const item = byId.get(id);
     return item ? [item] : [];
   });
+}
+
+function withFallbackEvidence(
+  result: DeterministicRecallSearchResult,
+  evidence: readonly RecallEvidence[],
+): DeterministicRecallSearchResult {
+  const evidenceCountBySource = new Map<RecallSource, number>();
+  for (const item of evidence) {
+    evidenceCountBySource.set(
+      item.source,
+      (evidenceCountBySource.get(item.source) ?? 0) + 1,
+    );
+  }
+
+  return {
+    ...result,
+    evidence: [...evidence],
+    searchedSources: result.searchedSources.map((note) => ({
+      ...note,
+      evidenceCount: evidenceCountBySource.get(note.source) ?? 0,
+    })),
+  };
 }
 
 function deterministicFallback(

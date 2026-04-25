@@ -5,7 +5,6 @@ import type {
   RecallEvidence,
   RecallSearchContext,
   RecallSearchResult,
-  RecallSourceAdapter,
 } from "../types.js";
 
 export const WORKSPACE_SOURCE_MAX_FILE_SIZE_BYTES = 256 * 1024;
@@ -65,11 +64,6 @@ interface WalkState {
   scannedFiles: number;
   visitedDirs: Set<string>;
 }
-
-export const workspaceSourceAdapter: RecallSourceAdapter = {
-  source: "workspace",
-  search: searchWorkspaceSource,
-};
 
 export async function searchWorkspaceSource(
   query: string,

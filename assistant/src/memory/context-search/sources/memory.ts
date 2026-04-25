@@ -8,15 +8,9 @@ import type {
   RecallEvidence,
   RecallSearchContext,
   RecallSearchResult,
-  RecallSourceAdapter,
 } from "../types.js";
 
 const log = getLogger("context-search-memory-source");
-
-export const memorySourceAdapter: RecallSourceAdapter = {
-  source: "memory",
-  search: searchMemorySource,
-};
 
 export async function searchMemorySource(
   query: string,

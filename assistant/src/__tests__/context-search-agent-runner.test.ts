@@ -286,7 +286,96 @@ describe("runAgenticRecall", () => {
       mode: "deterministic_fallback",
       fallbackReason: "round_limit",
     });
-    expect(result.evidence.map((item) => item.id)).toEqual(["workspace:seed"]);
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "workspace:seed",
+      "workspace:more",
+    ]);
+    expect(result.content).toContain("workspace:more excerpt");
+  });
+
+  test("rejects finish citations omitted from the prompted evidence table", async () => {
+    const providerCalls: unknown[][] = [];
+    configuredProvider = makeProvider(
+      [
+        toolResponse("finish_recall", {
+          answer: "Unsupported by prompted evidence.",
+          confidence: "high",
+          citation_ids: ["workspace:omitted"],
+        }),
+      ],
+      providerCalls,
+    );
+
+    const longExcerpt = "a".repeat(6_000);
+    const result = await runAgenticRecall(
+      {
+        query: "launch notes",
+        sources: ["memory", "pkb", "workspace"],
+        max_results: 3,
+      },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter(
+              {
+                "launch notes": [
+                  makeEvidence("memory:included", {
+                    source: "memory",
+                    excerpt: longExcerpt,
+                    score: 0.9,
+                  }),
+                ],
+              },
+              [],
+              "memory",
+            ),
+            makeAdapter(
+              {
+                "launch notes": [
+                  makeEvidence("pkb:included", {
+                    source: "pkb",
+                    excerpt: longExcerpt,
+                    score: 0.8,
+                  }),
+                ],
+              },
+              [],
+              "pkb",
+            ),
+            makeAdapter(
+              {
+                "launch notes": [
+                  makeEvidence("workspace:omitted", {
+                    source: "workspace",
+                    excerpt: longExcerpt,
+                    score: 0.7,
+                  }),
+                ],
+              },
+              [],
+              "workspace",
+            ),
+          ],
+          readPkbContextEvidence: () => [],
+        },
+      },
+    );
+
+    expect(providerCalls).toHaveLength(1);
+    const messages = providerCalls[0]?.[0] as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const prompt = messages[0]?.content[0]?.text ?? "";
+    expect(prompt).toContain(
+      "Allowed citation_ids: memory:included, pkb:included",
+    );
+    expect(prompt).not.toContain("workspace:omitted");
+    expect(result.debug).toMatchObject({
+      mode: "deterministic_fallback",
+      fallbackReason: "citation_validation_failed",
+      fallbackDetail: "unknown_citation_ids",
+    });
   });
 
   test("falls back when finish_recall cites unknown evidence", async () => {

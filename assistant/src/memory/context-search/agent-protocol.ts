@@ -18,6 +18,11 @@ export interface RecallAgentPromptOptions {
   maxSearchCalls?: number;
 }
 
+export interface RecallAgentPromptBundle {
+  prompt: string;
+  evidence: RecallEvidence[];
+}
+
 export interface RecallAgentFinish {
   answer: string;
   confidence: RecallAgentConfidence;
@@ -131,15 +136,21 @@ export const RECALL_AGENT_TOOL_DEFINITIONS: readonly RecallAgentToolDefinition[]
 export function buildRecallAgentPrompt(
   options: RecallAgentPromptOptions,
 ): string {
+  return buildRecallAgentPromptBundle(options).prompt;
+}
+
+export function buildRecallAgentPromptBundle(
+  options: RecallAgentPromptOptions,
+): RecallAgentPromptBundle {
   const availableSources = normalizeRecallSources(options.availableSources);
   const maxSearchCalls = options.maxSearchCalls ?? DEFAULT_MAX_SEARCH_CALLS;
-  const evidence = truncateRecallEvidenceToBudget(
+  const evidence = prepareRecallAgentPromptEvidence(
     options.evidence,
-    options.evidenceBudgetChars ?? DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
+    options.evidenceBudgetChars,
   );
   const citationIds = evidence.map((item) => item.id);
 
-  return [
+  const prompt = [
     "You are the bounded internal recall agent. Find reliable information for the user's recall request using only the internal sources and evidence supplied by the engine.",
     "",
     `User query: ${options.query}`,
@@ -163,6 +174,15 @@ export function buildRecallAgentPrompt(
     "Evidence table:",
     formatRecallEvidenceTable(evidence),
   ].join("\n");
+
+  return { prompt, evidence };
+}
+
+export function prepareRecallAgentPromptEvidence(
+  evidence: readonly RecallEvidence[],
+  evidenceBudgetChars = DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
+): RecallEvidence[] {
+  return truncateRecallEvidenceToBudget(evidence, evidenceBudgetChars);
 }
 
 export function truncateRecallEvidenceToBudget(

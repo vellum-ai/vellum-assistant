@@ -93,6 +93,54 @@ describe("runDeterministicRecallSearch", () => {
     ]);
   });
 
+  test("keeps PKB pinned context evidence through very low result caps", async () => {
+    const result = await runDeterministicRecallSearch(
+      { query: "launch notes", sources: ["pkb", "workspace"], max_results: 1 },
+      makeContext(),
+      {
+        adapters: [
+          makeAdapter("pkb", [
+            makeEvidence("pkb", {
+              id: "pkb:search",
+              score: 0.99,
+              excerpt: "High scoring indexed PKB result.",
+            }),
+          ]),
+          makeAdapter("workspace", [
+            makeEvidence("workspace", {
+              id: "workspace:search",
+              score: 1,
+              excerpt: "High scoring workspace result.",
+            }),
+          ]),
+        ],
+        readPkbContextEvidence: () => [
+          makeEvidence("pkb", {
+            id: "pkb:auto-inject",
+            title: "PKB auto-injected context",
+            locator: "pkb:auto-inject",
+            excerpt: "Pinned launch plan from context.",
+          }),
+          makeEvidence("pkb", {
+            id: "pkb:NOW.md",
+            title: "NOW.md",
+            locator: "NOW.md",
+            excerpt: "Current launch focus.",
+          }),
+        ],
+      },
+    );
+
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "pkb:NOW.md",
+      "pkb:auto-inject",
+    ]);
+    expect(result.searchedSources).toEqual([
+      { source: "pkb", status: "searched", evidenceCount: 2 },
+      { source: "workspace", status: "searched", evidenceCount: 0 },
+    ]);
+  });
+
   test("searches every source by default", async () => {
     const calls: RecallSource[] = [];
     await runDeterministicRecallSearch({ query: "deployment" }, makeContext(), {

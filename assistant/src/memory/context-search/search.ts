@@ -39,6 +39,11 @@ const SOURCE_PRIORITY = new Map<RecallSource, number>(
   ALL_RECALL_SOURCES.map((source, index) => [source, index]),
 );
 
+const PINNED_PKB_CONTEXT_EVIDENCE_IDS = new Set([
+  "pkb:auto-inject",
+  "pkb:NOW.md",
+]);
+
 export async function runDeterministicRecallSearch(
   input: RecallInput,
   context: RecallSearchContext,
@@ -232,36 +237,77 @@ function capEvidence(
   evidence: readonly RecallEvidence[],
   maxResults: number,
 ): RecallEvidence[] {
+  const pinnedEvidence = evidence.filter(isPinnedPkbContextEvidence);
+  const regularEvidence = evidence.filter(
+    (item) => !isPinnedPkbContextEvidence(item),
+  );
   const capped: RecallEvidence[] = [];
   const textSizeBySource = new Map<RecallSource, number>();
   let totalTextSize = 0;
 
-  for (const item of evidence) {
-    if (capped.length >= maxResults) {
+  for (const item of pinnedEvidence) {
+    const appended = appendCappedEvidence(item, {
+      capped,
+      textSizeBySource,
+      totalTextSize,
+    });
+    totalTextSize = appended.totalTextSize;
+    if (appended.totalRemaining <= 0) {
+      return capped;
+    }
+  }
+
+  const resultLimit = Math.max(maxResults, capped.length);
+  for (const item of regularEvidence) {
+    if (capped.length >= resultLimit) {
       break;
     }
 
-    const sourceTextSize = textSizeBySource.get(item.source) ?? 0;
-    const sourceRemaining =
-      RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE - sourceTextSize;
-    const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - totalTextSize;
-    const remaining = Math.min(sourceRemaining, totalRemaining);
-    if (remaining <= 0) {
-      if (totalRemaining <= 0) break;
-      continue;
-    }
-
-    const excerpt = truncateText(item.excerpt, remaining);
-    if (excerpt.length === 0) {
-      continue;
-    }
-
-    capped.push(excerpt === item.excerpt ? item : { ...item, excerpt });
-    textSizeBySource.set(item.source, sourceTextSize + excerpt.length);
-    totalTextSize += excerpt.length;
+    const appended = appendCappedEvidence(item, {
+      capped,
+      textSizeBySource,
+      totalTextSize,
+    });
+    totalTextSize = appended.totalTextSize;
+    if (appended.totalRemaining <= 0) break;
   }
 
   return capped;
+}
+
+function isPinnedPkbContextEvidence(item: RecallEvidence): boolean {
+  return item.source === "pkb" && PINNED_PKB_CONTEXT_EVIDENCE_IDS.has(item.id);
+}
+
+function appendCappedEvidence(
+  item: RecallEvidence,
+  state: {
+    capped: RecallEvidence[];
+    textSizeBySource: Map<RecallSource, number>;
+    totalTextSize: number;
+  },
+): { totalTextSize: number; totalRemaining: number } {
+  const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
+  const sourceRemaining = RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE - sourceTextSize;
+  const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
+  const remaining = Math.min(sourceRemaining, totalRemaining);
+  if (remaining <= 0) {
+    return { totalTextSize: state.totalTextSize, totalRemaining };
+  }
+
+  const excerpt = truncateText(item.excerpt, remaining);
+  if (excerpt.length === 0) {
+    return { totalTextSize: state.totalTextSize, totalRemaining };
+  }
+
+  state.capped.push(excerpt === item.excerpt ? item : { ...item, excerpt });
+  state.textSizeBySource.set(item.source, sourceTextSize + excerpt.length);
+  const totalTextSize = state.totalTextSize + excerpt.length;
+
+  return {
+    totalTextSize,
+    totalRemaining: RECALL_TOTAL_EVIDENCE_TEXT_CAP - totalTextSize,
+  };
 }
 
 function truncateText(text: string, maxChars: number): string {
