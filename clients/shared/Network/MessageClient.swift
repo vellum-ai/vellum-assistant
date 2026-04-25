@@ -31,7 +31,17 @@ public enum MessageSendResult: Sendable {
 public protocol MessageClientProtocol {
     func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String?) async -> AttachmentUploadResult
     func uploadAttachmentMultipart(filename: String, mimeType: String, data: Data) async -> AttachmentUploadResult
-    func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?, onboarding: PreChatOnboardingContext?, clientMessageId: String?) async -> MessageSendResult
+    func sendMessage(
+        content: String?,
+        conversationKey: String,
+        attachmentIds: [String],
+        conversationType: String?,
+        automated: Bool?,
+        bypassSecretCheck: Bool?,
+        onboarding: PreChatOnboardingContext?,
+        clientMessageId: String?,
+        inferenceProfile: String?
+    ) async -> MessageSendResult
 }
 
 /// Gateway-backed implementation of ``MessageClientProtocol``.
@@ -156,7 +166,17 @@ public struct MessageClient: MessageClientProtocol {
         }
     }
 
-    public func sendMessage(content: String?, conversationKey: String, attachmentIds: [String] = [], conversationType: String? = nil, automated: Bool? = nil, bypassSecretCheck: Bool? = nil, onboarding: PreChatOnboardingContext? = nil, clientMessageId: String? = nil) async -> MessageSendResult {
+    public func sendMessage(
+        content: String?,
+        conversationKey: String,
+        attachmentIds: [String] = [],
+        conversationType: String? = nil,
+        automated: Bool? = nil,
+        bypassSecretCheck: Bool? = nil,
+        onboarding: PreChatOnboardingContext? = nil,
+        clientMessageId: String? = nil,
+        inferenceProfile: String? = nil
+    ) async -> MessageSendResult {
         log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
         var body: [String: Any] = [
@@ -181,6 +201,9 @@ public struct MessageClient: MessageClientProtocol {
         }
         if let clientMessageId {
             body["clientMessageId"] = clientMessageId
+        }
+        if let inferenceProfile {
+            body["inferenceProfile"] = inferenceProfile
         }
         if let hostHomeDir = Self.hostHomeDir {
             body["hostHomeDir"] = hostHomeDir

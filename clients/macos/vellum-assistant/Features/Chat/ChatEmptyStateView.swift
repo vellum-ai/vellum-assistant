@@ -34,6 +34,7 @@ struct ChatEmptyStateView: View {
     var onFetchConversationStarters: (() -> Void)? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
     var showThresholdPicker: Bool = false
+    var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
@@ -181,7 +182,8 @@ struct ChatEmptyStateView: View {
                 placeholderText: fallbackPlaceholder,
                 conversationId: conversationId,
                 conversationHostAccessControl: conversationHostAccessControl,
-                showThresholdPicker: showThresholdPicker
+                showThresholdPicker: showThresholdPicker,
+                inferenceProfilePicker: inferenceProfilePicker
             )
             .equatable()
         }

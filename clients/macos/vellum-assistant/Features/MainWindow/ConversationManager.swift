@@ -565,7 +565,12 @@ final class ConversationManager: ConversationRestorerDelegate {
         // references it (e.g. `.appEditing(_, draftLocalId)`) stays valid
         // without an extra state transition after promotion.
         let localId = selectionStore.draftLocalId ?? UUID()
-        let conversation = ConversationModel(id: localId, title: "Untitled", groupId: ConversationGroup.all.id)
+        let conversation = ConversationModel(
+            id: localId,
+            title: "Untitled",
+            groupId: ConversationGroup.all.id,
+            inferenceProfile: viewModel.pendingInferenceProfile
+        )
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
         activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
@@ -1128,6 +1133,12 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// model is rolled back).
     @discardableResult
     func setConversationInferenceProfile(id localId: UUID, profile: String?) async -> Bool {
+        if localId == selectionStore.draftLocalId,
+           let draftViewModel = selectionStore.draftViewModel {
+            draftViewModel.pendingInferenceProfile = profile
+            return true
+        }
+
         guard let index = listStore.conversations.firstIndex(where: { $0.id == localId }),
               let conversationId = listStore.conversations[index].conversationId else {
             return false

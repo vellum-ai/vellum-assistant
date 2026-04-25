@@ -23,9 +23,11 @@ struct ChatProfilePickerConfiguration {
 }
 
 /// A compact pill button in the composer action bar that lets the user pick a
-/// per-conversation inference profile override. Opens a dropdown with every
-/// profile defined in `SettingsStore.profiles`, plus a "Reset to default"
-/// item that clears the override and falls back to `llm.activeProfile`.
+/// per-conversation inference profile override. Draft conversations stage the
+/// selected profile locally until the first message creates the conversation.
+/// Opens a dropdown with every profile defined in `SettingsStore.profiles`,
+/// plus a "Reset to default" item that clears the override and falls back to
+/// `llm.activeProfile`.
 ///
 /// State ownership: the pill is stateless. The label is derived from the
 /// `current` override plus `activeProfile`; selection is forwarded straight to
@@ -33,11 +35,8 @@ struct ChatProfilePickerConfiguration {
 /// updates the local conversation model and persists to the daemon.
 @MainActor
 struct ChatProfilePicker: View {
-    /// Whether the picker can be opened. `false` disables the pill — used
-    /// for not-yet-persisted draft conversations where there's no
-    /// conversation id to attach the override to. The actual conversation
-    /// id needed for persistence is captured into ``onSelect`` by the
-    /// parent.
+    /// Whether the picker can be opened. The actual persistence or staging
+    /// destination is captured into ``onSelect`` by the parent.
     let isEnabled: Bool
 
     /// The current per-conversation inference-profile override. `nil` means
