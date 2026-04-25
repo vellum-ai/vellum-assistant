@@ -212,4 +212,212 @@ describe("resolveCallSiteConfig", () => {
       /references undefined profile "nonexistent"/,
     );
   });
+
+  test("5-layer precedence: each layer overrides the prior", () => {
+    // Set up a config where every layer touches `model` and `effort` so we
+    // can verify each layer's contribution and that higher layers win.
+    //
+    // Layer order (low → high):
+    //   1. default          → model=claude-opus-4-7, effort=max
+    //   2. activeProfile    → effort=medium  (everything else falls through)
+    //   3. overrideProfile  → effort=low, speed=fast
+    //   4. callSite.profile → effort=high, verbosity=high
+    //   5. callSite frag    → effort=none   (top dog)
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { effort: "medium" },
+        override: { effort: "low", speed: "fast" },
+        siteProfile: { effort: "high", verbosity: "high" },
+      },
+      callSites: {
+        mainAgent: { profile: "siteProfile", effort: "none" },
+      },
+      activeProfile: "active",
+    });
+
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+    });
+
+    // Top layer (callSite fragment) wins for `effort` over every other
+    // layer's contribution (max → medium → low → high → none).
+    expect(resolved.effort).toBe("none");
+    // siteProfile contributes verbosity (no higher layer touches it).
+    expect(resolved.verbosity).toBe("high");
+    // overrideProfile contributes speed (no higher layer touches it).
+    expect(resolved.speed).toBe("fast");
+    // default wins for everything no higher layer touches.
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.maxTokens).toBe(64000);
+  });
+
+  test("activeProfile applies when set with no overrideProfile and no callsite", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { effort: "medium", verbosity: "low" },
+      },
+      activeProfile: "balanced",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    expect(resolved.effort).toBe("medium");
+    expect(resolved.verbosity).toBe("low");
+    // Default still shines through where the profile is silent.
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.speed).toBe("standard");
+  });
+
+  test("overrideProfile beats activeProfile but loses to callsite-level fields", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { effort: "low", verbosity: "low" },
+        override: { effort: "high", speed: "fast" },
+      },
+      callSites: {
+        mainAgent: { effort: "none" },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+    });
+    // Callsite fragment wins for effort.
+    expect(resolved.effort).toBe("none");
+    // Override profile wins where callsite is silent.
+    expect(resolved.speed).toBe("fast");
+    // Active profile wins where neither override nor callsite touches.
+    expect(resolved.verbosity).toBe("low");
+  });
+
+  test("overrideProfile absent leaves prior behavior intact", () => {
+    // No `opts` argument at all — the resolver must behave exactly as it did
+    // before this PR for configs without activeProfile/overrideProfile.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        fast: { speed: "fast", effort: "low" },
+      },
+      callSites: {
+        memoryExtraction: { profile: "fast" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.speed).toBe("fast");
+    expect(resolved.effort).toBe("low");
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-opus-4-7");
+  });
+
+  test("overrideProfile referencing a missing key falls through silently", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { effort: "medium" },
+      },
+    });
+    // The schema's superRefine doesn't validate `overrideProfile` (it's a
+    // runtime parameter), so a missing key must silently fall through.
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "nonexistent",
+    });
+    // Falls through to default — the missing override contributes nothing.
+    expect(resolved.effort).toBe("max");
+    expect(resolved.model).toBe("claude-opus-4-7");
+  });
+
+  test("activeProfile referencing a missing key falls through silently", () => {
+    // Hand-craft an `LLMSchema`-typed object that bypasses superRefine —
+    // schema validation rejects an unknown `activeProfile` at parse, but the
+    // resolver itself must not throw (parity with `overrideProfile`).
+    const llm: z.infer<typeof LLMSchema> = {
+      default: fullDefault,
+      profiles: {},
+      callSites: {},
+      activeProfile: "nonexistent",
+      pricingOverrides: [],
+    };
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // Falls through to default.
+    expect(resolved.effort).toBe("max");
+    expect(resolved.model).toBe("claude-opus-4-7");
+  });
+
+  test("thinking and contextWindow deep-merge across all five layers", () => {
+    // Each layer touches a different leaf inside `thinking` and
+    // `contextWindow.overflowRecovery` so we can verify deep merge composes
+    // every contribution rather than wholesale-replacing the nested objects.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: {
+          thinking: { enabled: false },
+          contextWindow: { overflowRecovery: { maxAttempts: 7 } },
+        },
+        override: {
+          thinking: { streamThinking: false },
+          contextWindow: { overflowRecovery: { safetyMarginRatio: 0.1 } },
+        },
+        siteProfile: {
+          contextWindow: { targetBudgetRatio: 0.5 },
+        },
+      },
+      callSites: {
+        mainAgent: {
+          profile: "siteProfile",
+          contextWindow: { compactThreshold: 0.9 },
+        },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+    });
+    // Each layer's leaf survives because no higher layer touches it.
+    expect(resolved.thinking.enabled).toBe(false); // active
+    expect(resolved.thinking.streamThinking).toBe(false); // override
+    expect(resolved.contextWindow.overflowRecovery.maxAttempts).toBe(7); // active
+    expect(resolved.contextWindow.overflowRecovery.safetyMarginRatio).toBe(0.1); // override
+    expect(resolved.contextWindow.targetBudgetRatio).toBe(0.5); // siteProfile
+    expect(resolved.contextWindow.compactThreshold).toBe(0.9); // callsite
+    // Untouched leaves at depth 2 fall through to default.
+    expect(resolved.contextWindow.overflowRecovery.enabled).toBe(true);
+    expect(
+      resolved.contextWindow.overflowRecovery.interactiveLatestTurnCompression,
+    ).toBe("summarize");
+    // Untouched leaves at depth 1 fall through to default.
+    expect(resolved.contextWindow.maxInputTokens).toBe(200000);
+    expect(resolved.contextWindow.summaryBudgetRatio).toBe(0.05);
+  });
+
+  test("callSite fragment fields still win at the top with all layers active", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { model: "active-model", effort: "low" },
+        override: { model: "override-model", speed: "fast" },
+        siteProfile: { model: "siteProfile-model", verbosity: "high" },
+      },
+      callSites: {
+        mainAgent: {
+          profile: "siteProfile",
+          model: "site-model",
+          maxTokens: 12345,
+        },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+    });
+    // Site fragment wins for fields it sets.
+    expect(resolved.model).toBe("site-model");
+    expect(resolved.maxTokens).toBe(12345);
+    // Lower layers contribute fields the site fragment does not touch.
+    expect(resolved.verbosity).toBe("high"); // from siteProfile
+    expect(resolved.speed).toBe("fast"); // from override
+    expect(resolved.effort).toBe("low"); // from active
+  });
 });

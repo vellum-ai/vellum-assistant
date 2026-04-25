@@ -9,58 +9,76 @@ import {
 
 /**
  * Resolves a fully-specified `LLMConfigBase` for a given call site by layering
- * the call-site override on top of an optional named profile on top of the
- * required `llm.default`.
+ * call-site overrides, optional per-call profile, an optional ad-hoc override
+ * profile, the workspace's active profile, and the required `llm.default`.
  *
  * Resolution order (highest precedence wins):
  *   1. `llm.callSites[callSite]` fields (call-site override)
- *   2. `llm.profiles[site.profile]` fields (named profile)
- *   3. `llm.default` fields (required base)
+ *   2. `llm.profiles[site.profile]` fields (call-site's named profile)
+ *   3. `llm.profiles[opts.overrideProfile]` (per-call ad-hoc override)
+ *   4. `llm.profiles[llm.activeProfile]` (workspace-wide active profile)
+ *   5. `llm.default` fields (required base)
  *
  * Nested objects (`thinking`, `contextWindow`, and
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at
  * any nesting level merge into — rather than replace — the corresponding
  * base value.
  *
+ * `activeProfile` and `overrideProfile` are resolved by name lookup against
+ * `llm.profiles`. Missing references silently fall through (no throw) so the
+ * resolver stays pure; schema validation in `LLMSchema.superRefine` catches
+ * unknown `activeProfile` references at config-load time.
+ *
  * Pure & synchronous: no I/O, no async work.
  */
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
+  opts: { overrideProfile?: string } = {},
 ): z.infer<typeof LLMConfigBase> {
+  const layers: Mergeable[] = [llm.default as Mergeable];
+
+  // Layer: workspace-wide active profile. Silent fall-through on missing key
+  // — schema validation in LLMSchema.superRefine catches static references.
+  const activeFragment =
+    llm.activeProfile != null ? llm.profiles?.[llm.activeProfile] : undefined;
+  if (activeFragment != null) {
+    layers.push(activeFragment as Mergeable);
+  }
+
+  // Layer: per-call ad-hoc override (e.g. a chat conversation's pinned
+  // profile). Silent fall-through on missing key keeps the resolver pure.
+  const overrideFragment =
+    opts.overrideProfile != null
+      ? llm.profiles?.[opts.overrideProfile]
+      : undefined;
+  if (overrideFragment != null) {
+    layers.push(overrideFragment as Mergeable);
+  }
+
   const site = llm.callSites?.[callSite];
-
-  // No site-level entry: deep-merge `default` against an empty fragment so
-  // every code path goes through the same merge codepath.
-  if (site == null) {
-    return finalize(deepMerge(llm.default as Mergeable, {} as Mergeable));
-  }
-
-  let profileFragment: LLMConfigFragment | undefined;
-  if (site.profile != null) {
-    profileFragment = llm.profiles?.[site.profile];
-    if (profileFragment == null) {
-      // Defensive: `LLMSchema.superRefine` already rejects unknown profile
-      // references at config load, so this branch is unreachable for any
-      // config that survived schema validation. Throw a clear error in case
-      // a hand-crafted (un-parsed) config slips through.
-      throw new Error(
-        `LLM call site "${callSite}" references undefined profile "${site.profile}"`,
-      );
+  if (site != null) {
+    if (site.profile != null) {
+      const profileFragment: LLMConfigFragment | undefined =
+        llm.profiles?.[site.profile];
+      if (profileFragment == null) {
+        // Defensive: `LLMSchema.superRefine` already rejects unknown profile
+        // references at config load, so this branch is unreachable for any
+        // config that survived schema validation. Throw a clear error in case
+        // a hand-crafted (un-parsed) config slips through.
+        throw new Error(
+          `LLM call site "${callSite}" references undefined profile "${site.profile}"`,
+        );
+      }
+      layers.push(profileFragment as Mergeable);
     }
+    // Strip the `profile` discriminator before merging — it isn't a
+    // `LLMConfigBase` field.
+    const { profile: _profile, ...siteFragment } = site;
+    layers.push(siteFragment as Mergeable);
   }
 
-  // Strip the `profile` discriminator before merging — it isn't a
-  // `LLMConfigBase` field.
-  const { profile: _profile, ...siteFragment } = site;
-
-  const merged = deepMerge(
-    llm.default as Mergeable,
-    (profileFragment ?? {}) as Mergeable,
-    siteFragment as Mergeable,
-  );
-
-  return finalize(merged);
+  return finalize(deepMerge(...layers));
 }
 
 // ---------------------------------------------------------------------------
