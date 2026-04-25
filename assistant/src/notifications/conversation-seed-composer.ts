@@ -25,7 +25,7 @@ const CHANNEL_DEFAULT_INTERFACE: Record<string, InterfaceId> = {
   telegram: "telegram",
 };
 
-const RICH_INTERFACES = new Set<InterfaceId>(["macos", "ios", "vellum"]);
+const RICH_INTERFACES = new Set<InterfaceId>(["macos", "ios", "web"]);
 
 /**
  * Resolve verbosity level from delivery channel + optional interface hint.

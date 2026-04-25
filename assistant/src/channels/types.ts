@@ -32,7 +32,7 @@ export const INTERFACE_IDS = [
   "cli",
   "telegram",
   "phone",
-  "vellum",
+  "web",
   "whatsapp",
   "slack",
   "email",
@@ -41,15 +41,40 @@ export const INTERFACE_IDS = [
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
 
+/**
+ * Interface IDs that older clients or persisted data may still use.
+ * `normalizeInterfaceId` maps these to their canonical replacements.
+ */
+const LEGACY_INTERFACE_ALIASES: Record<string, InterfaceId> = {
+  // The web client used to report "vellum" as its interface ID. Older
+  // conversation records and in-flight SSE connections may still carry this
+  // value. Normalize to "web" so downstream logic only needs one branch.
+  vellum: "web",
+};
+
 export function isInterfaceId(value: unknown): value is InterfaceId {
   return (
     typeof value === "string" &&
-    (INTERFACE_IDS as readonly string[]).includes(value)
+    ((INTERFACE_IDS as readonly string[]).includes(value) ||
+      value in LEGACY_INTERFACE_ALIASES)
   );
 }
 
+/**
+ * Normalize a raw interface ID string, mapping legacy aliases (e.g.
+ * "vellum" → "web") to their canonical form.
+ */
+export function normalizeInterfaceId(value: InterfaceId): InterfaceId {
+  return (LEGACY_INTERFACE_ALIASES[value] as InterfaceId) ?? value;
+}
+
 export function parseInterfaceId(value: unknown): InterfaceId | null {
-  return isInterfaceId(value) ? value : null;
+  if (typeof value !== "string") return null;
+  if ((INTERFACE_IDS as readonly string[]).includes(value))
+    return value as InterfaceId;
+  const alias = LEGACY_INTERFACE_ALIASES[value];
+  if (alias) return alias;
+  return null;
 }
 
 /**
@@ -61,7 +86,7 @@ export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
   "macos",
   "ios",
   "cli",
-  "vellum",
+  "web",
 ]);
 
 export function isInteractiveInterface(id: InterfaceId): boolean {

@@ -61,7 +61,7 @@ export interface ChannelCapabilities {
   supportsDynamicUi: boolean;
   /** Whether the channel supports voice/microphone input. */
   supportsVoiceInput: boolean;
-  /** The client OS/interface identifier (e.g. "macos", "ios", "vellum"). */
+  /** The client OS/interface identifier (e.g. "macos", "ios", "web"). */
   clientOS?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
   chatType?: string;

@@ -26,7 +26,7 @@ export const INTERFACE_IDS = [
   "cli",
   "telegram",
   "phone",
-  "vellum",
+  "web",
   "whatsapp",
   "slack",
   "email",
@@ -34,15 +34,34 @@ export const INTERFACE_IDS = [
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
 
+/**
+ * Interface IDs that older clients or persisted data may still use.
+ * Maps legacy values to their canonical replacements.
+ */
+const LEGACY_INTERFACE_ALIASES: Record<string, InterfaceId> = {
+  // The web client used to report "vellum" as its interface ID.
+  vellum: "web",
+};
+
 export function isInterfaceId(value: unknown): value is InterfaceId {
   return (
     typeof value === "string" &&
-    (INTERFACE_IDS as readonly string[]).includes(value)
+    ((INTERFACE_IDS as readonly string[]).includes(value) ||
+      value in LEGACY_INTERFACE_ALIASES)
   );
 }
 
+export function normalizeInterfaceId(value: InterfaceId): InterfaceId {
+  return (LEGACY_INTERFACE_ALIASES[value] as InterfaceId) ?? value;
+}
+
 export function parseInterfaceId(value: unknown): InterfaceId | null {
-  return isInterfaceId(value) ? value : null;
+  if (typeof value !== "string") return null;
+  if ((INTERFACE_IDS as readonly string[]).includes(value))
+    return value as InterfaceId;
+  const alias = LEGACY_INTERFACE_ALIASES[value];
+  if (alias) return alias;
+  return null;
 }
 
 export interface TurnInterfaceContext {

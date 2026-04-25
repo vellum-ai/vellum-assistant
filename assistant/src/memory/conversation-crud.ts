@@ -20,7 +20,12 @@ import { z } from "zod";
 
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
-import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
+import {
+  CHANNEL_IDS,
+  isChannelId,
+  isInterfaceId,
+  normalizeInterfaceId,
+} from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { UserError } from "../util/errors.js";
@@ -68,7 +73,12 @@ const log = getLogger("conversation-store");
 // extra keys are allowed via passthrough so callers can attach ad-hoc data.
 
 const channelIdSchema = z.enum(CHANNEL_IDS);
-const interfaceIdSchema = z.enum(INTERFACE_IDS);
+// Accept both canonical INTERFACE_IDS and the legacy "vellum" alias,
+// normalizing to "web" on read so downstream code only handles canonical IDs.
+const interfaceIdSchema = z
+  .string()
+  .refine((v): v is InterfaceId => isInterfaceId(v))
+  .transform((v) => normalizeInterfaceId(v as InterfaceId));
 
 const subagentNotificationSchema = z.object({
   subagentId: z.string(),

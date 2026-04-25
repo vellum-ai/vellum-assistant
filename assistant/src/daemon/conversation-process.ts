@@ -1361,9 +1361,9 @@ export async function processMessage(
       const routerChannelMeta = {
         userMessageChannel: "vellum" as const,
         assistantMessageChannel: "vellum" as const,
-        userMessageInterface: guardianIfCtx?.userMessageInterface ?? "vellum",
+        userMessageInterface: guardianIfCtx?.userMessageInterface ?? "web",
         assistantMessageInterface:
-          guardianIfCtx?.assistantMessageInterface ?? "vellum",
+          guardianIfCtx?.assistantMessageInterface ?? "web",
         provenanceTrustClass: "guardian" as const,
         ...(Object.keys(guardianImageSourcePaths).length > 0
           ? { imageSourcePaths: guardianImageSourcePaths }
