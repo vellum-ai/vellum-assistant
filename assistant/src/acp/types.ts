@@ -2,7 +2,7 @@
  * ACP (Agent Client Protocol) types for agent session management and configuration.
  */
 
-export type { StopReason } from "@agentclientprotocol/sdk";
+import type { StopReason } from "@agentclientprotocol/sdk";
 
 /**
  * Configuration for a single ACP agent process.

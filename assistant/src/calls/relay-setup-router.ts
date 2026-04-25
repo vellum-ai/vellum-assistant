@@ -60,7 +60,7 @@ type SetupOutcome =
 
 // ── Resolved context produced alongside the outcome ──────────────────
 
-interface SetupResolved {
+export interface SetupResolved {
   assistantId: string;
   isInbound: boolean;
   otherPartyNumber: string;
