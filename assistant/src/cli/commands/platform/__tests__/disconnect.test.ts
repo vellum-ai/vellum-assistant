@@ -8,7 +8,7 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockGetSecureKeyViaDaemon: (
+let mockGetSecureKeyAsync: (
   account: string,
 ) => Promise<string | undefined> = async () => undefined;
 
@@ -49,18 +49,31 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async () => "",
 }));
 
+mock.module("../../../../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: (account: string) => mockGetSecureKeyAsync(account),
+  getSecureKeyResultAsync: async () => ({
+    value: undefined,
+    unreachable: false,
+  }),
+  setSecureKeyAsync: async () => true,
+  deleteSecureKeyAsync: async () => "deleted" as const,
+  getProviderKeyAsync: async () => undefined,
+  getMaskedProviderKey: async () => undefined,
+  bulkSetSecureKeysAsync: async () => {},
+  listSecureKeysAsync: async () => ({ credentials: [] }),
+  setCesClient: () => {},
+  onCesClientChanged: () => ({ unsubscribe: () => {} }),
+  setCesReconnect: () => {},
+  getActiveBackendName: () => "file",
+  _resetBackend: () => {},
+}));
+
 mock.module("../../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: (account: string) =>
-    mockGetSecureKeyViaDaemon(account),
   deleteSecureKeyViaDaemon: async (type: string, name: string) => {
     mockDeleteSecureKeyViaDaemonCalls.push({ type, name });
     return mockDeleteSecureKeyViaDaemonResult;
   },
   setSecureKeyViaDaemon: async () => false,
-  getSecureKeyResultViaDaemon: async () => ({
-    value: undefined,
-    unreachable: false,
-  }),
 }));
 
 mock.module("../../../../util/logger.js", () => ({
@@ -161,7 +174,7 @@ async function runCommand(
 
 describe("assistant platform disconnect", () => {
   beforeEach(() => {
-    mockGetSecureKeyViaDaemon = async () => undefined;
+    mockGetSecureKeyAsync = async () => undefined;
     mockDeleteSecureKeyViaDaemonCalls = [];
     mockDeleteSecureKeyViaDaemonResult = "deleted";
     mockIsPlatformRemote = false;
@@ -176,7 +189,7 @@ describe("assistant platform disconnect", () => {
      */
 
     // GIVEN stored platform credentials exist
-    mockGetSecureKeyViaDaemon = async (account: string) => {
+    mockGetSecureKeyAsync = async (account: string) => {
       if (account === "credential/vellum/platform_base_url")
         return "https://platform.vellum.ai";
       if (account === "credential/vellum/assistant_api_key")

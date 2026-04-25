@@ -19,8 +19,11 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
+import type { SecretRouteDeps } from "../runtime/routes/secret-routes.js";
 import { getLogger } from "../util/logger.js";
 import { cliIpcRoutes } from "./routes/index.js";
+import { makeSecretsRoutes } from "./routes/secrets.js";
+import { makeWipeConversationRoute } from "./routes/wipe-conversation.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
@@ -53,6 +56,12 @@ export type IpcRoute = {
   handler: IpcMethodHandler;
 };
 
+/** Daemon-owned dependencies injected into the IPC server at construction. */
+export interface AssistantIpcDeps {
+  destroyConversation: (conversationId: string) => void;
+  secretRouteDeps: SecretRouteDeps;
+}
+
 // ---------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------
@@ -63,7 +72,7 @@ export class AssistantIpcServer {
   private methods = new Map<string, IpcMethodHandler>();
   private socketPath: string;
 
-  constructor() {
+  constructor(deps: AssistantIpcDeps) {
     const socketResolution = resolveIpcSocketPath("assistant.sock");
     this.socketPath = socketResolution.path;
     if (socketResolution.source !== "workspace") {
@@ -80,11 +89,13 @@ export class AssistantIpcServer {
     for (const route of cliIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }
-  }
 
-  /** Register an additional method handler after construction. */
-  registerMethod(method: string, handler: IpcMethodHandler): void {
-    this.methods.set(method, handler);
+    const wipeRoute = makeWipeConversationRoute(deps.destroyConversation);
+    this.methods.set(wipeRoute.method, wipeRoute.handler);
+
+    for (const route of makeSecretsRoutes(deps.secretRouteDeps)) {
+      this.methods.set(route.method, route.handler);
+    }
   }
 
   /** Start listening on the Unix domain socket. */

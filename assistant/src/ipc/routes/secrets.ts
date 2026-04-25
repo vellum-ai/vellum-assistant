@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { HttpErrorResponse } from "../../runtime/http-errors.js";
 import type { SecretRouteDeps } from "../../runtime/routes/secret-routes.js";
 import {
   handleAddSecret,
@@ -27,13 +28,20 @@ const SecretReadParams = z.object({
 
 /**
  * Factory: returns secrets IPC routes that capture the daemon-owned
- * deps (CES client, provider credential refresh). The daemon registers
- * these at startup via `cliIpc.registerMethod(...)`.
- *
- * These routes delegate to the same `handleAddSecret` / `handleDeleteSecret`
- * / `handleReadSecret` handlers that the HTTP `/v1/secrets` endpoints use,
- * converting the Response objects into IPC-friendly JSON payloads.
+ * deps (CES client, provider credential refresh).
  */
+function extractErrorMessage(
+  body: Record<string, unknown>,
+  fallback: string,
+): string {
+  const err = body.error;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && "message" in err) {
+    return (err as HttpErrorResponse["error"]).message;
+  }
+  return fallback;
+}
+
 export function makeSecretsRoutes(deps: SecretRouteDeps): IpcRoute[] {
   return [
     {
@@ -49,7 +57,7 @@ export function makeSecretsRoutes(deps: SecretRouteDeps): IpcRoute[] {
         const body = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           throw new Error(
-            (body.error as string) || `Secret write failed (${res.status})`,
+            extractErrorMessage(body, `Secret write failed (${res.status})`),
           );
         }
         return body;
@@ -68,7 +76,7 @@ export function makeSecretsRoutes(deps: SecretRouteDeps): IpcRoute[] {
         const body = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           throw new Error(
-            (body.error as string) || `Secret delete failed (${res.status})`,
+            extractErrorMessage(body, `Secret delete failed (${res.status})`),
           );
         }
         return body;
@@ -87,7 +95,7 @@ export function makeSecretsRoutes(deps: SecretRouteDeps): IpcRoute[] {
         const body = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           throw new Error(
-            (body.error as string) || `Secret read failed (${res.status})`,
+            extractErrorMessage(body, `Secret read failed (${res.status})`),
           );
         }
         return body;

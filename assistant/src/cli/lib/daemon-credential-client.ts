@@ -1,54 +1,19 @@
-/**
- * CLI helper for credential operations.
- *
- * Reads go directly to `secure-keys.ts` — no daemon needed.
- *
- * Writes and deletes route through the daemon's CLI IPC socket when the
- * daemon is running so that daemon-side singletons (provider registry,
- * CES client, in-memory identity fields) stay in sync. Falls back to
- * direct `secure-keys.ts` when the daemon is not reachable.
- */
-
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { DeleteResult } from "../../security/credential-backend.js";
 import { credentialKey } from "../../security/credential-key.js";
-import type { SecureKeyResult } from "../../security/secure-keys.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKeyAsync,
-  getSecureKeyResultAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("daemon-credential-client");
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
+const DAEMON_UNREACHABLE =
+  "Could not connect to assistant daemon. Is it running?";
 
-// ---------------------------------------------------------------------------
-// Exported wrapper functions
-// ---------------------------------------------------------------------------
-
-/**
- * Retrieve a secret value. Reads go directly to `secure-keys.ts` —
- * the daemon is not needed for reads.
- */
-export async function getSecureKeyViaDaemon(
-  account: string,
-): Promise<string | undefined> {
-  return getSecureKeyAsync(account);
-}
-
-/**
- * Retrieve a secret value with richer result metadata.
- * Reads go directly to `secure-keys.ts`.
- */
-export async function getSecureKeyResultViaDaemon(
-  account: string,
-): Promise<SecureKeyResult> {
-  return getSecureKeyResultAsync(account);
+function isDaemonUnreachable(error: string): boolean {
+  return error === DAEMON_UNREACHABLE;
 }
 
 /**
@@ -71,17 +36,12 @@ export async function setSecureKeyViaDaemon(
     return ipc.result.success;
   }
 
-  if (ipc.error && !ipc.error.includes("Could not connect")) {
-    // Daemon is running but deliberately rejected the write (e.g.
-    // validation failure). Do NOT fall back — the daemon's rejection
-    // is authoritative and bypassing it would skip validation.
+  if (ipc.error && !isDaemonUnreachable(ipc.error)) {
     log.warn({ type, name, error: ipc.error }, "Daemon secret write failed");
     return false;
   }
 
   // Daemon unreachable — fall back to direct write.
-  // For credentials, convert "service:field" to the canonical
-  // "credential/service/field" storage key using credentialKey().
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
     if (colonIdx > 0 && colonIdx < name.length - 1) {
@@ -110,8 +70,7 @@ export async function deleteSecureKeyViaDaemon(
     return ipc.result.success ? "deleted" : "error";
   }
 
-  if (ipc.error && !ipc.error.includes("Could not connect")) {
-    // Daemon is running but rejected the delete.
+  if (ipc.error && !isDaemonUnreachable(ipc.error)) {
     if (ipc.error.includes("not found") || ipc.error.includes("404")) {
       return "not-found";
     }
@@ -119,8 +78,6 @@ export async function deleteSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct delete.
-  // For credentials, convert "service:field" to the canonical
-  // "credential/service/field" storage key using credentialKey().
   if (type === "credential" && !name.startsWith("credential/")) {
     const colonIdx = name.lastIndexOf(":");
     if (colonIdx > 0 && colonIdx < name.length - 1) {

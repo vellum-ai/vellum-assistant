@@ -401,13 +401,15 @@ Examples:
       if (
         ipcWipe.ok === false &&
         ipcWipe.error &&
-        !ipcWipe.error.includes("Could not connect")
+        ipcWipe.error !==
+          "Could not connect to assistant daemon. Is it running?"
       ) {
-        // Daemon is running but wipe failed (e.g. conversation not found
-        // in daemon memory) — report the error and fall through to direct.
-        log.warn(`Daemon wipe failed: ${ipcWipe.error}`);
+        log.error(`Daemon wipe failed: ${ipcWipe.error}`);
+        process.exitCode = 1;
+        return;
       }
 
+      // Daemon not reachable — safe to wipe directly (no in-memory state).
       // Cancel the associated schedule job (if any) before wiping —
       // but only when this is the last conversation referencing it.
       if (
@@ -417,7 +419,6 @@ Examples:
         deleteSchedule(conversation.scheduleJobId);
       }
 
-      // Daemon not running — safe to wipe directly (no in-memory state).
       const result = wipeConversation(conversation.id);
 
       // Enqueue Qdrant cleanup

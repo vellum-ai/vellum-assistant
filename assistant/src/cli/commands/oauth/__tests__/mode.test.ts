@@ -115,8 +115,8 @@ mock.module("../../../../util/logger.js", () => ({
 }));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: async () => undefined,
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
+  setSecureKeyViaDaemon: async () => false,
 }));
 
 // Mock shared.js helpers

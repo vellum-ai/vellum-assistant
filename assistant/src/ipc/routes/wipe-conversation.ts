@@ -15,8 +15,7 @@ const WipeConversationParams = z.object({
 
 /**
  * Factory: returns a `wipe_conversation` IPC route that captures the
- * daemon-owned `destroyConversation` callback. The daemon registers this
- * at startup via `cliIpc.registerMethod(...)`.
+ * daemon-owned `destroyConversation` callback.
  */
 export function makeWipeConversationRoute(
   destroyConversation: (conversationId: string) => void,

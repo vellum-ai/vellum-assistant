@@ -13,6 +13,10 @@ import {
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+} from "../../security/secure-keys.js";
+import {
   assertMetadataWritable,
   type CredentialMetadata,
   deleteCredentialMetadata,
@@ -23,8 +27,6 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import {
   deleteSecureKeyViaDaemon,
-  getSecureKeyResultViaDaemon,
-  getSecureKeyViaDaemon,
   setSecureKeyViaDaemon,
 } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
@@ -327,7 +329,7 @@ Examples:
 
         const credentials = await Promise.all(
           allMetadata.map(async (m) => {
-            const secret = await getSecureKeyViaDaemon(
+            const secret = await getSecureKeyAsync(
               credentialKey(m.service, m.field),
             );
             const connection = connectionsByProvider.get(m.service);
@@ -622,7 +624,7 @@ Examples:
           }
 
           const { value: secret, unreachable } =
-            await getSecureKeyResultViaDaemon(storageKey);
+            await getSecureKeyResultAsync(storageKey);
 
           if (!metadata && (secret == null || secret.length === 0)) {
             if (unreachable) {
@@ -757,7 +759,7 @@ Examples:
           }
 
           const { value: secret, unreachable } =
-            await getSecureKeyResultViaDaemon(storageKey);
+            await getSecureKeyResultAsync(storageKey);
 
           if (secret == null || secret.length === 0) {
             if (unreachable) {
