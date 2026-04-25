@@ -482,7 +482,7 @@ export interface SkillListFilter {
 }
 
 /** Human-readable labels matching Swift's `sourceLabel`. */
-export function originDisplayLabel(origin: string): string {
+function originDisplayLabel(origin: string): string {
   switch (origin) {
     case "vellum":
       return "Vellum";
@@ -498,7 +498,7 @@ export function originDisplayLabel(origin: string): string {
 }
 
 /** Check if a skill's origin matches a text query (matching Swift logic). */
-export function originMatchesQuery(origin: string, query: string): boolean {
+function originMatchesQuery(origin: string, query: string): boolean {
   const label = originDisplayLabel(origin).toLowerCase();
   if (label.includes(query)) return true;
   // "community" umbrella matches clawhub and skillssh

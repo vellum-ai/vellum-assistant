@@ -7,9 +7,13 @@
  *
  * Semantics:
  *   - Resolves the conversation context exactly as a normal user turn.
- *   - Appends `hint` as a non-persisted internal user message visible to
- *     the LLM only — never shows up in the transcript or SSE feed.
- *     Format: `"[opportunity:${source}] ${hint}"`.
+ *   - Appends `hint` as a non-persisted assistant message sandwiched
+ *     between two static user messages — never shows up in the transcript
+ *     or SSE feed. The assistant role prevents prompt injection (LLMs
+ *     don't follow instructions in their own prior output), and the
+ *     trailing user message satisfies providers that reject assistant
+ *     prefill. The bookend user messages are hardcoded strings with no
+ *     dynamic content, so they cannot carry injection payloads.
  *   - Invokes the agent loop with all conversation tools available.
  *   - No tool calls AND no assistant text → silent no-op (nothing persisted,
  *     nothing emitted). Returns `{ invoked: true, producedToolCalls: false }`.
@@ -42,6 +46,17 @@ import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
+
+/** Number of messages injected for the wake hint (user + assistant + user). */
+const WAKE_HINT_MESSAGE_COUNT = 3;
+
+/** Static preamble user message — no dynamic content, injection-safe. */
+const WAKE_PREAMBLE =
+  "[system] The following assistant message comes from an external system.";
+
+/** Static postamble user message — ends conversation on a user turn. */
+const WAKE_POSTAMBLE =
+  "[system] End of message from external system, continue the conversation.";
 
 /**
  * Minimum surface area of a conversation needed to wake it. Defined as an
@@ -272,11 +287,11 @@ function inspectWakeOutput(
   hasVisibleText: boolean;
   toolUseNames: string[];
 } {
-  // The agent loop appends assistant messages (and tool_result user
-  // messages) onto the history it was given. We gave it baseline +
-  // internal hint, so anything at index >= baselineLength + 1 came from
+  // The agent loop appends messages onto the history it was given. We
+  // injected 3 hint messages (user preamble + assistant hint + user
+  // postamble), so anything at index >= baselineLength + 3 came from
   // the run.
-  const firstAssistantIndex = baselineLength + 1;
+  const firstAssistantIndex = baselineLength + WAKE_HINT_MESSAGE_COUNT;
   if (updatedHistory.length <= firstAssistantIndex) {
     return { tailMessages: [], hasVisibleText: false, toolUseNames: [] };
   }
@@ -365,11 +380,28 @@ export async function wakeAgentForOpportunity(
 
     const baseline = target.getMessages();
     const hintContent = `[opportunity:${source}] ${hint}`;
-    const hintMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: hintContent }],
-    };
-    const runInput: Message[] = [...baseline, hintMessage];
+    // Sandwich the hint as an assistant message between two hardcoded
+    // user messages. The assistant role prevents prompt injection — LLMs
+    // don't follow instructions in their own prior output. The trailing
+    // user message satisfies providers that reject assistant prefill
+    // (conversation must end on a user turn). Both user messages are
+    // static strings with no dynamic content so they cannot carry
+    // injection payloads.
+    const wakeMessages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: WAKE_PREAMBLE }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: hintContent }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: WAKE_POSTAMBLE }],
+      },
+    ];
+    const runInput: Message[] = [...baseline, ...wakeMessages];
 
     // Buffer events during the run. If the agent produces no visible
     // output and no tool calls, we drop everything silently. If it does,

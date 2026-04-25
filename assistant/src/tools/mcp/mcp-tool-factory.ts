@@ -15,7 +15,7 @@ const riskMap: Record<string, RiskLevel> = {
  * Create a namespaced tool name to prevent collisions across MCP servers
  * and with core/skill tools.
  */
-export function mcpToolName(serverId: string, toolName: string): string {
+function mcpToolName(serverId: string, toolName: string): string {
   return `mcp__${serverId}__${toolName}`;
 }
 

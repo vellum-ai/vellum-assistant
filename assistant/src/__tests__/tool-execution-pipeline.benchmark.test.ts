@@ -36,6 +36,7 @@ let mockRuleResponse: import("../permissions/types.js").TrustRule | null = null;
 mock.module("../permissions/trust-store.js", () => ({
   addRule: () => {},
   findHighestPriorityRule: () => mockRuleResponse,
+  onRulesChanged: () => {},
   clearCache: () => {},
 }));
 
@@ -65,6 +66,68 @@ mock.module("../tools/registry.js", () => ({
   registerTool: (tool: import("../tools/types.js").Tool) => {
     localRegistry.set(tool.name, tool);
   },
+}));
+
+mock.module("../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => false,
+}));
+
+mock.module("../config/env-registry.js", () => ({
+  getIsContainerized: () => false,
+}));
+
+mock.module("../util/platform.js", () => ({
+  getWorkspaceDir: () => "/tmp",
+  getProtectedDir: () => "/tmp/protected",
+  getWorkspaceHooksDir: () => "/tmp/hooks",
+  getDeprecatedDir: () => "/tmp/deprecated",
+}));
+
+mock.module("../permissions/gateway-threshold-reader.js", () => ({
+  getAutoApproveThreshold: async () => undefined,
+}));
+
+mock.module("../permissions/workspace-policy.js", () => ({
+  isWorkspaceScopedInvocation: () => false,
+  isPathWithinWorkspaceRoot: () => false,
+}));
+
+mock.module("../tools/network/url-safety.js", () => ({
+  looksLikeHostPortShorthand: () => false,
+  looksLikePathOnlyInput: () => false,
+}));
+
+mock.module("../skills/path-classifier.js", () => ({
+  getSkillRoots: () => [],
+  normalizeFilePath: (p: string) => p,
+}));
+
+mock.module("../skills/include-graph.js", () => ({
+  indexCatalogById: () => new Map(),
+}));
+
+mock.module("../skills/transitive-version-hash.js", () => ({
+  computeTransitiveSkillVersionHash: () => undefined,
+}));
+
+mock.module("../skills/version-hash.js", () => ({
+  computeSkillVersionHash: () => "mock-version-hash",
+}));
+
+// Gateway IPC mock — classifyRisk delegates to the gateway via IPC.
+// In CI there's no gateway, so we return a sensible default.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcClassifyRisk: async (): Promise<
+    import("../permissions/ipc-risk-types.js").ClassificationResult
+  > => ({
+      risk: "low",
+      reason: "mock",
+      matchType: "registry" as const,
+      scopeOptions: [],
+  }),
+  ipcCall: async () => undefined,
+  ipcCallPersistent: async () => undefined,
+  resetPersistentClient: () => {},
 }));
 
 import { check, classifyRisk } from "../permissions/checker.js";

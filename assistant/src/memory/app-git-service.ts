@@ -143,20 +143,6 @@ function validateRelativePath(path: string): void {
  * commit and the "Create app: ..." commit ends up empty.
  *
  * Safe to call multiple times -- ensureInitialized() is idempotent.
- * Fire-and-forget: errors are logged but never thrown.
- */
-export async function initAppGit(): Promise<void> {
-  try {
-    const appsDir = getAppsDir();
-    ensureAppGitignoreRules(appsDir);
-    const gitService = getWorkspaceGitService(appsDir);
-    await gitService.ensureInitialized();
-  } catch (err) {
-    log.error({ err }, "Failed to initialize app git repo");
-  }
-}
-
-/**
  * Commit app changes to the apps git repository.
  *
  * This is fire-and-forget: errors are logged but never thrown.

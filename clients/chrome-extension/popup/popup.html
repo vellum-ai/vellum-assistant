@@ -530,88 +530,445 @@
     .local-status.error {
       color: var(--red);
     }
+
+    /* ── Screen management ───────────────────────────────────────── */
+
+    .screen { }
+
+    /* ── Welcome screen ──────────────────────────────────────────── */
+
+    .welcome-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 320px;
+      padding: 32px 16px 16px;
+      text-align: center;
+    }
+
+    .welcome-logo {
+      width: 48px;
+      height: 48px;
+      color: var(--accent);
+      margin-bottom: 20px;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: fade-up 0.5s ease 0.1s forwards;
+    }
+
+    .welcome-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-1);
+      margin-bottom: 6px;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: fade-up 0.5s ease 0.2s forwards;
+    }
+
+    .welcome-subtitle {
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.45;
+      margin-bottom: 28px;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: fade-up 0.5s ease 0.35s forwards;
+    }
+
+    .welcome-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      max-width: 240px;
+      opacity: 0;
+      transform: translateY(8px);
+      animation: fade-up 0.5s ease 0.5s forwards;
+    }
+
+    .welcome-footer {
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: auto;
+      padding-top: 24px;
+    }
+
+    @keyframes fade-up {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Primary button ──────────────────────────────────────────── */
+
+    .btn-primary {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #6d7ce8;
+    }
+
+    .btn-primary:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    /* ── Ghost button ────────────────────────────────────────────── */
+
+    .btn-ghost {
+      width: 100%;
+      padding: 9px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-2);
+      transition: all 0.15s ease;
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      border-color: var(--border-hover);
+      color: var(--text-1);
+    }
+
+    .btn-ghost-sm {
+      width: auto;
+      padding: 6px 0;
+      border: none;
+      background: transparent;
+      font-size: 11px;
+      color: var(--text-3);
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+
+    .btn-ghost-sm:hover {
+      color: var(--text-2);
+    }
+
+    /* ── Icon button (back arrow) ────────────────────────────────── */
+
+    .btn-icon {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text-2);
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .btn-icon:hover {
+      border-color: var(--border-hover);
+      color: var(--text-1);
+    }
+
+    /* ── Assistant picker screen ──────────────────────────────────── */
+
+    #screen-picker header {
+      margin-bottom: 4px;
+    }
+
+    .picker-subtitle {
+      font-size: 12px;
+      color: var(--text-2);
+      margin-bottom: 14px;
+    }
+
+    .picker-loading {
+      font-size: 12px;
+      color: var(--text-3);
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .assistant-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .assistant-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .assistant-row:hover {
+      border-color: var(--border-hover);
+    }
+
+    .assistant-row-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(129, 140, 248, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--accent);
+    }
+
+    .assistant-row-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-1);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .assistant-row-arrow {
+      color: var(--text-3);
+      flex-shrink: 0;
+    }
+
+    /* ── Connected assistant info bar ────────────────────────────── */
+
+    .assistant-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 10px;
+    }
+
+    .assistant-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: rgba(129, 140, 248, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--accent);
+    }
+
+    .assistant-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .assistant-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .assistant-account {
+      font-size: 11px;
+      color: var(--text-3);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Session actions ─────────────────────────────────────────── */
+
+    .session-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 4px;
+    }
+
+    .session-actions .divider {
+      width: 100%;
+    }
+
+    .session-actions .btn-ghost-sm {
+      padding: 8px 0;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <svg class="logo-mark" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-      <path d="M9 1.5L16.5 9L9 16.5L1.5 9L9 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-      <path d="M9 5.5L12.5 9L9 12.5L5.5 9L9 5.5Z" fill="currentColor" opacity="0.3"/>
-    </svg>
-    <h1>Vellum Assistant</h1>
-  </header>
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 1: Welcome / Onboarding
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-welcome" class="screen">
+    <div class="welcome-container">
+      <svg class="welcome-logo" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+        <path d="M20 2L38 20L20 38L2 20L20 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M20 10L30 20L20 30L10 20L20 10Z" fill="currentColor" opacity="0.2"/>
+        <path d="M20 14L26 20L20 26L14 20L20 14Z" fill="currentColor" opacity="0.15"/>
+      </svg>
 
-  <div class="toggle-row">
-    <div class="toggle-copy">
-      <p class="toggle-title">Connection</p>
-      <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
-    </div>
-    <label class="switch" for="connection-toggle">
-      <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
-      <span class="switch-slider"></span>
-    </label>
-  </div>
+      <h1 class="welcome-title">Vellum Assistant</h1>
+      <p class="welcome-subtitle">Bridge your browser to your personal assistant.</p>
 
-  <div class="status-card" role="status" aria-live="polite">
-    <div class="status-row">
-      <div class="status-left">
-        <div class="status-dot disconnected" id="status-dot"></div>
-        <p class="status-text" id="status-text">Not connected</p>
-      </div>
-      <span class="status-badge disconnected" id="status-badge">Offline</span>
-    </div>
-  </div>
-
-  <p class="error-text" id="error-text" style="display:none"></p>
-  <div class="debug-details" id="debug-details" style="display:none">
-    <div class="debug-details-header">
-      <span class="debug-details-title">Debug details</span>
-      <button class="debug-copy-btn" id="copy-debug-details" type="button">Copy</button>
-    </div>
-    <p class="debug-details-text" id="debug-details-text"></p>
-  </div>
-
-  <p id="setup-message" class="setup-message" style="display:none"></p>
-
-  <div class="advanced-setting">
-    <label for="gateway-url-input">Gateway URL</label>
-    <div style="display:flex;gap:6px;align-items:stretch;">
-      <input type="text" id="gateway-url-input" placeholder="http://127.0.0.1:7830" value="http://127.0.0.1:7830" style="margin-bottom:0;flex:1;" />
-      <button id="gateway-url-save" type="button" style="width:auto;flex-shrink:0;padding:8px 14px;">Save</button>
-    </div>
-    <p class="hint">The HTTP address of your self-hosted assistant gateway.</p>
-  </div>
-
-  <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
-  <div id="troubleshoot-section">
-    <div class="divider"></div>
-
-    <button
-      type="button"
-      class="troubleshoot-toggle"
-      id="troubleshoot-toggle"
-      aria-expanded="false"
-      aria-controls="troubleshoot-body"
-    >
-      <span class="chevron">&#9654;</span>
-      Advanced
-    </button>
-
-    <div id="troubleshoot-body" style="display:none;">
-      <div class="advanced-setting">
-        <label for="environment-select">Environment</label>
-        <select id="environment-select">
-          <option value="local">Local</option>
-          <option value="dev">Development</option>
-          <option value="staging">Staging</option>
-          <option value="production">Production</option>
-        </select>
-        <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
+      <div class="welcome-buttons">
+        <button id="btn-sign-in" type="button" class="btn-primary">
+          Sign in with Vellum
+        </button>
+        <button id="btn-self-hosted" type="button" class="btn-ghost">
+          Connect to self-hosted
+        </button>
       </div>
 
-      <p class="local-status" id="local-status">Not paired</p>
-      <button id="btn-pair-local" type="button">Re-pair with gateway</button>
+      <p class="welcome-footer">2026 Vellum Inc.</p>
+    </div>
+  </div>
 
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 2: Assistant Picker (cloud — multiple assistants)
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-picker" class="screen" style="display:none;">
+    <header>
+      <button id="picker-back" type="button" class="btn-icon" aria-label="Back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Choose an Assistant</h1>
+    </header>
+    <p class="picker-subtitle">Select which assistant to connect to.</p>
+    <div id="assistant-list" class="assistant-list"></div>
+    <p id="picker-error" class="error-text" style="display:none;"></p>
+    <p id="picker-loading" class="picker-loading">Loading assistants…</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 3: Connected / Main (self-hosted or cloud)
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-main" class="screen" style="display:none;">
+    <header>
+      <svg class="logo-mark" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <path d="M9 1.5L16.5 9L9 16.5L1.5 9L9 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+        <path d="M9 5.5L12.5 9L9 12.5L5.5 9L9 5.5Z" fill="currentColor" opacity="0.3"/>
+      </svg>
+      <h1>Vellum Assistant</h1>
+    </header>
+
+    <!-- Connected assistant info (cloud mode) -->
+    <div id="assistant-info" class="assistant-info" style="display:none;">
+      <div class="assistant-avatar" id="assistant-avatar" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
+          <path d="M12 2L22 12L12 22L2 12L12 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+          <path d="M12 7L17 12L12 17L7 12L12 7Z" fill="currentColor" opacity="0.3"/>
+        </svg>
+      </div>
+      <div class="assistant-meta">
+        <p class="assistant-name" id="assistant-name"></p>
+        <p class="assistant-account" id="assistant-account"></p>
+      </div>
+    </div>
+
+    <div class="toggle-row">
+      <div class="toggle-copy">
+        <p class="toggle-title">Connection</p>
+        <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
+      </div>
+      <label class="switch" for="connection-toggle">
+        <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
+        <span class="switch-slider"></span>
+      </label>
+    </div>
+
+    <div class="status-card" role="status" aria-live="polite">
+      <div class="status-row">
+        <div class="status-left">
+          <div class="status-dot disconnected" id="status-dot"></div>
+          <p class="status-text" id="status-text">Not connected</p>
+        </div>
+        <span class="status-badge disconnected" id="status-badge">Offline</span>
+      </div>
+    </div>
+
+    <p class="error-text" id="error-text" style="display:none"></p>
+    <div class="debug-details" id="debug-details" style="display:none">
+      <div class="debug-details-header">
+        <span class="debug-details-title">Debug details</span>
+        <button class="debug-copy-btn" id="copy-debug-details" type="button">Copy</button>
+      </div>
+      <p class="debug-details-text" id="debug-details-text"></p>
+    </div>
+
+    <p id="setup-message" class="setup-message" style="display:none"></p>
+
+    <!-- Self-hosted: gateway URL (hidden for cloud) -->
+    <div id="self-hosted-settings" class="advanced-setting">
+      <label for="gateway-url-input">Gateway URL</label>
+      <div style="display:flex;gap:6px;align-items:stretch;">
+        <input type="text" id="gateway-url-input" placeholder="http://127.0.0.1:7830" value="http://127.0.0.1:7830" style="margin-bottom:0;flex:1;" />
+        <button id="gateway-url-save" type="button" style="width:auto;flex-shrink:0;padding:8px 14px;">Save</button>
+      </div>
+      <p class="hint">The HTTP address of your self-hosted assistant gateway.</p>
+    </div>
+
+    <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
+    <div id="troubleshoot-section">
+      <div class="divider"></div>
+
+      <button
+        type="button"
+        class="troubleshoot-toggle"
+        id="troubleshoot-toggle"
+        aria-expanded="false"
+        aria-controls="troubleshoot-body"
+      >
+        <span class="chevron">&#9654;</span>
+        Advanced
+      </button>
+
+      <div id="troubleshoot-body" style="display:none;">
+        <div class="advanced-setting">
+          <label for="environment-select">Environment</label>
+          <select id="environment-select">
+            <option value="local">Local</option>
+            <option value="dev">Development</option>
+            <option value="staging">Staging</option>
+            <option value="production">Production</option>
+          </select>
+          <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
+        </div>
+
+        <p class="local-status" id="local-status">Not paired</p>
+        <button id="btn-pair-local" type="button">Re-pair with gateway</button>
+      </div>
+    </div>
+
+    <!-- Sign out / switch button at bottom -->
+    <div id="session-actions" class="session-actions" style="display:none;">
+      <div class="divider"></div>
+      <button id="btn-sign-out" type="button" class="btn-ghost-sm">
+        Not you? Sign out
+      </button>
     </div>
   </div>
 

@@ -92,28 +92,6 @@ final class VellumCli: AssistantManagementClient {
 
     // MARK: - Shared Environment
 
-    /// Maps provider identifiers (matching `APIKeyManager` keys) to the
-    /// environment variable name expected by the CLI / remote startup script.
-    ///
-    /// Combines two sources:
-    ///   - LLM providers from `LLMProviderRegistry` (`meta/llm-provider-catalog.json`,
-    ///     the single source of truth for LLM provider metadata).
-    ///   - Search providers hardcoded below (Brave, Perplexity).
-    ///
-    /// Search-provider entries overwrite any LLM entry with the same id, but in
-    /// practice the two id namespaces do not overlap.
-    nonisolated static let providerEnvVars: [String: String] = {
-        var combined: [String: String] = [:]
-        for provider in LLMProviderRegistry.providers {
-            if let envVar = provider.envVar {
-                combined[provider.id] = envVar
-            }
-        }
-        combined["brave"] = "BRAVE_API_KEY"
-        combined["perplexity"] = "PERPLEXITY_API_KEY"
-        return combined
-    }()
-
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
     /// `VELLUM_ENVIRONMENT` must be forwarded so the bundled CLI resolves
@@ -128,7 +106,6 @@ final class VellumCli: AssistantManagementClient {
         "CLI_GIT_USER_NAME", "CLI_GIT_USER_EMAIL",
         "PROXY_ALLOWED_HOSTS", "HTTP_USER_AGENT", "DOCTOR_SERVICE_URL",
         "SENTRY_DSN_MACOS", "SENTRY_DSN_ASSISTANT", "TMPDIR", "USER", "LANG",
-    ] + Array(providerEnvVars.values) + [
         // Cloud provider auth — needed by hatch and retire flows.
         "CLOUDSDK_CONFIG", "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
         "GOOGLE_APPLICATION_CREDENTIALS", "GCP_ACCOUNT_EMAIL",
@@ -569,8 +546,6 @@ final class VellumCli: AssistantManagementClient {
         var sshHost: String = ""
         var sshUser: String = ""
         var sshPrivateKey: String = ""
-        /// Provider API keys keyed by env var name (e.g. "ANTHROPIC_API_KEY").
-        var providerApiKeys: [String: String] = [:]
         /// Workspace config key-value pairs passed as --config flags.
         var configValues: [String: String] = [:]
     }
@@ -619,10 +594,6 @@ final class VellumCli: AssistantManagementClient {
 
         if config.remote == "docker", env["VELLUM_PLATFORM_URL"] == nil {
             env["VELLUM_PLATFORM_URL"] = VellumEnvironment.current.dockerHostPlatformURL
-        }
-
-        for (envVar, value) in config.providerApiKeys where !value.isEmpty {
-            env[envVar] = value
         }
 
         if config.remote == "gcp" {

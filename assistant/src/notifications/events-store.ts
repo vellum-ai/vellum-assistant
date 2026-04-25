@@ -98,18 +98,6 @@ export function updateEventDedupeKey(eventId: string, dedupeKey: string): void {
     .run();
 }
 
-/** Get a single notification event by ID. */
-export function getEventById(id: string): NotificationEventRow | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(notificationEvents)
-    .where(eq(notificationEvents.id, id))
-    .get();
-  if (!row) return null;
-  return rowToEvent(row);
-}
-
 export interface ListEventsFilters {
   sourceEventName?: string;
   limit?: number;

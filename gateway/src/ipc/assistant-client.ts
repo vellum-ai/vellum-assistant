@@ -47,7 +47,7 @@ interface IpcResponse {
 // ---------------------------------------------------------------------------
 
 function getAssistantSocketPath(): string {
-  return resolveIpcSocketPath("assistant.sock").path;
+  return resolveIpcSocketPath("assistant").path;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,11 @@ export async function ipcCallAssistant(
 export interface SuggestTrustRuleRequest {
   tool: string;
   command: string;
-  riskAssessment: { risk: string; reasoning: string; reasonDescription: string };
+  riskAssessment: {
+    risk: string;
+    reasoning: string;
+    reasonDescription: string;
+  };
   scopeOptions: ScopeOption[];
   directoryScopeOptions?: DirectoryScopeOption[];
   currentThreshold: string; // "low" | "medium" | "high"

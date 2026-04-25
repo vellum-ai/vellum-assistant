@@ -226,7 +226,7 @@ export interface MessageRow {
   metadata: string | null;
 }
 
-export const parseMessage = createRowMapper<
+const parseMessage = createRowMapper<
   typeof messages.$inferSelect,
   MessageRow
 >({
@@ -459,7 +459,7 @@ export function getConversationHostAccess(conversationId: string): boolean {
  * Drizzle schema (raw-query-only pattern), so ConversationRow doesn't
  * include it. This helper is used by forkConversation to inherit group_id.
  */
-export function getConversationGroupId(conversationId: string): string | null {
+function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
     "SELECT group_id FROM conversations WHERE id = ?",

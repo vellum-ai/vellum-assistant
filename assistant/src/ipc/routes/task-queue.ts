@@ -166,7 +166,7 @@ export const taskQueueShowRoute: IpcRoute = {
   handler: handleTaskQueueShow,
 };
 
-export const taskQueueShowAliasRoute: IpcRoute = {
+const taskQueueShowAliasRoute: IpcRoute = {
   method: "task_queue_show",
   handler: handleTaskQueueShow,
 };
@@ -176,7 +176,7 @@ export const taskQueueAddRoute: IpcRoute = {
   handler: handleTaskQueueAdd,
 };
 
-export const taskQueueAddAliasRoute: IpcRoute = {
+const taskQueueAddAliasRoute: IpcRoute = {
   method: "task_queue_add",
   handler: handleTaskQueueAdd,
 };
@@ -186,7 +186,7 @@ export const taskQueueUpdateRoute: IpcRoute = {
   handler: handleTaskQueueUpdate,
 };
 
-export const taskQueueUpdateAliasRoute: IpcRoute = {
+const taskQueueUpdateAliasRoute: IpcRoute = {
   method: "task_queue_update",
   handler: handleTaskQueueUpdate,
 };
@@ -196,7 +196,7 @@ export const taskQueueRemoveRoute: IpcRoute = {
   handler: handleTaskQueueRemove,
 };
 
-export const taskQueueRemoveAliasRoute: IpcRoute = {
+const taskQueueRemoveAliasRoute: IpcRoute = {
   method: "task_queue_remove",
   handler: handleTaskQueueRemove,
 };
@@ -206,7 +206,7 @@ export const taskQueueRunRoute: IpcRoute = {
   handler: handleTaskQueueRun,
 };
 
-export const taskQueueRunAliasRoute: IpcRoute = {
+const taskQueueRunAliasRoute: IpcRoute = {
   method: "task_queue_run",
   handler: handleTaskQueueRun,
 };

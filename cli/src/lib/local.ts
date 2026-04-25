@@ -1,5 +1,5 @@
 import { execFileSync, execSync, spawn } from "child_process";
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import {
   existsSync,
   mkdirSync,
@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { homedir, hostname, networkInterfaces, platform } from "os";
+import { homedir, hostname, networkInterfaces, platform, tmpdir } from "os";
 import { dirname, join } from "path";
 
 import { type LocalInstanceResources } from "./assistant-config.js";
@@ -18,6 +18,58 @@ import { stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
+
+// macOS AF_UNIX path limit (sun_path is 104 bytes, null-terminated → 103 usable).
+const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
+
+// The longest socket filename we place in the workspace directory.
+// assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
+const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
+
+/**
+ * On macOS, if `{workspaceDir}/assistant-skill.sock` would exceed the
+ * 103-byte AF_UNIX path limit, compute a short tmpdir-based IPC socket
+ * directory and return it.  Returns `undefined` when no override is needed
+ * (the workspace path is short enough, or we're not on macOS).
+ */
+function computeIpcSocketDirOverride(workspaceDir: string): string | undefined {
+  if (platform() !== "darwin") return undefined;
+
+  const longestPath = join(workspaceDir, LONGEST_SOCKET_FILENAME);
+  if (
+    Buffer.byteLength(longestPath, "utf8") <= DARWIN_UNIX_SOCKET_MAX_PATH_BYTES
+  ) {
+    return undefined;
+  }
+
+  // Use a short hash of the workspace dir so multiple instances get
+  // distinct socket directories under /tmp.
+  const hash = createHash("sha256")
+    .update(workspaceDir)
+    .digest("hex")
+    .slice(0, 12);
+  return join(tmpdir(), `vellum-ipc-${hash}`);
+}
+
+/**
+ * If the workspace path is too long for AF_UNIX sockets on macOS, compute
+ * a short override directory and set all IPC socket env vars on the target
+ * env object. No-op on non-macOS or when paths are within limits.
+ */
+function applyIpcSocketDirOverride(
+  env: Record<string, string>,
+): void {
+  const workspaceDir =
+    env.VELLUM_WORKSPACE_DIR ||
+    join(homedir(), ".vellum", "workspace");
+  const override = computeIpcSocketDirOverride(workspaceDir);
+  if (!override) return;
+
+  mkdirSync(override, { recursive: true });
+  env.GATEWAY_IPC_SOCKET_DIR = override;
+  env.ASSISTANT_IPC_SOCKET_DIR = override;
+  env.ASSISTANT_SKILL_IPC_SOCKET_DIR = override;
+}
 
 function isAssistantSourceDir(dir: string): boolean {
   const pkgPath = join(dir, "package.json");
@@ -917,6 +969,8 @@ export async function startLocalDaemon(
         daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
       }
 
+      applyIpcSocketDirOverride(daemonEnv);
+
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
       // instead of racing to spawn a duplicate daemon.
@@ -1090,6 +1144,9 @@ export async function startGateway(
         }
       : {}),
   };
+
+  applyIpcSocketDirOverride(gatewayEnv);
+
   if (publicUrl) {
     console.log(`   Ingress URL: ${publicUrl}`);
   }

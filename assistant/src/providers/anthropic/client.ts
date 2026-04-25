@@ -771,22 +771,32 @@ export class AnthropicProvider implements Provider {
           return acc;
         }, []);
 
-      // Post-processing: fix consecutive same-role messages that can arise when
-      // dropping empty messages (e.g. empty assistant followed by empty user).
-      // Remove placeholder assistant messages that ended up adjacent to another
-      // assistant message, since the placeholder is no longer needed.
-      for (let i = formatted.length - 1; i > 0; i--) {
-        if (formatted[i].role !== formatted[i - 1].role) continue;
-        // For consecutive assistant messages, remove whichever one is a
-        // placeholder injected by the reduce above.
-        if (formatted[i].role === "assistant") {
-          const iContent = Array.isArray(formatted[i].content)
-            ? formatted[i].content
-            : [];
-          const prevContent = Array.isArray(formatted[i - 1].content)
-            ? formatted[i - 1].content
-            : [];
-          const isPlaceholder = (c: typeof iContent) => {
+      // Post-processing: merge consecutive same-role messages that violate
+      // Anthropic's strict user/assistant alternation requirement. These can
+      // arise from:
+      //   - Dropping empty messages in the reduce above (placeholder-adjacent)
+      //   - History reconstruction artifacts that bypass repairHistory
+      //
+      // Walk backwards so splice indices stay valid. After a merge+splice
+      // the element that was at i+1 shifts to i, potentially creating a
+      // new adjacent pair — bump i back up to recheck that position.
+      {
+        let i = formatted.length - 1;
+        while (i > 0 && i < formatted.length) {
+          if (formatted[i].role !== formatted[i - 1].role) {
+            i--;
+            continue;
+          }
+
+          const iContent = (
+            Array.isArray(formatted[i].content) ? formatted[i].content : []
+          ) as Anthropic.ContentBlockParam[];
+          const prevContent = (
+            Array.isArray(formatted[i - 1].content)
+              ? formatted[i - 1].content
+              : []
+          ) as Anthropic.ContentBlockParam[];
+          const isPlaceholder = (c: Anthropic.ContentBlockParam[]): boolean => {
             if (
               c.length !== 1 ||
               typeof c[0] === "string" ||
@@ -796,10 +806,50 @@ export class AnthropicProvider implements Provider {
             const text = (c[0] as { text?: string }).text;
             return typeof text === "string" && isPlaceholderSentinelText(text);
           };
+
           if (isPlaceholder(iContent)) {
             formatted.splice(i, 1);
+            // Removed the later element. The new formatted[i] (formerly
+            // i+1) may now be same-role as i-1, so decrement once to
+            // recheck from the correct position.
+            i--;
           } else if (isPlaceholder(prevContent)) {
             formatted.splice(i - 1, 1);
+            // Removed the earlier element — everything shifted down by 1.
+            // The element that was at i is now at i-1. Decrement so the
+            // next iteration compares the new i-1 with i-2 (or exits if
+            // i-1 is 0).
+            i--;
+          } else {
+            // Neither is a placeholder — merge content blocks into the
+            // earlier message and remove the later one. Skip the merge
+            // when either message carries tool_use or tool_result blocks;
+            // those require structural alternation for ensureToolPairing
+            // to inject the correct synthetic results downstream.
+            const hasToolBlock = (c: Anthropic.ContentBlockParam[]): boolean =>
+              c.some(
+                (b) =>
+                  typeof b !== "string" &&
+                  (b.type === "tool_use" || b.type === "tool_result"),
+              );
+            if (!hasToolBlock(prevContent) && !hasToolBlock(iContent)) {
+              formatted[i - 1] = {
+                ...formatted[i - 1],
+                content: [...prevContent, ...iContent],
+              };
+              formatted.splice(i, 1);
+              // Clamp i to the new last index — the splice may have put
+              // us past the end. If there's a new element at i (formerly
+              // i+1), it will be rechecked against the merged i-1.
+              if (i >= formatted.length) {
+                i = formatted.length - 1;
+              }
+            } else {
+              // Can't merge (tool blocks present) — leave for
+              // ensureToolPairing which handles tool_use/tool_result
+              // alternation in its own forward walk.
+              i--;
+            }
           }
         }
       }

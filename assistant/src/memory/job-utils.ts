@@ -27,13 +27,13 @@ const log = getLogger("memory-jobs-worker");
 // ── Vector BLOB encoding/decoding ───────────────────────────────────
 
 /** Encode a number[] into a compact Float32Array BLOB for SQLite storage. */
-export function vectorToBlob(vector: number[]): Buffer {
+function vectorToBlob(vector: number[]): Buffer {
   const f32 = new Float32Array(vector);
   return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength);
 }
 
 /** Decode a BLOB (Buffer/Uint8Array) back into a number[]. */
-export function blobToVector(buf: Buffer | Uint8Array): number[] {
+function blobToVector(buf: Buffer | Uint8Array): number[] {
   const f32 = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
   return Array.from(f32);
 }
@@ -42,8 +42,8 @@ export function blobToVector(buf: Buffer | Uint8Array): number[] {
 
 export type ErrorCategory = "retryable" | "fatal";
 
-export const RETRY_BASE_DELAY_MS = 5_000;
-export const RETRY_MAX_DELAY_MS = 5 * 60 * 1000;
+const RETRY_BASE_DELAY_MS = 5_000;
+const RETRY_MAX_DELAY_MS = 5 * 60 * 1000;
 export const RETRY_MAX_ATTEMPTS = 8;
 
 /**

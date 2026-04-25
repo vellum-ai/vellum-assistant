@@ -1,6 +1,6 @@
 import type { SttTranscribeResult } from "../../stt/types.js";
 
-export const XAI_STT_URL = "https://api.x.ai/v1/stt";
+const XAI_STT_URL = "https://api.x.ai/v1/stt";
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
@@ -31,7 +31,7 @@ export function extensionFromMime(mimeType: string): string {
  * `file` field to be appended LAST in the multipart body, so we only append
  * the file here (no other fields in v1).
  */
-export function buildXaiFormData(audio: Buffer, mimeType: string): FormData {
+function buildXaiFormData(audio: Buffer, mimeType: string): FormData {
   const ext = extensionFromMime(mimeType);
 
   const formData = new FormData();
@@ -51,7 +51,7 @@ export function buildXaiFormData(audio: Buffer, mimeType: string): FormData {
  * xAI returns a richer shape (`{ text, language, duration, words }`) — we only
  * consume `text`.
  */
-export async function xaiTranscribe(
+async function xaiTranscribe(
   apiKey: string,
   audio: Buffer,
   mimeType: string,

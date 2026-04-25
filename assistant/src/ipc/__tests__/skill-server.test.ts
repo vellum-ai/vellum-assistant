@@ -19,22 +19,30 @@ import { SkillIpcServer } from "../skill-server.js";
 
 let tempDir: string | null = null;
 let server: SkillIpcServer | null = null;
+let savedSkillIpcSocketDir: string | undefined;
 
 beforeEach(() => {
+  savedSkillIpcSocketDir = process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   tempDir = mkdtempSync(join(tmpdir(), "skill-ipc-test-"));
+  process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = tempDir;
 });
 
 afterEach(() => {
   server?.stop();
   server = null;
+  if (savedSkillIpcSocketDir === undefined) {
+    delete process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
+  } else {
+    process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;
   }
 });
 
-async function startServerAt(socketPath: string): Promise<SkillIpcServer> {
-  const srv = new SkillIpcServer({ socketPath });
+async function startServer(): Promise<SkillIpcServer> {
+  const srv = new SkillIpcServer();
   await srv.start();
   // Give the listener a tick to bind.
   await new Promise((resolve) => setTimeout(resolve, 50));
@@ -91,7 +99,7 @@ describe("SkillIpcServer", () => {
   test("accepts connections and returns error for unknown methods", async () => {
     if (!tempDir) throw new Error("tempDir not initialized");
     const socketPath = join(tempDir, "assistant-skill.sock");
-    server = await startServerAt(socketPath);
+    server = await startServer();
 
     const response = await sendRequest(socketPath, {
       id: "req-1",
@@ -107,7 +115,7 @@ describe("SkillIpcServer", () => {
   test("returns error for malformed JSON", async () => {
     if (!tempDir) throw new Error("tempDir not initialized");
     const socketPath = join(tempDir, "assistant-skill.sock");
-    server = await startServerAt(socketPath);
+    server = await startServer();
 
     const response = await new Promise<{ id: string; error?: string }>(
       (resolve, reject) => {
@@ -147,7 +155,7 @@ describe("SkillIpcServer", () => {
   test("returns error for missing id/method fields", async () => {
     if (!tempDir) throw new Error("tempDir not initialized");
     const socketPath = join(tempDir, "assistant-skill.sock");
-    server = await startServerAt(socketPath);
+    server = await startServer();
 
     const response = await sendRequest(socketPath, { id: "req-2" });
 
@@ -158,7 +166,7 @@ describe("SkillIpcServer", () => {
   test("dispatches registered methods and returns result", async () => {
     if (!tempDir) throw new Error("tempDir not initialized");
     const socketPath = join(tempDir, "assistant-skill.sock");
-    server = await startServerAt(socketPath);
+    server = await startServer();
     server.registerMethod("test.echo", (params) => ({ echoed: params }));
 
     const response = await sendRequest(socketPath, {

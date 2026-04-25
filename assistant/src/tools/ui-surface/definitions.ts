@@ -116,7 +116,7 @@ export const uiShowTool: Tool = {
 // ui_update
 // ---------------------------------------------------------------------------
 
-export const uiUpdateTool: Tool = {
+const uiUpdateTool: Tool = {
   name: "ui_update",
   description:
     "Update an existing surface's data. The provided data object is merged into the surface's current data.\n" +
@@ -153,7 +153,7 @@ export const uiUpdateTool: Tool = {
 // ui_dismiss
 // ---------------------------------------------------------------------------
 
-export const uiDismissTool: Tool = {
+const uiDismissTool: Tool = {
   name: "ui_dismiss",
   description: "Dismiss a currently displayed surface.",
   category: "ui-surface",

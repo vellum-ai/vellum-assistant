@@ -355,7 +355,7 @@ export async function clawhubSearch(
   return { skills };
 }
 
-export async function clawhubExplore(opts?: {
+async function clawhubExplore(opts?: {
   limit?: number;
   sort?: string;
 }): Promise<ClawhubSearchResult> {

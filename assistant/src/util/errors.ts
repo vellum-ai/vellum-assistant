@@ -169,17 +169,9 @@ export class DaemonError extends AssistantError {
   }
 }
 
-export class PlatformError extends AssistantError {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, ErrorCode.PLATFORM_ERROR, options);
-    this.name = "PlatformError";
-  }
-}
-
 export class IntegrityError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.INTEGRITY_ERROR, options);
     this.name = "IntegrityError";
   }
 }
-

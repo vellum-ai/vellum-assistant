@@ -39,7 +39,7 @@ export function getManagedSkillsDir(): string {
   return getWorkspaceSkillsDir();
 }
 
-export function getManagedSkillDir(id: string): string {
+function getManagedSkillDir(id: string): string {
   return join(getManagedSkillsDir(), id);
 }
 

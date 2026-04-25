@@ -52,7 +52,7 @@ export function loadCheckpoints(workspaceDir: string): CheckpointFile {
   }
 }
 
-export function saveCheckpoints(
+function saveCheckpoints(
   workspaceDir: string,
   checkpoints: CheckpointFile,
 ): void {

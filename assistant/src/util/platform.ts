@@ -13,6 +13,11 @@ import { getWorkspaceDirOverride } from "../config/env-registry.js";
  */
 const VELLUM_ROOT = join(homedir(), ".vellum");
 
+/** Returns the daemon's root data directory (`~/.vellum`). */
+export function vellumRoot(): string {
+  return VELLUM_ROOT;
+}
+
 export function isMacOS(): boolean {
   return process.platform === "darwin";
 }
@@ -141,11 +146,10 @@ export function getTCPHost(): string {
   return "127.0.0.1";
 }
 
-// Kept in sync with `cli/src/lib/environments/seeds.ts` and
-// `clients/chrome-extension/native-host/src/lockfile.ts`. Drift between
-// these three sites is caught at test time by
+// Kept in sync with `cli/src/lib/environments/seeds.ts`. Drift between
+// these two sites is caught at test time by
 // `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
-// list into a `packages/environments` package so all three sites import
+// list into a `packages/environments` package so both sites import
 // from one place.
 const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
   "production",
@@ -189,7 +193,7 @@ export function getXdgPlatformTokenPath(): string {
  * (~/.vellum/platform-token). Used as a fallback for local assistant
  * instances that may have the token written here by the desktop app.
  */
-export function getPlatformTokenPath(): string {
+function getPlatformTokenPath(): string {
   return join(VELLUM_ROOT, "platform-token");
 }
 

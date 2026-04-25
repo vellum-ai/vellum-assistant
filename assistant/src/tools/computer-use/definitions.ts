@@ -457,7 +457,7 @@ export const computerUseRespondTool: Tool = {
 // observe
 // ---------------------------------------------------------------------------
 
-export const computerUseObserveTool: Tool = {
+const computerUseObserveTool: Tool = {
   name: "computer_use_observe",
   description:
     "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",

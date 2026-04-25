@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { getConversation } from "../../memory/conversation-crud.js";
 import {
   cancelSchedule,
   createSchedule,
@@ -7,6 +8,28 @@ import {
   listSchedules,
 } from "../../schedule/schedule-store.js";
 import type { IpcRoute } from "../assistant-server.js";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_DEFERS_PER_CONVERSATION = 50;
+const MAX_DEFERS_GLOBAL = 500;
+const MAX_DEFER_HORIZON_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function countActiveDefers(conversationId?: string): number {
+  const jobs = listSchedules({
+    mode: "wake",
+    createdBy: "defer",
+    conversationId,
+  });
+  return jobs.filter((j) => j.status === "active" || j.status === "firing")
+    .length;
+}
 
 // ---------------------------------------------------------------------------
 // defer_create
@@ -30,7 +53,33 @@ const deferCreateRoute: IpcRoute = {
     const { conversationId, hint, delaySeconds, fireAt, name } =
       DeferCreateParams.parse(params);
 
+    const conversation = getConversation(conversationId);
+    if (!conversation) {
+      throw new Error(`Conversation not found: ${conversationId}`);
+    }
+
     const resolvedFireAt = fireAt ?? Date.now() + delaySeconds! * 1000;
+
+    if (resolvedFireAt < Date.now()) {
+      throw new Error("fireAt must be in the future");
+    }
+    if (resolvedFireAt > Date.now() + MAX_DEFER_HORIZON_MS) {
+      throw new Error("fireAt must be within 30 days");
+    }
+
+    const perConvo = countActiveDefers(conversationId);
+    if (perConvo >= MAX_DEFERS_PER_CONVERSATION) {
+      throw new Error(
+        `Too many active defers for conversation ${conversationId} (limit: ${MAX_DEFERS_PER_CONVERSATION})`,
+      );
+    }
+
+    const global = countActiveDefers();
+    if (global >= MAX_DEFERS_GLOBAL) {
+      throw new Error(
+        `Too many active defers globally (limit: ${MAX_DEFERS_GLOBAL})`,
+      );
+    }
 
     const job = createSchedule({
       name: name ?? "Deferred wake",
@@ -91,11 +140,15 @@ const deferListRoute: IpcRoute = {
 // defer_cancel
 // ---------------------------------------------------------------------------
 
-const DeferCancelParams = z.object({
-  id: z.string().optional(),
-  all: z.boolean().optional(),
-  conversationId: z.string().optional(),
-});
+const DeferCancelParams = z
+  .object({
+    id: z.string().optional(),
+    all: z.boolean().optional(),
+    conversationId: z.string().optional(),
+  })
+  .refine((p) => !p.all || p.conversationId, {
+    message: "conversationId is required when cancelling all defers",
+  });
 
 const deferCancelRoute: IpcRoute = {
   method: "defer_cancel",

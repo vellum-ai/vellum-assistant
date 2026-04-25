@@ -31,17 +31,25 @@ import { SkillIpcServer } from "../../skill-server.js";
 let tempDir: string | null = null;
 let server: SkillIpcServer | null = null;
 let socketPath = "";
+let savedSkillIpcSocketDir: string | undefined;
 
 beforeEach(async () => {
+  savedSkillIpcSocketDir = process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   tempDir = mkdtempSync(join(tmpdir(), "events-ipc-test-"));
+  process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = tempDir;
   socketPath = join(tempDir, "assistant-skill.sock");
-  server = new SkillIpcServer({ socketPath });
+  server = new SkillIpcServer();
   await server.start();
 });
 
 afterEach(async () => {
   server?.stop();
   server = null;
+  if (savedSkillIpcSocketDir === undefined) {
+    delete process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
+  } else {
+    process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;

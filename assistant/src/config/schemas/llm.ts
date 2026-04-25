@@ -13,7 +13,7 @@ import { z } from "zod";
 // Provider enum
 // ---------------------------------------------------------------------------
 
-export const LLMProvider = z.enum([
+const LLMProvider = z.enum([
   "anthropic",
   "openai",
   "gemini",
@@ -21,7 +21,7 @@ export const LLMProvider = z.enum([
   "fireworks",
   "openrouter",
 ]);
-export type LLMProvider = z.infer<typeof LLMProvider>;
+type LLMProvider = z.infer<typeof LLMProvider>;
 
 // ---------------------------------------------------------------------------
 // Call-site enum
@@ -87,14 +87,7 @@ export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
  * All other values map to provider-specific tiers via each provider's own
  * mapping table.
  */
-export const EffortEnum = z.enum([
-  "none",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-]);
+const EffortEnum = z.enum(["none", "low", "medium", "high", "xhigh", "max"]);
 export type Effort = z.infer<typeof EffortEnum>;
 
 export const SpeedEnum = z.enum(["standard", "fast"]);
@@ -105,7 +98,7 @@ export type Speed = z.infer<typeof SpeedEnum>;
  * `text.verbosity` (low|medium|high). Providers that don't support this knob
  * are stripped in `retry.ts` normalization.
  */
-export const VerbosityEnum = z.enum(["low", "medium", "high"]);
+const VerbosityEnum = z.enum(["low", "medium", "high"]);
 export type Verbosity = z.infer<typeof VerbosityEnum>;
 
 // ---------------------------------------------------------------------------
@@ -150,7 +143,7 @@ const TemperatureSchema = z.number().min(0).max(2).nullable();
 const ThinkingEnabledSchema = z.boolean();
 const ThinkingStreamThinkingSchema = z.boolean();
 
-export const ThinkingSchema = z.object({
+const ThinkingSchema = z.object({
   enabled: ThinkingEnabledSchema.default(true),
   streamThinking: ThinkingStreamThinkingSchema.default(true),
 });
@@ -202,7 +195,7 @@ const ContextTargetBudgetRatioSchema = z.number().finite().gt(0).lte(1);
 const ContextCompactThresholdSchema = z.number().finite().gt(0).lte(1);
 const ContextSummaryBudgetRatioSchema = z.number().finite().gt(0).lte(1);
 
-export const ContextWindowSchema = z.object({
+const ContextWindowSchema = z.object({
   enabled: ContextEnabledSchema.default(true),
   maxInputTokens: ContextMaxInputTokensSchema.default(200000),
   targetBudgetRatio: ContextTargetBudgetRatioSchema.default(0.3),
@@ -240,7 +233,7 @@ const ContextWindowDeepPartialSchema = z.object({
 
 const OpenRouterOnlyItemSchema = z.string().min(1);
 
-export const OpenRouterSchema = z.object({
+const OpenRouterSchema = z.object({
   only: z.array(OpenRouterOnlyItemSchema).default([]),
 });
 export type OpenRouter = z.infer<typeof OpenRouterSchema>;
@@ -253,7 +246,7 @@ const OpenRouterDeepPartialSchema = z.object({
 // Pricing overrides
 // ---------------------------------------------------------------------------
 
-export const PricingOverrideSchema = z.object({
+const PricingOverrideSchema = z.object({
   provider: z.string(),
   modelPattern: z.string(),
   inputPer1M: z.number().nonnegative(),

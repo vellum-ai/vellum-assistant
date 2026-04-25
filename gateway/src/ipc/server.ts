@@ -67,19 +67,12 @@ export class GatewayIpcServer {
   private socketPath: string;
 
   constructor(routes?: IpcRoute[]) {
-    const socketResolution = resolveIpcSocketPath("gateway.sock");
-    this.socketPath = socketResolution.path;
-    if (socketResolution.source !== "workspace") {
-      log.warn(
-        {
-          source: socketResolution.source,
-          workspacePath: socketResolution.workspacePath,
-          resolvedPath: socketResolution.path,
-          maxPathBytes: socketResolution.maxPathBytes,
-        },
-        "Gateway IPC socket path exceeded platform limit; using fallback path",
-      );
-    }
+    const resolution = resolveIpcSocketPath("gateway");
+    this.socketPath = resolution.path;
+    log.info(
+      { source: resolution.source, path: resolution.path },
+      "Gateway IPC socket path resolved",
+    );
     if (routes) {
       for (const route of routes) {
         this.methods.set(route.method, route.handler);
@@ -288,5 +281,5 @@ export class GatewayIpcServer {
 // ---------------------------------------------------------------------------
 
 export function getDefaultSocketPath(): string {
-  return resolveIpcSocketPath("gateway.sock").path;
+  return resolveIpcSocketPath("gateway").path;
 }

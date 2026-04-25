@@ -59,6 +59,15 @@ import {
   type RelayMode,
 } from './relay-connection.js';
 import { SseConnection, type SseMode } from './sse-connection.js';
+import {
+  startCloudLogin,
+  fetchAssistants,
+  getStoredSession,
+  clearSession,
+  getSelectedAssistant,
+  storeSelectedAssistant,
+  clearSelectedAssistant,
+} from './cloud-auth.js';
 
 // ── Environment resolution ──────────────────────────────────────────
 //
@@ -460,6 +469,26 @@ const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher
 });
 
 // ── Storage helpers ─────────────────────────────────────────────────
+
+/** Storage key for the user's chosen connection mode (welcome screen). */
+const USER_MODE_KEY = 'vellum.userMode';
+
+async function getStoredUserMode(): Promise<'self-hosted' | 'cloud' | null> {
+  try {
+    const result = await chrome.storage.local.get(USER_MODE_KEY);
+    const stored = result[USER_MODE_KEY];
+    if (stored === 'self-hosted' || stored === 'cloud') return stored;
+  } catch { /* best-effort */ }
+  return null;
+}
+
+async function setStoredUserMode(mode: 'self-hosted' | 'cloud'): Promise<void> {
+  await chrome.storage.local.set({ [USER_MODE_KEY]: mode });
+}
+
+async function clearStoredUserMode(): Promise<void> {
+  await chrome.storage.local.remove(USER_MODE_KEY);
+}
 
 /**
  * Read a local capability token from the legacy unscoped storage key
@@ -1115,6 +1144,100 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     );
     return true; // async
   }
+
+  // ── Onboarding / session messages ─────────────────────────────────
+
+  if (message.type === 'get-session') {
+    (async () => {
+      const session = await getStoredSession();
+      const selectedAssistant = await getSelectedAssistant();
+      let mode = await getStoredUserMode();
+
+      // Backward compatibility: existing users who connected before
+      // the onboarding flow was added will have autoConnect=true but
+      // no userMode. Infer self-hosted so they skip the welcome screen.
+      if (!mode) {
+        const autoConnectResult = await chrome.storage.local.get(AUTO_CONNECT_KEY);
+        if (autoConnectResult[AUTO_CONNECT_KEY] === true) {
+          mode = 'self-hosted';
+          await setStoredUserMode('self-hosted');
+        }
+      }
+
+      sendResponseFn({
+        ok: true,
+        mode,
+        session: session ? { email: session.email } : null,
+        selectedAssistant,
+      });
+    })().catch(() => sendResponseFn({ ok: false, mode: null }));
+    return true; // async
+  }
+
+  if (message.type === 'set-mode') {
+    (async () => {
+      const newMode = message.mode as 'self-hosted' | 'cloud';
+      await setStoredUserMode(newMode);
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
+    return true; // async
+  }
+
+  if (message.type === 'cloud-login') {
+    (async () => {
+      const env = await getEffectiveEnvironment();
+      const session = await startCloudLogin(env);
+      let assistants: Array<{ id: string; name: string }> = [];
+      try {
+        assistants = await fetchAssistants(env);
+      } catch {
+        // Non-fatal: user logged in but assistant fetch failed.
+      }
+      await setStoredUserMode('cloud');
+      sendResponseFn({
+        ok: true,
+        session: { email: session.email },
+        assistants,
+      });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true; // async
+  }
+
+  if (message.type === 'cloud-logout') {
+    (async () => {
+      shouldConnect = false;
+      disconnect();
+      setConnectionHealth('paused');
+      await setAutoConnect(false);
+      await clearSession();
+      await clearSelectedAssistant();
+      await clearStoredUserMode();
+      sendResponseFn({ ok: true });
+    })().catch(() => sendResponseFn({ ok: true }));
+    return true; // async
+  }
+
+  if (message.type === 'select-assistant') {
+    (async () => {
+      const assistantId = message.assistantId as string;
+      const assistantName = message.assistantName as string;
+      await storeSelectedAssistant({ id: assistantId, name: assistantName });
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
+    return true; // async
+  }
+
+  // Unknown message type — let Chrome close the port naturally.
+  return false;
 });
 
 // Auto-connect on service worker start if previously connected.
