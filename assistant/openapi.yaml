@@ -2588,6 +2588,37 @@ paths:
           schema:
             type: string
           description: Scope ID (default "default")
+  /v1/conversation-starters/{id}:
+    delete:
+      operationId: conversationstarters_by_id_delete
+      summary: Delete conversation starter
+      description: Remove a generated conversation starter chip from the current starter set.
+      tags:
+        - conversation-starters
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  id:
+                    type: string
+                required:
+                  - deleted
+                  - id
+                additionalProperties: false
+        "404":
+          description: Conversation starter not found
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations:
     delete:
       operationId: conversations_delete

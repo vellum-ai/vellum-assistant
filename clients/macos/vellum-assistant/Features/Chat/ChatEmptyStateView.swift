@@ -30,6 +30,7 @@ struct ChatEmptyStateView: View {
     var conversationStarters: [ConversationStarter] = []
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
+    var onRemoveStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
     var showThresholdPicker: Bool = false
@@ -194,7 +195,8 @@ struct ChatEmptyStateView: View {
         if !conversationStarters.isEmpty {
             ConversationStarterPillRow(
                 starters: conversationStarters,
-                onSelect: { starter in onSelectStarter?(starter) }
+                onSelect: { starter in onSelectStarter?(starter) },
+                onRemove: { starter in onRemoveStarter?(starter) }
             )
             .padding(.horizontal, VSpacing.lg)
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
@@ -237,13 +239,11 @@ struct ChatEmptyStateView: View {
 struct ConversationStarterPillRow: View {
     let starters: [ConversationStarter]
     let onSelect: (ConversationStarter) -> Void
+    let onRemove: (ConversationStarter) -> Void
 
-    /// Round down to the nearest even number, capped at 4.
+    /// Cap at 4, preserving the server's strongest-first order.
     private var visibleStarters: [ConversationStarter] {
-        let count = min(starters.count, 4)
-        let evenCount = count - (count % 2)
-        guard evenCount > 0 else { return [] }
-        return Array(starters.prefix(evenCount))
+        Array(starters.prefix(4))
     }
 
     private let columns = [
@@ -254,8 +254,10 @@ struct ConversationStarterPillRow: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: VSpacing.sm) {
             ForEach(visibleStarters) { starter in
-                ConversationStarterPill(label: starter.label) {
+                ConversationStarterPill(starter: starter) {
                     onSelect(starter)
+                } onRemove: {
+                    onRemove(starter)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -265,8 +267,9 @@ struct ConversationStarterPillRow: View {
 
 /// A single conversation starter pill with warm hover/press feedback.
 struct ConversationStarterPill: View {
-    let label: String
+    let starter: ConversationStarter
     let action: () -> Void
+    let onRemove: () -> Void
 
     @State private var isHovered = false
     @State private var isPressed = false
@@ -283,7 +286,7 @@ struct ConversationStarterPill: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label)
+            Text(starter.label)
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                 .lineLimit(2)
@@ -306,7 +309,15 @@ struct ConversationStarterPill: View {
         .onHover { isHovered = $0 }
         .animation(VAnimation.fast, value: isHovered)
         .animation(VAnimation.snappy, value: isPressed)
-        .accessibilityLabel(label)
+        .accessibilityLabel(starter.label)
+        .vContextMenu(width: 180) {
+            VMenuItem(
+                icon: VIcon.trash.rawValue,
+                label: "Remove",
+                variant: .destructive,
+                action: onRemove
+            )
+        }
     }
 }
 

@@ -386,6 +386,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Conversation starters
   { endpoint: "conversation-starters", scopes: ["chat.read"] },
+  { endpoint: "conversation-starters:DELETE", scopes: ["chat.write"] },
 
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
