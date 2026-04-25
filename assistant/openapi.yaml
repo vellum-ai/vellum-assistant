@@ -2639,11 +2639,11 @@ paths:
                   type: string
                   description: Idempotency key for the conversation
                 conversationType:
+                  description: Only standard conversations are created by this endpoint
                   type: string
-                  description: "'standard' (default)"
+                  const: standard
               required:
                 - conversationKey
-                - conversationType
               additionalProperties: false
   /v1/conversations/{id}:
     delete:
