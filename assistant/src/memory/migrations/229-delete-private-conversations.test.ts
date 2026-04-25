@@ -766,6 +766,19 @@ function countWhere(raw: Database, table: string, where: string): number {
   ).count;
 }
 
+function getVectorCleanupJobs(raw: Database): Array<{
+  id: string;
+  payload: string;
+}> {
+  return raw
+    .query(
+      `SELECT id, payload FROM memory_jobs
+       WHERE type = 'delete_qdrant_vectors'
+       ORDER BY id`,
+    )
+    .all() as Array<{ id: string; payload: string }>;
+}
+
 describe("migrateDeletePrivateConversations", () => {
   test("deletes private conversations and dependents while preserving other conversation types", () => {
     const db = createTestDb();
@@ -810,7 +823,12 @@ describe("migrateDeletePrivateConversations", () => {
     `);
 
     migrateDeletePrivateConversations(db);
+    const vectorCleanupJobsAfterFirstRun = getVectorCleanupJobs(raw);
     migrateDeletePrivateConversations(db);
+    const vectorCleanupJobsAfterSecondRun = getVectorCleanupJobs(raw);
+    expect(vectorCleanupJobsAfterSecondRun).toEqual(
+      vectorCleanupJobsAfterFirstRun,
+    );
 
     const remainingConversations = raw
       .query(`SELECT id FROM conversations ORDER BY id`)
@@ -913,14 +931,7 @@ describe("migrateDeletePrivateConversations", () => {
       countWhere(raw, "memory_embeddings", `id = 'graph-background-embedding'`),
     ).toBe(1);
 
-    const vectorCleanupJobs = raw
-      .query(
-        `SELECT id, payload FROM memory_jobs
-         WHERE type = 'delete_qdrant_vectors'
-         ORDER BY id`,
-      )
-      .all() as Array<{ id: string; payload: string }>;
-    expect(vectorCleanupJobs).toEqual([
+    expect(vectorCleanupJobsAfterSecondRun).toEqual([
       {
         id: "migration-229-delete-private-graph-node-vector:graph-private-a",
         payload: '{"targetType":"graph_node","targetId":"graph-private-a"}',
@@ -928,6 +939,14 @@ describe("migrateDeletePrivateConversations", () => {
       {
         id: "migration-229-delete-private-graph-node-vector:graph-private-b",
         payload: '{"targetType":"graph_node","targetId":"graph-private-b"}',
+      },
+      {
+        id: "migration-229-delete-private-segment-vector:conv-private-segment",
+        payload: '{"targetType":"segment","targetId":"conv-private-segment"}',
+      },
+      {
+        id: "migration-229-delete-private-summary-vector:summary-private",
+        payload: '{"targetType":"summary","targetId":"summary-private"}',
       },
     ]);
     expect(

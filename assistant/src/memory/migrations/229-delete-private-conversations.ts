@@ -65,12 +65,58 @@ export function migrateDeletePrivateConversations(database: DrizzleDb): void {
     WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
   `);
   database.run(/*sql*/ `
+    INSERT OR IGNORE INTO memory_jobs (
+      id,
+      type,
+      payload,
+      status,
+      attempts,
+      run_after,
+      created_at,
+      updated_at
+    )
+    SELECT
+      'migration-229-delete-private-segment-vector:' || id,
+      'delete_qdrant_vectors',
+      json_object('targetType', 'segment', 'targetId', id),
+      'pending',
+      0,
+      0,
+      0,
+      0
+    FROM memory_segments
+    WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
+  `);
+  database.run(/*sql*/ `
     DELETE FROM memory_embeddings
     WHERE target_type = 'segment'
       AND target_id IN (
         SELECT id FROM memory_segments
         WHERE conversation_id IN (${PRIVATE_CONVERSATION_IDS})
       )
+  `);
+  database.run(/*sql*/ `
+    INSERT OR IGNORE INTO memory_jobs (
+      id,
+      type,
+      payload,
+      status,
+      attempts,
+      run_after,
+      created_at,
+      updated_at
+    )
+    SELECT
+      'migration-229-delete-private-summary-vector:' || id,
+      'delete_qdrant_vectors',
+      json_object('targetType', 'summary', 'targetId', id),
+      'pending',
+      0,
+      0,
+      0,
+      0
+    FROM memory_summaries
+    WHERE scope_id LIKE 'private:%'
   `);
   database.run(/*sql*/ `
     DELETE FROM memory_embeddings
