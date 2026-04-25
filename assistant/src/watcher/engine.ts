@@ -232,8 +232,16 @@ export async function runWatchersOnce(
         conversationId,
         "user",
         `[watcher:${watcher.name}] ${pendingEvents.length} new event(s) detected:\n\n${eventSummaries}\n\nThe following assistant message contains the watcher's configured action prompt.`,
+        undefined,
+        { skipIndexing: true },
       );
-      await addMessage(conversationId, "assistant", watcher.actionPrompt);
+      await addMessage(
+        conversationId,
+        "assistant",
+        watcher.actionPrompt,
+        undefined,
+        { skipIndexing: true },
+      );
 
       const postamble = [
         "Process the events above according to the action prompt. For each event, include a disposition block:",
