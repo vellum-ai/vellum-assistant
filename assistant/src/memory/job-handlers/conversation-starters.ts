@@ -253,13 +253,13 @@ Favor what is live over what is merely true. Recent changes matter more than old
 ## Output format
 
 Each starter has:
-- label: 3-6 words, max 40 chars, starts with a verb. Written in the user's voice — something they'd want to do, not something the assistant is offering. MUST be a grammatically complete phrase: if it uses an adjective ("quarterly", "weekly"), include the noun it modifies ("quarterly review", "weekly sync"). Never end on a dangling modifier, preposition, or trailing "the/my/a". Prefer completeness over tightness when you have room under 40 chars.
-- prompt: 1-2 natural sentences, as the user would actually say them.
+- label: 3-6 words, max 40 chars, starts with a verb. Written in the user's voice — first-person about themselves, never referring to the user by name or in the third person. Something they'd want to do, not something the assistant is offering. MUST be a grammatically complete phrase: if it uses an adjective ("quarterly", "weekly"), include the noun it modifies ("quarterly review", "weekly sync"). Never end on a dangling modifier, preposition, or trailing "the/my/a". Prefer completeness over tightness when you have room under 40 chars.
+- prompt: 1-2 natural sentences in the user's voice — what they'd type to the assistant. First-person about themselves (I/me/my), second-person to the assistant (you/your). Never refer to the user by name or in the third person, and never narrate what the assistant will do.
 - category: one of ${CONVERSATION_STARTER_CATEGORIES.join(", ")}
 
 ## Constraints
 
-**Voice**: The user clicks these chips to send a message. Every label must read as something the user is asking to do, never something the assistant is saying to the user.
+**Voice**: The user clicks these chips to send a message to the assistant. Both the label AND the prompt must read as something the user is typing — first-person (I/me/my) about themselves, second-person (you/your) to the assistant. Never refer to the user by name or in the third person ("him", "her", "they", or their actual name) — that's the assistant's voice, not the user's. Never narrate what the assistant will do ("Let me check…", "I'll see what he's been up to…").
 
 **Coherence**: The top 4 starters should feel like one set — similar abstraction level, no jarring mix of mundane chores and life strategy. The remaining 4 fallbacks may branch into adjacent topics.
 
@@ -280,6 +280,11 @@ Bad → Good (ticket-speak → natural):
 Bad → Good (assistant voice → user voice):
 - "You've got a busy week ahead" → "Plan my week ahead"
 - "Let me check your calendar" → "Check my Thursday schedule"
+- "Catch up with Alice today" → "Catch up with you today"
+
+Bad → Good (prompt in assistant's voice → prompt in user's voice):
+- "It's Saturday morning and I haven't connected with him yet. Let me see what he's been up to." → "What have you been up to today? Let's catch up."
+- "She's had a busy week — I should check in on how she's feeling." → "I've had a busy week — can we talk through how it went?"
 
 Bad → Good (incomplete phrase → complete):
 - "Prep for Friday's quarterly" → "Prep for Friday's quarterly review"
