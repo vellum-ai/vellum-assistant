@@ -70,6 +70,7 @@ import {
   migrateCreateMemoryRecallLogs,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
+  migrateDeletePrivateConversations,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
   migrateDropCallbackTransportColumn,
@@ -386,6 +387,7 @@ export function initializeDb(): void {
     migrateScheduleWakeConversationId,
     migrateAddConversationInferenceProfile,
     migrateRenameInferenceProfileSnakeCase,
+    migrateDeletePrivateConversations,
   ];
 
   // Run each migration step, catching and logging individual failures so one
