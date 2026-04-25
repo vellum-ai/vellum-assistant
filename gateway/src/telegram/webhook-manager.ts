@@ -59,10 +59,7 @@ async function registerManagedTelegramCallbackRoute(
   const authToken = platformInternalApiKey || assistantApiKey;
   const authScheme = platformInternalApiKey ? "Bearer" : "Api-Key";
 
-  const assistantId =
-    process.env.PLATFORM_ASSISTANT_ID?.trim() ||
-    assistantIdRaw?.trim() ||
-    undefined;
+  const assistantId = assistantIdRaw?.trim() || undefined;
 
   if (!platformBaseUrl || !authToken || !assistantId) {
     log.debug(

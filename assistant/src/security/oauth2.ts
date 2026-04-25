@@ -739,9 +739,9 @@ export async function startOAuth2Flow(
   // When containerized with a platform, callback routes are registered
   // through the platform gateway — treat as having a public URL.
   if (!hasPublicUrl) {
-    const { shouldUsePlatformCallbacks } =
-      await import("../inbound/platform-callback-registration.js");
-    if (shouldUsePlatformCallbacks()) {
+    const { getIsPlatform } =
+      await import("../config/env-registry.js");
+    if (getIsPlatform()) {
       hasPublicUrl = true;
     }
   }

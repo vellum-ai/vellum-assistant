@@ -23,10 +23,10 @@ export interface ApiKeyRef {
 }
 
 /**
- * Mutable reference to the platform assistant ID. For warm-pool pods the
- * PLATFORM_ASSISTANT_ID env var is empty at startup; the assistant forwards
- * the ID via the handshake or update_managed_credential RPC after
- * provisioning, and `.current` is updated so lazy getters pick it up.
+ * Mutable reference to the platform assistant ID. The assistant ID is not
+ * available at CES startup (warm-pool pods); the assistant forwards it via
+ * the handshake or update_managed_credential RPC after provisioning, and
+ * `.current` is updated so lazy getters pick it up.
  */
 export interface AssistantIdRef {
   current: string;

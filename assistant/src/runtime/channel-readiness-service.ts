@@ -1,9 +1,9 @@
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
+import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
-import { shouldUsePlatformCallbacks } from "../inbound/platform-callback-registration.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
@@ -43,7 +43,7 @@ function hasWebhookRoutingConfigured(allowManagedCallbacks = false): {
   }
 
   const usesManagedCallbacks =
-    allowManagedCallbacks && shouldUsePlatformCallbacks();
+    allowManagedCallbacks && getIsPlatform();
   return {
     configured: usesManagedCallbacks,
     usesManagedCallbacks,

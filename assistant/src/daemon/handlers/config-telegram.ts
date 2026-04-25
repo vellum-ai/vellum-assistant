@@ -1,13 +1,11 @@
+import { getIsPlatform } from "../../config/env-registry.js";
 import {
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
-import {
-  registerCallbackRoute,
-  shouldUsePlatformCallbacks,
-} from "../../inbound/platform-callback-registration.js";
+import { registerCallbackRoute } from "../../inbound/platform-callback-registration.js";
 import {
   ensureManualTokenConnection,
   removeManualTokenConnection,
@@ -242,7 +240,7 @@ export async function setTelegramConfig(
   // This must happen independently of effectiveUrl — in containerized
   // deployments without ingress.publicBaseUrl, platform callbacks are the
   // only way to receive Telegram webhooks.
-  if (shouldUsePlatformCallbacks()) {
+  if (getIsPlatform()) {
     registerCallbackRoute("webhooks/telegram", "telegram").catch((err) => {
       log.warn({ err }, "Failed to register Telegram platform callback route");
     });

@@ -85,8 +85,8 @@ export interface CesRpcHandshakeOptions {
   assistantApiKey?: string;
   /**
    * Optional platform assistant ID to pass to CES during the handshake.
-   * For warm-pool pods the PLATFORM_ASSISTANT_ID env var is empty at CES
-   * startup, so the assistant forwards it here once it is known.
+   * The assistant ID is not available at CES startup (warm-pool pods), so
+   * the assistant forwards it here once it is known.
    */
   assistantId?: string;
 }

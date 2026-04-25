@@ -1601,10 +1601,7 @@ async function main() {
           credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
         ]);
 
-      const assistantId =
-        assistantIdRaw?.trim() ||
-        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
-        undefined;
+      const assistantId = assistantIdRaw?.trim() || undefined;
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
 
