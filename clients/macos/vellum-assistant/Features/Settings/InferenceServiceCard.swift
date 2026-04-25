@@ -4,9 +4,16 @@ import VellumAssistantShared
 /// Card for the inference service with Managed/Your Own mode toggle.
 ///
 /// Shows different content based on mode and auth state:
-/// - **Managed + logged in**: Provider picker (managed-capable only), model picker, Save button
+/// - **Managed + logged in**: Provider picker (managed-capable only),
+///   Active Profile picker, Manage Profiles button, Save button
 /// - **Managed + not logged in**: Empty state prompting login
-/// - **Your Own**: Provider picker (all), API key field, model picker, Save + Reset buttons
+/// - **Your Own**: Provider picker (all), API key field, Active Profile picker,
+///   Manage Profiles button, Save + Reset buttons
+///
+/// Active Model is no longer chosen on this card — it lives inside an
+/// inference profile. The profile dropdown writes through
+/// `store.setActiveProfile(_:)` on selection change; Save persists Provider
+/// and API key only.
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
@@ -16,10 +23,6 @@ struct InferenceServiceCard: View {
 
     /// Local draft of the mode selection — only persisted on Save.
     @State private var draftMode: String = "your-own"
-    /// Local draft of the model selection — only persisted on Save.
-    @State private var draftModel: String = ""
-    /// Snapshot of the model at card appear — used to detect model-only changes.
-    @State private var initialModel: String = ""
     /// Whether to show the web search impact confirmation alert.
     @State private var showWebSearchAlert = false
     /// Local draft of the provider selection — only persisted on Save.
@@ -30,12 +33,14 @@ struct InferenceServiceCard: View {
     @State private var didInitialSync = false
     /// Set `true` right before an external store sync updates `draftProvider`,
     /// so `onChange(of: draftProvider)` can distinguish daemon-driven updates
-    /// from user-initiated picks and skip the model/key reset.
+    /// from user-initiated picks and skip the API-key reset.
     @State private var isSyncingProviderFromStore = false
     /// Whether the current provider has a stored API key (fetched per-component).
     @State private var providerHasKey = false
     /// Whether the read-only per-call-site overrides sheet is presented.
     @State private var showOverridesSheet = false
+    /// Whether the inference profiles management sheet is presented.
+    @State private var showProfilesSheet = false
     /// Whether to show the per-call-site override confirmation dialog. Fires
     /// when the user is about to switch the global provider AND has at least
     /// one override pinned to the OLD provider — we ask whether to keep those
@@ -66,12 +71,14 @@ struct InferenceServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// True when changing inference mode/provider/model would invalidate the current web search config.
+    /// True when changing inference mode/provider would invalidate the current
+    /// web search config. Model is no longer staged on this card — the
+    /// daemon-resolved `store.selectedModel` (set by the active profile) is
+    /// used to evaluate native web-search capability for the new provider.
     private var wouldInvalidateWebSearch: Bool {
         let modeChanging = draftMode != store.inferenceMode
         let providerChanging = draftProvider != store.selectedInferenceProvider
-        let modelChanging = draftModel != store.selectedModel
-        guard modeChanging || providerChanging || modelChanging else { return false }
+        guard modeChanging || providerChanging else { return false }
 
         // Switching to Your Own inference while web search is Managed
         // (managed web search requires managed inference).
@@ -82,19 +89,16 @@ struct InferenceServiceCard: View {
         // only invalidate when the resulting provider cannot support native web search.
         // Skip when web search is in managed mode (webSearchProvider is stale).
         if draftMode == "managed" && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
-            if !store.isNativeWebSearchCapable(draftProvider, model: draftModel) {
+            if !store.isNativeWebSearchCapable(draftProvider, model: store.selectedModel) {
                 return true
             }
         }
-        // Switching providers OR models while web search uses Provider Native —
-        // invalidate when the new provider/model combo cannot support native
-        // web search. Model-only switches matter because routing providers
-        // like OpenRouter flip native capability based on the model prefix
-        // (e.g. `anthropic/*` supports native search, `openai/*` does not)
-        // while the provider ID stays the same.
+        // Switching providers while web search uses Provider Native —
+        // invalidate when the new provider cannot support native web search
+        // for the currently-resolved model.
         // Skip when web search is in managed mode (webSearchProvider is stale).
-        if (providerChanging || modelChanging) && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
-            if !store.isNativeWebSearchCapable(draftProvider, model: draftModel) {
+        if providerChanging && store.webSearchMode == "your-own" && store.webSearchProvider == "inference-provider-native" {
+            if !store.isNativeWebSearchCapable(draftProvider, model: store.selectedModel) {
                 return true
             }
         }
@@ -107,15 +111,10 @@ struct InferenceServiceCard: View {
         if draftMode == "managed" && !isLoggedIn {
             return false
         }
-        // A valid model must be selected to save.
-        if draftModel.isEmpty {
-            return false
-        }
         let modeChanged = draftMode != store.inferenceMode
         let hasNewKey = draftMode == "your-own" && !apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let modelChanged = draftModel != initialModel
         let providerChanged = draftProvider != initialProvider
-        return modeChanged || hasNewKey || modelChanged || providerChanged
+        return modeChanged || hasNewKey || providerChanged
     }
 
     var body: some View {
@@ -129,13 +128,13 @@ struct InferenceServiceCard: View {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         managedProviderPicker
-                        PickerWithInlineSave(
+                        activeProfilePicker
+                        manageProfilesButton
+                        ServiceCardActions(
                             hasChanges: hasChanges,
                             isSaving: store.apiKeySaving,
                             onSave: { save() }
-                        ) {
-                            modelPicker
-                        }
+                        )
                     }
                 } else {
                     managedLoginPrompt
@@ -145,11 +144,12 @@ struct InferenceServiceCard: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     providerPicker
 
-                    // Model picker
-                    modelPicker
-
                     // API Key field
                     apiKeyField
+
+                    // Active profile picker + Manage Profiles button
+                    activeProfilePicker
+                    manageProfilesButton
 
                     // Action buttons
                     ServiceCardActions(
@@ -178,18 +178,18 @@ struct InferenceServiceCard: View {
         .sheet(isPresented: $showOverridesSheet) {
             CallSiteOverridesSheet(store: store, isPresented: $showOverridesSheet)
         }
+        .sheet(isPresented: $showProfilesSheet) {
+            InferenceProfilesSheet(store: store, isPresented: $showProfilesSheet)
+        }
         .onAppear {
             draftMode = store.inferenceMode
-            draftModel = store.selectedModel
-            initialModel = store.selectedModel
             // Mirror the store-sync pattern used in
             // onChange(of: store.selectedInferenceProvider): flag the pending
             // mutation BEFORE assigning draftProvider so the deferred
             // onChange(of: draftProvider) callback (which SwiftUI runs after
-            // this closure returns) skips the model/key reset. Without this,
+            // this closure returns) skips the API-key reset. Without this,
             // any user whose saved provider differs from the @State default
-            // "anthropic" sees draftModel clobbered with the new provider's
-            // default model right after onAppear settles.
+            // "anthropic" sees apiKeyText cleared right after onAppear settles.
             let alreadyEqualProvider = draftProvider == store.selectedInferenceProvider
             isSyncingProviderFromStore = true
             draftProvider = store.selectedInferenceProvider
@@ -275,10 +275,8 @@ struct InferenceServiceCard: View {
         }
         .onChange(of: store.selectedInferenceProvider) { _, newValue in
             // Sync draft & baseline when the daemon reports a provider
-            // update. Also refresh the model baseline so hasChanges does
-            // not flag a stale diff against the old provider's model.
-            // Flag the update so onChange(of: draftProvider) skips the
-            // model/key reset that is only appropriate for user picks.
+            // update. Flag the update so onChange(of: draftProvider) skips
+            // the API-key reset that is only appropriate for user picks.
             let alreadyEqual = draftProvider == newValue
             isSyncingProviderFromStore = true
             draftProvider = newValue
@@ -291,42 +289,18 @@ struct InferenceServiceCard: View {
                 isSyncingProviderFromStore = false
             }
             initialProvider = newValue
-            draftModel = store.selectedModel
-            initialModel = store.selectedModel
         }
-        .onChange(of: store.selectedModel) { _, newValue in
-            // Sync draft & baseline when external changes arrive (e.g. daemon model info refresh)
-            draftModel = newValue
-            initialModel = newValue
-        }
-        .onChange(of: draftProvider) { _, newProvider in
-            // Reset the model and API key text for user-initiated provider
-            // changes only. External store syncs set isSyncingProviderFromStore
-            // before mutating draftProvider; the onAppear initial sync uses
-            // the same flag. Both paths clear the flag here and return.
+        .onChange(of: draftProvider) { _, _ in
+            // Clear any unsaved API key text on user-initiated provider
+            // changes — it belongs to the previous provider's context.
+            // External store syncs set isSyncingProviderFromStore before
+            // mutating draftProvider; clear the flag and skip.
             if isSyncingProviderFromStore {
                 isSyncingProviderFromStore = false
                 return
             }
             guard didInitialSync else { return }
-            // Always clear any unsaved API key text on a real provider
-            // transition — it belongs to the previous provider's context
-            // and must not leak forward, even when the model itself is
-            // preserved by the cross-provider validity check below.
             apiKeyText = ""
-            // Defense-in-depth: preserve draftModel when it is already a
-            // valid ID in the new provider's catalog. Cross-provider model
-            // IDs essentially never overlap, so this still triggers the
-            // reset for real user-initiated switches while protecting
-            // against cascades (e.g. onChange(of: draftMode) reassigning
-            // draftProvider) from clobbering a still-valid selection.
-            let providerModels = store.dynamicProviderModels(newProvider)
-            let isCurrentModelValid = providerModels.contains { $0.id == draftModel }
-            if !isCurrentModelValid {
-                let defaultModel = store.dynamicProviderDefaultModel(newProvider)
-                let fallback = providerModels.first?.id ?? ""
-                draftModel = defaultModel.isEmpty ? fallback : defaultModel
-            }
         }
         .onChange(of: draftMode) { _, newMode in
             if newMode == "managed" {
@@ -334,24 +308,6 @@ struct InferenceServiceCard: View {
                 // provider if the current one does not support managed routing.
                 if !store.isManagedCapable(draftProvider) {
                     draftProvider = "anthropic"
-                }
-                // Validate the model against the selected managed provider's catalog.
-                let managedModels = store.dynamicProviderModels(draftProvider)
-                let isCurrentModelValid = managedModels.contains { $0.id == draftModel }
-                if !isCurrentModelValid {
-                    let defaultModel = store.dynamicProviderDefaultModel(draftProvider)
-                    draftModel = defaultModel.isEmpty
-                        ? (managedModels.first?.id ?? "")
-                        : defaultModel
-                }
-            } else if newMode == "your-own" {
-                let providerModels = store.dynamicProviderModels(draftProvider)
-                let isCurrentModelValid = providerModels.contains { $0.id == draftModel }
-                if !isCurrentModelValid {
-                    let defaultModel = store.dynamicProviderDefaultModel(draftProvider)
-                    draftModel = defaultModel.isEmpty
-                        ? (providerModels.first?.id ?? "")
-                        : defaultModel
                 }
             }
         }
@@ -485,26 +441,41 @@ struct InferenceServiceCard: View {
         .disabled(store.apiKeySaving)
     }
 
-    // MARK: - Model Picker
+    // MARK: - Active Profile Picker
 
-    private var modelPicker: some View {
+    /// Binding that writes through to `store.setActiveProfile(_:)` on user
+    /// picks. Daemon-pushed updates flow back through `store.activeProfile`
+    /// directly via the published-value re-render; SwiftUI never invokes
+    /// `set` for those, so no sync-suppression flag is needed. The
+    /// equality guard short-circuits the rare echo where SwiftUI reflects
+    /// the latest `get` back through the dropdown's `set`.
+    private var activeProfileBinding: Binding<String> {
+        Binding(
+            get: { store.activeProfile },
+            set: { newValue in
+                guard newValue != store.activeProfile else { return }
+                Task { _ = await store.setActiveProfile(newValue) }
+            }
+        )
+    }
+
+    private var activeProfilePicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Active Model")
+            Text("Active Profile")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
-            providerModelPicker
+            VDropdown(
+                placeholder: "Select a profile\u{2026}",
+                selection: activeProfileBinding,
+                options: store.profiles.map { (label: $0.name, value: $0.name) }
+            )
         }
     }
 
-    /// Per-provider catalog model dropdown.
-    private var providerModelPicker: some View {
-        VDropdown(
-            placeholder: "Select a model\u{2026}",
-            selection: $draftModel,
-            options: store.dynamicProviderModels(draftProvider).map { model in
-                (label: model.displayName, value: model.id)
-            }
-        )
+    private var manageProfilesButton: some View {
+        VButton(label: "Manage Profiles\u{2026}", style: .ghost) {
+            showProfilesSheet = true
+        }
     }
 
     // MARK: - Save
@@ -543,10 +514,9 @@ struct InferenceServiceCard: View {
         performSaveCore(clearingOverrides: [])
     }
 
-    /// Persists the staged inference settings (mode, provider, API key, model).
-    /// Runs the actual save work — `performSave()` decides whether to call
-    /// this directly or to first prompt the user about per-call-site overrides
-    /// pinned to the old provider.
+    /// Persists the staged inference settings (mode, provider, API key).
+    /// Active Model is no longer written from here — the active profile owns
+    /// model selection.
     ///
     /// `clearingOverrides` is the set of overrides to clear before the save
     /// (e.g. when the user picks "Reset to follow default" from the override
@@ -556,7 +526,7 @@ struct InferenceServiceCard: View {
 
         // Clear any overrides the user opted to reset before persisting the
         // new defaults. Done first so the daemon sees the cleared overrides
-        // when it processes the subsequent provider/model patches.
+        // when it processes the subsequent provider patch.
         for override in overridesToClear {
             _ = store.clearCallSiteOverride(override.id)
         }
@@ -566,15 +536,15 @@ struct InferenceServiceCard: View {
         pendingOverrideOldProviderName = ""
 
         // Detect mode change before persisting so downstream logic can
-        // force-persist provider/model even when IDs happen to match.
+        // force-persist provider even when IDs happen to match.
         let modeChanged = draftMode != store.inferenceMode
 
         // Persist mode if changed. The mode write goes to
         // `services.inference.mode`, separate from `llm.default` — but we
-        // capture the pending Task so the provider/model PATCH below can
-        // wait for it. Otherwise the daemon's ConfigWatcher could see the
-        // provider/model write reflect new mode-derived defaults before the
-        // mode itself has been persisted.
+        // capture the pending Task so the provider PATCH below can wait
+        // for it. Otherwise the daemon's ConfigWatcher could see the
+        // provider write reflect new mode-derived defaults before the mode
+        // itself has been persisted.
         let pendingMode = modeChanged ? store.setInferenceMode(draftMode) : nil
 
         // Resolve the provider that will land in `llm.default.provider`.
@@ -602,27 +572,19 @@ struct InferenceServiceCard: View {
             })
         }
 
-        // Persist provider+model atomically in a single PATCH when either
-        // changed (or when the mode toggled, which forces a re-persist
-        // even when the resolved IDs match). Splitting the write into two
-        // PATCHes (provider first, model second) lets the daemon's
-        // ConfigWatcher fire between them and reload providers with the
-        // new provider but the OLD model — potentially incompatible
-        // (e.g. an OpenAI model ID against the Anthropic provider). The
-        // combined setter writes both keys in one round-trip so the
-        // daemon never observes a half-applied state.
+        // Persist provider in a single PATCH when it changed (or when the
+        // mode toggled, which forces a re-persist even when the resolved
+        // ID matches). Active Profile is its own setter that fires on
+        // selection change, so we do not write `llm.default.model` here.
         //
         // Awaiting `pendingMode` first ensures `services.inference.mode`
-        // has landed before the daemon picks up the new provider/model.
-        let modelChanged = draftModel != initialModel
-        if providerChanged || modelChanged {
+        // has landed before the daemon picks up the new provider.
+        if providerChanged {
             let capturedProvider = persistProvider
-            let capturedModel = draftModel
             Task {
                 if let pendingMode { _ = await pendingMode.value }
-                _ = await store.setLLMDefault(provider: capturedProvider, model: capturedModel).value
+                _ = await store.setLLMDefaultProvider(capturedProvider).value
             }
         }
-        initialModel = draftModel
     }
 }
