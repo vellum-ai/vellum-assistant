@@ -106,15 +106,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
 export type NotificationSourceEventName =
   (typeof NOTIFICATION_SOURCE_EVENT_NAMES)[number]["id"];
 
-export function isNotificationSourceEventName(
-  value: unknown,
-): value is NotificationSourceEventName {
-  return (
-    typeof value === "string" &&
-    NOTIFICATION_SOURCE_EVENT_NAMES.some((e) => e.id === value)
-  );
-}
-
 // ── Attention hints & routing ──────────────────────────────────────────
 
 export interface AttentionHints {

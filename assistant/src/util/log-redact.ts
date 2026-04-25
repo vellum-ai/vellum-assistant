@@ -161,4 +161,3 @@ export const logSerializers: Record<string, (value: unknown) => unknown> = {
 };
 
 // Exported for testing
-export { redactString as _redactString, redactValue as _redactValue };

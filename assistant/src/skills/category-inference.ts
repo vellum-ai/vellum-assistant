@@ -15,17 +15,6 @@ export type SkillCategory =
   | "knowledge"
   | "integration";
 
-export const SKILL_CATEGORIES: SkillCategory[] = [
-  "communication",
-  "productivity",
-  "development",
-  "automation",
-  "media",
-  "webSocial",
-  "knowledge",
-  "integration",
-];
-
 const CATEGORY_KEYWORDS: [SkillCategory, string[]][] = [
   [
     "communication",

@@ -75,13 +75,13 @@ const log = getLogger("headless-browser");
 
 // ── Constants ────────────────────────────────────────────────────────
 
-export const NAVIGATE_TIMEOUT_MS = 15_000;
+const NAVIGATE_TIMEOUT_MS = 15_000;
 
-export const ACTION_TIMEOUT_MS = 10_000;
+const ACTION_TIMEOUT_MS = 10_000;
 
-export const MAX_WAIT_MS = 30_000;
+const MAX_WAIT_MS = 30_000;
 
-export const MAX_EXTRACT_LENGTH = 50_000;
+const MAX_EXTRACT_LENGTH = 50_000;
 
 type StatusCheckMode = BrowserStatusMode;
 
@@ -359,7 +359,7 @@ function isRestrictedChromePageProbeError(error: CdpError): boolean {
  * The returned client is wrapped so its first successful `send()`
  * writes the resolved kind back to the conversation memo.
  */
-export function acquireCdpClientWithMode(
+function acquireCdpClientWithMode(
   input: Record<string, unknown>,
   context: ToolContext,
 ):
@@ -514,7 +514,7 @@ export type ResolvedElement =
  * or when an `element_id` is provided but the snapshot map is
  * empty/stale.
  */
-export function resolveElement(
+function resolveElement(
   conversationId: string,
   input: Record<string, unknown>,
 ): { resolved: ResolvedElement | null; error: string | null } {

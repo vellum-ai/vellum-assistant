@@ -45,7 +45,7 @@ function buildToolGrantQuestionText(
 }
 
 /** Default polling interval for inline grant wait (ms). */
-export const TC_GRANT_WAIT_INTERVAL_MS = 500;
+const TC_GRANT_WAIT_INTERVAL_MS = 500;
 /** Default maximum wait time for inline grant wait (ms). */
 export const TC_GRANT_WAIT_MAX_MS = 60_000;
 

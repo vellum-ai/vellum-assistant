@@ -212,7 +212,7 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
   return foundSkillMd;
 }
 
-export async function fetchAndExtractSkill(
+async function fetchAndExtractSkill(
   skillId: string,
   destDir: string,
 ): Promise<void> {

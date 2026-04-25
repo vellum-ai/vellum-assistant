@@ -26,7 +26,7 @@ import { getSignalsDir, getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("signal:bash");
 
-export function isDebugMode(): boolean {
+function isDebugMode(): boolean {
   return (
     process.env.VELLUM_DEBUG === "1" || process.env.VELLUM_DEBUG === "true"
   );

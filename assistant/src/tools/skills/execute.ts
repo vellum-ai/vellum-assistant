@@ -3,7 +3,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
-export class SkillExecuteTool implements Tool {
+class SkillExecuteTool implements Tool {
   name = "skill_execute";
   description =
     "Execute a tool provided by a loaded skill. Use this instead of calling skill tools directly. The skill's instructions (from skill_load) describe available tools and their parameters. For browser automation, use the `assistant browser` CLI commands instead.";

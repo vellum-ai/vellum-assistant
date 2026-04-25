@@ -107,7 +107,7 @@ export function appendEventToStream(
  * Invalidate the subscriber cache for a conversation so that the next
  * call to {@link appendEventToStream} re-scans the directory.
  */
-export function invalidateSubscriberCache(conversationId: string): void {
+function invalidateSubscriberCache(conversationId: string): void {
   subscriberCache.delete(conversationId);
 }
 

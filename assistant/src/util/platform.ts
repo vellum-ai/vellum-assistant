@@ -208,7 +208,7 @@ export function getXdgPlatformTokenPath(): string {
  * (~/.vellum/platform-token). Used as a fallback for local assistant
  * instances that may have the token written here by the desktop app.
  */
-export function getPlatformTokenPath(): string {
+function getPlatformTokenPath(): string {
   return join(vellumRoot(), "platform-token");
 }
 

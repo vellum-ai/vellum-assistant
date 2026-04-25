@@ -3,7 +3,7 @@ import { z } from "zod";
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
 const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
 
-export { VALID_PERMISSIONS_MODES, VALID_SECRET_ACTIONS };
+export { VALID_PERMISSIONS_MODES };
 
 const CustomSecretPatternSchema = z
   .object({
