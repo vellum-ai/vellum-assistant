@@ -76,6 +76,8 @@ import {
 } from "./helpers/gateway-classify-mock.js";
 installIpcMock();
 
+import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
+
 // ── Per-test IPC mock helper ────────────────────────────────────────────────
 // Classification logic is tested in gateway/. Here we only care about what
 // risk level check() receives, so we provide minimal fixture responses.
@@ -210,6 +212,14 @@ describe("Permission Checker", () => {
   beforeEach(() => {
     // Reset IPC mock to low risk (tests override as needed)
     mockRisk("low");
+    // Default threshold to "none" so tests that don't explicitly test auto-approve
+    // see the same behavior as before the feature flag was removed.
+    mockIpcResponse("get_global_thresholds", {
+      interactive: "none",
+      background: "none",
+      headless: "none",
+    });
+    _clearGlobalCacheForTesting();
     // Reset trust-store state and risk classification cache between tests
     clearRiskCache();
     clearCache();
