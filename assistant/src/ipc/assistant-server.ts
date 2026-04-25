@@ -75,11 +75,6 @@ export class AssistantIpcServer {
     }
   }
 
-  /** Register an additional method handler after construction. */
-  registerMethod(method: string, handler: IpcMethodHandler): void {
-    this.methods.set(method, handler);
-  }
-
   /** Start listening on the Unix domain socket. */
   async start(): Promise<void> {
     // Ensure the parent directory exists before listening.

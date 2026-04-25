@@ -18,6 +18,7 @@ import {
 } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import {
   getAvatarDir,
@@ -25,7 +26,6 @@ import {
   getWorkspaceDir,
 } from "../../util/platform.js";
 import { notifyAvatarUpdated } from "../lib/daemon-avatar-client.js";
-import { getSecureKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 
@@ -87,7 +87,7 @@ Examples:
       // without the daemon's in-memory state.
       try {
         const key = credentialKey("vellum", "platform_base_url");
-        const persisted = await getSecureKeyViaDaemon(key);
+        const persisted = await getSecureKeyAsync(key);
         if (persisted) {
           setPlatformBaseUrl(persisted);
         }

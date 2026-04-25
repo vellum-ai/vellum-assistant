@@ -1,9 +1,9 @@
 import type { Command } from "commander";
 
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
+import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import {
   deleteSecureKeyViaDaemon,
-  getSecureKeyViaDaemon,
   setSecureKeyViaDaemon,
 } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
@@ -61,7 +61,7 @@ Examples:
     .action(async () => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
-        const value = await getSecureKeyViaDaemon(provider);
+        const value = await getSecureKeyAsync(provider);
         if (value) stored.push(provider);
       }
       if (stored.length === 0) {

@@ -5,7 +5,7 @@ import {
   resolvePlatformCallbackRegistrationContext,
 } from "../../../inbound/platform-callback-registration.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import { CREDENTIAL_KEYS, registerPlatformConnectCommand } from "./connect.js";
@@ -81,13 +81,13 @@ Examples:
         const context = await resolvePlatformCallbackRegistrationContext();
 
         const storedBaseUrl =
-          (await getSecureKeyViaDaemon(
+          (await getSecureKeyAsync(
             credentialKey(
               CREDENTIAL_KEYS.baseUrl.service,
               CREDENTIAL_KEYS.baseUrl.field,
             ),
           )) ?? "";
-        const hasStoredApiKey = !!(await getSecureKeyViaDaemon(
+        const hasStoredApiKey = !!(await getSecureKeyAsync(
           credentialKey(
             CREDENTIAL_KEYS.apiKey.service,
             CREDENTIAL_KEYS.apiKey.field,
@@ -95,7 +95,7 @@ Examples:
         ));
         const organizationId =
           (
-            await getSecureKeyViaDaemon(
+            await getSecureKeyAsync(
               credentialKey(
                 CREDENTIAL_KEYS.organizationId.service,
                 CREDENTIAL_KEYS.organizationId.field,
@@ -104,7 +104,7 @@ Examples:
           )?.trim() ?? "";
         const userId =
           (
-            await getSecureKeyViaDaemon(
+            await getSecureKeyAsync(
               credentialKey(
                 CREDENTIAL_KEYS.userId.service,
                 CREDENTIAL_KEYS.userId.field,
@@ -112,7 +112,7 @@ Examples:
             )
           )?.trim() ?? "";
 
-        const hasWebhookSecret = !!(await getSecureKeyViaDaemon(
+        const hasWebhookSecret = !!(await getSecureKeyAsync(
           credentialKey("vellum", "webhook_secret"),
         ));
 

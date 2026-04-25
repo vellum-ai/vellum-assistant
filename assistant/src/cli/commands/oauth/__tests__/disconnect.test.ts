@@ -142,11 +142,11 @@ mock.module("../../../../tools/credentials/metadata-store.js", () => ({
 }));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: async () => undefined,
   deleteSecureKeyViaDaemon: async (type: string, name: string) => {
     mockDeleteSecureKeyViaDaemonCalls.push({ type, name });
     return "deleted" as const;
   },
+  setSecureKeyViaDaemon: async () => false,
 }));
 
 // Mock shared.js helpers to control managed vs BYO mode routing

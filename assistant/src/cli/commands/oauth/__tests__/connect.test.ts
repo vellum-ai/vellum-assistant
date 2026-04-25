@@ -27,7 +27,7 @@ let mockOrchestrateOAuthConnect: (
   grantedScopes: [],
 });
 
-let mockGetSecureKeyViaDaemon: (
+let mockGetSecureKeyAsync: (
   account: string,
 ) => Promise<string | undefined> = async () => undefined;
 
@@ -108,10 +108,28 @@ mock.module("../../../../util/logger.js", () => ({
   }),
 }));
 
+mock.module("../../../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: (account: string) => mockGetSecureKeyAsync(account),
+  getSecureKeyResultAsync: async () => ({
+    value: undefined,
+    unreachable: false,
+  }),
+  setSecureKeyAsync: async () => true,
+  deleteSecureKeyAsync: async () => "deleted" as const,
+  getProviderKeyAsync: async () => undefined,
+  getMaskedProviderKey: async () => undefined,
+  bulkSetSecureKeysAsync: async () => {},
+  listSecureKeysAsync: async () => ({ credentials: [] }),
+  setCesClient: () => {},
+  onCesClientChanged: () => ({ unsubscribe: () => {} }),
+  setCesReconnect: () => {},
+  getActiveBackendName: () => "file",
+  _resetBackend: () => {},
+}));
+
 mock.module("../../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: (account: string) =>
-    mockGetSecureKeyViaDaemon(account),
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
+  setSecureKeyViaDaemon: async () => false,
 }));
 
 // Mock shared.js helpers to control managed vs BYO mode routing
@@ -230,7 +248,7 @@ describe("assistant oauth connect", () => {
       deferred: false,
       grantedScopes: [],
     });
-    mockGetSecureKeyViaDaemon = async () => undefined;
+    mockGetSecureKeyAsync = async () => undefined;
     mockOpenInBrowserCalls = [];
     mockPlatformClientResult = null;
     mockPlatformFetchResults = [];
@@ -664,7 +682,7 @@ describe("assistant oauth connect", () => {
     });
 
     // No secret stored
-    mockGetSecureKeyViaDaemon = async () => undefined;
+    mockGetSecureKeyAsync = async () => undefined;
 
     const { exitCode, stdout } = await runCommand([
       "connect",

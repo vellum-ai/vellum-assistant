@@ -28,6 +28,8 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
+import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
+import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -907,9 +909,12 @@ export class DaemonServer {
       };
     });
 
-    // Start the CLI IPC server. Built-in methods (wake_conversation) are
-    // registered by the constructor; CLI commands connect to this socket to
-    // invoke daemon-side operations that require in-process state.
+    registerDestroyConversation((id) => this.destroyConversation(id));
+    registerSecretRouteDeps({
+      getCesClient: () => this.getCesClient(),
+      onProviderCredentialsChanged: () =>
+        this.refreshConversationsForProviderChange(),
+    });
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
