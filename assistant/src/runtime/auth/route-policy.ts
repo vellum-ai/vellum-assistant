@@ -181,6 +181,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "calls/instruction", scopes: ["calls.write"] },
 
   // Settings / integrations / identity
+  { endpoint: "ps", scopes: ["settings.read"] },
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "identity/intro", scopes: ["settings.read"] },
   { endpoint: "home/state", scopes: ["settings.read"] },
