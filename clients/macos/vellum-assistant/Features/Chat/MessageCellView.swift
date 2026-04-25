@@ -7,8 +7,6 @@ import VellumAssistantShared
 /// struct boundary for diffing: when all `let` inputs are equal, SwiftUI can
 /// skip re-evaluating the body during LazySubviewPlacements.updateValue.
 struct MessageCellView: View, Equatable {
-    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
-
     static func == (lhs: MessageCellView, rhs: MessageCellView) -> Bool {
         lhs.message == rhs.message
             && lhs.showTimestamp == rhs.showTimestamp
@@ -165,7 +163,6 @@ struct MessageCellView: View, Equatable {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                        isV3: assistantFeatureFlagStore.isEnabled("permission-controls-v3"),
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
@@ -177,7 +174,6 @@ struct MessageCellView: View, Equatable {
                 if !hasPrecedingAssistant {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
-                        isV3: assistantFeatureFlagStore.isEnabled("permission-controls-v3"),
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
