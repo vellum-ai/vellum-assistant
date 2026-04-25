@@ -41,7 +41,7 @@ const EMBEDDING_PROVIDER_CATALOG = [
   {
     id: "gemini",
     displayName: "Gemini",
-    defaultModel: "gemini-embedding-2-preview",
+    defaultModel: "gemini-embedding-2",
     requiresKey: true,
   },
   {

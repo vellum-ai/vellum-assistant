@@ -38,7 +38,7 @@ export const MemoryEmbeddingsConfigSchema = z
       .describe("Model name for the OpenAI embedding provider"),
     geminiModel: z
       .string({ error: "memory.embeddings.geminiModel must be a string" })
-      .default("gemini-embedding-2-preview")
+      .default("gemini-embedding-2")
       .describe("Model name for the Gemini embedding provider"),
     geminiTaskType: z
       .enum(

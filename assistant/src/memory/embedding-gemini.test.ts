@@ -258,7 +258,7 @@ describe("GeminiEmbeddingBackend", () => {
     test("routes through managed proxy base URL when managedBaseUrl is set", async () => {
       const backend = new GeminiEmbeddingBackend(
         "ast-managed-key",
-        "gemini-embedding-2-preview",
+        "gemini-embedding-2",
         {
           managedBaseUrl:
             "https://platform.example.com/v1/runtime-proxy/gemini",
@@ -269,7 +269,7 @@ describe("GeminiEmbeddingBackend", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
       expect(url).toBe(
-        "https://platform.example.com/v1/runtime-proxy/gemini/v1beta/models/gemini-embedding-2-preview:embedContent",
+        "https://platform.example.com/v1/runtime-proxy/gemini/v1beta/models/gemini-embedding-2:embedContent",
       );
       // Should NOT have key= query param
       expect(url).not.toContain("key=");
@@ -292,7 +292,7 @@ describe("GeminiEmbeddingBackend", () => {
       // regardless of transport.
       const managedBackend = new GeminiEmbeddingBackend(
         "ast-managed-key",
-        "gemini-embedding-2-preview",
+        "gemini-embedding-2",
         {
           managedBaseUrl:
             "https://platform.example.com/v1/runtime-proxy/gemini",
@@ -332,7 +332,7 @@ describe("GeminiEmbeddingBackend", () => {
     test("includes outputDimensionality with managed proxy", async () => {
       const backend = new GeminiEmbeddingBackend(
         "ast-managed-key",
-        "gemini-embedding-2-preview",
+        "gemini-embedding-2",
         {
           managedBaseUrl:
             "https://platform.example.com/v1/runtime-proxy/gemini",

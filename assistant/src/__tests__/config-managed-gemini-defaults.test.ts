@@ -148,9 +148,7 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
 
     // In-memory config should have managed Gemini defaults
     expect(config.memory.embeddings.provider).toBe("gemini");
-    expect(config.memory.embeddings.geminiModel).toBe(
-      "gemini-embedding-2-preview",
-    );
+    expect(config.memory.embeddings.geminiModel).toBe("gemini-embedding-2");
     expect(config.memory.embeddings.geminiDimensions).toBe(3072);
     expect(config.memory.qdrant.vectorSize).toBe(3072);
 
@@ -160,7 +158,7 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
     const embeddingsRaw = memoryRaw.embeddings as Record<string, unknown>;
     const qdrantRaw = memoryRaw.qdrant as Record<string, unknown>;
     expect(embeddingsRaw.provider).toBe("gemini");
-    expect(embeddingsRaw.geminiModel).toBe("gemini-embedding-2-preview");
+    expect(embeddingsRaw.geminiModel).toBe("gemini-embedding-2");
     expect(embeddingsRaw.geminiDimensions).toBe(3072);
     expect(qdrantRaw.vectorSize).toBe(3072);
   });
@@ -284,9 +282,7 @@ describe("managed Gemini embedding defaults (via loadConfig)", () => {
 
     // Managed defaults applied
     expect(config.memory.embeddings.provider).toBe("gemini");
-    expect(config.memory.embeddings.geminiModel).toBe(
-      "gemini-embedding-2-preview",
-    );
+    expect(config.memory.embeddings.geminiModel).toBe("gemini-embedding-2");
     expect(config.memory.qdrant.vectorSize).toBe(3072);
 
     // Existing values preserved
