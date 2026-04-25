@@ -48,6 +48,8 @@ mock.module("../../ipc/skill-socket-path.js", () => ({
 }));
 
 const { MeetHostSupervisor } = await import("../meet-host-supervisor.js");
+const { __clearGlobalSkillIpcSenderForTesting } =
+  await import("../meet-host-supervisor.js");
 
 // ---------------------------------------------------------------------------
 // Fake child process + fake socket
@@ -102,6 +104,7 @@ interface Harness {
   supervisor: InstanceType<typeof MeetHostSupervisor>;
   spawnFn: ReturnType<typeof mock>;
   connectFn: ReturnType<typeof mock>;
+  sendRequest: ReturnType<typeof mock>;
 }
 
 function makeHarness(
@@ -110,6 +113,7 @@ function makeHarness(
     idleTimeoutMs?: number;
     gracefulExitGraceMs?: number;
     sigkillGraceMs?: number;
+    sendRequestImpl?: (...args: unknown[]) => Promise<unknown>;
   } = {},
 ): Harness {
   const child = new FakeChild();
@@ -119,18 +123,33 @@ function makeHarness(
     sock.triggerConnect();
     return sock as unknown as Socket;
   });
+  const sendRequest = mock(
+    overrides.sendRequestImpl ??
+      (async (..._args: unknown[]) => ({ ok: true })),
+  );
+  const ipcSender = {
+    sendRequest: sendRequest as unknown as (
+      connection: unknown,
+      method: string,
+      params?: unknown,
+      opts?: { timeoutMs?: number },
+    ) => Promise<unknown>,
+  };
   const supervisor = new MeetHostSupervisor({
     skillRuntimePath: "/fake/skills/meet-join",
     bunBinaryPath: "/fake/bin/bun",
     skillSocketPath: "/tmp/test-skill.sock",
     manifest: { sourceHash: overrides.manifestHash ?? "hash-abc" },
+    ipcSender: ipcSender as ConstructorParameters<
+      typeof MeetHostSupervisor
+    >[0]["ipcSender"],
     spawnFn,
     connectFn,
     idleTimeoutMsOverride: overrides.idleTimeoutMs ?? 60_000,
     gracefulExitGraceMs: overrides.gracefulExitGraceMs ?? 5,
     sigkillGraceMs: overrides.sigkillGraceMs ?? 5,
   });
-  return { child, supervisor, spawnFn, connectFn };
+  return { child, supervisor, spawnFn, connectFn, sendRequest };
 }
 
 /** Drain pending I/O callbacks so queued handshake promises settle. */
@@ -298,5 +317,205 @@ describe("MeetHostSupervisor", () => {
     await supervisor.shutdown();
     // ensureRunning after shutdown should reject — supervisor is done.
     await expect(supervisor.ensureRunning()).rejects.toThrow(/shutting down/);
+  });
+});
+
+describe("MeetHostSupervisor dispatch", () => {
+  let harness: Harness;
+
+  afterEach(async () => {
+    try {
+      await harness?.supervisor.shutdown();
+    } catch {
+      // Best-effort cleanup
+    }
+    __clearGlobalSkillIpcSenderForTesting();
+  });
+
+  beforeEach(() => {
+    harness = undefined as unknown as Harness;
+  });
+
+  /** Stub `SkillIpcConnection` shape — only `connectionId` is read by logs. */
+  function fakeConnection(id = "conn-1") {
+    return {
+      connectionId: id,
+      addRouteHandle: () => undefined,
+      addSkillToolsOwner: () => undefined,
+    } as unknown as Parameters<
+      InstanceType<typeof MeetHostSupervisor>["setActiveConnection"]
+    >[0];
+  }
+
+  test("dispatchTool sends skill.dispatch_tool on the active connection and unwraps result", async () => {
+    harness = makeHarness({
+      sendRequestImpl: async (..._args) => ({
+        result: { joinUrl: "https://example.test/m/abc" },
+      }),
+    });
+    const { supervisor, sendRequest } = harness;
+
+    // Bring the child up and register a connection so dispatch has a target.
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+    const conn = fakeConnection();
+    supervisor.setActiveConnection(conn);
+
+    const out = await supervisor.dispatchTool(
+      "meet_demo",
+      { url: "x" },
+      { conversationId: "c" },
+    );
+    expect(out).toEqual({ joinUrl: "https://example.test/m/abc" });
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    const call = sendRequest.mock.calls[0] as [
+      unknown,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(call[1]).toBe("skill.dispatch_tool");
+    expect(call[2]).toEqual({
+      name: "meet_demo",
+      input: { url: "x" },
+      context: { conversationId: "c" },
+    });
+  });
+
+  test("dispatchTool propagates remote errors from the sender", async () => {
+    harness = makeHarness({
+      sendRequestImpl: async () => {
+        throw new Error("remote: kaboom");
+      },
+    });
+    const { supervisor } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+    supervisor.setActiveConnection(fakeConnection());
+
+    await expect(supervisor.dispatchTool("meet_demo", {}, {})).rejects.toThrow(
+      /kaboom/,
+    );
+  });
+
+  test("dispatchTool throws when no IPC connection is registered", async () => {
+    harness = makeHarness();
+    const { supervisor } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+    // Intentionally do NOT call setActiveConnection.
+
+    await expect(supervisor.dispatchTool("meet_demo", {}, {})).rejects.toThrow(
+      /no IPC connection was registered/,
+    );
+  });
+
+  test("dispatchRoute sends skill.dispatch_route and returns the response envelope", async () => {
+    const envelope = {
+      status: 202,
+      headers: { "x-skill": "meet" },
+      body: '{"received":true}',
+    };
+    harness = makeHarness({ sendRequestImpl: async () => envelope });
+    const { supervisor, sendRequest } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+    supervisor.setActiveConnection(fakeConnection());
+
+    const result = await supervisor.dispatchRoute("^/api/skills/meet$", {
+      method: "POST",
+      url: "http://localhost/api/skills/meet",
+      body: '{"hi":1}',
+    });
+    expect(result).toEqual(envelope);
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    const call = sendRequest.mock.calls[0] as [
+      unknown,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(call[1]).toBe("skill.dispatch_route");
+    expect(call[2].patternSource).toBe("^/api/skills/meet$");
+  });
+
+  test("dispatchShutdown is a no-op when no active connection is set", async () => {
+    harness = makeHarness();
+    const { supervisor, sendRequest } = harness;
+
+    // No spawn; dispatchShutdown should silently return.
+    await supervisor.dispatchShutdown("hook-x", "test");
+    expect(sendRequest).not.toHaveBeenCalled();
+  });
+
+  test("dispatchShutdown sends skill.shutdown when a connection is active", async () => {
+    harness = makeHarness();
+    const { supervisor, sendRequest } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+    supervisor.setActiveConnection(fakeConnection());
+
+    await supervisor.dispatchShutdown("hook-x", "daemon-shutdown");
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    const call = sendRequest.mock.calls[0] as [
+      unknown,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(call[1]).toBe("skill.shutdown");
+    expect(call[2]).toEqual({ name: "hook-x", reason: "daemon-shutdown" });
+  });
+
+  test("setActiveConnection / clearActiveConnection are idempotent", async () => {
+    harness = makeHarness();
+    const { supervisor } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+
+    const conn = fakeConnection();
+    supervisor.setActiveConnection(conn);
+    // Re-set with the same connection: no-op (idempotency).
+    supervisor.setActiveConnection(conn);
+
+    supervisor.clearActiveConnection();
+    // Second clear: idempotent no-op.
+    supervisor.clearActiveConnection();
+
+    // dispatchShutdown after clear is silently a no-op (no connection,
+    // returns without sending).
+    await supervisor.dispatchShutdown("hook-x", "test");
+    expect(harness.sendRequest).not.toHaveBeenCalled();
+  });
+
+  test("shutdown clears the active connection", async () => {
+    harness = makeHarness();
+    const { supervisor } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "hash-abc" });
+    await p;
+
+    supervisor.setActiveConnection(fakeConnection());
+    await supervisor.shutdown();
+
+    // dispatchShutdown after full shutdown: silent no-op (no connection).
+    await supervisor.dispatchShutdown("hook-x", "test");
+    expect(harness.sendRequest).not.toHaveBeenCalled();
   });
 });

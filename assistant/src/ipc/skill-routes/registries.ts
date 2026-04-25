@@ -98,20 +98,26 @@ const activeSessions = new Set<string>();
  * Optional supervisor injected by `external-skills-bootstrap.ts` when the
  * lazy-external path is enabled. When set, IPC session-report frames are
  * forwarded to it so its active-session counter and idle-shutdown timer
- * stay in sync with the routes. When unset, the fallback set above is
- * mutated directly.
+ * stay in sync with the routes; the `register_*` handlers also pin the
+ * incoming connection on the supervisor so daemon→skill dispatches have a
+ * target. When unset, the fallback set above is mutated directly and the
+ * register_* handlers fall back to in-memory proxy installation.
  */
 type SessionSupervisor = Pick<
   MeetHostSupervisor,
-  "reportSessionStarted" | "reportSessionEnded" | "activeSessionCount"
+  | "reportSessionStarted"
+  | "reportSessionEnded"
+  | "activeSessionCount"
+  | "setActiveConnection"
 >;
 
 let sessionSupervisor: SessionSupervisor | null = null;
 
 /**
- * Install a {@link MeetHostSupervisor} as the session-report sink. The IPC
- * routes still maintain their fallback {@link Set} for diagnostics, but
- * the supervisor's counter is the source of truth for the `activeCount`
+ * Install a {@link MeetHostSupervisor} as the session-report sink and
+ * connection holder for daemon→skill dispatch. The IPC routes still
+ * maintain their fallback {@link Set} for diagnostics, but the
+ * supervisor's counter is the source of truth for the `activeCount`
  * returned to the skill. Passing `null` detaches the supervisor — used
  * by tests that want to exercise the fallback path cleanly.
  */
@@ -209,13 +215,29 @@ async function handleRegisterTools(
   connection?: unknown,
 ): Promise<{ registered: string[] }> {
   const { tools } = RegisterToolsParams.parse(params);
+  const conn = connection as SkillIpcConnection | undefined;
+
+  // Lazy-external short-circuit: when a supervisor is registered, the
+  // manifest loader has already installed proxy tools at daemon boot.
+  // Re-installing here would double-register and clobber the manifest's
+  // execute closures with these placeholder ones. Pin the incoming
+  // connection on the supervisor so daemon→skill dispatches have a
+  // target, then return the manifest-declared tool names.
+  if (sessionSupervisor) {
+    if (conn) sessionSupervisor.setActiveConnection(conn);
+    log.info(
+      { count: tools.length, names: tools.map((t) => t.name) },
+      "Lazy-external mode: skipping in-memory tool re-registration; manifest proxies serve dispatches",
+    );
+    return { registered: tools.map((t) => t.name) };
+  }
+
   const proxies = tools.map(buildProxyTool);
   // `registerExternalTools` is only consumed inside `initializeTools()` at
   // daemon boot; IPC children connect after boot, so route through
   // `registerSkillTools` into the live registry the agent-loop reads from.
   const accepted = registerSkillTools(proxies);
 
-  const conn = connection as SkillIpcConnection | undefined;
   if (conn) {
     const ownerIds = new Set<string>();
     for (const tool of accepted) {
@@ -239,6 +261,20 @@ async function handleRegisterSkillRoute(
 ): Promise<{ patternSource: string; methods: string[] }> {
   const { patternSource, patternFlags, methods, skillId } =
     RegisterSkillRouteParams.parse(params);
+  const conn = connection as SkillIpcConnection | undefined;
+
+  // Lazy-external short-circuit: route already installed by the manifest
+  // loader; pin the connection and let the manifest's proxy handler call
+  // supervisor.dispatchRoute over IPC.
+  if (sessionSupervisor) {
+    if (conn) sessionSupervisor.setActiveConnection(conn);
+    log.info(
+      { patternSource, patternFlags, methods, skillId },
+      "Lazy-external mode: skipping in-memory route re-registration; manifest proxy serves dispatches",
+    );
+    return { patternSource, methods };
+  }
+
   let pattern: RegExp;
   try {
     pattern = new RegExp(patternSource, patternFlags);
@@ -262,7 +298,6 @@ async function handleRegisterSkillRoute(
   });
   // Retain the handle on the connection so disconnect revokes this route;
   // without it, reconnects accumulate routes with no owner to unregister them.
-  const conn = connection as SkillIpcConnection | undefined;
   conn?.addRouteHandle(skillId ?? conn.connectionId, handle);
 
   log.info(
@@ -273,9 +308,23 @@ async function handleRegisterSkillRoute(
 }
 
 async function handleRegisterShutdownHook(
-  params?: Record<string, unknown>,
+  params: Record<string, unknown> | undefined,
+  connection?: unknown,
 ): Promise<{ name: string }> {
   const { name } = RegisterShutdownHookParams.parse(params);
+  const conn = connection as SkillIpcConnection | undefined;
+
+  // Lazy-external short-circuit: shutdown hook already registered by the
+  // manifest loader; just pin the connection so dispatches can flow.
+  if (sessionSupervisor) {
+    if (conn) sessionSupervisor.setActiveConnection(conn);
+    log.info(
+      { name },
+      "Lazy-external mode: skipping shutdown-hook re-registration; manifest hook serves dispatches",
+    );
+    return { name };
+  }
+
   registerShutdownHook(name, async (reason) => {
     // PR 28 replaces this stub with a `skill.shutdown` dispatch that
     // delivers the reason string to the out-of-process skill and awaits

@@ -6,8 +6,8 @@
  * is the one place that knows how to find the bun binary, resolve the
  * installed skill path, spawn the child, wait for its handshake, count
  * active sessions, and idle-shut it down. The IPC surface between the
- * two processes lives in `assistant/src/ipc/skill-server.ts` (PR 20)
- * and the `host.registries.*` routes that back it (PR 24).
+ * two processes lives in `assistant/src/ipc/skill-server.ts` and the
+ * `host.registries.*` routes that back it.
  *
  * ## Lifecycle
  *
@@ -20,10 +20,21 @@
  *     a clear error pointing the user at regenerating the manifest.
  *
  *   - `reportSessionStarted(id)` / `reportSessionEnded(id)` — mutate
- *     the active-session counter. Called by PR 24's
+ *     the active-session counter, called by the
  *     `host.registries.report_session_*` IPC routes. The counter is
  *     tracked by session id (Set of live ids) so duplicate or
  *     out-of-order `ended` frames can't drop the count below zero.
+ *
+ *   - `setActiveConnection(connection)` / `clearActiveConnection()` —
+ *     called by the `host.registries.register_*` route handlers when
+ *     the child sends its first registration frame. Pinning the live
+ *     `SkillIpcConnection` lets `dispatchTool/Route/Shutdown` route
+ *     daemon→skill RPC traffic to the right peer.
+ *
+ *   - `dispatchTool` / `dispatchRoute` / `dispatchShutdown` — send
+ *     `skill.dispatch_*` / `skill.shutdown` frames to the meet-host
+ *     child over the active connection and resolve with its response.
+ *     Used by the manifest proxies installed in `meet-manifest-loader`.
  *
  *   - Idle timer — when the counter reaches zero the supervisor arms
  *     a 5-minute timer (configurable via
@@ -39,11 +50,6 @@
  *     next `ensureRunning()` call respawns.
  *
  *   - `shutdown()` — graceful termination on daemon shutdown.
- *
- * PR 27 adds the supervisor only — it does NOT register any IPC
- * routes or auto-start on daemon boot. PR 28 wires this class into
- * `meet-manifest-loader.ts` so proxy tool invocations call
- * `ensureRunning()` before dispatching.
  */
 
 import {
@@ -54,6 +60,7 @@ import {
 import { connect as defaultConnect, type Socket } from "node:net";
 
 import { getConfig, getNestedValue } from "../config/loader.js";
+import type { SkillIpcConnection } from "../ipc/skill-server.js";
 import { getSkillSocketPath } from "../ipc/skill-socket-path.js";
 import { getLogger } from "../util/logger.js";
 
@@ -82,6 +89,24 @@ export interface MeetHostHandshakePayload {
 }
 
 /**
+ * Minimal sender surface the supervisor needs to dispatch frames over
+ * the bidirectional skill IPC channel. {@link SkillIpcServer.sendRequest}
+ * satisfies this shape; tests can pass a stub that records calls instead.
+ *
+ * Pulling the dependency through a one-method interface keeps the
+ * supervisor unaware of the rest of the IPC server's surface and avoids a
+ * circular import in tests that already stub `skill-server.js`.
+ */
+export interface SkillRequestSender {
+  sendRequest(
+    connection: SkillIpcConnection,
+    method: string,
+    params?: unknown,
+    opts?: { timeoutMs?: number },
+  ): Promise<unknown>;
+}
+
+/**
  * Dependencies the supervisor needs to spawn and supervise the
  * child. All are optional on construction — production callers
  * rely on the defaults and tests override one or two at a time.
@@ -95,6 +120,13 @@ export interface MeetHostSupervisorDeps {
   skillSocketPath?: string;
   /** Shipped manifest (source of the hash we check handshake against). */
   manifest: MeetHostManifest;
+  /**
+   * Sender used to dispatch `skill.dispatch_*` and `skill.shutdown` frames
+   * back to the meet-host child over the active IPC connection. Optional
+   * because PR D wires this in only on the lazy-external path; tests that
+   * exercise lifecycle without dispatch can omit it.
+   */
+  ipcSender?: SkillRequestSender;
   /** Child-process spawn function (override for tests). */
   spawnFn?: (
     command: string,
@@ -124,6 +156,32 @@ const DEFAULT_GRACEFUL_EXIT_GRACE_MS = 2_000;
 const DEFAULT_SIGKILL_GRACE_MS = 1_000;
 
 const log = getLogger("meet-host-supervisor");
+
+/**
+ * Module-level reference to the daemon's `SkillIpcServer.sendRequest`
+ * capability. The bootstrap constructs the supervisor before the
+ * `DaemonServer` instance exists, so the supervisor cannot receive the
+ * sender via constructor injection on the production path. The daemon
+ * sets this once during construction (see `daemon/server.ts`) and the
+ * supervisor consults it lazily at dispatch time. Tests still inject
+ * `ipcSender` directly via constructor deps and bypass this global.
+ */
+let globalIpcSender: SkillRequestSender | null = null;
+
+/**
+ * Install the daemon-wide skill IPC sender used by every supervisor that
+ * doesn't carry an explicit `ipcSender` dep. Idempotent: re-installing
+ * the same sender is a no-op so the daemon can call this from any setup
+ * path without double-wiring.
+ */
+export function setGlobalSkillIpcSender(sender: SkillRequestSender): void {
+  globalIpcSender = sender;
+}
+
+/** Test-only: drop the global sender between tests. */
+export function __clearGlobalSkillIpcSenderForTesting(): void {
+  globalIpcSender = null;
+}
 
 /**
  * Read the idle timeout from config, falling back to the default. The
@@ -162,6 +220,7 @@ export class MeetHostSupervisor {
   private readonly idleTimeoutMs: number;
   private readonly gracefulExitGraceMs: number;
   private readonly sigkillGraceMs: number;
+  private readonly ipcSender: SkillRequestSender | null;
 
   private child: ChildProcess | null = null;
   private spawnPromise: Promise<void> | null = null;
@@ -170,12 +229,20 @@ export class MeetHostSupervisor {
   private readonly activeSessions = new Set<string>();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private shuttingDown = false;
+  /**
+   * Live IPC connection to the meet-host child. Captured by the
+   * `host.registries.register_*` route handlers when the child sends its
+   * first registration frame, cleared on disconnect/shutdown. Dispatch
+   * methods reject when this is `null`.
+   */
+  private activeConnection: SkillIpcConnection | null = null;
 
   constructor(deps: MeetHostSupervisorDeps) {
     this.skillRuntimePath = deps.skillRuntimePath;
     this.bunBinaryPath = deps.bunBinaryPath;
     this.skillSocketPath = deps.skillSocketPath ?? getSkillSocketPath();
     this.manifest = deps.manifest;
+    this.ipcSender = deps.ipcSender ?? null;
     this.spawnFn = deps.spawnFn ?? defaultSpawn;
     this.connectFn = deps.connectFn ?? defaultConnect;
     this.idleTimeoutMs =
@@ -284,9 +351,150 @@ export class MeetHostSupervisor {
   }
 
   /**
+   * Register the live IPC connection to the meet-host child. The
+   * `host.registries.register_*` route handlers call this once the child
+   * has dialed the skill socket and started installing tools/routes —
+   * that handshake doubles as the signal that the child is ready to
+   * receive `skill.dispatch_*` frames.
+   *
+   * Re-registering with the same connection is a no-op so duplicate
+   * `register_tools` / `register_skill_route` / `register_shutdown_hook`
+   * frames from the same child do not churn the field. A different
+   * connection replaces the old one — the prior child is presumed dead
+   * (its socket close path has already cleared its handles via
+   * {@link clearActiveConnection} or `dispose()`).
+   */
+  setActiveConnection(connection: SkillIpcConnection): void {
+    if (this.activeConnection === connection) return;
+    this.activeConnection = connection;
+    log.debug(
+      { connectionId: connection.connectionId },
+      "Active meet-host IPC connection registered",
+    );
+  }
+
+  /**
+   * Drop the active IPC connection. Called by route handlers (or future
+   * connection-disconnect plumbing) when the meet-host child goes away;
+   * subsequent dispatches will trigger a fresh `ensureRunning()` and a
+   * new handshake before any frame is sent.
+   */
+  clearActiveConnection(): void {
+    if (!this.activeConnection) return;
+    log.debug(
+      { connectionId: this.activeConnection.connectionId },
+      "Active meet-host IPC connection cleared",
+    );
+    this.activeConnection = null;
+  }
+
+  /**
+   * Dispatch a tool invocation to the meet-host child over the
+   * bidirectional IPC channel. Spawns the child first if it isn't
+   * running, fails fast if no IPC sender was injected, and propagates
+   * any remote error back to the caller (the LLM-facing tool execute).
+   */
+  async dispatchTool(
+    name: string,
+    input: unknown,
+    context?: unknown,
+  ): Promise<unknown> {
+    const connection = await this.ensureConnection(`dispatch_tool:${name}`);
+    const sender = this.requireSender(`dispatch_tool:${name}`);
+    const response = await sender.sendRequest(
+      connection,
+      "skill.dispatch_tool",
+      {
+        name,
+        input,
+        context,
+      },
+    );
+    // The skill-side handler wraps the tool's return value in
+    // `{ result }` so the daemon can distinguish the wrapper from a
+    // potentially-undefined tool return; unwrap before handing back.
+    if (
+      response &&
+      typeof response === "object" &&
+      "result" in (response as Record<string, unknown>)
+    ) {
+      return (response as { result: unknown }).result;
+    }
+    return response;
+  }
+
+  /**
+   * Dispatch an HTTP route invocation to the meet-host child. The skill
+   * looks up the route by `patternSource`, invokes its handler with a
+   * synthesized `Request`, and returns a `{ status, headers, body }`
+   * envelope the daemon-side proxy materializes back into a `Response`.
+   */
+  async dispatchRoute(
+    patternSource: string,
+    request: {
+      method: string;
+      url: string;
+      headers?: Record<string, string>;
+      body?: string;
+    },
+  ): Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  }> {
+    const connection = await this.ensureConnection(
+      `dispatch_route:${patternSource}`,
+    );
+    const sender = this.requireSender(`dispatch_route:${patternSource}`);
+    const response = await sender.sendRequest(
+      connection,
+      "skill.dispatch_route",
+      { patternSource, request },
+    );
+    return response as {
+      status: number;
+      headers: Record<string, string>;
+      body: string;
+    };
+  }
+
+  /**
+   * Dispatch a shutdown hook invocation. With `name` set, runs only that
+   * hook on the skill side; otherwise the skill runs every registered
+   * hook in reverse-registration order. Returns once the skill has
+   * acknowledged completion. Safe to call when no connection is active
+   * (or no sender is wired) — the call is a best-effort notification and
+   * silently no-ops in those cases since the supervisor's process-level
+   * `shutdown()` will tear the child down regardless.
+   */
+  async dispatchShutdown(name?: string, reason?: string): Promise<void> {
+    if (!this.activeConnection) {
+      log.debug(
+        { name, reason },
+        "dispatchShutdown skipped: no active meet-host connection",
+      );
+      return;
+    }
+    const sender = this.ipcSender ?? globalIpcSender;
+    if (!sender) {
+      log.debug(
+        { name, reason },
+        "dispatchShutdown skipped: no IPC sender available",
+      );
+      return;
+    }
+    const params: Record<string, unknown> = {};
+    if (name !== undefined) params.name = name;
+    if (reason !== undefined) params.reason = reason;
+    await sender.sendRequest(this.activeConnection, "skill.shutdown", params);
+  }
+
+  /**
    * Graceful termination. Cancels the idle timer, sends
    * `skill.shutdown` to the child, then SIGTERM → SIGKILL on
-   * escalation. Safe to call multiple times.
+   * escalation. Safe to call multiple times. `stopChild` calls
+   * `teardownChild` which already nulls `activeConnection`, so no
+   * separate clear is needed here.
    */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
@@ -394,6 +602,42 @@ export class MeetHostSupervisor {
     this.handshakeResolve = null;
     this.handshakeReject = null;
     this.activeSessions.clear();
+    // The connection belonged to the dying child. Drop it so the next
+    // ensureRunning re-handshake captures a fresh handle, even if the
+    // server's socket-close path hasn't run yet (event ordering varies).
+    this.activeConnection = null;
+  }
+
+  /**
+   * Resolve the active IPC connection, spawning the child if necessary.
+   * Throws a clear error when no connection is registered after
+   * `ensureRunning` resolves — that means the child handshook against the
+   * supervisor but never reached the registries route handlers, which is
+   * a packaging or wiring bug rather than a transient state.
+   */
+  private async ensureConnection(
+    callContext: string,
+  ): Promise<SkillIpcConnection> {
+    if (!this.activeConnection) {
+      await this.ensureRunning();
+    }
+    if (!this.activeConnection) {
+      throw new Error(
+        `meet-host dispatch (${callContext}): handshake completed but no IPC connection was registered. ` +
+          "This indicates the meet-host child finished spawning without invoking host.registries.register_*; check the bootstrap wiring.",
+      );
+    }
+    return this.activeConnection;
+  }
+
+  private requireSender(callContext: string): SkillRequestSender {
+    const sender = this.ipcSender ?? globalIpcSender;
+    if (!sender) {
+      throw new Error(
+        `meet-host dispatch (${callContext}): no IPC sender configured on the supervisor.`,
+      );
+    }
+    return sender;
   }
 
   private armIdleTimer(): void {

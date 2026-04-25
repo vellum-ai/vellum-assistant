@@ -114,6 +114,7 @@ import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
 import { HostTransferProxy } from "./host-transfer-proxy.js";
+import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
@@ -445,6 +446,12 @@ export class DaemonServer {
       this.conversations.get(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
+    // Wire the skill IPC server into the meet-host supervisor's lazy
+    // dispatch path. The supervisor is constructed in
+    // `external-skills-bootstrap.ts` at module-load time — earlier than
+    // this DaemonServer instance exists — so the sender flows through a
+    // module-level global rather than constructor injection.
+    setGlobalSkillIpcSender(this.skillIpc);
     this.evictor.onEvict = (conversationId: string) => {
       getSubagentManager().abortAllForParent(conversationId);
     };

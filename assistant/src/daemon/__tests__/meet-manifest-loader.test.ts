@@ -2,11 +2,13 @@
  * Unit tests for `loadMeetManifestProxies`.
  *
  * Covers the shape of the proxy `Tool` and `SkillRoute` entries the
- * loader installs, the "dispatch not implemented" stub behavior, and
- * the shutdown-hook wiring. The real `MeetHostSupervisor` is replaced
- * with a shallow stub so the test never touches `child_process.spawn`
- * or Unix domain sockets. Manifest JSON is written to a tmp fixture
- * path so the loader exercises its real `readFileSync` code path.
+ * loader installs, the live dispatch behaviour (calls
+ * `supervisor.dispatchTool/Route/Shutdown` and surfaces the result),
+ * and the shutdown-hook wiring. The real `MeetHostSupervisor` is
+ * replaced with a shallow stub so the test never touches
+ * `child_process.spawn` or Unix domain sockets. Manifest JSON is
+ * written to a tmp fixture path so the loader exercises its real
+ * `readFileSync` code path.
  */
 
 import { writeFileSync } from "node:fs";
@@ -56,34 +58,70 @@ type SupervisorStub = {
   supervisor: MeetHostSupervisor;
   ensureRunning: ReturnType<typeof mock>;
   shutdown: ReturnType<typeof mock>;
+  dispatchTool: ReturnType<typeof mock>;
+  dispatchRoute: ReturnType<typeof mock>;
+  dispatchShutdown: ReturnType<typeof mock>;
   reportSessionStarted: ReturnType<typeof mock>;
   reportSessionEnded: ReturnType<typeof mock>;
 };
 
+interface SupervisorOverrides {
+  dispatchToolResult?: unknown;
+  dispatchToolError?: Error;
+  dispatchRouteResult?: {
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+  };
+  dispatchRouteError?: Error;
+  dispatchShutdownError?: Error;
+}
+
 function makeSupervisorStub(
-  overrides: { ensureRunningError?: Error } = {},
+  overrides: SupervisorOverrides = {},
 ): SupervisorStub {
-  const ensureRunning = mock(async () => {
-    if (overrides.ensureRunningError) {
-      throw overrides.ensureRunningError;
-    }
-  });
+  const ensureRunning = mock(async () => {});
   const shutdown = mock(async () => {});
+  const dispatchTool = mock(async () => {
+    if (overrides.dispatchToolError) throw overrides.dispatchToolError;
+    return overrides.dispatchToolResult ?? { ok: true };
+  });
+  const dispatchRoute = mock(async () => {
+    if (overrides.dispatchRouteError) throw overrides.dispatchRouteError;
+    return (
+      overrides.dispatchRouteResult ?? {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+        body: "skill-handled",
+      }
+    );
+  });
+  const dispatchShutdown = mock(async () => {
+    if (overrides.dispatchShutdownError) throw overrides.dispatchShutdownError;
+  });
   const reportSessionStarted = mock((_id: string) => {});
   const reportSessionEnded = mock((_id: string) => {});
   const supervisor = {
     ensureRunning,
     shutdown,
+    dispatchTool,
+    dispatchRoute,
+    dispatchShutdown,
     reportSessionStarted,
     reportSessionEnded,
     activeSessionCount: 0,
     isRunning: false,
     notifyHandshake: () => undefined,
+    setActiveConnection: () => undefined,
+    clearActiveConnection: () => undefined,
   } as unknown as MeetHostSupervisor;
   return {
     supervisor,
     ensureRunning,
     shutdown,
+    dispatchTool,
+    dispatchRoute,
+    dispatchShutdown,
     reportSessionStarted,
     reportSessionEnded,
   };
@@ -150,8 +188,52 @@ describe("loadMeetManifestProxies", () => {
     );
   });
 
-  test("proxy tool execute calls ensureRunning and throws not-implemented", async () => {
-    const stub = makeSupervisorStub();
+  test("proxy tool execute dispatches through supervisor.dispatchTool and returns the result", async () => {
+    const stub = makeSupervisorStub({
+      dispatchToolResult: { joinUrl: "https://example.test/m/abc" },
+    });
+    const captured: Array<() => Tool[]> = [];
+
+    await loadMeetManifestProxies(stub.supervisor, {
+      manifestPath,
+      registerTools: (p) => captured.push(p),
+      registerRoute: () => undefined,
+      registerShutdown: () => undefined,
+    });
+
+    const tool = captured[0]!()[0]!;
+    const result = await tool.execute(
+      { url: "https://example.test/meet/x" },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-xyz",
+        trustClass: "guardian",
+        assistantId: "self",
+      },
+    );
+
+    expect(result as unknown).toEqual({
+      joinUrl: "https://example.test/m/abc",
+    });
+    expect(stub.dispatchTool).toHaveBeenCalledTimes(1);
+    const call = stub.dispatchTool.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(call[0]).toBe("meet_demo");
+    expect(call[1]).toEqual({ url: "https://example.test/meet/x" });
+    // The serialized context should carry conversationId and trustClass at
+    // minimum so meet-join's tools can read them on the skill side.
+    expect(call[2].conversationId).toBe("conv-xyz");
+    expect(call[2].trustClass).toBe("guardian");
+    expect(call[2].assistantId).toBe("self");
+  });
+
+  test("proxy tool execute propagates supervisor.dispatchTool errors", async () => {
+    const stub = makeSupervisorStub({
+      dispatchToolError: new Error("remote tool exploded"),
+    });
     const captured: Array<() => Tool[]> = [];
 
     await loadMeetManifestProxies(stub.supervisor, {
@@ -171,12 +253,17 @@ describe("loadMeetManifestProxies", () => {
           trustClass: "guardian",
         },
       ),
-    ).rejects.toThrow(/dispatch not implemented/i);
-    expect(stub.ensureRunning).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow(/remote tool exploded/);
   });
 
-  test("proxy route handler returns 501 with not-implemented body", async () => {
-    const stub = makeSupervisorStub();
+  test("proxy route handler dispatches through supervisor.dispatchRoute and materializes the response", async () => {
+    const stub = makeSupervisorStub({
+      dispatchRouteResult: {
+        status: 202,
+        headers: { "content-type": "application/json", "x-skill": "meet" },
+        body: '{"received":true}',
+      },
+    });
     const routes: SkillRoute[] = [];
 
     await loadMeetManifestProxies(stub.supervisor, {
@@ -188,11 +275,6 @@ describe("loadMeetManifestProxies", () => {
 
     expect(routes).toHaveLength(1);
     const route = routes[0]!;
-    // The JS engine may escape forward slashes when normalizing the source
-    // string; compare via a fresh RegExp constructed from the manifest
-    // entry so the assertion is engine-insensitive.
-    expect(route.pattern.test("/api/skills/meet/test/events")).toBe(true);
-    expect(route.pattern.test("/something/else")).toBe(false);
     expect(route.methods).toEqual(["POST"]);
 
     const match = "/api/skills/meet/test-id/events".match(route.pattern);
@@ -200,17 +282,37 @@ describe("loadMeetManifestProxies", () => {
     const response = await route.handler(
       new Request("http://localhost/api/skills/meet/test-id/events", {
         method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"hello":"world"}',
       }),
       match,
     );
-    expect(response.status).toBe(501);
-    expect(await response.text()).toMatch(/dispatch not implemented/i);
-    expect(stub.ensureRunning).toHaveBeenCalledTimes(1);
+
+    expect(response.status).toBe(202);
+    expect(await response.text()).toBe('{"received":true}');
+    expect(response.headers.get("x-skill")).toBe("meet");
+
+    expect(stub.dispatchRoute).toHaveBeenCalledTimes(1);
+    const call = stub.dispatchRoute.mock.calls[0] as [
+      string,
+      {
+        method: string;
+        url: string;
+        headers?: Record<string, string>;
+        body?: string;
+      },
+    ];
+    expect(call[0]).toBe("^/api/skills/meet/([^/]+)/events$");
+    expect(call[1].method).toBe("POST");
+    expect(call[1].url).toBe("http://localhost/api/skills/meet/test-id/events");
+    expect(call[1].body).toBe('{"hello":"world"}');
+    expect(call[1].headers?.["content-type"]).toBe("application/json");
   });
 
-  test("proxy route handler returns 503 when ensureRunning fails", async () => {
-    const err = new Error("spawn failed");
-    const stub = makeSupervisorStub({ ensureRunningError: err });
+  test("proxy route handler returns 503 when supervisor.dispatchRoute throws", async () => {
+    const stub = makeSupervisorStub({
+      dispatchRouteError: new Error("connection lost"),
+    });
     const routes: SkillRoute[] = [];
 
     await loadMeetManifestProxies(stub.supervisor, {
@@ -232,7 +334,7 @@ describe("loadMeetManifestProxies", () => {
     expect(response.status).toBe(503);
   });
 
-  test("registers shutdown hooks that call supervisor.shutdown()", async () => {
+  test("registers shutdown hooks that dispatch the named hook and tear down the supervisor", async () => {
     const stub = makeSupervisorStub();
     const hooks: Array<{
       name: string;
@@ -250,6 +352,33 @@ describe("loadMeetManifestProxies", () => {
 
     expect(hooks.map((h) => h.name)).toEqual(["meet-host-shutdown"]);
     await hooks[0]!.run("daemon-shutdown");
+    expect(stub.dispatchShutdown).toHaveBeenCalledTimes(1);
+    const call = stub.dispatchShutdown.mock.calls[0] as [string, string];
+    expect(call[0]).toBe("meet-host-shutdown");
+    expect(call[1]).toBe("daemon-shutdown");
+    expect(stub.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  test("shutdown hook still tears down the supervisor when dispatchShutdown fails", async () => {
+    const stub = makeSupervisorStub({
+      dispatchShutdownError: new Error("connection gone"),
+    });
+    const hooks: Array<{
+      name: string;
+      run: (reason: string) => Promise<void>;
+    }> = [];
+
+    await loadMeetManifestProxies(stub.supervisor, {
+      manifestPath,
+      registerTools: () => undefined,
+      registerRoute: () => undefined,
+      registerShutdown: (name, hook) => {
+        hooks.push({ name, run: hook });
+      },
+    });
+
+    await hooks[0]!.run("daemon-shutdown");
+    expect(stub.dispatchShutdown).toHaveBeenCalledTimes(1);
     expect(stub.shutdown).toHaveBeenCalledTimes(1);
   });
 

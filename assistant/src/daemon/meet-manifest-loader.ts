@@ -24,16 +24,12 @@
  *    entry, and a shutdown hook for every declared hook name.
  * 3. Each proxy tool's `execute` and each proxy route handler call
  *    `supervisor.ensureRunning()` before attempting to dispatch over the
- *    skill IPC socket. Dispatch itself is **not yet implemented** because
- *    the current JSON-lines protocol (see `assistant/src/ipc/skill-server.ts`)
- *    models the daemon as the server and the skill as the client — the
- *    daemon has no way to issue an RPC in the skill's direction without
- *    the protocol extension slated for a later PR. Invocations therefore
- *    throw a clear "dispatch not implemented" error.
- *
- * Since the flag defaults to `false`, this throw is unreachable on main.
- * PR 32 extends the protocol (or picks a different direction model) and
- * replaces the throw with a real round-trip before flipping the default.
+ *    skill IPC socket. Dispatch itself is implemented via the
+ *    bidirectional skill IPC RPC: the proxy invokes
+ *    `supervisor.dispatchTool` / `dispatchRoute` / `dispatchShutdown`,
+ *    which sends a `skill.dispatch_*` frame to the meet-host child and
+ *    awaits its response. Remote errors propagate to the LLM (for tools)
+ *    or to the HTTP caller (for routes) as normal.
  *
  * ## Manifest path
  *
@@ -52,7 +48,12 @@ import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import { registerSkillRoute } from "../runtime/skill-route-registry.js";
 import { getRepoSkillsDir } from "../skills/catalog-install.js";
 import { registerExternalTools } from "../tools/registry.js";
-import type { ExecutionTarget, Tool, ToolDefinition } from "../tools/types.js";
+import type {
+  ExecutionTarget,
+  Tool,
+  ToolContext,
+  ToolDefinition,
+} from "../tools/types.js";
 import { RiskLevel } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getSkillRuntimePath } from "../util/platform.js";
@@ -88,12 +89,6 @@ interface Manifest {
   sourceHash: string;
 }
 
-function notImplementedError(context: string): Error {
-  return new Error(
-    `meet-host dispatch not implemented — requires server-initiated IPC (follow-up): ${context}`,
-  );
-}
-
 function coerceRiskLevel(value: string, toolName: string): RiskLevel {
   // Manifest `risk` is a serialized RiskLevel ("low" | "medium" | "high").
   const allowed: readonly string[] = ["low", "medium", "high"];
@@ -103,6 +98,42 @@ function coerceRiskLevel(value: string, toolName: string): RiskLevel {
     );
   }
   return value as RiskLevel;
+}
+
+/**
+ * Allowlist of {@link ToolContext} fields that survive JSON serialization
+ * cleanly and that a remote skill might reasonably consult. Function /
+ * AbortSignal / CesClient / proxy fields are intentionally excluded —
+ * they cannot cross the IPC boundary.
+ */
+const SERIALIZABLE_TOOL_CONTEXT_KEYS = [
+  "workingDir",
+  "conversationId",
+  "trustClass",
+  "assistantId",
+  "taskRunId",
+  "requestId",
+  "executionChannel",
+  "callSessionId",
+  "principal",
+  "toolUseId",
+  "memoryScopeId",
+  "requesterExternalUserId",
+  "requesterChatId",
+  "requesterIdentifier",
+  "requesterDisplayName",
+  "transportInterface",
+  "isInteractive",
+  "isPlatformHosted",
+] as const satisfies ReadonlyArray<keyof ToolContext>;
+
+function serializeToolContext(context: ToolContext): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of SERIALIZABLE_TOOL_CONTEXT_KEYS) {
+    const value = context[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
 }
 
 function buildProxyTool(
@@ -128,15 +159,20 @@ function buildProxyTool(
     ownerSkillBundled: true,
     ownerSkillVersionHash: manifestHash,
     getDefinition: () => definition,
-    execute: async () => {
-      // Ensure the meet-host child is alive before attempting dispatch so
-      // handshake/hash-mismatch failures surface before we hit the
-      // not-implemented throw. This matters for diagnostic symmetry
-      // with PR 32's real dispatch path — when PR 32 replaces the throw
-      // with a `skill.dispatch_tool` round-trip, the ensureRunning call
-      // remains unchanged.
-      await supervisor.ensureRunning();
-      throw notImplementedError(`tool=${entry.name}`);
+    execute: async (input, context) => {
+      // `dispatchTool` ensures the meet-host child is up + connected
+      // before sending the frame, so callers don't need a separate
+      // `ensureRunning()` call. Remote errors propagate as normal.
+      const result = await supervisor.dispatchTool(
+        entry.name,
+        input,
+        serializeToolContext(context),
+      );
+      // The skill returns whatever its `Tool.execute` produced — the
+      // daemon-side ToolExecutor expects `ToolExecutionResult` shape but
+      // proxies forward verbatim; the LLM-facing executor reconciles the
+      // shape downstream.
+      return result as Awaited<ReturnType<Tool["execute"]>>;
     },
   };
 }
@@ -156,23 +192,43 @@ function buildProxyRoute(
   return {
     pattern,
     methods: [...entry.methods],
-    handler: async () => {
+    handler: async (request) => {
+      let response: {
+        status: number;
+        headers: Record<string, string>;
+        body: string;
+      };
       try {
-        await supervisor.ensureRunning();
+        // Materialize the inbound Request into a JSON-serializable
+        // envelope: skill-side `dispatchRoute` reconstructs a fresh
+        // `Request(url, init)` from this shape and runs the skill's
+        // handler against it.
+        const headers: Record<string, string> = {};
+        request.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+        const method = request.method;
+        const body =
+          method === "GET" || method === "HEAD"
+            ? undefined
+            : await request.text();
+        response = await supervisor.dispatchRoute(entry.pattern, {
+          method,
+          url: request.url,
+          headers,
+          ...(body !== undefined ? { body } : {}),
+        });
       } catch (err) {
         log.warn(
           { err, pattern: entry.pattern },
-          "meet-host supervisor ensureRunning failed while handling proxy route",
+          "meet-host route dispatch failed",
         );
-        return new Response(
-          "meet-host unavailable — supervisor failed to start",
-          { status: 503 },
-        );
+        return new Response("meet-host route dispatch failed", { status: 503 });
       }
-      return new Response(
-        notImplementedError(`route=${entry.pattern}`).message,
-        { status: 501 },
-      );
+      return new Response(response.body, {
+        status: response.status,
+        headers: response.headers,
+      });
     },
   };
 }
@@ -320,7 +376,19 @@ export async function loadMeetManifestProxies(
   }
 
   for (const hookName of manifest.shutdownHooks) {
-    registerShutdown(hookName, async () => {
+    registerShutdown(hookName, async (reason) => {
+      // Fire the named shutdown hook on the skill side so it runs any
+      // teardown the in-process registration would have run. Best-effort:
+      // if the connection is gone or the dispatch throws, the supervisor
+      // still tears down the child below.
+      try {
+        await supervisor.dispatchShutdown(hookName, reason);
+      } catch (err) {
+        log.warn(
+          { err, hookName, reason },
+          "meet-host shutdown hook dispatch failed; continuing with supervisor teardown",
+        );
+      }
       await supervisor.shutdown();
     });
   }
