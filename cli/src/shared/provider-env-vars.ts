@@ -3,8 +3,7 @@
  *
  * Two sources are merged into a single combined map:
  *
- *   1. Search-provider env vars — sourced from `meta/provider-env-vars.json`
- *      (single source of truth, also bundled into the macOS client).
+ *   1. Search-provider env vars — hardcoded below (Brave, Perplexity).
  *   2. LLM-provider env vars — sourced from `PROVIDER_CATALOG` in
  *      `assistant/src/providers/model-catalog.ts` via a locally-maintained
  *      mirror (the CLI does not import from `assistant/src/`; drift is caught
@@ -26,7 +25,7 @@ export const LLM_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   openrouter: "OPENROUTER_API_KEY",
 };
 
-/** Search-provider env var names. Mirrors `meta/provider-env-vars.json`. */
+/** Search-provider env var names. */
 export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   brave: "BRAVE_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",

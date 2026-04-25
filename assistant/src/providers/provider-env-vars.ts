@@ -6,13 +6,8 @@
  *   1. LLM providers — names come from `PROVIDER_CATALOG` in
  *      `model-catalog.ts`. `getLlmProviderEnvVar` consults the catalog
  *      directly.
- *   2. Search providers — names mirror `meta/provider-env-vars.json`
- *      (the single source of truth for the macOS client bundle). The
- *      mirror is an inline constant here; parity is enforced by
- *      `assistant/src/providers/__tests__/provider-env-vars.test.ts`
- *      to prevent drift. We inline rather than read the JSON at runtime
- *      because the daemon is compiled to a binary and `meta/` is not
- *      reliably present at a known path on disk.
+ *   2. Search providers — hardcoded in `SEARCH_PROVIDER_ENV_VAR_NAMES`
+ *      below. The env var name follows the pattern `${ID}_API_KEY`.
  *
  * Use `getLlmProviderEnvVar` when you're scoped to LLM providers,
  * `getSearchProviderEnvVar` when you're scoped to search providers, and
@@ -24,10 +19,7 @@
  */
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 
-/**
- * Search-provider env var names. Mirrors `meta/provider-env-vars.json`.
- * Parity with the JSON file is enforced by `provider-env-vars.test.ts`.
- */
+/** Search-provider env var names. */
 export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   brave: "BRAVE_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",

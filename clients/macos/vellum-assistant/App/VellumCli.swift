@@ -98,8 +98,7 @@ final class VellumCli: AssistantManagementClient {
     /// Combines two sources:
     ///   - LLM providers from `LLMProviderRegistry` (`meta/llm-provider-catalog.json`,
     ///     the single source of truth for LLM provider metadata).
-    ///   - Search providers from `meta/provider-env-vars.json` (still the single
-    ///     source of truth for search providers like Brave and Perplexity).
+    ///   - Search providers hardcoded below (Brave, Perplexity).
     ///
     /// Search-provider entries overwrite any LLM entry with the same id, but in
     /// practice the two id namespaces do not overlap.
@@ -110,14 +109,8 @@ final class VellumCli: AssistantManagementClient {
                 combined[provider.id] = envVar
             }
         }
-        if let searchProviders = loadProviderEnvVarRegistry()?.providers {
-            for (id, envVar) in searchProviders {
-                combined[id] = envVar
-            }
-        } else {
-            combined["brave"] = "BRAVE_API_KEY"
-            combined["perplexity"] = "PERPLEXITY_API_KEY"
-        }
+        combined["brave"] = "BRAVE_API_KEY"
+        combined["perplexity"] = "PERPLEXITY_API_KEY"
         return combined
     }()
 

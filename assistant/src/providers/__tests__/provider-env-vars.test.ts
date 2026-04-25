@@ -1,12 +1,9 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
   getAnyProviderEnvVar,
   getLlmProviderEnvVar,
   getSearchProviderEnvVar,
-  SEARCH_PROVIDER_ENV_VAR_NAMES,
 } from "../provider-env-vars.js";
 
 describe("getLlmProviderEnvVar", () => {
@@ -80,23 +77,5 @@ describe("getAnyProviderEnvVar", () => {
 
   test("returns undefined for unknown provider", () => {
     expect(getAnyProviderEnvVar("unknown")).toBeUndefined();
-  });
-});
-
-describe("SEARCH_PROVIDER_ENV_VAR_NAMES parity with meta/provider-env-vars.json", () => {
-  // The daemon inlines the search-provider env-var map rather than reading
-  // meta/provider-env-vars.json at runtime (compiled binary, no reliable
-  // repo-relative path). This parity check prevents drift: the inline map
-  // must stay in sync with the canonical JSON file consumed by the macOS
-  // client bundle and the CLI cloud-infra flows.
-  test("inline map matches meta/provider-env-vars.json providers", () => {
-    const repoRoot = join(process.cwd(), "..");
-    const metaPath = join(repoRoot, "meta", "provider-env-vars.json");
-    const raw = readFileSync(metaPath, "utf-8");
-    const parsed = JSON.parse(raw) as {
-      version: number;
-      providers: Record<string, string>;
-    };
-    expect(SEARCH_PROVIDER_ENV_VAR_NAMES).toEqual(parsed.providers);
   });
 });
