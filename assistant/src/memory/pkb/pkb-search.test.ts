@@ -20,7 +20,12 @@ const searchCalls: Array<{
   filter?: unknown;
 }> = [];
 
-type Payload = { target_type: string; target_id: string; path?: string };
+type Payload = {
+  target_type: string;
+  target_id: string;
+  path?: string;
+  text?: string;
+};
 type ScoredPoint = { id: string; score: number; payload: Payload };
 
 let hybridResults: ScoredPoint[] = [];
@@ -241,6 +246,80 @@ describe("searchPkbFiles", () => {
     expect(same?.hybridScore).toBe(0.03);
     expect(other?.denseScore).toBe(0.7);
     expect(other?.hybridScore).toBeUndefined();
+  });
+
+  test("propagates snippet from the best matching chunk without changing ranking", async () => {
+    denseResults = [
+      {
+        id: "chunk-1",
+        score: 0.9,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-1",
+          path: "/notes/same.md",
+          text: "Dense best chunk.",
+        },
+      },
+      {
+        id: "chunk-2",
+        score: 0.5,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-2",
+          path: "/notes/same.md",
+          text: "Dense weaker chunk.",
+        },
+      },
+      {
+        id: "chunk-3",
+        score: 0.7,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-3",
+          path: "/notes/other.md",
+          text: "Other dense chunk.",
+        },
+      },
+    ];
+    hybridResults = [
+      {
+        id: "chunk-2",
+        score: 0.04,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-2",
+          path: "/notes/same.md",
+          text: "Hybrid best chunk.",
+        },
+      },
+      {
+        id: "chunk-1",
+        score: 0.02,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-1",
+          path: "/notes/same.md",
+          text: "Hybrid weaker chunk.",
+        },
+      },
+    ];
+
+    const results = await searchPkbFiles(
+      [0.1],
+      { indices: [1], values: [1] },
+      10,
+    );
+
+    expect(results.map((r) => r.path)).toEqual([
+      "/notes/same.md",
+      "/notes/other.md",
+    ]);
+    const same = results.find((r) => r.path === "/notes/same.md");
+    const other = results.find((r) => r.path === "/notes/other.md");
+    expect(same?.denseScore).toBe(0.9);
+    expect(same?.hybridScore).toBe(0.04);
+    expect(same?.snippet).toBe("Hybrid best chunk.");
+    expect(other?.snippet).toBe("Other dense chunk.");
   });
 
   test("hybrid-only hits (no dense match) are dropped so they can't evict dense-qualified paths before the slice", async () => {

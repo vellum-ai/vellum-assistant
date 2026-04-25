@@ -7,12 +7,13 @@ import {
   isQdrantBreakerOpen,
   withQdrantBreaker,
 } from "../qdrant-circuit-breaker.js";
-import {
-  getQdrantClient,
-  type QdrantSearchResult,
-  type QdrantSparseVector,
+import type {
+  QdrantSearchResult,
+  QdrantSparseVector,
 } from "../qdrant-client.js";
-import { PKB_TARGET_TYPE, type PkbSearchResult } from "./types.js";
+import { getQdrantClient } from "../qdrant-client.js";
+import type { PkbSearchResult } from "./types.js";
+import { PKB_TARGET_TYPE } from "./types.js";
 
 const log = getLogger("pkb-search");
 
@@ -117,12 +118,16 @@ export async function searchPkbFiles(
   // the top-`limit` window before callers ever get a chance to gate on
   // denseScore. Dropping them keeps gating meaningful with the pre-slice.
   const merged: PkbSearchResult[] = [];
-  for (const [path, denseScore] of denseByPath) {
-    const hybridScore = hybridByPath.get(path);
+  for (const [path, denseMatch] of denseByPath) {
+    const hybridMatch = hybridByPath.get(path);
+    const snippet = hybridMatch?.snippet ?? denseMatch.snippet;
     merged.push({
       path,
-      denseScore,
-      ...(useHybrid && hybridScore !== undefined ? { hybridScore } : {}),
+      denseScore: denseMatch.score,
+      ...(useHybrid && hybridMatch !== undefined
+        ? { hybridScore: hybridMatch.score }
+        : {}),
+      ...(snippet !== undefined ? { snippet } : {}),
     });
   }
 
@@ -143,16 +148,24 @@ export async function searchPkbFiles(
   return merged.slice(0, limit);
 }
 
+interface CollapsedPkbMatch {
+  score: number;
+  snippet?: string;
+}
+
 /** Collapse chunk-level Qdrant hits to one score per payload.path (max). */
-function collapseByPath(results: QdrantSearchResult[]): Map<string, number> {
-  const best = new Map<string, number>();
+function collapseByPath(
+  results: QdrantSearchResult[],
+): Map<string, CollapsedPkbMatch> {
+  const best = new Map<string, CollapsedPkbMatch>();
   for (const r of results) {
-    const payload = r.payload as unknown as { path?: unknown };
+    const payload = r.payload as unknown as { path?: unknown; text?: unknown };
     const path = typeof payload.path === "string" ? payload.path : undefined;
     if (!path) continue;
+    const snippet = typeof payload.text === "string" ? payload.text : undefined;
     const existing = best.get(path);
-    if (existing === undefined || r.score > existing) {
-      best.set(path, r.score);
+    if (existing === undefined || r.score > existing.score) {
+      best.set(path, { score: r.score, ...(snippet ? { snippet } : {}) });
     }
   }
   return best;
