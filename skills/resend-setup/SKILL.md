@@ -64,34 +64,36 @@ CALLBACK_URL=$(assistant webhooks register resend --source "$DOMAIN")
 
 If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
 
-#### Registering the webhook with Resend
+#### Registering the webhook and storing the signing secret
 
-Create the webhook in Resend via their API using the webhook URL from above:
+Use the bundled script to register the webhook **and** store the signing secret in one step. The script calls the Resend API, extracts the `signing_secret` from the response, and pipes it directly into the credential store — the secret never passes through the LLM (which avoids sandbox redaction).
 
 ```bash
-curl -X POST https://api.resend.com/webhooks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "<webhook URL>",
-    "events": ["email.received"]
-  }'
+bash scripts/register-webhook.sh "$CALLBACK_URL" "email.received"
 ```
 
-Use `network_mode: "proxied"` with the resend credential so the Authorization header is injected automatically.
+Run this from the skill directory (`skills/resend-setup/`). The script requires `jq` on PATH.
 
-#### Storing the webhook signing secret
+> **Why a script?** The Resend `POST /webhooks` response includes the `signing_secret`, but the sandbox redaction layer strips high-entropy tokens before the LLM can read them. The script handles the entire create-and-store flow in a single process, keeping the secret out of the conversation.
 
-Store the signing secret so the gateway can verify inbound webhooks:
+If the script isn't available or fails, fall back to the manual flow:
 
-```
-credential_store:
-  action: "prompt"
-  service: resend
-  field: webhook_secret
-  label: "Resend Webhook Signing Secret"
-  placeholder: "whsec_xxxxxxxxx"
-  description: "Signing secret from your Resend webhook settings (for verifying inbound emails)"
-```
+1. Create the webhook via the Resend API (use `network_mode: "proxied"` with the resend credential):
+   ```bash
+   curl -X POST https://api.resend.com/webhooks \
+     -H "Content-Type: application/json" \
+     -d '{"url": "<webhook URL>", "events": ["email.received"]}'
+   ```
+2. Ask the user to grab the signing secret from their Resend dashboard → Webhooks, then collect it securely:
+   ```
+   credential_store:
+     action: "prompt"
+     service: resend
+     field: webhook_secret
+     label: "Resend Webhook Signing Secret"
+     placeholder: "whsec_xxxxxxxxx"
+     description: "Signing secret from your Resend webhook settings (for verifying inbound emails)"
+   ```
 
 ## Sending Email
 
