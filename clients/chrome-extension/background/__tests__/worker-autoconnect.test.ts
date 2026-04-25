@@ -123,7 +123,7 @@ class MissingTokenError extends Error {
 
 interface RelayAuthError {
   message: string;
-  mode: 'cloud' | 'self-hosted';
+  mode: 'self-hosted' | 'vellum-cloud';
   at: number;
 }
 
@@ -198,8 +198,10 @@ async function simulateBootstrap(
   } catch (err) {
     state.shouldConnect = false;
     const detail = err instanceof Error ? err.message : String(err);
-    const mode: 'cloud' | 'self-hosted' =
-      state.currentAuthProfile === 'vellum-cloud' ? 'cloud' : 'self-hosted';
+    const mode: 'self-hosted' | 'vellum-cloud' =
+      state.currentAuthProfile === 'vellum-cloud'
+        ? 'vellum-cloud'
+        : 'self-hosted';
 
     // Persist auth error exactly once for popup display.
     await state.storage.set({
@@ -379,7 +381,7 @@ describe('failed auto-connect — no reconnect loop', () => {
 
     const errorResult = await state.storage.get(RELAY_AUTH_ERROR_KEY);
     const persisted = errorResult[RELAY_AUTH_ERROR_KEY] as RelayAuthError;
-    expect(persisted.mode).toBe('cloud');
+    expect(persisted.mode).toBe('vellum-cloud');
     expect(persisted.message).toBe(errorMessage);
   });
 
