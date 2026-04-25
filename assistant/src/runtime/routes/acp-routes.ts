@@ -10,7 +10,7 @@ import {
   broadcastToAllClients,
   getAcpSessionManager,
 } from "../../acp/index.js";
-import { getConfig } from "../../config/loader.js";
+import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -51,16 +51,26 @@ export function acpRouteDefinitions(): RouteDefinition[] {
             400,
           );
         }
-        const config = getConfig();
-        if (!config.acp.enabled) {
-          return httpError("BAD_REQUEST", "ACP is not enabled", 400);
-        }
-        const agentConfig = config.acp.agents[body.agent];
-        if (!agentConfig) {
-          const available = Object.keys(config.acp.agents).join(", ") || "none";
+        const resolved = resolveAcpAgent(body.agent);
+        if (!resolved.ok) {
+          if (resolved.reason === "acp_disabled") {
+            return httpError("BAD_REQUEST", resolved.hint, 400);
+          }
+          if (resolved.reason === "unknown_agent") {
+            return httpError(
+              "BAD_REQUEST",
+              `Unknown agent "${body.agent}". Available: ${resolved.available.join(", ")}.`,
+              400,
+            );
+          }
+          // binary_not_found — `httpError` does not currently expose a
+          // FAILED_DEPENDENCY (424) code, so surface as 400 with the
+          // command + install hint inline so other clients of
+          // POST /v1/acp/spawn see the same actionable text the LLM
+          // tool surfaces.
           return httpError(
             "BAD_REQUEST",
-            `Unknown agent "${body.agent}". Available: ${available}`,
+            `${resolved.agent.command} is not on PATH. ${resolved.hint}`,
             400,
           );
         }
@@ -77,7 +87,7 @@ export function acpRouteDefinitions(): RouteDefinition[] {
           broadcastToAllClients ?? ((_msg) => log.warn("No broadcast fn set"));
         const { acpSessionId, protocolSessionId } = await manager.spawn(
           body.agent,
-          agentConfig,
+          resolved.agent,
           body.task,
           body.cwd ?? process.cwd(),
           body.conversationId,
