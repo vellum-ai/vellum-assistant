@@ -45,14 +45,14 @@ interface SuggestTrustRuleResponse {
 
 const SUGGEST_RULE_TOOL = {
   name: "suggest_trust_rule",
-  description: "Suggest a trust rule for the given command.",
+  description: "Suggest a trust rule for the given action.",
   input_schema: {
     type: "object" as const,
     properties: {
       pattern: {
         type: "string",
         description:
-          "Glob pattern for the trust rule (e.g. 'rm -rf *' or 'git push *')",
+          "Glob pattern for the trust rule (e.g. 'rm -rf *', 'git push *', or 'send_email *')",
       },
       risk: {
         type: "string",
@@ -62,7 +62,7 @@ const SUGGEST_RULE_TOOL = {
       scope: {
         type: "string",
         description:
-          "Optional directory scope path glob (e.g. '/workspace/scratch/*') or 'everywhere'. Omit for non-filesystem commands.",
+          "Optional directory scope path glob (e.g. '/workspace/scratch/*') or 'everywhere'. Omit for non-filesystem actions.",
       },
       description: {
         type: "string",
@@ -77,24 +77,24 @@ const SUGGEST_RULE_TOOL = {
 // System prompt
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are helping a developer configure trust rules for an AI coding assistant.
+const SYSTEM_PROMPT = `You are helping a user configure trust rules for their AI assistant.
 
-Trust rules classify commands into risk levels:
-- low: safe/read-only commands that auto-approve when threshold ≤ low
-- medium: write/network commands that auto-approve when threshold ≤ medium
-- high: destructive/irreversible commands that always prompt
+Trust rules classify actions into risk levels:
+- low: safe, read-only, or routine actions that auto-approve when threshold ≤ low
+- medium: actions that modify data, access the network, or send messages that auto-approve when threshold ≤ medium
+- high: destructive, irreversible, or sensitive actions (e.g. deleting data, sending messages on behalf of the user, financial operations) that always prompt
 
 A user's "auto-approve threshold" controls which risk levels auto-approve. If threshold
-is "medium", then low and medium commands auto-approve; high always prompts.
+is "medium", then low and medium actions auto-approve; high always prompts.
 
-Your task: suggest ONE trust rule for a specific command invocation. The user has
+Your task: suggest ONE trust rule for a specific action invocation. The user has
 indicated their intent:
-- "auto_approve": pick a risk level ≤ currentThreshold so this class of commands
-  auto-approves in future (the user wants less friction for this command type)
-- "escalate": pick a risk level > currentThreshold so this class of commands
-  prompts in future (the user wants to be asked before running this type)
+- "auto_approve": pick a risk level ≤ currentThreshold so this class of actions
+  auto-approves in future (the user wants less friction for this type of action)
+- "escalate": pick a risk level > currentThreshold so this class of actions
+  prompts in future (the user wants to be asked before this type of action runs)
 
-The scopeOptions are pre-generated pattern options for this command (narrowest to
+The scopeOptions are pre-generated pattern options for this action (narrowest to
 broadest). You may select one of these or generate your own pattern that better
 captures the intent. The goal is a pattern specific enough to be meaningful but
 broad enough to cover similar future invocations.
