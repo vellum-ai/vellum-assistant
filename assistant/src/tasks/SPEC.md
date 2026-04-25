@@ -76,8 +76,8 @@ This means:
 - **Per-task boundaries**: Different tasks have different scopes and cannot see
   each other's memory.
 
-This mirrors the existing `private:{id}` scoping pattern used by private
-conversations (see `conversation-crud.ts`), extended to a new `task:` namespace.
+This follows the same explicit `scope_id` isolation model used by workspace
+memory (`default`, `_pkb_workspace`) and subagent memory (`subagent:{id}`).
 
 ---
 

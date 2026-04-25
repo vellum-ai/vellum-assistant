@@ -223,7 +223,7 @@ export interface ReextractTarget {
 
 /**
  * Find the top N conversations by message count for re-extraction.
- * Excludes background and private conversations.
+ * Excludes background and scheduled conversations.
  */
 export function findReextractTargets(limit: number): ReextractTarget[] {
   const db = getDb();

@@ -21,7 +21,7 @@ initializeDb();
 
 function ensureConversation(
   id: string,
-  options?: { conversationType?: string; originChannel?: string },
+  options?: { originChannel?: string },
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -31,9 +31,6 @@ function ensureConversation(
       title: `Conversation ${id}`,
       createdAt: now,
       updatedAt: now,
-      ...(options?.conversationType
-        ? { conversationType: options.conversationType }
-        : {}),
       ...(options?.originChannel
         ? { originChannel: options.originChannel }
         : {}),
@@ -203,7 +200,7 @@ describe("addPointerMessage", () => {
 
   test("untrusted audience uses deterministic fallback even with processor set", () => {
     const convId = "conv-ptr-untrusted";
-    ensureConversation(convId, { conversationType: "standard" });
+    ensureConversation(convId);
 
     const processorCalled = { value: false };
     setPointerMessageProcessor(async () => {
@@ -213,13 +210,13 @@ describe("addPointerMessage", () => {
     addPointerMessage(convId, "started", "+15551234567");
     const text = getLatestAssistantText(convId);
     expect(text).toContain("Call to +15551234567 started");
-    // processor not called because standard conversationType + no origin = untrusted
+    // processor not called because no trusted provenance or origin is present
     expect(processorCalled.value).toBe(false);
   });
 
   test("explicit untrusted audience mode skips processor", () => {
     const convId = "conv-ptr-explicit-untrusted";
-    ensureConversation(convId, { conversationType: "private" });
+    ensureConversation(convId, { originChannel: "vellum" });
 
     const processorCalled = { value: false };
     setPointerMessageProcessor(async () => {
@@ -240,7 +237,7 @@ describe("addPointerMessage", () => {
 
   test("trusted audience routes through daemon processor with required facts", async () => {
     const convId = "conv-ptr-trusted";
-    ensureConversation(convId, { conversationType: "private" });
+    ensureConversation(convId, { originChannel: "vellum" });
 
     let capturedInstruction = "";
     let capturedFacts: string[] = [];
@@ -265,7 +262,7 @@ describe("addPointerMessage", () => {
 
   test("trusted audience falls back to deterministic on processor failure", async () => {
     const convId = "conv-ptr-processor-fail";
-    ensureConversation(convId, { conversationType: "private" });
+    ensureConversation(convId, { originChannel: "vellum" });
 
     setPointerMessageProcessor(async () => {
       throw new Error("Daemon unavailable");
@@ -313,7 +310,7 @@ describe("addPointerMessage", () => {
 
   test("guardian provenance trust class is detected as trusted audience", async () => {
     const convId = "conv-ptr-guardian-provenance";
-    ensureConversation(convId, { conversationType: "standard" });
+    ensureConversation(convId);
     // Add a user message with guardian provenance metadata
     await addMessage(convId, "user", "hello", {
       provenanceTrustClass: "guardian",
@@ -330,7 +327,7 @@ describe("addPointerMessage", () => {
 
   test("trusted_contact provenance trust class is detected as trusted audience", async () => {
     const convId = "conv-ptr-tc-provenance";
-    ensureConversation(convId, { conversationType: "standard" });
+    ensureConversation(convId);
     // Add a user message with trusted_contact provenance metadata
     await addMessage(convId, "user", "hello", {
       provenanceTrustClass: "trusted_contact",
@@ -347,7 +344,7 @@ describe("addPointerMessage", () => {
 
   test("unknown provenance trust class does not grant trusted audience", () => {
     const convId = "conv-ptr-unknown-provenance";
-    ensureConversation(convId, { conversationType: "standard" });
+    ensureConversation(convId);
     addMessage(convId, "user", "hello", { provenanceTrustClass: "unknown" });
 
     const processorCalled = { value: false };

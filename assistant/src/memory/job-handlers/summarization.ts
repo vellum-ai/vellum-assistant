@@ -91,8 +91,8 @@ export async function buildConversationSummaryJob(
     "conversation",
   );
 
-  // Inherit the conversation's memory scope so private conversation
-  // summaries stay isolated from default-scope retrieval.
+  // Inherit the conversation's memory scope so summaries stay aligned with
+  // the retrieval scope used by the source conversation.
   const scopeId = getConversationMemoryScopeId(conversationId);
 
   const now = Date.now();

@@ -1725,8 +1725,8 @@ export function getConversationOriginInterface(
  * in the given conversation, or `undefined` if none is found.
  *
  * Used by the pointer message trust resolver to detect conversations
- * whose audience is a guardian or trusted_contact (even if the
- * conversation itself isn't a desktop-origin private conversation).
+ * whose audience is a guardian or trusted_contact outside desktop-origin
+ * conversations.
  */
 export function getConversationRecentProvenanceTrustClass(
   conversationId: string,

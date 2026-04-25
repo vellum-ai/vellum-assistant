@@ -20,13 +20,15 @@ const mockGetConversation = mock(
     ({
       id: "conv-1",
       title: "Source",
-      conversationType: "normal",
+      conversationType: "standard",
     }) as Record<string, unknown> | null,
 );
-const mockGetMessages = mock(() => [{ id: "m-source" }] as Array<{ id: string }>);
-const mockCreateConversation = mock(
-  (_opts?: Record<string, unknown>) => ({ id: "analysis-new" }),
+const mockGetMessages = mock(
+  () => [{ id: "m-source" }] as Array<{ id: string }>,
 );
+const mockCreateConversation = mock((_opts?: Record<string, unknown>) => ({
+  id: "analysis-new",
+}));
 const mockAddMessage = mock(async () => ({ id: "msg-1" }));
 const mockFindAnalysisConversationFor = mock(
   (_parent: string) => null as { id: string } | null,
@@ -61,7 +63,7 @@ beforeEach(() => {
   mockGetConversation.mockImplementation(() => ({
     id: "conv-1",
     title: "Source",
-    conversationType: "normal",
+    conversationType: "standard",
   }));
   mockGetMessages.mockReset();
   mockGetMessages.mockImplementation(() => [{ id: "m-source" }]);
@@ -132,24 +134,6 @@ describe("analyzeConversation", () => {
     if (!("error" in result)) throw new Error("expected error");
     expect(result.error.kind).toBe("NOT_FOUND");
     expect(result.error.status).toBe(404);
-  });
-
-  test("returns FORBIDDEN when the source conversation is private", async () => {
-    mockGetConversation.mockImplementation(() => ({
-      id: "conv-1",
-      title: "Private",
-      conversationType: "private",
-    }));
-    const deps = makeDeps(makeConversation());
-
-    const result = await analyzeConversation("conv-1", deps, {
-      trigger: "manual",
-    });
-
-    expect("error" in result).toBe(true);
-    if (!("error" in result)) throw new Error("expected error");
-    expect(result.error.kind).toBe("FORBIDDEN");
-    expect(result.error.status).toBe(403);
   });
 
   test("returns BAD_REQUEST when the source conversation has no messages", async () => {
@@ -414,8 +398,9 @@ describe("analyzeConversation", () => {
 
     await analyzeConversation("conv-1", deps, { trigger: "auto" });
 
-    const calls = deps.getOrCreateConversation.mock
-      .calls as unknown as Array<[string, Record<string, unknown> | undefined]>;
+    const calls = deps.getOrCreateConversation.mock.calls as unknown as Array<
+      [string, Record<string, unknown> | undefined]
+    >;
     expect(calls.length).toBe(1);
     const passedOpts = calls[0]?.[1];
     if (passedOpts !== undefined) {
