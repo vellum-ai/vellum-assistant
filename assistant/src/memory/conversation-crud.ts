@@ -1327,6 +1327,21 @@ export async function setConversationInferenceProfile(
 }
 
 /**
+ * Resolve the per-turn inference-profile override for a conversation.
+ * Returns the row's `inferenceProfile` for non-background conversations,
+ * `undefined` otherwise — background turns (subagent fan-out, scheduled
+ * tasks, update bulletins) run on the workspace defaults rather than
+ * inheriting an interactive override.
+ */
+export function getConversationOverrideProfile(
+  conversationId: string,
+): string | undefined {
+  const conv = getConversation(conversationId);
+  if (conv?.conversationType === "background") return undefined;
+  return conv?.inferenceProfile ?? undefined;
+}
+
+/**
  * Delete all conversations, messages, and related data (tool invocations,
  * memory segments, etc.) from the daemon database.
  * Returns { conversations, messages } counts.

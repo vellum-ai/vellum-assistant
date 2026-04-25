@@ -52,6 +52,7 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
+  getConversationOverrideProfile,
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
@@ -616,8 +617,14 @@ export async function runAgentLoopImpl(
 
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
-  // this turn.
-  const turnOverrideProfile = options?.overrideProfile;
+  // this turn. Caller-supplied `options.overrideProfile` (e.g.
+  // SubagentManager forwarding the parent's pinned profile into the
+  // spawned subagent's background conversation) wins over the row read
+  // so the agent loop's own background-skip rule doesn't zero out an
+  // explicitly inherited override.
+  const turnOverrideProfile =
+    options?.overrideProfile ??
+    getConversationOverrideProfile(ctx.conversationId);
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.

@@ -1,3 +1,4 @@
+import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -36,11 +37,13 @@ export async function executeSubagentSpawn(
   }
 
   // ── Fork mode: resolve parent context ────────────────────────────
-  let forkFields: {
-    fork: true;
-    parentMessages: import("../../providers/types.js").Message[];
-    parentSystemPrompt: string;
-  } | undefined;
+  let forkFields:
+    | {
+        fork: true;
+        parentMessages: import("../../providers/types.js").Message[];
+        parentSystemPrompt: string;
+      }
+    | undefined;
 
   if (fork) {
     const parentConversation = manager.resolveParentConversation?.(
@@ -65,6 +68,15 @@ export async function executeSubagentSpawn(
     };
   }
 
+  // The subagent runs as its own background conversation, so the agent
+  // loop's background-skip rule would zero out any inherited profile.
+  // Pass the parent's profile explicitly via `SubagentConfig` so the
+  // PR 6 plumbing in `SubagentManager.spawn` forwards it back into the
+  // subagent's `runAgentLoop` call as `options.overrideProfile`.
+  const inheritedOverrideProfile = getConversationOverrideProfile(
+    context.conversationId,
+  );
+
   try {
     const subagentId = await manager.spawn(
       {
@@ -77,6 +89,9 @@ export async function executeSubagentSpawn(
         // but we still omit it from the config to signal intent.
         ...(!fork && role
           ? { role: role as import("../../subagent/types.js").SubagentRole }
+          : {}),
+        ...(inheritedOverrideProfile
+          ? { overrideProfile: inheritedOverrideProfile }
           : {}),
         ...forkFields,
       },
