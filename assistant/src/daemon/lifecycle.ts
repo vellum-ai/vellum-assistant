@@ -1078,7 +1078,6 @@ export async function runDaemon(): Promise<void> {
           ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
         }));
       },
-      deriveDefaultStrictSideEffects: () => false,
     });
     try {
       await runtimeHttp.start();

@@ -10,7 +10,8 @@
  * All tests are test.todo — they document expected behavior for bugs
  * to be fixed in subsequent PRs (PR 2 for tests 1–5, PR 3 for tests 6–7).
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { createRequire } from "node:module";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -20,6 +21,12 @@ import type {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+
+const conversationCrudRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../memory/conversation-crud.js",
+  ) as Record<string, unknown>),
+};
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -167,6 +174,13 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageMetadata: () => {},
   clearStrippedInjectionMetadataForConversation: () => {},
 }));
+
+afterAll(() => {
+  mock.module(
+    "../memory/conversation-crud.js",
+    () => conversationCrudRealSnapshot,
+  );
+});
 
 mock.module("../memory/retriever.js", () => ({
   buildMemoryRecall: async () => ({

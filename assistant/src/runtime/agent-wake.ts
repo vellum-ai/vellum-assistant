@@ -381,7 +381,12 @@ export async function wakeAgentForOpportunity(
           undefined, // no external abort signal
           `wake:${source}`,
           undefined, // onCheckpoint
-          undefined, // callSite
+          // Route through `mainAgent` — same as a normal user turn on this
+          // conversation. Without an explicit callSite, the resolver in
+          // `RetryProvider` and the routing in `CallSiteRoutingProvider`
+          // short-circuit and silently drop both `llm.callSites.mainAgent`
+          // config and the pinned `overrideProfile` below.
+          "mainAgent",
           undefined, // turnContext
           overrideProfile,
         );

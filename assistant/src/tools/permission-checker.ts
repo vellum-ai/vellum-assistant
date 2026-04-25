@@ -159,7 +159,7 @@ export class PermissionChecker {
         context.signal,
       );
 
-      // Private conversations force prompting for side-effect tools even when a
+      // Some callers force prompting for side-effect tools even when a
       // trust/allow rule would auto-allow. Deny decisions are preserved -
       // only allow → prompt promotion happens here.
       if (
@@ -168,8 +168,7 @@ export class PermissionChecker {
         isSideEffectTool(name, input)
       ) {
         result.decision = "prompt";
-        result.reason =
-          "Private conversation: side-effect tools require explicit approval";
+        result.reason = "Side-effect tool requires explicit approval";
       }
 
       // requireFreshApproval independently promotes allow → prompt so that

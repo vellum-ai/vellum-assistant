@@ -50,7 +50,6 @@ export interface VoiceBridgeDeps {
     data: string;
     filePath?: string;
   }>;
-  deriveDefaultStrictSideEffects: (conversationId: string) => boolean;
 }
 
 let deps: VoiceBridgeDeps | undefined;
@@ -256,11 +255,9 @@ export async function startVoiceTurn(
   // Voice has no interactive permission/secret UI, so apply explicit
   // per-role policies:
   // - guardian: permission prompts auto-allow (parity with guardian chat)
-  // - everyone else (including unknown): fail-closed strict side-effects
-  //   with auto-deny confirmations.
+  // - everyone else (including unknown): auto-deny confirmations.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
-  const forceStrictSideEffects = isGuardian ? undefined : true;
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
   // persisting. The marker must not appear as a user message in conversation
@@ -315,13 +312,6 @@ export async function startVoiceTurn(
   }
 
   // Configure conversation for this voice turn
-  const strictSideEffects =
-    forceStrictSideEffects ??
-    deps.deriveDefaultStrictSideEffects(opts.conversationId);
-  conversation.memoryPolicy = {
-    ...conversation.memoryPolicy,
-    strictSideEffects,
-  };
   conversation.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
   conversation.callSessionId = opts.callSessionId;
   conversation.setTrustContext(opts.trustContext ?? null);

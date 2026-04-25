@@ -64,7 +64,7 @@ function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
     getQueueDepth: () => 0,
     processMessage: async () => "",
     withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
-    memoryPolicy: { scopeId: "default", strictSideEffects: false },
+    memoryPolicy: { scopeId: "default" },
     ...overrides,
   };
 }
@@ -106,7 +106,7 @@ const noopLifecycleHandler = mock(() => {});
 describe("session-tool-setup memoryScopeId propagation", () => {
   test("passes default memoryScopeId to executor context", async () => {
     const ctx = makeCtx({
-      memoryPolicy: { scopeId: "default", strictSideEffects: false },
+      memoryPolicy: { scopeId: "default" },
     });
     const { executor, getCaptured } = makeCapturingExecutor();
 
@@ -126,7 +126,7 @@ describe("session-tool-setup memoryScopeId propagation", () => {
 
   test("passes custom memoryScopeId from session memory policy", async () => {
     const ctx = makeCtx({
-      memoryPolicy: { scopeId: "private-thread-abc", strictSideEffects: false },
+      memoryPolicy: { scopeId: "custom-scope-abc" },
     });
     const { executor, getCaptured } = makeCapturingExecutor();
 
@@ -140,12 +140,12 @@ describe("session-tool-setup memoryScopeId propagation", () => {
 
     await toolFn("memory_write", { content: "test" });
 
-    expect(getCaptured()!.memoryScopeId).toBe("private-thread-abc");
+    expect(getCaptured()!.memoryScopeId).toBe("custom-scope-abc");
   });
 
   test("reads memoryScopeId at call time, not construction time", async () => {
     const ctx = makeCtx({
-      memoryPolicy: { scopeId: "initial", strictSideEffects: false },
+      memoryPolicy: { scopeId: "initial" },
     });
     const { executor, getCaptured } = makeCapturingExecutor();
 
@@ -158,7 +158,7 @@ describe("session-tool-setup memoryScopeId propagation", () => {
     );
 
     // Mutate the memory policy after construction
-    ctx.memoryPolicy = { scopeId: "updated-scope", strictSideEffects: false };
+    ctx.memoryPolicy = { scopeId: "updated-scope" };
 
     await toolFn("some_tool", {});
 

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { createRequire } from "node:module";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -8,6 +9,17 @@ import type {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+
+const conversationCrudRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../memory/conversation-crud.js",
+  ) as Record<string, unknown>),
+};
+const conversationDiskViewRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../memory/conversation-disk-view.js",
+  ) as Record<string, unknown>),
+};
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -149,6 +161,17 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
 }));
+
+afterAll(() => {
+  mock.module(
+    "../memory/conversation-crud.js",
+    () => conversationCrudRealSnapshot,
+  );
+  mock.module(
+    "../memory/conversation-disk-view.js",
+    () => conversationDiskViewRealSnapshot,
+  );
+});
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
