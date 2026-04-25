@@ -324,6 +324,7 @@ export const LLMSchema = z
     // are seeded into the user's on-disk config by migration 040, not at
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
+    activeProfile: z.string().optional(),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
@@ -337,6 +338,16 @@ export const LLMSchema = z
           message: `Profile "${siteConfig.profile}" referenced by call site "${siteId}" is not defined in llm.profiles`,
         });
       }
+    }
+    if (
+      config.activeProfile != null &&
+      !profileNames.has(config.activeProfile)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["activeProfile"],
+        message: `Profile "${config.activeProfile}" referenced by llm.activeProfile is not defined in llm.profiles`,
+      });
     }
   });
 

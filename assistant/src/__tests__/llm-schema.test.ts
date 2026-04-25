@@ -202,6 +202,49 @@ describe("LLMSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  test("activeProfile undefined parses fine", () => {
+    const result = LLMSchema.safeParse({
+      default: fullDefault,
+      profiles: { fast: { speed: "fast" } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activeProfile).toBeUndefined();
+    }
+  });
+
+  test("activeProfile referencing existing profile parses fine", () => {
+    const result = LLMSchema.safeParse({
+      default: fullDefault,
+      profiles: { fast: { speed: "fast" } },
+      activeProfile: "fast",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activeProfile).toBe("fast");
+    }
+  });
+
+  test("activeProfile referencing missing profile fails superRefine", () => {
+    const result = LLMSchema.safeParse({
+      default: fullDefault,
+      profiles: { fast: { speed: "fast" } },
+      activeProfile: "ghost",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message);
+      expect(messages.join("\n")).toContain(
+        'Profile "ghost" referenced by llm.activeProfile is not defined in llm.profiles',
+      );
+      const issue = result.error.issues.find(
+        (i) =>
+          i.message.includes("ghost") && i.message.includes("activeProfile"),
+      );
+      expect(issue?.path).toEqual(["activeProfile"]);
+    }
+  });
+
   test("contextWindow deep-partial override accepted (nested overflowRecovery only)", () => {
     const result = LLMSchema.safeParse({
       default: fullDefault,
