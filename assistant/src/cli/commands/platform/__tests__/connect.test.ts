@@ -16,7 +16,7 @@ let mockGetSecureKeyAsync: (
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../../../../../security/secure-keys.js", () => ({
+mock.module("../../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: (account: string) => mockGetSecureKeyAsync(account),
   getSecureKeyResultAsync: async () => ({
     value: undefined,

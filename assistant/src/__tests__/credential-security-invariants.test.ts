@@ -228,6 +228,13 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
       "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
+      "cli/commands/avatar.ts", // CLI avatar command credential lookup
+      "cli/commands/credentials.ts", // CLI credential management commands
+      "cli/commands/keys.ts", // CLI provider key management
+      "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
+      "cli/commands/platform/connect.ts", // CLI platform connect credential check
+      "cli/commands/platform/disconnect.ts", // CLI platform disconnect credential lookup
+      "cli/commands/platform/index.ts", // CLI platform status credential check
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

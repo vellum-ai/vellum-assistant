@@ -32,7 +32,7 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async () => "",
 }));
 
-mock.module("../../../../../security/secure-keys.js", () => ({
+mock.module("../../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: (account: string) => mockGetSecureKeyAsync(account),
   getSecureKeyResultAsync: async () => ({
     value: undefined,
