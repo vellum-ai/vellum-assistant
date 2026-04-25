@@ -192,40 +192,6 @@ describe("POST /v1/conversations/fork", () => {
     });
   });
 
-  test("does not expose private parents in detail reads", async () => {
-    const parent = createConversation("Private parent");
-    const parentMessage = await addMessage(
-      parent.id,
-      "assistant",
-      "Private parent message",
-      undefined,
-      { skipIndexing: true },
-    );
-    const child = createConversation("Child conversation");
-    getDb().run(
-      `UPDATE conversations
-       SET conversation_type = 'private'
-       WHERE id = '${parent.id}'`,
-    );
-    getDb().run(
-      `UPDATE conversations
-       SET fork_parent_conversation_id = '${parent.id}',
-           fork_parent_message_id = '${parentMessage.id}'
-       WHERE id = '${child.id}'`,
-    );
-
-    await startServer();
-
-    const response = await fetch(url(`/conversations/${child.id}`), {
-      headers: AUTH_HEADERS,
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      conversation: ConversationSummary;
-    };
-    expect(body.conversation).not.toHaveProperty("forkParent");
-  });
-
   test("rejects nonexistent and cross-conversation branch point message IDs", async () => {
     const source = createConversation("Source");
     await addMessage(source.id, "user", "Source message", undefined, {

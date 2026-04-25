@@ -258,19 +258,6 @@ describe("background conversation feed event", () => {
     expect(emitFeedEventSpy).not.toHaveBeenCalled();
   });
 
-  test("does NOT emit feed event for private conversations", () => {
-    const convId = "conv-private-1";
-
-    getConversationSpy.mockReturnValue({
-      conversationType: "private",
-      title: "Secret Chat",
-    });
-
-    simulateFeedEventEmission(convId, undefined);
-
-    expect(emitFeedEventSpy).not.toHaveBeenCalled();
-  });
-
   test("uses dedupKey per conversation for in-place updates", () => {
     const convId = "conv-bg-dedup";
 

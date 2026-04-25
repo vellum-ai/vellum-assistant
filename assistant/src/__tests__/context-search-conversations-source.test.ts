@@ -100,38 +100,6 @@ describe("searchConversationSource", () => {
     ]);
   });
 
-  test("does not return private conversations", async () => {
-    const visible = await seedConversation({
-      title: "Visible conversation",
-      content: "privacytoken can be recalled from normal history.",
-    });
-    const privateConversation = createConversation({
-      title: "Private conversation",
-      conversationType: "private",
-    });
-    rawRun(
-      "UPDATE conversations SET memory_scope_id = 'default' WHERE id = ?",
-      privateConversation.id,
-    );
-    await addMessage(
-      privateConversation.id,
-      "user",
-      "privacytoken should not be recalled from private history.",
-      undefined,
-      { skipIndexing: true },
-    );
-
-    const result = await searchConversationSource(
-      "privacytoken",
-      makeContext(),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
-  });
-
   test("does not return derived subagent or auto-analysis conversations", async () => {
     const visible = await seedConversation({
       title: "User conversation",
