@@ -1,5 +1,5 @@
 import * as realChildProcess from "node:child_process";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolContext } from "../types.js";
 
@@ -57,8 +57,17 @@ mock.module("node:child_process", () => ({
   execFile: execFileMock,
 }));
 
-// Mock config so getConfig() returns enabled ACP with our test agents.
-const mockConfig = {
+// Mock config so getConfig() returns enabled ACP with our test agents. The
+// resolver consumes this same loader, so updates here are visible to it.
+interface MockConfig {
+  acp: {
+    enabled: boolean;
+    maxConcurrentSessions: number;
+    agents: Record<string, { command: string; args: string[] }>;
+  };
+}
+
+const defaultMockConfig: MockConfig = {
   acp: {
     enabled: true,
     maxConcurrentSessions: 5,
@@ -70,9 +79,24 @@ const mockConfig = {
   },
 };
 
+let mockConfig: MockConfig = structuredClone(defaultMockConfig);
+
 mock.module("../../config/loader.js", () => ({
   getConfig: () => mockConfig,
 }));
+
+// Swap Bun.which with a stub so the resolver's PATH preflight is deterministic
+// regardless of the host environment. By default every command resolves; tests
+// override `whichStub` to simulate a missing binary.
+const originalWhich = Bun.which;
+let whichStub: (command: string) => string | null = (cmd) =>
+  `/usr/local/bin/${cmd}`;
+(Bun as unknown as { which: (cmd: string) => string | null }).which = (cmd) =>
+  whichStub(cmd);
+
+afterAll(() => {
+  (Bun as unknown as { which: typeof originalWhich }).which = originalWhich;
+});
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -121,6 +145,8 @@ beforeEach(() => {
   execFileMock.mockClear();
   spawnMock.mockClear();
   _resetAdapterVersionCacheForTests();
+  mockConfig = structuredClone(defaultMockConfig);
+  whichStub = (cmd) => `/usr/local/bin/${cmd}`;
 });
 
 // ---------------------------------------------------------------------------
@@ -282,5 +308,51 @@ describe("executeAcpSpawn — input validation", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('Unknown agent "nonexistent"');
+    // New error message lists the merged catalog (defaults + user agents).
+    expect(result.content).toContain("Available:");
+  });
+
+  test("acp disabled returns error with config hint", async () => {
+    mockConfig.acp.enabled = false;
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("acp.enabled");
+  });
+
+  test("missing binary returns install hint", async () => {
+    whichStub = () => null;
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("claude-agent-acp is not on PATH");
+    expect(result.content).toContain(
+      "npm i -g @agentclientprotocol/claude-agent-acp",
+    );
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  test("default-profile fallback when user config is empty", async () => {
+    // No user `agents.codex` entry, but `agent: "codex"` works via the bundled
+    // default profile (command: "codex-acp"). The resolver merges defaults
+    // automatically.
+    mockConfig.acp.agents = {};
+    execScripts.set("npm ls", { error: new Error("npm not installed") });
+    execScripts.set("npm view", { error: new Error("npm not installed") });
+
+    const result = await executeAcpSpawn(
+      { agent: "codex", task: "do something" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // The agentConfig handed to spawn() should be the bundled default.
+    const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
+    expect(agentConfigArg.command).toBe("codex-acp");
   });
 });
