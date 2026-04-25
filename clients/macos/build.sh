@@ -1567,6 +1567,7 @@ APP_ICON="$SCRIPT_DIR/build-resources/AppIcon.icon"
 # Overlay environment-specific icon into the .icon bundle so both actool
 # (Assets.car / Liquid Glass) and the .icns generation use the correct source.
 if [ -n "$ICON_SOURCE_DIR" ]; then
+    mkdir -p "$APP_ICON/Assets"
     cp "$ICON_SOURCE_DIR/icon.json" "$APP_ICON/icon.json"
     cp -R "$ICON_SOURCE_DIR/Assets/" "$APP_ICON/Assets/"
 fi
