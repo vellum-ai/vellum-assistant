@@ -67,7 +67,17 @@ export class GatewayIpcServer {
   private socketPath: string;
 
   constructor(routes?: IpcRoute[]) {
-    this.socketPath = resolveIpcSocketPath("gateway.sock");
+    const resolution = resolveIpcSocketPath(
+      "gateway.sock",
+      "GATEWAY_IPC_SOCKET_DIR",
+    );
+    this.socketPath = resolution.path;
+    if (resolution.source !== "workspace") {
+      log.warn(
+        { source: resolution.source, resolvedPath: resolution.path },
+        "Gateway IPC socket using non-workspace path",
+      );
+    }
     if (routes) {
       for (const route of routes) {
         this.methods.set(route.method, route.handler);
@@ -276,5 +286,5 @@ export class GatewayIpcServer {
 // ---------------------------------------------------------------------------
 
 export function getDefaultSocketPath(): string {
-  return resolveIpcSocketPath("gateway.sock");
+  return resolveIpcSocketPath("gateway.sock", "GATEWAY_IPC_SOCKET_DIR").path;
 }

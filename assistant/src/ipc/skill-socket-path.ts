@@ -7,12 +7,25 @@
  */
 
 import { getWorkspaceDir } from "../util/platform.js";
-import { resolveIpcSocketPath } from "./socket-path.js";
+import {
+  type IpcSocketPathResolution,
+  resolveIpcSocketPath,
+} from "./socket-path.js";
 
 export const SKILL_IPC_SOCKET_FILE_NAME = "assistant-skill.sock";
+
+export function resolveSkillIpcSocketPath(
+  workspaceDir: string = getWorkspaceDir(),
+): IpcSocketPathResolution {
+  return resolveIpcSocketPath(
+    SKILL_IPC_SOCKET_FILE_NAME,
+    "SKILL_IPC_SOCKET_DIR",
+    workspaceDir,
+  );
+}
 
 export function getSkillSocketPath(
   workspaceDir: string = getWorkspaceDir(),
 ): string {
-  return resolveIpcSocketPath(SKILL_IPC_SOCKET_FILE_NAME, workspaceDir);
+  return resolveSkillIpcSocketPath(workspaceDir).path;
 }

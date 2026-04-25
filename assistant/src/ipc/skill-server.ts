@@ -56,7 +56,7 @@ import {
   skillIpcRoutes,
   skillIpcStreamingRoutes,
 } from "./skill-routes/index.js";
-import { getSkillSocketPath } from "./skill-socket-path.js";
+import { resolveSkillIpcSocketPath } from "./skill-socket-path.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 
 const log = getLogger("skill-ipc-server");
@@ -268,11 +268,6 @@ class SkillIpcConnectionState implements SkillIpcConnection {
 // Server
 // ---------------------------------------------------------------------------
 
-export interface SkillIpcServerOptions {
-  /** Override the socket path (tests). Defaults to the resolver output. */
-  socketPath?: string;
-}
-
 export class SkillIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
@@ -293,8 +288,15 @@ export class SkillIpcServer {
   private nextConnectionId = 1;
   private socketPath: string;
 
-  constructor(options: SkillIpcServerOptions = {}) {
-    this.socketPath = options.socketPath ?? getSkillSocketPath();
+  constructor() {
+    const resolution = resolveSkillIpcSocketPath();
+    this.socketPath = resolution.path;
+    if (resolution.source !== "workspace") {
+      log.warn(
+        { source: resolution.source, resolvedPath: resolution.path },
+        "Skill IPC socket using non-workspace path",
+      );
+    }
     for (const route of skillIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }

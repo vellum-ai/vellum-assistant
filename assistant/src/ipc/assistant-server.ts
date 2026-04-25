@@ -64,7 +64,17 @@ export class AssistantIpcServer {
   private socketPath: string;
 
   constructor() {
-    this.socketPath = resolveIpcSocketPath("assistant.sock");
+    const resolution = resolveIpcSocketPath(
+      "assistant.sock",
+      "ASSISTANT_IPC_SOCKET_DIR",
+    );
+    this.socketPath = resolution.path;
+    if (resolution.source !== "workspace") {
+      log.warn(
+        { source: resolution.source, resolvedPath: resolution.path },
+        "Assistant IPC socket using non-workspace path",
+      );
+    }
     for (const route of cliIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }
@@ -234,5 +244,6 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 export function getAssistantSocketPath(): string {
-  return resolveIpcSocketPath("assistant.sock");
+  return resolveIpcSocketPath("assistant.sock", "ASSISTANT_IPC_SOCKET_DIR")
+    .path;
 }
