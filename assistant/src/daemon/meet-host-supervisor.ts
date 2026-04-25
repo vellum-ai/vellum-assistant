@@ -123,8 +123,8 @@ export interface MeetHostSupervisorDeps {
   /**
    * Sender used to dispatch `skill.dispatch_*` and `skill.shutdown` frames
    * back to the meet-host child over the active IPC connection. Optional
-   * because PR D wires this in only on the lazy-external path; tests that
-   * exercise lifecycle without dispatch can omit it.
+   * because the bootstrap wires this at runtime via the daemon-wide
+   * sender; tests that exercise lifecycle without dispatch can omit it.
    */
   ipcSender?: SkillRequestSender;
   /** Child-process spawn function (override for tests). */
@@ -371,6 +371,12 @@ export class MeetHostSupervisor {
       { connectionId: connection.connectionId },
       "Active meet-host IPC connection registered",
     );
+    // The first `host.registries.register_*` frame doubles as the
+    // readiness signal: it means `register(client)` ran to completion and
+    // the IPC socket is healthy. Resolve any in-flight handshake so
+    // `ensureRunning()` unblocks. `notifyHandshake` remains the path for
+    // callers that send a dedicated hash-bearing handshake frame.
+    this.handshakeResolve?.();
   }
 
   /**

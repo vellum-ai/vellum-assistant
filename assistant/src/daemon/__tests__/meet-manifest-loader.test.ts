@@ -280,7 +280,7 @@ describe("loadMeetManifestProxies", () => {
     const match = "/api/skills/meet/test-id/events".match(route.pattern);
     if (!match) throw new Error("expected pattern match");
     const response = await route.handler(
-      new Request("http://localhost/api/skills/meet/test-id/events", {
+      new Request("http://localhost/api/skills/meet/test-id/events?ts=1", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: '{"hello":"world"}',
@@ -304,7 +304,9 @@ describe("loadMeetManifestProxies", () => {
     ];
     expect(call[0]).toBe("^/api/skills/meet/([^/]+)/events$");
     expect(call[1].method).toBe("POST");
-    expect(call[1].url).toBe("http://localhost/api/skills/meet/test-id/events");
+    // Skill-side `dispatchRoute` re-runs path-anchored regexes against the
+    // forwarded URL — must be pathname (+ querystring), not absolute URL.
+    expect(call[1].url).toBe("/api/skills/meet/test-id/events?ts=1");
     expect(call[1].body).toBe('{"hello":"world"}');
     expect(call[1].headers?.["content-type"]).toBe("application/json");
   });

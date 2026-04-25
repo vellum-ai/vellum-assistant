@@ -224,6 +224,25 @@ describe("MeetHostSupervisor", () => {
     expect(args).toContain("--skill-id=meet-join");
   });
 
+  test("setActiveConnection resolves a pending handshake (lazy-external readiness)", async () => {
+    harness = makeHarness();
+    const { supervisor } = harness;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    // Production path: the first `host.registries.register_*` frame
+    // funnels through `setActiveConnection`. That should also be the
+    // readiness signal — no separate `notifyHandshake` is wired today.
+    supervisor.setActiveConnection({
+      connectionId: "conn-ready",
+      addRouteHandle: () => undefined,
+      addSkillToolsOwner: () => undefined,
+    } as unknown as Parameters<typeof supervisor.setActiveConnection>[0]);
+
+    await p;
+    expect(supervisor.isRunning).toBe(true);
+  });
+
   test("hash mismatch rejects ensureRunning with a clear error and allows re-spawn", async () => {
     harness = makeHarness({ manifestHash: "expected-hash" });
     const { supervisor, spawnFn, child: firstChild } = harness;

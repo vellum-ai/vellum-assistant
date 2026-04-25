@@ -2,20 +2,19 @@
  * Skill IPC routes — `host.registries.*` surface.
  *
  * Lets an out-of-process skill install tools, HTTP routes, shutdown hooks
- * and session-tracking signals into the daemon's in-memory registries. The
- * register_* routes install proxy entries whose behavior ultimately dispatches
- * back over the same IPC socket via `skill.dispatch_*` calls; those
- * reverse-direction dispatch paths are PR 28's concern, so the proxies here
- * install `execute` / handler / hook stubs that throw a "not implemented —
- * dispatch added in PR 28" error. The shape of the registration (name,
- * description, risk level, execution target, regex, methods) is what matters
- * for this PR — downstream PRs only need to swap the stub body for a real
- * `skill.dispatch_*` round-trip.
+ * and session-tracking signals into the daemon's in-memory registries. When
+ * a {@link MeetHostSupervisor} is attached (production lazy-external path),
+ * the register_* handlers short-circuit because the manifest loader has
+ * already installed proxy entries that round-trip via `skill.dispatch_*`;
+ * the handler simply pins the incoming connection on the supervisor so
+ * dispatches have a target. When no supervisor is attached (tests, boot
+ * race), the handler installs in-memory proxies whose stubs surface a
+ * 501/501-equivalent error — those paths are not exercised end-to-end.
  *
  * `report_session_started` / `report_session_ended` keep an internal counter
- * the PR 27 `MeetHostSupervisor` reads. Until that supervisor lands the
- * counter lives in this module — PR 27 replaces the helper without changing
- * the IPC wire contract.
+ * mirrored to the supervisor's own counter (which is the source of truth
+ * once attached); the local set backs tests that exercise the IPC routes
+ * without a supervisor.
  */
 
 import { z } from "zod";
@@ -200,8 +199,11 @@ function buildProxyTool(manifest: ToolManifest): Tool {
     ownerSkillVersionHash: manifest.ownerSkillVersionHash,
     getDefinition: () => definition,
     execute: async () => {
+      // Only reached when no supervisor is attached (tests/boot race);
+      // the supervisor short-circuit above replaces this with the
+      // manifest's dispatching execute closure on the production path.
       throw new Error(
-        `Skill tool "${manifest.name}" invocation not implemented — dispatch added in PR 28`,
+        `Skill tool "${manifest.name}" invocation requires an attached MeetHostSupervisor`,
       );
     },
   };
@@ -286,11 +288,11 @@ async function handleRegisterSkillRoute(
     pattern,
     methods,
     handler: async () => {
-      // PR 28 replaces this stub with a `skill.dispatch_route` round-trip
-      // that marshals the Request across the IPC socket and materializes
-      // the Response back on the daemon side.
+      // Only reached when no supervisor is attached (tests/boot race);
+      // the supervisor short-circuit above keeps the manifest's
+      // dispatching handler in place on the production path.
       return new Response(
-        "Skill route dispatch not implemented — added in PR 28",
+        "Skill route dispatch requires an attached MeetHostSupervisor",
         { status: 501 },
       );
     },
@@ -325,12 +327,11 @@ async function handleRegisterShutdownHook(
   }
 
   registerShutdownHook(name, async (reason) => {
-    // PR 28 replaces this stub with a `skill.shutdown` dispatch that
-    // delivers the reason string to the out-of-process skill and awaits
-    // its teardown before returning.
+    // Only reached when no supervisor is attached; production attaches a
+    // dispatching hook via the manifest loader.
     log.info(
       { name, reason },
-      "Skill shutdown hook fired (dispatch stub — added in PR 28)",
+      "Skill shutdown hook fired (no-op without attached MeetHostSupervisor)",
     );
   });
   return { name };

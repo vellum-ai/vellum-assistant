@@ -204,9 +204,14 @@ function buildProxyRoute(
           method === "GET" || method === "HEAD"
             ? undefined
             : await request.text();
+        // Skill-side `dispatchRoute` re-runs the registered regex against
+        // the forwarded URL; meet-join's patterns are path-anchored
+        // (e.g. `^/v1/internal/meet/...$`), so the absolute `request.url`
+        // would never match. Send pathname + search instead.
+        const { pathname, search } = new URL(request.url);
         response = await supervisor.dispatchRoute(entry.pattern, {
           method,
-          url: request.url,
+          url: `${pathname}${search}`,
           headers,
           ...(body !== undefined ? { body } : {}),
         });
