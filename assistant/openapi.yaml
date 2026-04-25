@@ -1951,6 +1951,22 @@ paths:
               required:
                 - provider
               additionalProperties: false
+  /v1/config/llm/profiles/{name}:
+    put:
+      operationId: config_llm_profiles_by_name_put
+      summary: Replace an inference profile
+      description: Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.
+      tags:
+        - config
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/config/platform:
     get:
       operationId: config_platform_get
@@ -5633,8 +5649,9 @@ paths:
                 slashCommand:
                   type: string
                 inferenceProfile:
-                  type: string
-                  nullable: true
+                  anyOf:
+                    - type: string
+                    - type: "null"
               required:
                 - content
               additionalProperties: false
