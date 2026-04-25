@@ -15,7 +15,7 @@ import Foundation
 /// layer untouched — the JSON mapper preserves only the fields it knows
 /// about, but `SettingsStore.patchConfig` merges into the live config so
 /// unknown keys are not clobbered.
-public struct InferenceProfile: Codable, Hashable, Identifiable {
+public struct InferenceProfile: Equatable, Hashable, Identifiable {
     /// Profile name; doubles as the key under `llm.profiles` and the
     /// stable `id` for `Identifiable` conformance.
     public var name: String
