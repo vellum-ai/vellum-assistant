@@ -33,7 +33,7 @@ export const conversations = sqliteTable(
     scheduleJobId: text("schedule_job_id"),
     lastMessageAt: integer("last_message_at"),
     archivedAt: integer("archived_at"),
-    inferenceProfile: text("inferenceProfile"),
+    inferenceProfile: text("inference_profile"),
   },
   (table) => [
     index("idx_conversations_updated_at").on(table.updatedAt),

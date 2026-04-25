@@ -81,19 +81,22 @@ describe("conversation inference profile migration", () => {
     removeTestDbFiles();
   });
 
-  test("fresh DB initialization includes nullable inferenceProfile column", () => {
+  test("fresh DB initialization includes nullable inference_profile column", () => {
     initializeDb();
 
     const raw = new Database(getDbPath());
     const columns = getColumnNames(raw);
-    expect(columns).toContain("inferenceProfile");
+    // Migration 228 renames the camelCase column added by 227 to snake_case to
+    // match the rest of the table.
+    expect(columns).toContain("inference_profile");
+    expect(columns).not.toContain("inferenceProfile");
 
     const inferenceProfileColumn = (
       raw.query(`PRAGMA table_info(conversations)`).all() as Array<{
         name: string;
         notnull: number;
       }>
-    ).find((column) => column.name === "inferenceProfile");
+    ).find((column) => column.name === "inference_profile");
 
     expect(inferenceProfileColumn).toBeDefined();
     expect(inferenceProfileColumn?.notnull).toBe(0);

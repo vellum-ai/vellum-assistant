@@ -134,6 +134,7 @@ import {
   migrateRenameGmailProviderKeyToGoogle,
   migrateRenameGuardianVerificationValues,
   migrateRenameInboxThreadStateTable,
+  migrateRenameInferenceProfileSnakeCase,
   migrateRenameMemoryGraphTypeValues,
   migrateRenameNotificationThreadColumns,
   migrateRenameSequenceEnrollmentsThreadIdColumn,
@@ -384,6 +385,7 @@ export function initializeDb(): void {
     migrateOAuthProvidersAvailableScopes,
     migrateScheduleWakeConversationId,
     migrateAddConversationInferenceProfile,
+    migrateRenameInferenceProfileSnakeCase,
   ];
 
   // Run each migration step, catching and logging individual failures so one

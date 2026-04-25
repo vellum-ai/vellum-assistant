@@ -173,6 +173,7 @@ export { migrateOAuthProvidersManagedServiceIsPaid } from "./224-oauth-providers
 export { migrateOAuthProvidersAvailableScopes } from "./225-oauth-providers-available-scopes.js";
 export { migrateScheduleWakeConversationId } from "./226-schedule-wake-conversation-id.js";
 export { migrateAddConversationInferenceProfile } from "./227-add-conversation-inference-profile.js";
+export { migrateRenameInferenceProfileSnakeCase } from "./228-rename-inference-profile-snake-case.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
