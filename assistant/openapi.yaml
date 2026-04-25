@@ -5633,8 +5633,9 @@ paths:
                 slashCommand:
                   type: string
                 inferenceProfile:
-                  type: string
-                  nullable: true
+                  anyOf:
+                    - type: string
+                    - type: "null"
               required:
                 - content
               additionalProperties: false
