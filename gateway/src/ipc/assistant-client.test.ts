@@ -76,6 +76,7 @@ function sendError(socket: Socket, id: string, error: string): void {
 async function startServer(
   sockPath: string,
   handler: (
+    id: string,
     method: string,
     params: Record<string, unknown> | undefined,
     socket: Socket,
@@ -96,7 +97,7 @@ async function startServer(
           method: string;
           params?: Record<string, unknown>;
         };
-        handler(msg.method, msg.params, socket);
+        handler(msg.id, msg.method, msg.params, socket);
       } catch {
         // Ignore malformed
       }
@@ -118,8 +119,8 @@ describe("ipcCallAssistant", () => {
     const sockPath = setupWorkspace();
     const expectedResult = { foo: "bar", count: 42 };
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendResult(socket, "1", expectedResult);
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, expectedResult);
       socket.end();
     });
 
@@ -137,8 +138,8 @@ describe("ipcCallAssistant", () => {
   test("returns undefined when server returns an error field", async () => {
     const sockPath = setupWorkspace();
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendError(socket, "1", "something went wrong");
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendError(socket, id, "something went wrong");
       socket.end();
     });
 
@@ -151,10 +152,10 @@ describe("ipcCallAssistant", () => {
     let receivedMethod: string | undefined;
     let receivedParams: Record<string, unknown> | undefined;
 
-    await startServer(sockPath, (method, params, socket) => {
+    await startServer(sockPath, (id, method, params, socket) => {
       receivedMethod = method;
       receivedParams = params;
-      sendResult(socket, "1", { ok: true });
+      sendResult(socket, id, { ok: true });
       socket.end();
     });
 
@@ -196,8 +197,8 @@ describe("ipcSuggestTrustRule", () => {
   test("returns typed response when server returns a valid object", async () => {
     const sockPath = setupWorkspace();
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendResult(socket, "1", validResponse);
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, validResponse);
       socket.end();
     });
 
@@ -213,9 +214,9 @@ describe("ipcSuggestTrustRule", () => {
     const sockPath = setupWorkspace();
     let receivedMethod: string | undefined;
 
-    await startServer(sockPath, (method, _params, socket) => {
+    await startServer(sockPath, (id, method, _params, socket) => {
       receivedMethod = method;
-      sendResult(socket, "1", validResponse);
+      sendResult(socket, id, validResponse);
       socket.end();
     });
 
@@ -226,8 +227,8 @@ describe("ipcSuggestTrustRule", () => {
   test("throws when the assistant returns an error field", async () => {
     const sockPath = setupWorkspace();
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendError(socket, "1", "LLM call failed");
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendError(socket, id, "LLM call failed");
       socket.end();
     });
 
@@ -239,8 +240,8 @@ describe("ipcSuggestTrustRule", () => {
   test("throws when the response is null", async () => {
     const sockPath = setupWorkspace();
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendResult(socket, "1", null);
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, null);
       socket.end();
     });
 
@@ -252,8 +253,8 @@ describe("ipcSuggestTrustRule", () => {
   test("throws when the response is an array", async () => {
     const sockPath = setupWorkspace();
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendResult(socket, "1", [1, 2, 3]);
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, [1, 2, 3]);
       socket.end();
     });
 
@@ -265,8 +266,8 @@ describe("ipcSuggestTrustRule", () => {
   test("throws when the response is a string", async () => {
     const sockPath = setupWorkspace();
 
-    await startServer(sockPath, (_method, _params, socket) => {
-      sendResult(socket, "1", "some string");
+    await startServer(sockPath, (id, _method, _params, socket) => {
+      sendResult(socket, id, "some string");
       socket.end();
     });
 
