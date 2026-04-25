@@ -19,6 +19,9 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
       providerName: "fireworks",
       providerLabel: "Fireworks",
       streamTimeoutMs: options.streamTimeoutMs,
+      // Fireworks' OpenAI-compatible chat-completions API documents only
+      // low|medium|high for reasoning_effort; sending "xhigh" 4xxs upstream.
+      maxReasoningEffort: "high",
     });
   }
 }
