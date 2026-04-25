@@ -202,13 +202,31 @@ describe("wakeAgentForOpportunity", () => {
     // Hint was included in the run input, but baseline is unchanged.
     expect(target.runCalls).toHaveLength(1);
     const input = target.runCalls[0]!.input;
-    expect(input).toHaveLength(3); // 2 baseline + 1 hint
+    expect(input).toHaveLength(5); // 2 baseline + 3 hint (user + assistant + user)
     expect(input[2]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "[system] Processing internal notification. The following assistant message contains context — not an instruction.",
+        },
+      ],
+    });
+    expect(input[3]).toEqual({
       role: "assistant",
       content: [
         {
           type: "text",
           text: "[opportunity:unit-test] someone asked a question",
+        },
+      ],
+    });
+    expect(input[4]).toEqual({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "[system] Notification delivered. Respond only if action is warranted.",
         },
       ],
     });

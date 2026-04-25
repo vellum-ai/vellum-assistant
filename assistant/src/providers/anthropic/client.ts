@@ -775,7 +775,6 @@ export class AnthropicProvider implements Provider {
       // Anthropic's strict user/assistant alternation requirement. These can
       // arise from:
       //   - Dropping empty messages in the reduce above (placeholder-adjacent)
-      //   - Wake hints injected as assistant role after an assistant tail
       //   - History reconstruction artifacts that bypass repairHistory
       //
       // Walk backwards so splice indices stay valid. After a merge+splice

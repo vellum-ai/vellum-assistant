@@ -1284,15 +1284,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
   test("consecutive real assistant messages are merged into one", async () => {
     // When two non-placeholder assistant messages appear consecutively
-    // (e.g. wake hint injected as assistant role after the conversation's
-    // last assistant message), the provider must merge their content
-    // blocks to satisfy Anthropic's strict role alternation.
+    // (e.g. history reconstruction artifacts), the provider must merge
+    // their content blocks to satisfy Anthropic's strict role alternation.
     const messages: Message[] = [
       userMsg("Start"),
       assistantMsg("First response"),
       {
         role: "assistant",
-        content: [{ type: "text", text: "[opportunity:schedule] Check in" }],
+        content: [{ type: "text", text: "Second thought" }],
       },
     ];
     await provider.sendMessage(messages);
@@ -1308,7 +1307,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[1].role).toBe("assistant");
     expect(sent[1].content).toHaveLength(2);
     expect(sent[1].content[0].text).toBe("First response");
-    expect(sent[1].content[1].text).toBe("[opportunity:schedule] Check in");
+    expect(sent[1].content[1].text).toBe("Second thought");
   });
 
   test("consecutive real user messages are merged into one", async () => {
