@@ -329,7 +329,7 @@ export const LLMSchema = z
     // are seeded into the user's on-disk config by migration 040, not at
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
-    activeProfile: z.string().optional(),
+    activeProfile: z.string().min(1).optional(),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
