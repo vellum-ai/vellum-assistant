@@ -54,37 +54,39 @@ Use `hi@<domain>` as the default sender address (consistent with Vellum's native
 
 If the user also wants to **receive** emails via Resend, you need to get a webhook URL and register it with Resend.
 
-#### Getting the webhook URL
-
-Use the unified webhooks CLI to get a callback URL. This handles both platform-managed and self-hosted assistants automatically:
-
-```bash
-CALLBACK_URL=$(assistant webhooks register resend --source "$DOMAIN")
-```
-
-If the command fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry the command.
-
 #### Registering the webhook and storing the signing secret
 
-Use the bundled script to register the webhook **and** store the signing secret in one step. The script calls the Resend API, extracts the `signing_secret` from the response, and pipes it directly into the credential store — the secret never passes through the LLM (which avoids sandbox redaction).
+Use the bundled script to handle the entire webhook setup in one step — it resolves the callback URL, registers the webhook with Resend, and stores the signing secret in the credential vault:
 
 ```bash
-bash scripts/register-webhook.sh "$CALLBACK_URL" "email.received"
+bash scripts/register-webhook.sh --source "$DOMAIN"
 ```
 
-Run this from the skill directory (`skills/resend-setup/`). The script requires `jq` on PATH.
+Run this from the skill directory (`skills/resend-setup/`). The script requires `jq` on PATH. You can override the event types with `--events` (default: `email.received`).
 
-> **Why a script?** The Resend `POST /webhooks` response includes the `signing_secret`, but the sandbox redaction layer strips high-entropy tokens before the LLM can read them. The script handles the entire create-and-store flow in a single process, keeping the secret out of the conversation.
+The script:
 
-If the script isn't available or fails, fall back to the manual flow:
+1. Calls `assistant webhooks register resend --source "$DOMAIN"` to resolve the callback URL (works for both platform-managed and self-hosted assistants)
+2. Creates the webhook via the Resend API
+3. Extracts the `signing_secret` from the response and stores it directly via `assistant credentials set`
 
-1. Create the webhook via the Resend API (use `network_mode: "proxied"` with the resend credential):
+> **Why a script?** The Resend `POST /webhooks` response includes the `signing_secret`, but the sandbox redaction layer strips high-entropy tokens before the LLM can read them. The script handles the entire flow in a single process, keeping the secret out of the conversation.
+
+If the script fails because no public base URL is configured (self-hosted only), load the `public-ingress` skill to walk the user through setting one up, then retry.
+
+**Manual fallback** (if the script isn't available):
+
+1. Get a callback URL:
+   ```bash
+   CALLBACK_URL=$(assistant webhooks register resend --source "$DOMAIN")
+   ```
+2. Create the webhook via the Resend API (use `network_mode: "proxied"` with the resend credential):
    ```bash
    curl -X POST https://api.resend.com/webhooks \
      -H "Content-Type: application/json" \
      -d '{"url": "<webhook URL>", "events": ["email.received"]}'
    ```
-2. Ask the user to grab the signing secret from their Resend dashboard → Webhooks, then collect it securely:
+3. Ask the user to grab the signing secret from their Resend dashboard → Webhooks, then collect it securely:
    ```
    credential_store:
      action: "prompt"
