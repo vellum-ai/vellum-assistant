@@ -7,7 +7,11 @@ import {
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { loadGuardianToken } from "../lib/guardian-token";
-import { checkHealth, checkManagedHealth } from "../lib/health-check";
+import {
+  checkHealth,
+  checkManagedConnectionStatus,
+  checkManagedHealth,
+} from "../lib/health-check";
 import { dockerResourceNames } from "../lib/docker";
 import { existsSync } from "fs";
 import {
@@ -215,37 +219,38 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
   const resources = entry.resources;
   const vellumDir = join(resources.instanceDir, ".vellum");
 
-  const specs: ProcessSpec[] = [
+  const assistantSpec: ProcessSpec = {
+    name: "assistant",
+    pgrepName: "vellum-daemon",
+    port: resources.daemonPort,
+    pidFile: resources.pidFile,
+  };
+  const subSpecs: ProcessSpec[] = [
     {
-      name: "assistant",
-      pgrepName: "vellum-daemon",
-      port: resources.daemonPort,
-      pidFile: resources.pidFile,
-    },
-    {
-      name: "qdrant",
+      name: "├─ qdrant",
       pgrepName: "qdrant",
       port: resources.qdrantPort,
       pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
     },
     {
-      name: "gateway",
-      pgrepName: "vellum-gateway",
-      port: resources.gatewayPort,
-      pidFile: join(vellumDir, "gateway.pid"),
-    },
-    {
-      name: "embed-worker",
+      name: "└─ embed-worker",
       pgrepName: "embed-worker",
       port: 0,
       pidFile: join(vellumDir, "workspace", "embed-worker.pid"),
     },
   ];
+  const gatewaySpec: ProcessSpec = {
+    name: "gateway",
+    pgrepName: "vellum-gateway",
+    port: resources.gatewayPort,
+    pidFile: join(vellumDir, "gateway.pid"),
+  };
 
-  const results = await Promise.all(specs.map(detectProcess));
+  const allSpecs = [assistantSpec, ...subSpecs, gatewaySpec];
+  const results = await Promise.all(allSpecs.map(detectProcess));
 
-  return results.map((proc) => ({
-    name: proc.name,
+  return results.map((proc, i) => ({
+    name: allSpecs[i].name,
     status: withStatusEmoji(proc.running ? "running" : "not running"),
     info: proc.running ? formatDetectionInfo(proc) : "not detected",
   }));
@@ -331,6 +336,74 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 
   if (cloud === "docker") {
     const rows = await getDockerProcesses(entry);
+    printTable(rows);
+    return;
+  }
+
+  if (cloud === "vellum") {
+    console.log(`  Platform ID: ${entry.assistantId}\n`);
+
+    const connStatus = await checkManagedConnectionStatus(
+      entry.runtimeUrl,
+      entry.assistantId,
+    );
+
+    if (!connStatus) {
+      const rows: TableRow[] = [
+        {
+          name: "assistant",
+          status: withStatusEmoji("unreachable"),
+          info: "could not reach platform API — run `vellum login`",
+        },
+      ];
+      printTable(rows);
+      return;
+    }
+
+    const stateToStatus = (state: string): string => {
+      switch (state) {
+        case "ready":
+          return "running";
+        case "waking":
+          return "waking";
+        case "crash_loop":
+          return "error";
+        case "not_found":
+          return "not running";
+        default:
+          return state;
+      }
+    };
+
+    const assistantStatus = stateToStatus(connStatus.state);
+    const rows: TableRow[] = [
+      {
+        name: "assistant",
+        status: withStatusEmoji(assistantStatus),
+        info: connStatus.detail ?? connStatus.state,
+      },
+      {
+        name: "├─ qdrant",
+        status: withStatusEmoji(
+          assistantStatus === "running" ? "running" : assistantStatus,
+        ),
+        info: "",
+      },
+      {
+        name: "└─ embed-worker",
+        status: withStatusEmoji(
+          assistantStatus === "running" ? "running" : assistantStatus,
+        ),
+        info: "",
+      },
+      {
+        name: "gateway",
+        status: withStatusEmoji(
+          assistantStatus === "running" ? "running" : assistantStatus,
+        ),
+        info: entry.runtimeUrl,
+      },
+    ];
     printTable(rows);
     return;
   }
