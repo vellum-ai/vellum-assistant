@@ -18,34 +18,13 @@ final class InferenceProfileEditorTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        mockSettingsClient = MockSettingsClient()
-        mockSettingsClient.patchConfigResponse = true
-        store = SettingsStore(settingsClient: mockSettingsClient)
-        // Override the catalog with a tiny deterministic fixture so tests
-        // don't depend on the live `LLMProviderRegistry` shape.
-        store.providerCatalog = [
-            ProviderCatalogEntry(
-                id: "anthropic",
-                displayName: "Anthropic",
-                models: [
-                    CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
-                    CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
-                ],
-                defaultModel: "claude-sonnet-4-6",
-                apiKeyUrl: nil,
-                apiKeyPlaceholder: nil
-            ),
-            ProviderCatalogEntry(
-                id: "openai",
-                displayName: "OpenAI",
-                models: [
-                    CatalogModel(id: "gpt-5", displayName: "GPT-5"),
-                ],
-                defaultModel: "gpt-5",
-                apiKeyUrl: nil,
-                apiKeyPlaceholder: nil
-            ),
-        ]
+        // Tiny deterministic catalog so tests don't depend on the live
+        // `LLMProviderRegistry` shape.
+        let fixture = SettingsTestFixture.make(
+            providerCatalog: SettingsTestFixture.anthropicAndOpenAICatalog()
+        )
+        store = fixture.store
+        mockSettingsClient = fixture.mockClient
     }
 
     override func tearDown() {
