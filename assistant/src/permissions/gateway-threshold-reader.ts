@@ -1,14 +1,10 @@
 /**
  * Gateway-backed auto-approve threshold reader.
  *
- * When the `permission-controls-v3` feature flag is enabled, reads
- * thresholds from the gateway via IPC. Falls back to `undefined` (caller
- * uses config-based `resolveThreshold`) when the flag is off or the gateway
- * is unreachable.
+ * Reads thresholds from the gateway via IPC. Falls back to hardcoded
+ * defaults when the gateway is unreachable.
  */
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { ipcCall } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 import type { ExecutionContext } from "./approval-policy.js";
@@ -86,9 +82,6 @@ function isValidThreshold(value: string): value is Threshold {
 /**
  * Read the auto-approve threshold from the gateway via IPC.
  *
- * Returns `undefined` when the feature flag is off (caller falls back to
- * config-based `resolveThreshold`).
- *
  * For `"conversation"` context with a `conversationId`, checks for a
  * per-conversation override first. Falls through to global defaults when
  * the conversation override is absent.
@@ -100,11 +93,6 @@ export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
 ): Promise<Threshold | undefined> {
-  const config = getConfig();
-  if (!isAssistantFeatureFlagEnabled("permission-controls-v3", config)) {
-    return undefined;
-  }
-
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
   // For conversation context with a conversationId, try per-conversation override first

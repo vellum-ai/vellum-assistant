@@ -1,9 +1,8 @@
 /**
  * V1 trust store — file-backed persistence of trust rules (trust.json).
  *
- * This is the legacy trust rule store, used when `permission-controls-v3`
- * is off. V3 trust rules live in the `trust_rules` SQLite table
- * (see trust-store-v3.ts). Will be removed once v3 is the sole path.
+ * This is the legacy trust rule store. V3 trust rules live in the
+ * `trust_rules` SQLite table (see trust-store-v3.ts).
  */
 
 import {
