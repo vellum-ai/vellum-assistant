@@ -53,7 +53,7 @@ const SLACK_ERROR_CODE_MAP: Record<string, SlackErrorCategory> = {
   invalid_blocks: "client_error",
 };
 
-export function classifySlackError(
+function classifySlackError(
   errorCode: string | undefined,
 ): SlackErrorCategory {
   if (!errorCode) return "unknown";

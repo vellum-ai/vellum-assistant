@@ -756,7 +756,7 @@ function handleStateUpdate(
   );
 }
 
-export function pushUndoState(
+function pushUndoState(
   surfaceUndoStacks: Map<string, string[]>,
   surfaceId: string,
   html: string,
@@ -1690,7 +1690,7 @@ export function buildCompletionSummary(
  * surface action. Unlike `buildCompletionSummary` (which is for the LLM),
  * this produces natural language the user can glance at.
  */
-export function buildUserFacingLabel(
+function buildUserFacingLabel(
   surfaceType: string | undefined,
   actionId: string,
   data?: Record<string, unknown>,

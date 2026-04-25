@@ -64,14 +64,6 @@ export function isInterfaceId(value: unknown): value is InterfaceId {
   );
 }
 
-/**
- * Normalize a raw interface ID string, mapping legacy aliases (e.g.
- * "vellum" → "web") to their canonical form.
- */
-export function normalizeInterfaceId(value: InterfaceId): InterfaceId {
-  return (LEGACY_INTERFACE_ALIASES[value] as InterfaceId) ?? value;
-}
-
 export function parseInterfaceId(value: unknown): InterfaceId | null {
   if (typeof value !== "string") return null;
   if ((INTERFACE_IDS as readonly string[]).includes(value))

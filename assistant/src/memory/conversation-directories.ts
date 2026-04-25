@@ -146,13 +146,6 @@ export function getResolvedConversationDirPath(
   return resolveConversationDirectoryPaths(id, createdAtMs).resolvedDirPath;
 }
 
-export function getResolvedConversationDirName(
-  id: string,
-  createdAtMs: number,
-): string {
-  return resolveConversationDirectoryPaths(id, createdAtMs).resolvedDirName;
-}
-
 export function getConversationAttachmentsDirPath(
   conversationId: string,
   createdAtMs: number,

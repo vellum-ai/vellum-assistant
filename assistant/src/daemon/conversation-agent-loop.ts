@@ -390,7 +390,7 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  *   don't need it can ignore it; the default compaction plugin reads it
  *   via the typed optional field on `TurnContext`.
  */
-export function buildPluginTurnContext(
+function buildPluginTurnContext(
   ctx: AgentLoopConversationContext,
   requestId: string,
 ): PluginTurnContext {
@@ -2930,7 +2930,7 @@ export function applyCompactionResult(
   );
 }
 
-export function collapseRawResponses(
+function collapseRawResponses(
   rawResponses?: unknown[],
 ): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;

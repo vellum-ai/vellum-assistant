@@ -105,7 +105,7 @@ function readInjectionInputs(ctx: TurnContext): TurnInjectionInputs {
  *  - `mode === "full"` (skipped in minimal mode).
  *  - `workspaceTopLevelContext` is a non-null, non-empty string.
  */
-export const workspaceContextInjector: Injector = {
+const workspaceContextInjector: Injector = {
   name: "workspace-context",
   order: DEFAULT_INJECTOR_ORDER.workspaceContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -133,7 +133,7 @@ export const workspaceContextInjector: Injector = {
  * Active in both `full` and `minimal` mode — unified turn context is
  * safety-critical grounding that must survive injection downgrade.
  */
-export const unifiedTurnContextInjector: Injector = {
+const unifiedTurnContextInjector: Injector = {
   name: "unified-turn-context",
   order: DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -166,7 +166,7 @@ export const unifiedTurnContextInjector: Injector = {
  *  - `mode === "full"`.
  *  - Non-null, non-empty `pkbContext`.
  */
-export const pkbContextInjector: Injector = {
+const pkbContextInjector: Injector = {
   name: "pkb-context",
   order: DEFAULT_INJECTOR_ORDER.pkbContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -195,7 +195,7 @@ export const pkbContextInjector: Injector = {
  *  - `mode === "full"`.
  *  - `pkbActive === true`.
  */
-export const pkbReminderInjector: Injector = {
+const pkbReminderInjector: Injector = {
   name: "pkb-reminder",
   order: DEFAULT_INJECTOR_ORDER.pkbReminder,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -307,7 +307,7 @@ async function buildPkbReminderWithHints(
  *  - `mode === "full"` (skipped in minimal mode).
  *  - `nowScratchpad` is a non-null, non-empty string.
  */
-export const nowMdInjector: Injector = {
+const nowMdInjector: Injector = {
   name: "now-md",
   order: DEFAULT_INJECTOR_ORDER.nowMd,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -339,7 +339,7 @@ export const nowMdInjector: Injector = {
  *  - `mode === "full"`.
  *  - `subagentStatusBlock` is a non-null, non-empty string.
  */
-export const subagentStatusInjector: Injector = {
+const subagentStatusInjector: Injector = {
   name: "subagent-status",
   order: DEFAULT_INJECTOR_ORDER.subagentStatus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -377,7 +377,7 @@ export const subagentStatusInjector: Injector = {
  *  - `channelCapabilities.channel === "slack"`.
  *  - `slackChronologicalMessages` has at least one entry.
  */
-export const slackMessagesInjector: Injector = {
+const slackMessagesInjector: Injector = {
   name: "slack-messages",
   order: DEFAULT_INJECTOR_ORDER.slackMessages,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
@@ -416,7 +416,7 @@ export const slackMessagesInjector: Injector = {
  *    (non-DM Slack conversation).
  *  - `slackActiveThreadFocusBlock` is a non-empty string.
  */
-export const threadFocusInjector: Injector = {
+const threadFocusInjector: Injector = {
   name: "thread-focus",
   order: DEFAULT_INJECTOR_ORDER.threadFocus,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {

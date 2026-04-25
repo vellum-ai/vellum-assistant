@@ -1287,7 +1287,7 @@ function loadTranscriptFromDisk(
  *
  * Images are capped at 10 per transcript to control extraction cost.
  */
-export function loadTranscriptWithImages(
+function loadTranscriptWithImages(
   conversationId: string,
   afterTimestamp?: number,
 ): {

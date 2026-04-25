@@ -20,15 +20,7 @@ import {
   isProviderAvailable,
 } from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
-import type {
-  ImageGenModelSetRequest,
-  ModelSetRequest,
-} from "../message-protocol.js";
-import {
-  CONFIG_RELOAD_DEBOUNCE_MS,
-  type HandlerContext,
-  log,
-} from "./shared.js";
+import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
 
 /** Reverse lookup: model ID → provider, derived from PROVIDER_CATALOG. */
 const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
@@ -253,40 +245,3 @@ export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
 
 // ---------------------------------------------------------------------------
 // HTTP handlers (delegate to shared logic)
-// ---------------------------------------------------------------------------
-
-export async function handleModelGet(ctx: HandlerContext): Promise<void> {
-  const info = await getModelInfo();
-  ctx.send({
-    type: "model_info",
-    ...info,
-  });
-}
-
-export async function handleModelSet(
-  msg: ModelSetRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    const info = await setModel(msg.model, ctx, msg.provider);
-    ctx.send({ type: "model_info", ...info });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    ctx.send({
-      type: "error",
-      message: `Failed to set model: ${message}`,
-    });
-  }
-}
-
-export function handleImageGenModelSet(
-  msg: ImageGenModelSetRequest,
-  ctx: HandlerContext,
-): void {
-  try {
-    setImageGenModel(msg.model, ctx);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, `Failed to set image gen model: ${message}`);
-  }
-}

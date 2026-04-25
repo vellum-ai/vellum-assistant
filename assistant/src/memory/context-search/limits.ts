@@ -81,7 +81,7 @@ export function normalizeRecallMaxResults(
   );
 }
 
-export function normalizeRecallDepth(
+function normalizeRecallDepth(
   depth: RecallDepth | undefined,
 ): RecallDepth {
   if (depth === undefined) {

@@ -125,7 +125,7 @@ export const taskSaveRoute: IpcRoute = {
   handler: handleTaskSave,
 };
 
-export const taskSaveAliasRoute: IpcRoute = {
+const taskSaveAliasRoute: IpcRoute = {
   method: "task_save",
   handler: handleTaskSave,
 };
@@ -135,7 +135,7 @@ export const taskListRoute: IpcRoute = {
   handler: handleTaskList,
 };
 
-export const taskListAliasRoute: IpcRoute = {
+const taskListAliasRoute: IpcRoute = {
   method: "task_list",
   handler: handleTaskList,
 };
@@ -145,7 +145,7 @@ export const taskRunRoute: IpcRoute = {
   handler: handleTaskRun,
 };
 
-export const taskRunAliasRoute: IpcRoute = {
+const taskRunAliasRoute: IpcRoute = {
   method: "task_run",
   handler: handleTaskRun,
 };
@@ -155,7 +155,7 @@ export const taskDeleteRoute: IpcRoute = {
   handler: handleTaskDelete,
 };
 
-export const taskDeleteAliasRoute: IpcRoute = {
+const taskDeleteAliasRoute: IpcRoute = {
   method: "task_delete",
   handler: handleTaskDelete,
 };

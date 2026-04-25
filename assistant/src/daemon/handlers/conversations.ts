@@ -1,12 +1,10 @@
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../../config/loader.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
 } from "../../memory/canonical-guardian-store.js";
 import {
-  batchSetDisplayOrders,
   clearAll,
   getConversation,
   updateConversationTitle,
@@ -21,14 +19,8 @@ import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import type {
   ConfirmationResponse,
-  ConversationRenameRequest,
-  ConversationSwitchRequest,
-  DeleteQueuedMessage,
-  ReorderConversationsRequest,
   SecretResponse,
   ServerMessage,
-  UndoRequest,
-  UsageRequest,
 } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
 import {
@@ -264,30 +256,6 @@ export async function switchConversation(
     inferenceProfile: conversation.inferenceProfile ?? undefined,
   };
 }
-
-export async function handleConversationSwitch(
-  msg: ConversationSwitchRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await switchConversation(msg.conversationId, ctx);
-  if (!result) {
-    ctx.send({
-      type: "error",
-      message: `Conversation ${msg.conversationId} not found`,
-    });
-    return;
-  }
-
-  ctx.send({
-    type: "conversation_info",
-    conversationId: result.conversationId,
-    title: result.title,
-    conversationType: result.conversationType,
-    hostAccess: result.hostAccess,
-    inferenceProfile: result.inferenceProfile,
-  });
-}
-
 /**
  * Rename a conversation. Returns true on success, false if not found.
  */
@@ -301,25 +269,6 @@ export function renameConversation(
   }
   updateConversationTitle(conversationId, name, 0);
   return true;
-}
-
-export function handleConversationRename(
-  msg: ConversationRenameRequest,
-  ctx: HandlerContext,
-): void {
-  const success = renameConversation(msg.conversationId, msg.title);
-  if (!success) {
-    ctx.send({
-      type: "error",
-      message: `Conversation ${msg.conversationId} not found`,
-    });
-    return;
-  }
-  ctx.send({
-    type: "conversation_title_updated",
-    conversationId: msg.conversationId,
-    title: msg.title,
-  });
 }
 
 /**
@@ -363,23 +312,6 @@ export async function undoLastMessage(
   const removedCount = conversation.undo();
   return { removedCount };
 }
-
-export async function handleUndo(
-  msg: UndoRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  const result = await undoLastMessage(msg.conversationId, ctx);
-  if (!result) {
-    ctx.send({ type: "error", message: "No active conversation" });
-    return;
-  }
-  ctx.send({
-    type: "undo_complete",
-    removedCount: result.removedCount,
-    conversationId: msg.conversationId,
-  });
-}
-
 /**
  * Regenerate the last assistant response for a conversation. The caller provides
  * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
@@ -429,26 +361,6 @@ export async function regenerateResponse(
   }
   return { requestId };
 }
-
-export function handleUsageRequest(
-  msg: UsageRequest,
-  ctx: HandlerContext,
-): void {
-  const conversation = getConversation(msg.conversationId);
-  if (!conversation) {
-    ctx.send({ type: "error", message: "No active conversation" });
-    return;
-  }
-  const config = getConfig();
-  ctx.send({
-    type: "usage_response",
-    totalInputTokens: conversation.totalInputTokens,
-    totalOutputTokens: conversation.totalOutputTokens,
-    estimatedCost: conversation.totalEstimatedCost,
-    model: config.llm.default.model,
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------
@@ -488,35 +400,3 @@ export function deleteQueuedMessage(
 // ---------------------------------------------------------------------------
 // HTTP handler (delegates to shared logic)
 // ---------------------------------------------------------------------------
-
-export function handleDeleteQueuedMessage(
-  msg: DeleteQueuedMessage,
-  ctx: HandlerContext,
-): void {
-  const result = deleteQueuedMessage(msg.conversationId, msg.requestId, (id) =>
-    ctx.conversations.get(id),
-  );
-  if (result.removed) {
-    ctx.send({
-      type: "message_queued_deleted",
-      conversationId: msg.conversationId,
-      requestId: msg.requestId,
-    });
-  }
-}
-
-export function handleReorderConversations(
-  msg: ReorderConversationsRequest,
-  _ctx: HandlerContext,
-): void {
-  if (!Array.isArray(msg.updates)) {
-    return;
-  }
-  batchSetDisplayOrders(
-    msg.updates.map((u) => ({
-      id: u.conversationId,
-      displayOrder: u.displayOrder ?? null,
-      isPinned: u.isPinned ?? false,
-    })),
-  );
-}

@@ -158,24 +158,6 @@ export function countConversations(backgroundOnly = false): number {
   return total;
 }
 
-export function getLatestConversation(): ConversationRow | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(conversations)
-    .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
-    )
-    .orderBy(
-      desc(
-        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
-      ),
-    )
-    .limit(1)
-    .get();
-  return row ? parseConversation(row) : null;
-}
-
 /**
  * Check whether the last user message in a conversation is a tool_result-only
  * message (i.e., not a real user-typed message). This is used by undo() to
