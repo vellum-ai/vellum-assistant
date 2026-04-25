@@ -152,10 +152,8 @@ function resolveCommandsList(context?: SlashContext): string[] {
  *
  * Queue-drain lookahead (`buildPassthroughBatch`) uses this to decide whether
  * to include a queued message in a contiguous passthrough batch. `resolveSlash`
- * itself runs side effects (e.g. `/pair` registers a pairing request and
- * writes a QR PNG), so calling it during lookahead and then again in the real
- * drain would execute those side effects twice — the second call sees the
- * first registration and fails with "active pairing already in progress".
+ * itself may run side effects, so calling it during lookahead and then again
+ * in the real drain would execute those side effects twice.
  */
 export function classifySlash(
   content: string,

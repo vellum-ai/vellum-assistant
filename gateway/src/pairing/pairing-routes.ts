@@ -109,12 +109,10 @@ function cleanupPairingState(pairingRequestId: string): void {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-function jsonError(
-  error: string,
-  message: string,
-  status: number,
-): Response {
-  return Response.json({ error, message }, { status });
+const MAX_PAIRING_BODY_BYTES = 4096;
+
+function jsonError(code: string, message: string, status: number): Response {
+  return Response.json({ error: { code, message } }, { status });
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +191,10 @@ export function createPairingHandler(deps: {
      */
     async handlePairingRequest(req: Request): Promise<Response> {
       try {
+        const contentLength = req.headers.get("content-length");
+        if (contentLength && Number(contentLength) > MAX_PAIRING_BODY_BYTES) {
+          return jsonError("BAD_REQUEST", "Payload too large", 413);
+        }
         const body = (await req.json()) as Record<string, unknown>;
         const pairingRequestId =
           typeof body.pairingRequestId === "string"
@@ -330,8 +332,8 @@ export function createPairingHandler(deps: {
           const pending = pendingDeviceIds.get(id);
           const deviceIdMatchesEntry = Boolean(
             deviceId &&
-              entry.hashedDeviceId &&
-              hashDeviceId(deviceId) === entry.hashedDeviceId,
+            entry.hashedDeviceId &&
+            hashDeviceId(deviceId) === entry.hashedDeviceId,
           );
           const mintDeviceId =
             pending?.deviceId ?? (deviceIdMatchesEntry ? deviceId : undefined);

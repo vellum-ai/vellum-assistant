@@ -2039,6 +2039,7 @@ async function main() {
     telegramDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     emailDedupCache.stopCleanup();
+    pairingStore.stop();
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
