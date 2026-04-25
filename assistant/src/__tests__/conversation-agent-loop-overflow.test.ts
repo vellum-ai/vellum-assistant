@@ -146,7 +146,6 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   getMessages: () => [],

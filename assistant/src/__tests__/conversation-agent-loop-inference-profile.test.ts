@@ -139,7 +139,6 @@ let mockConversationRow: {
 };
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: () => {},
