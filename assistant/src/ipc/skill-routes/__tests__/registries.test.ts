@@ -77,7 +77,7 @@ describe("host.registries.register_tools", () => {
     expect(installed!.executionMode).toBe("proxy");
   });
 
-  test("proxy execute throws not-implemented until PR 28 dispatch lands", async () => {
+  test("proxy execute throws when no supervisor is attached", async () => {
     await registerToolsRoute.handler({
       tools: [
         {
@@ -102,7 +102,7 @@ describe("host.registries.register_tools", () => {
           trustClass: "guardian",
         },
       ),
-    ).rejects.toThrow(/not implemented.*PR 28/i);
+    ).rejects.toThrow(/requires an attached MeetHostSupervisor/i);
   });
 
   test("rejects empty tool list", async () => {
