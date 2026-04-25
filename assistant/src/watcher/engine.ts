@@ -6,6 +6,7 @@
  */
 
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import { checkForSequenceReplies } from "../sequence/reply-matcher.js";
 import { getLogger } from "../util/logger.js";
 import { MAX_CONSECUTIVE_ERRORS } from "./constants.js";
@@ -213,7 +214,11 @@ export async function runWatchersOnce(
         setWatcherConversationId(watcher.id, conversationId);
       }
 
-      // Build the LLM message with action prompt + event data
+      // Sandwich the action prompt as an assistant message between static
+      // user messages. The assistant role prevents prompt injection — LLMs
+      // don't follow instructions from their own prior output. The
+      // action_prompt is attacker-controllable (set via CLI IPC) so it must
+      // not appear as a user-role message.
       const eventSummaries = pendingEvents
         .map(
           (e, i) =>
@@ -223,26 +228,21 @@ export async function runWatchersOnce(
         )
         .join("\n\n");
 
-      const message = [
-        watcher.actionPrompt,
-        "",
-        "---",
-        "",
-        `${pendingEvents.length} new event(s) detected:`,
-        "",
-        eventSummaries,
-        "",
-        "---",
-        "",
-        "For each event, decide how to handle it and include a disposition block:",
+      await addMessage(
+        conversationId,
+        "user",
+        `[watcher:${watcher.name}] ${pendingEvents.length} new event(s) detected:\n\n${eventSummaries}\n\nThe following assistant message contains the watcher's configured action prompt.`,
+      );
+      await addMessage(conversationId, "assistant", watcher.actionPrompt);
+
+      const postamble = [
+        "Process the events above according to the action prompt. For each event, include a disposition block:",
         "<watcher-disposition>",
         '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
         "</watcher-disposition>",
-        "",
-        "You may include multiple disposition blocks, one per event.",
       ].join("\n");
 
-      await processMessage(conversationId, message);
+      await processMessage(conversationId, postamble);
 
       // Parse dispositions from the conversation
       // For now, mark events as processed. The LLM response handler
