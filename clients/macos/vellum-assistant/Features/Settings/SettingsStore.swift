@@ -71,6 +71,20 @@ public final class SettingsStore: ObservableObject {
     /// authoritative config.
     @Published var callSiteOverrides: [CallSiteOverride] = CallSiteCatalog.all
 
+    // MARK: - Inference Profiles
+
+    /// User-editable inference profiles mirrored from `llm.profiles` in
+    /// the workspace config. Each profile bundles a partial
+    /// `LLMConfigFragment` (provider, model, effort, etc.) that call sites
+    /// reference by name. Sync'd from the daemon's pushed config payload
+    /// via `loadInferenceProfiles(config:)`.
+    @Published var profiles: [InferenceProfile] = []
+
+    /// Name of the active inference profile (`llm.activeProfile` in the
+    /// workspace config). Seeded with the canonical default `"balanced"`
+    /// so the UI renders predictable state before the first config push.
+    @Published var activeProfile: String = "balanced"
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -3167,6 +3181,128 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
+    // MARK: - Inference Profiles
+
+    /// Reads `llm.profiles` and `llm.activeProfile` from the workspace
+    /// config dictionary and replaces the published `profiles` /
+    /// `activeProfile` state. Profiles are emitted in alphabetical order
+    /// by name so the UI renders a stable list across config refreshes.
+    ///
+    /// `activeProfile` is preserved at its current value when the config
+    /// payload omits the key — the seeded `"balanced"` default keeps the
+    /// dropdown predictable until the daemon ships an authoritative value.
+    func loadInferenceProfiles(config: [String: Any]) {
+        let llm = config["llm"] as? [String: Any]
+        let profilesRaw = (llm?["profiles"] as? [String: Any]) ?? [:]
+        var decoded: [InferenceProfile] = []
+        for (name, raw) in profilesRaw {
+            guard let entry = raw as? [String: Any] else { continue }
+            decoded.append(InferenceProfile(name: name, json: entry))
+        }
+        decoded.sort { $0.name < $1.name }
+        self.profiles = decoded
+        if let active = (llm?["activeProfile"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
+            self.activeProfile = active
+        }
+    }
+
+    /// Persists `llm.activeProfile` so the daemon's resolver layers the
+    /// named profile into every callsite resolution. The mock client
+    /// captures the patch payload for assertion in tests.
+    @discardableResult
+    func setActiveProfile(_ name: String) async -> Bool {
+        let success = await settingsClient.patchConfig([
+            "llm": ["activeProfile": name]
+        ])
+        if success {
+            self.activeProfile = name
+        } else {
+            log.error("Failed to patch config for llm.activeProfile")
+        }
+        return success
+    }
+
+    /// Persists a profile fragment under `llm.profiles.<name>`. The
+    /// fragment merges into any existing entry — callers that want
+    /// "replace" semantics should issue a delete first.
+    @discardableResult
+    func setProfile(name: String, fragment: InferenceProfile) async -> Bool {
+        let success = await settingsClient.patchConfig([
+            "llm": ["profiles": [name: fragment.toJSON()]]
+        ])
+        if success {
+            var copy = fragment
+            copy.name = name
+            if let index = profiles.firstIndex(where: { $0.name == name }) {
+                profiles[index] = copy
+            } else {
+                profiles.append(copy)
+                profiles.sort { $0.name < $1.name }
+            }
+        } else {
+            log.error("Failed to patch config for llm.profiles.\(name, privacy: .public)")
+        }
+        return success
+    }
+
+    /// Result of a `deleteProfile` call. References to the profile must
+    /// be cleared before deletion can succeed; the blocked variants name
+    /// the conflicting locations so the caller can guide the user
+    /// through resolving them.
+    enum DeleteProfileResult: Equatable {
+        /// Profile was deleted successfully.
+        case deleted
+
+        /// Deletion blocked because the profile is the current
+        /// `llm.activeProfile`. Associated value is the active profile
+        /// name (matches the requested delete in this case but kept for
+        /// symmetry with the call-sites variant).
+        case blockedByActive(String)
+
+        /// Deletion blocked because one or more call-site overrides
+        /// reference the profile by name. Associated value lists each
+        /// conflicting call-site ID so the UI can render a remediation
+        /// affordance.
+        case blockedByCallSites([String])
+
+        /// Reference checks passed but the daemon PATCH failed — typically
+        /// a transient connectivity issue. The caller should surface a
+        /// retry affordance; the next config sync will reconcile the
+        /// authoritative state.
+        case failed
+    }
+
+    /// Deletes a profile under `llm.profiles.<name>` after verifying no
+    /// references remain. References checked: the global
+    /// `llm.activeProfile` pointer and every per-row entry in
+    /// `callSiteOverrides`. When references exist, returns the
+    /// corresponding `.blockedBy*` variant so the caller can guide the
+    /// user through clearing them. Otherwise issues a PATCH with
+    /// `NSNull()` at the profile key, which the daemon's deep-merge
+    /// treats as deletion.
+    @discardableResult
+    func deleteProfile(name: String) async -> DeleteProfileResult {
+        if activeProfile == name {
+            return .blockedByActive(activeProfile)
+        }
+        let conflictingCallSites = callSiteOverrides
+            .filter { $0.profile == name }
+            .map(\.id)
+        if !conflictingCallSites.isEmpty {
+            return .blockedByCallSites(conflictingCallSites)
+        }
+        let success = await settingsClient.patchConfig([
+            "llm": ["profiles": [name: NSNull()]]
+        ])
+        if success {
+            profiles.removeAll(where: { $0.name == name })
+            return .deleted
+        } else {
+            log.error("Failed to patch config to delete llm.profiles.\(name, privacy: .public)")
+            return .failed
+        }
+    }
+
     /// Persists an override for a single call site at
     /// `llm.callSites.<id>.{provider,model,profile}`. Nil arguments are
     /// omitted from the patch payload — passing `provider: nil` does
@@ -3295,6 +3431,27 @@ public final class SettingsStore: ObservableObject {
             if let model { entry["model"] = model }
             if let profile { entry["profile"] = profile }
             guard !entry.isEmpty else { return true }
+            // When the caller is assigning a profile-only override (no raw
+            // provider/model), explicitly null out the fragment leaves
+            // (`provider`, `model`, `maxTokens`, `effort`, `speed`,
+            // `verbosity`, `temperature`, `thinking`, `contextWindow`) so
+            // any pre-existing fragment fields don't shadow the profile's
+            // resolved values. The daemon's type-aware deep-merge treats
+            // `null` on object/scalar leaves as deletion. Without this,
+            // switching a row from "Custom" (raw fragment) to a profile
+            // would leave stale leaves in `llm.callSites.<id>` that win
+            // over the profile in the resolver.
+            if profile != nil && provider == nil && model == nil {
+                entry["provider"] = NSNull()
+                entry["model"] = NSNull()
+                entry["maxTokens"] = NSNull()
+                entry["effort"] = NSNull()
+                entry["speed"] = NSNull()
+                entry["verbosity"] = NSNull()
+                entry["temperature"] = NSNull()
+                entry["thinking"] = NSNull()
+                entry["contextWindow"] = NSNull()
+            }
             let setSuccess = await settingsClient.patchConfig([
                 "llm": ["callSites": [id: entry]]
             ])
@@ -4161,6 +4318,7 @@ public final class SettingsStore: ObservableObject {
 
         loadServiceModes(config: config)
         loadCallSiteOverrides(config: config)
+        loadInferenceProfiles(config: config)
 
         // Persist enabledSince when it was defaulted so subsequent loads
         // produce a deterministic timestamp.
