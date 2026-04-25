@@ -3236,7 +3236,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Persists a profile fragment under `llm.profiles.<name>`. The
     /// fragment merges into any existing entry — callers that want
-    /// "replace" semantics should issue a delete first.
+    /// "replace" semantics should use `replaceProfile(name:fragment:)`.
     @discardableResult
     func setProfile(name: String, fragment: InferenceProfile) async -> Bool {
         let success = await settingsClient.patchConfig([
@@ -3256,6 +3256,31 @@ public final class SettingsStore: ObservableObject {
             }
         } else {
             log.error("Failed to patch config for llm.profiles.\(name, privacy: .public)")
+        }
+        return success
+    }
+
+    /// Replaces the Settings-UI-managed leaves for a profile. Unlike
+    /// `setProfile`, nil fields in `fragment` are treated as removals by
+    /// the assistant route, so hidden or toggled-off editor controls do not
+    /// leave stale values in `llm.profiles.<name>`.
+    @discardableResult
+    func replaceProfile(name: String, fragment: InferenceProfile) async -> Bool {
+        let success = await settingsClient.replaceInferenceProfile(
+            name: name,
+            fragment: fragment.toJSON()
+        )
+        if success {
+            var copy = fragment
+            copy.name = name
+            if let index = profiles.firstIndex(where: { $0.name == name }) {
+                profiles[index] = copy
+            } else {
+                profiles.append(copy)
+                profiles.sort { $0.name < $1.name }
+            }
+        } else {
+            log.error("Failed to replace llm.profiles.\(name, privacy: .public)")
         }
         return success
     }

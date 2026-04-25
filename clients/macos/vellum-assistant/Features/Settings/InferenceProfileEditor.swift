@@ -10,7 +10,7 @@ import VellumAssistantShared
 /// State ownership:
 /// - Edits flow through `@Binding var profile`, so the parent (the
 ///   profiles sheet introduced in PR 13) owns persistence and decides how
-///   the draft maps onto `store.setProfile(name:fragment:)`.
+///   the draft maps onto `store.replaceProfile(name:fragment:)`.
 /// - The provider/model dropdowns read their option lists from
 ///   `store.dynamicProviderIds` and `store.dynamicProviderModels(_:)`.
 /// - Save and Cancel are wired to caller-provided closures so the parent
@@ -78,9 +78,24 @@ struct InferenceProfileEditor: View {
         !isModelMissing && !isModelInvalid
     }
 
+    var parameterVisibility: InferenceProfileParameterVisibility {
+        let provider = profile.provider ?? ""
+        let model = profile.model ?? ""
+        let knownModels = store.dynamicProviderModels(provider)
+        let isKnownModel = knownModels.contains { $0.id == model }
+        let modelEntry = LLMProviderRegistry.model(provider: provider, id: model)
+        return InferenceProfileParameterVisibility.resolve(
+            provider: provider,
+            model: model,
+            isKnownModel: isKnownModel,
+            modelEntry: modelEntry
+        )
+    }
+
     // MARK: - Body
 
     var body: some View {
+        let visibility = parameterVisibility
         VStack(alignment: .leading, spacing: 0) {
             toolbar
             SettingsDivider()
@@ -89,12 +104,24 @@ struct InferenceProfileEditor: View {
                     nameField
                     providerField
                     modelField
-                    maxTokensField
-                    effortField
-                    speedField
-                    verbosityField
-                    temperatureField
-                    thinkingSection
+                    if visibility.maxTokens {
+                        maxTokensField
+                    }
+                    if visibility.effort {
+                        effortField
+                    }
+                    if visibility.speed {
+                        speedField
+                    }
+                    if visibility.verbosity {
+                        verbosityField
+                    }
+                    if visibility.temperature {
+                        temperatureField
+                    }
+                    if visibility.thinking {
+                        thinkingSection
+                    }
                 }
                 .padding(VSpacing.lg)
             }
@@ -124,7 +151,7 @@ struct InferenceProfileEditor: View {
                 onCancel()
             }
             VButton(label: "Save", style: .primary, isDisabled: !canSave) {
-                onSave()
+                saveVisibleProfile()
             }
         }
         .padding(VSpacing.lg)
@@ -358,5 +385,10 @@ struct InferenceProfileEditor: View {
     /// resets the draft after a Save) so the field reflects the live value.
     private func syncMaxTokensFromBinding() {
         maxTokensText = profile.maxTokens.map(String.init) ?? ""
+    }
+
+    private func saveVisibleProfile() {
+        profile = parameterVisibility.sanitized(profile)
+        onSave()
     }
 }

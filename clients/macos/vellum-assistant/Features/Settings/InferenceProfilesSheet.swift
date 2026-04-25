@@ -8,8 +8,8 @@ import VellumAssistantShared
 ///
 /// State ownership:
 /// - The list mirrors `store.profiles` directly. Edits route through
-///   `store.setProfile(name:fragment:)` which updates the published state
-///   optimistically, so the sheet does not maintain a separate draft cache
+///   `store.replaceProfile(name:fragment:)` which updates the published state
+///   on success, so the sheet does not maintain a separate draft cache
 ///   for the list rows.
 /// - The editor is presented modally over the sheet via the
 ///   `editorState` @State. The editor has its own draft binding —
@@ -370,7 +370,7 @@ struct InferenceProfilesSheet: View {
         // would accept them but the row would render unusably.
         guard !name.isEmpty else { return }
 
-        // setProfile is an upsert keyed by name, so committing under a
+        // Profile saves are upserts keyed by name, so committing under a
         // name that already belongs to a different profile would silently
         // overwrite that profile. Reject the collision and surface a
         // user-facing error before clobbering anything.
@@ -379,7 +379,7 @@ struct InferenceProfilesSheet: View {
             return
         }
 
-        let success = await store.setProfile(name: name, fragment: draft)
+        let success = await store.replaceProfile(name: name, fragment: draft)
         guard success else {
             actionError = "Couldn't save profile. Please try again."
             return
@@ -523,8 +523,8 @@ struct InferenceProfilesSheet: View {
 
     /// Composes the row's summary line. Resolves provider+model display
     /// names against the store's catalog when present so the user sees the
-    /// human-readable label rather than the wire ID, then appends effort
-    /// and thinking summaries when they're set on the fragment.
+    /// human-readable label rather than the wire ID, then appends relevant
+    /// effort and thinking summaries when they're set on the fragment.
     static func summary(for profile: InferenceProfile, store: SettingsStore) -> String {
         var pieces: [String] = []
         if let provider = profile.provider, !provider.isEmpty {
@@ -538,10 +538,18 @@ struct InferenceProfilesSheet: View {
         } else if let model = profile.model, !model.isEmpty {
             pieces.append(model)
         }
-        if let effort = profile.effort, !effort.isEmpty {
+        let provider = profile.provider ?? ""
+        let model = profile.model ?? ""
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: profile.provider,
+            model: profile.model,
+            isKnownModel: store.dynamicProviderModels(provider).contains { $0.id == model },
+            modelEntry: LLMProviderRegistry.model(provider: provider, id: model)
+        )
+        if visibility.effort, let effort = profile.effort, !effort.isEmpty {
             pieces.append("\(effort) effort")
         }
-        if let thinkingEnabled = profile.thinkingEnabled {
+        if visibility.thinking, let thinkingEnabled = profile.thinkingEnabled {
             pieces.append("thinking \(thinkingEnabled ? "on" : "off")")
         }
         if pieces.isEmpty {
