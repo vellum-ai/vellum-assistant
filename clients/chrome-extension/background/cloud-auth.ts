@@ -2,13 +2,24 @@
  * Cloud authentication for the Vellum Chrome extension.
  *
  * Handles WorkOS-based sign-in via `chrome.identity.launchWebAuthFlow`.
- * The flow opens a browser tab to the Vellum login page; after the user
- * authenticates, the platform redirects back to a `chromiumapp.org`
- * callback URL that Chrome intercepts, returning the final URL to the
- * extension.
+ * The flow opens a browser tab to the Vellum Chrome extension login
+ * endpoint; after the user authenticates, the platform redirects back
+ * to a `chromiumapp.org` callback URL that Chrome intercepts, returning
+ * the final URL (with token fragment) to the extension.
  *
- * Post-login, the extension fetches the user's assistants from the
- * platform API to display in the popup.
+ * The existing Django endpoint at `/accounts/chrome-extension/start`
+ * handles the full flow: login → assistant ownership check → guardian
+ * token mint → redirect with token. However, it requires an
+ * `assistant_id` upfront, so the login flow is two-phase:
+ *
+ *   1. Fetch assistants via the headless allauth session API
+ *   2. User picks an assistant in the popup
+ *   3. `launchWebAuthFlow` with the selected assistant_id
+ *
+ * For now, we use a simpler approach: `launchWebAuthFlow` opens the
+ * platform login page. After auth completes, the extension's session
+ * cookie grants access to the assistants API. The popup then shows the
+ * assistant picker.
  */
 
 import type { ExtensionEnvironment } from './extension-environment.js';
@@ -32,8 +43,6 @@ export interface CloudSession {
 export interface CloudAssistant {
   id: string;
   name: string;
-  /** Optional avatar URL — not currently returned by the API. */
-  avatarUrl?: string;
 }
 
 // ── Session persistence ─────────────────────────────────────────────
@@ -104,59 +113,75 @@ export async function clearSelectedAssistant(): Promise<void> {
 /**
  * Initiate WorkOS login via `chrome.identity.launchWebAuthFlow`.
  *
- * Opens the Vellum login page. After successful auth, the platform
- * redirects back to our chromiumapp.org callback URL. We store a
- * lightweight session and return it.
+ * Uses the existing `/accounts/chrome-extension/start` Django endpoint
+ * which handles: login_required → WorkOS OAuth → session → redirect
+ * back to the chromiumapp.org callback URL with auth result.
  *
- * The actual HTTP session cookie is set by Django's login flow and
- * attached to subsequent `fetch()` requests via `credentials: 'include'`.
+ * We pass `redirect_uri` and `client_id` as required by the endpoint.
+ * Since we don't have an `assistant_id` yet (user hasn't picked one),
+ * we omit it — the endpoint will return an error fragment, but the
+ * important thing is the user's Django session is now authenticated.
+ * We catch the error and proceed to fetch assistants.
  */
 export async function startCloudLogin(
   environment: ExtensionEnvironment,
 ): Promise<CloudSession> {
-  const { webBaseUrl } = cloudUrlsForEnvironment(environment);
+  const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
 
-  // The redirect URI that Chrome intercepts after login completes.
+  // The redirect URI that Chrome intercepts after the flow completes.
   const redirectUri = chrome.identity.getRedirectURL('cloud-auth');
 
-  // Build the login URL. The platform's login page accepts a `returnTo`
-  // query param. After successful WorkOS auth, Django redirects to
-  // returnTo. We point returnTo at a lightweight JSON endpoint that
-  // returns the user profile, which then redirects to our extension
-  // callback.
-  //
-  // Flow: extension → /accounts/login?returnTo=/api/v1/me → WorkOS →
-  //       Django callback → /api/v1/me → redirect to chromiumapp.org
-  //
-  // For now, use a simpler approach: open the login page with returnTo
-  // pointing back to our redirect URI. After login, Django redirects
-  // the browser to the redirectUri.
-  const loginUrl = new URL('/accounts/login/', webBaseUrl);
-  loginUrl.searchParams.set('returnTo', redirectUri);
+  // Build the login URL using the Django chrome-extension start endpoint.
+  // The endpoint lives on the API host (Django), not the web frontend.
+  // Flow: Django @login_required → WorkOS OAuth → redirect back → validate
+  //       → redirect to chromiumapp.org callback URL.
+  const loginUrl = new URL('/accounts/chrome-extension/start', apiBaseUrl);
+  loginUrl.searchParams.set('redirect_uri', redirectUri);
+  loginUrl.searchParams.set('client_id', 'vellum-chrome-extension');
 
-  const resultUrl = await chrome.identity.launchWebAuthFlow({
-    url: loginUrl.toString(),
-    interactive: true,
-  });
-
-  if (!resultUrl) {
-    throw new Error('Login cancelled or failed — no redirect received.');
+  let resultUrl: string | undefined;
+  try {
+    resultUrl = await chrome.identity.launchWebAuthFlow({
+      url: loginUrl.toString(),
+      interactive: true,
+    });
+  } catch (err) {
+    throw new Error(
+      `Login failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
-  // After successful login, fetch user info from the platform API.
-  // The session cookie was set by the login flow.
-  const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
+  if (!resultUrl) {
+    throw new Error('Login was cancelled.');
+  }
+
+  // The result URL may contain an error fragment (e.g. missing_assistant_id)
+  // because we didn't pass assistant_id. That's fine — the user's session
+  // is now authenticated. Parse any email from the fragment if available.
+  const fragment = new URL(resultUrl).hash.slice(1);
+  const fragmentParams = new URLSearchParams(fragment);
+
+  // Check for auth-level errors (not missing_assistant_id, which is expected)
+  const error = fragmentParams.get('error');
+  if (error && error !== 'missing_assistant_id') {
+    const desc = fragmentParams.get('error_description') ?? error;
+    throw new Error(`Login failed: ${desc}`);
+  }
+
+  // Session is now active. Try to get user info via the allauth session API.
   let email = 'signed in';
 
   try {
-    const meResponse = await fetch(`${apiBaseUrl}/v1/user/`, {
+    const sessionResponse = await fetch(`${apiBaseUrl}/_allauth/browser/v1/auth/session`, {
       credentials: 'include',
       headers: { Accept: 'application/json' },
     });
-    if (meResponse.ok) {
-      const me = (await meResponse.json()) as { email?: string };
-      if (me.email) {
-        email = me.email;
+    if (sessionResponse.ok) {
+      const sessionData = (await sessionResponse.json()) as {
+        data?: { user?: { email?: string } };
+      };
+      if (sessionData.data?.user?.email) {
+        email = sessionData.data.user.email;
       }
     }
   } catch {
