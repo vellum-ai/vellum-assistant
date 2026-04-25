@@ -3,15 +3,17 @@ import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { makeMockLogger } from "./helpers/mock-logger.js";
+
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getLogger: () => makeMockLogger(),
 }));
 
+import { _resetDisplayOrderMigrationForTests } from "../memory/conversation-display-order-migration.js";
+import { _resetGroupMigrationForTests } from "../memory/conversation-group-migration.js";
 import { initializeDb, resetDb } from "../memory/db.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrateAddConversationInferenceProfile } from "../memory/migrations/227-add-conversation-inference-profile.js";
@@ -64,6 +66,11 @@ function bootstrapPreInferenceProfileConversations(raw: Database): void {
 
 function removeTestDbFiles(): void {
   resetDb();
+  // Reset the in-process guards for the lazy `group_id` / `display_order` /
+  // `is_pinned` migrations so the freshly recreated DB gets those columns
+  // again. Otherwise downstream tests hit `no such column: group_id`.
+  _resetGroupMigrationForTests();
+  _resetDisplayOrderMigrationForTests();
   const dbPath = getDbPath();
   rmSync(dbPath, { force: true });
   rmSync(`${dbPath}-shm`, { force: true });

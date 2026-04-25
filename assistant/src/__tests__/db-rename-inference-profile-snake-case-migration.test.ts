@@ -3,11 +3,10 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { makeMockLogger } from "./helpers/mock-logger.js";
+
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getLogger: () => makeMockLogger(),
 }));
 
 import { getSqliteFrom } from "../memory/db-connection.js";

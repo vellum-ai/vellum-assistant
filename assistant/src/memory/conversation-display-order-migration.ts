@@ -41,3 +41,13 @@ export function ensureDisplayOrderMigration(): void {
     displayOrderColumnsEnsured = true;
   }
 }
+
+/**
+ * Reset the in-memory `displayOrderColumnsEnsured` guard so the next
+ * `ensureDisplayOrderMigration()` call re-runs. Intended ONLY for tests that
+ * recreate the SQLite database mid-process (e.g. `removeTestDbFiles()` in
+ * `db-conversation-inference-profile-migration.test.ts`).
+ */
+export function _resetDisplayOrderMigrationForTests(): void {
+  displayOrderColumnsEnsured = false;
+}

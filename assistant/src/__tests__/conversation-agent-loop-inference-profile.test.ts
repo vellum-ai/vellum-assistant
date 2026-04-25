@@ -11,7 +11,8 @@
  * exercised separately by their own tests.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { createRequire } from "node:module";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -21,12 +22,29 @@ import type {
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { makeMockLogger } from "./helpers/mock-logger.js";
+
+// Snapshot the real `conversation-crud` exports before `mock.module()` below
+// replaces them. We use a synchronous CJS-style require (via `createRequire`)
+// because static `import` is hoisted above `mock.module()` calls — but bun's
+// own `mock.module()` is NOT hoisted, so the only way to grab the real
+// exports at this exact line is the synchronous require. The spread freezes
+// each function reference — holding the module object directly would yield
+// the *mocked* values after `mock.module` runs, since the require'd object
+// is a live binding. `afterAll` re-mocks with this snapshot so downstream
+// files in the same `bun test` run get the real exports back (Bun's
+// `mock.module()` persists across files; `mock.restore()` does not restore
+// module mocks).
+const conversationCrudRealSnapshot = {
+  ...(createRequire(import.meta.url)(
+    "../memory/conversation-crud.js",
+  ) as Record<string, unknown>),
+};
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+  getLogger: () => makeMockLogger(),
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -487,6 +505,15 @@ beforeEach(() => {
     title: null,
   };
   resetPluginRegistryAndRegisterDefaults();
+});
+
+afterAll(() => {
+  // Restore real `conversation-crud` for downstream files; see the snapshot
+  // block near the top of this file for why this is necessary.
+  mock.module(
+    "../memory/conversation-crud.js",
+    () => conversationCrudRealSnapshot,
+  );
 });
 
 describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {

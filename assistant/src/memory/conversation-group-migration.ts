@@ -21,6 +21,18 @@ function isDuplicateColumnError(err: unknown): boolean {
 let migrated = false;
 
 /**
+ * Reset the in-memory `migrated` guard so the next `ensureGroupMigration()`
+ * call re-runs the full migration. Intended ONLY for tests that recreate
+ * the SQLite database mid-process (e.g. `removeTestDbFiles()` in
+ * `db-conversation-inference-profile-migration.test.ts`) — without this,
+ * subsequent tests in the same `bun test` run hit
+ * `no such column: group_id` because the guard short-circuits the recreate.
+ */
+export function _resetGroupMigrationForTests(): void {
+  migrated = false;
+}
+
+/**
  * Uses raw BEGIN/COMMIT for the one-time backfill. Must NOT be called
  * for the first time inside a Drizzle db.transaction() block — SQLite
  * does not support nested transactions. In practice this is safe because
@@ -235,7 +247,10 @@ export function ensureGroupMigration(): void {
       rawExec("COMMIT");
     } catch (err) {
       rawExec("ROLLBACK");
-      log.error({ err }, "reflections-to-background migration failed, rolled back");
+      log.error(
+        { err },
+        "reflections-to-background migration failed, rolled back",
+      );
       throw err;
     }
   }
@@ -262,7 +277,9 @@ export function ensureGroupMigration(): void {
         WHERE group_id = 'system:reflections'
       `);
 
-      rawExec(`DELETE FROM conversation_groups WHERE id = 'system:reflections'`);
+      rawExec(
+        `DELETE FROM conversation_groups WHERE id = 'system:reflections'`,
+      );
 
       rawExec(`
         INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
