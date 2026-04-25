@@ -122,15 +122,13 @@ mock.module("../runtime/channel-verification-service.js", () => ({
 const deliveredReplies: Array<{
   url: string;
   payload: Record<string, unknown>;
-  bearerToken?: string;
 }> = [];
 mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
-    bearerToken?: string,
   ) => {
-    deliveredReplies.push({ url, payload, bearerToken });
+    deliveredReplies.push({ url, payload });
     return { ok: true };
   },
 }));
@@ -825,7 +823,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
         replyCallbackUrl: "http://localhost:3000/reply",
         guardianChatId: "guardian-chat-1",
         assistantId: "self",
-        bearerToken: "test-token",
       },
     });
     expect(approvalResult.applied).toBe(true);
@@ -878,7 +875,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
         replyCallbackUrl: "http://localhost:3000/reply",
         guardianChatId: "guardian-chat-1",
         assistantId: "self",
-        bearerToken: "test-token",
       },
     });
     expect(approvalResult.applied).toBe(true);
@@ -924,7 +920,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
         replyCallbackUrl: "http://localhost:3000/reply",
         guardianChatId: "guardian-chat-1",
         assistantId: "self",
-        bearerToken: "test-token",
       },
     });
     expect(approvalResult.applied).toBe(true);

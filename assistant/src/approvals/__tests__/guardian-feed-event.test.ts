@@ -79,9 +79,7 @@ mock.module("../../runtime/assistant-scope.js", () => ({
   DAEMON_INTERNAL_ASSISTANT_ID: "self",
 }));
 
-mock.module("../../runtime/auth/token-service.js", () => ({
-  mintDaemonDeliveryToken: () => "mock-token",
-}));
+mock.module("../../runtime/auth/token-service.js", () => ({}));
 
 mock.module("../../runtime/channel-approval-types.js", () => ({}));
 

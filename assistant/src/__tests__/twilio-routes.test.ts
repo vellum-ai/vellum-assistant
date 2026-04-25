@@ -306,9 +306,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/status`,
 }));
 
-mock.module("../runtime/auth/token-service.js", () => ({
-  mintDaemonDeliveryToken: () => "test-delivery-token",
-}));
+mock.module("../runtime/auth/token-service.js", () => ({}));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
   deleteCredentialMetadata: () => {},

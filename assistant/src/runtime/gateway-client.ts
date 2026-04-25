@@ -1,14 +1,13 @@
 /**
- * Assistant-side gateway delivery client.
+ * Assistant-side channel delivery client.
  *
- * Delegates transport logic to `@vellumai/gateway-client/http-delivery`
- * while preserving the exported function signatures used by runtime routes
- * and notifications. The assistant's pino logger is injected at call sites
- * so the package stays transport-focused.
+ * Channels with direct delivery support (WhatsApp, Telegram, Slack) are
+ * handled by `messaging/providers/index.ts` without touching the gateway.
  *
- * Channels that support direct delivery (bypassing the gateway HTTP proxy)
- * are handled by `messaging/providers/index.ts`.  This file consults
- * `isDirectDelivery()` before falling through to the HTTP path.
+ * Managed outbound callbacks (platform-routed phone/SMS) are handled by
+ * `@vellumai/gateway-client/http-delivery` with retry/idempotency semantics.
+ * Those callbacks carry their own `callback_token` in the URL — no daemon
+ * bearer token is needed.
  */
 
 import type {
@@ -17,7 +16,6 @@ import type {
 } from "@vellumai/gateway-client";
 import {
   ChannelDeliveryError,
-  deliverApprovalPrompt as _deliverApprovalPrompt,
   deliverChannelReply as _deliverChannelReply,
 } from "@vellumai/gateway-client/http-delivery";
 
@@ -37,17 +35,16 @@ export type { ChannelDeliveryResult, ChannelReplyPayload };
 export async function deliverChannelReply(
   callbackUrl: string,
   payload: ChannelReplyPayload,
-  bearerToken?: string,
 ): Promise<ChannelDeliveryResult> {
   if (isDirectDelivery(callbackUrl)) {
     return deliverDirect(callbackUrl, payload);
   }
-  return _deliverChannelReply(callbackUrl, payload, bearerToken, log);
+  return _deliverChannelReply(callbackUrl, payload, undefined, log);
 }
 
 /**
  * Deliver an approval prompt (text + inline keyboard metadata) to the
- * gateway so it can render the approval UI in the channel.
+ * channel via direct provider API calls or managed outbound delivery.
  */
 export async function deliverApprovalPrompt(
   callbackUrl: string,
@@ -55,18 +52,14 @@ export async function deliverApprovalPrompt(
   text: string,
   approval: ApprovalUIMetadata,
   assistantId?: string,
-  bearerToken?: string,
 ): Promise<ChannelDeliveryResult> {
   if (isDirectDelivery(callbackUrl)) {
     return deliverDirect(callbackUrl, { chatId, text, approval, assistantId });
   }
-  return _deliverApprovalPrompt(
+  return _deliverChannelReply(
     callbackUrl,
-    chatId,
-    text,
-    approval,
-    assistantId,
-    bearerToken,
+    { chatId, text, approval, assistantId },
+    undefined,
     log,
   );
 }

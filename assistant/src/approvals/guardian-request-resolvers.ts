@@ -90,8 +90,6 @@ export interface ChannelDeliveryContext {
   guardianChatId: string;
   /** Assistant ID for attribution. */
   assistantId: string;
-  /** Optional bearer token for authenticated delivery. */
-  bearerToken?: string;
 }
 
 /** Emission context threaded from callers to handleConfirmationResponse. */

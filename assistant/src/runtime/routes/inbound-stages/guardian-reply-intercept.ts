@@ -38,7 +38,6 @@ export interface GuardianReplyInterceptParams {
   conversationId: string;
   eventId: string;
   replyCallbackUrl: string | undefined;
-  mintBearerToken: () => string;
   trustClass: string;
   guardianPrincipalId: string | null | undefined;
   approvalConversationGenerator: ApprovalConversationGenerator | undefined;
@@ -74,7 +73,6 @@ export async function handleGuardianReplyIntercept(
     conversationId,
     eventId,
     replyCallbackUrl,
-    mintBearerToken,
     trustClass,
     guardianPrincipalId,
     approvalConversationGenerator,
@@ -142,7 +140,6 @@ export async function handleGuardianReplyIntercept(
       replyCallbackUrl,
       guardianChatId: conversationExternalId,
       assistantId: canonicalAssistantId,
-      bearerToken: mintBearerToken(),
     },
   });
 
@@ -161,11 +158,7 @@ export async function handleGuardianReplyIntercept(
         routerReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
       }
       try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          routerReplyPayload,
-          mintBearerToken(),
-        );
+        await deliverChannelReply(replyCallbackUrl, routerReplyPayload);
       } catch (err) {
         log.error(
           { err, conversationExternalId },

@@ -99,7 +99,6 @@ export interface AclEnforcementParams {
   actorDisplayName: string | undefined;
   actorUsername: string | undefined;
   replyCallbackUrl: string | undefined;
-  mintBearerToken: () => string;
   assistantId: string;
   externalMessageId: string;
 }
@@ -178,7 +177,6 @@ export async function enforceIngressAcl(
     actorDisplayName,
     actorUsername,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     externalMessageId,
   } = params;
@@ -301,7 +299,6 @@ export async function enforceIngressAcl(
           senderName: actorDisplayName,
           senderUsername: actorUsername,
           replyCallbackUrl,
-          bearerToken: mintBearerToken(),
           assistantId,
           canonicalAssistantId,
         });
@@ -327,7 +324,6 @@ export async function enforceIngressAcl(
           senderName: actorDisplayName,
           senderUsername: actorUsername,
           replyCallbackUrl,
-          bearerToken: mintBearerToken(),
           assistantId,
           canonicalAssistantId,
         });
@@ -392,15 +388,11 @@ export async function enforceIngressAcl(
                 // Malformed URL — use as-is
               }
               try {
-                await deliverChannelReply(
-                  dmCallbackUrl,
-                  {
-                    chatId: senderUserId,
-                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
-                    assistantId,
-                  },
-                  mintBearerToken(),
-                );
+                await deliverChannelReply(dmCallbackUrl, {
+                  chatId: senderUserId,
+                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                  assistantId,
+                });
               } catch (err) {
                 log.error(
                   { err, senderUserId },
@@ -463,11 +455,7 @@ export async function enforceIngressAcl(
             replyPayload.user = (canonicalSenderId ?? rawSenderId)!;
           }
           try {
-            await deliverChannelReply(
-              replyCallbackUrl,
-              replyPayload,
-              mintBearerToken(),
-            );
+            await deliverChannelReply(replyCallbackUrl, replyPayload);
             replyDelivered = true;
           } catch (err) {
             log.error(
@@ -557,7 +545,6 @@ export async function enforceIngressAcl(
             senderName: actorDisplayName,
             senderUsername: actorUsername,
             replyCallbackUrl,
-            bearerToken: mintBearerToken(),
             assistantId,
             canonicalAssistantId,
           });
@@ -588,7 +575,6 @@ export async function enforceIngressAcl(
             senderName: actorDisplayName,
             senderUsername: actorUsername,
             replyCallbackUrl,
-            bearerToken: mintBearerToken(),
             assistantId,
             canonicalAssistantId,
           });
@@ -659,15 +645,11 @@ export async function enforceIngressAcl(
                   // Malformed URL — use as-is
                 }
                 try {
-                  await deliverChannelReply(
-                    dmCallbackUrl,
-                    {
-                      chatId: senderUserId,
-                      text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
-                      assistantId,
-                    },
-                    mintBearerToken(),
-                  );
+                  await deliverChannelReply(dmCallbackUrl, {
+                    chatId: senderUserId,
+                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                    assistantId,
+                  });
                 } catch (err) {
                   log.error(
                     { err, senderUserId },
@@ -740,11 +722,7 @@ export async function enforceIngressAcl(
               inactiveReplyPayload.user = (canonicalSenderId ?? rawSenderId)!;
             }
             try {
-              await deliverChannelReply(
-                replyCallbackUrl,
-                inactiveReplyPayload,
-                mintBearerToken(),
-              );
+              await deliverChannelReply(replyCallbackUrl, inactiveReplyPayload);
               inactiveReplyDelivered = true;
             } catch (err) {
               log.error(
@@ -785,11 +763,7 @@ export async function enforceIngressAcl(
             denyPayload.user = (canonicalSenderId ?? rawSenderId)!;
           }
           try {
-            await deliverChannelReply(
-              replyCallbackUrl,
-              denyPayload,
-              mintBearerToken(),
-            );
+            await deliverChannelReply(replyCallbackUrl, denyPayload);
             denyReplyDelivered = true;
           } catch (err) {
             log.error(
@@ -842,7 +816,6 @@ async function handleInviteTokenIntercept(params: {
   senderName?: string;
   senderUsername?: string;
   replyCallbackUrl?: string;
-  bearerToken?: string;
   assistantId?: string;
   canonicalAssistantId: string;
 }): Promise<Response | null> {
@@ -855,7 +828,6 @@ async function handleInviteTokenIntercept(params: {
     senderName,
     senderUsername,
     replyCallbackUrl,
-    bearerToken,
     assistantId,
     canonicalAssistantId,
   } = params;
@@ -909,15 +881,11 @@ async function handleInviteTokenIntercept(params: {
     const replyText = getInviteRedemptionReply(outcome);
     if (replyCallbackUrl) {
       try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: externalChatId,
-            text: replyText,
-            assistantId,
-          },
-          bearerToken,
-        );
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        });
       } catch (err) {
         log.error(
           { err, externalChatId },
@@ -937,15 +905,11 @@ async function handleInviteTokenIntercept(params: {
 
   if (replyCallbackUrl) {
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        },
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: externalChatId,
+        text: replyText,
+        assistantId,
+      });
     } catch (err) {
       log.error(
         { err, externalChatId },
@@ -995,7 +959,6 @@ async function handleInviteCodeIntercept(params: {
   senderName?: string;
   senderUsername?: string;
   replyCallbackUrl?: string;
-  bearerToken?: string;
   assistantId?: string;
   canonicalAssistantId: string;
 }): Promise<Response | null> {
@@ -1008,7 +971,6 @@ async function handleInviteCodeIntercept(params: {
     senderName,
     senderUsername,
     replyCallbackUrl,
-    bearerToken,
     assistantId,
     canonicalAssistantId,
   } = params;
@@ -1049,15 +1011,11 @@ async function handleInviteCodeIntercept(params: {
       const mismatchReply = "This invite is not valid for this channel.";
       if (replyCallbackUrl) {
         try {
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: externalChatId,
-              text: mismatchReply,
-              assistantId,
-            },
-            bearerToken,
-          );
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: externalChatId,
+            text: mismatchReply,
+            assistantId,
+          });
         } catch (err) {
           log.error(
             { err, externalChatId },
@@ -1134,15 +1092,11 @@ async function handleInviteCodeIntercept(params: {
     const replyText = getInviteRedemptionReply(outcome);
     if (replyCallbackUrl) {
       try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: externalChatId,
-            text: replyText,
-            assistantId,
-          },
-          bearerToken,
-        );
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        });
       } catch (err) {
         log.error(
           { err, externalChatId },
@@ -1162,15 +1116,11 @@ async function handleInviteCodeIntercept(params: {
 
   if (replyCallbackUrl) {
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        },
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: externalChatId,
+        text: replyText,
+        assistantId,
+      });
     } catch (err) {
       log.error(
         { err, externalChatId },

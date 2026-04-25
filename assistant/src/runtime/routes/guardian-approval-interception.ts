@@ -63,7 +63,6 @@ export interface ApprovalInterceptionParams {
   sourceChannel: ChannelId;
   actorExternalId?: string;
   replyCallbackUrl: string;
-  bearerToken?: string;
   trustCtx: TrustContext;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
@@ -102,7 +101,6 @@ export async function handleApprovalInterception(
     sourceChannel,
     actorExternalId,
     replyCallbackUrl,
-    bearerToken,
     trustCtx,
     assistantId,
     approvalCopyGenerator,
@@ -122,7 +120,6 @@ export async function handleApprovalInterception(
       sourceChannel,
       actorExternalId,
       replyCallbackUrl,
-      bearerToken,
       assistantId,
       approvalCopyGenerator,
       approvalConversationGenerator,
@@ -318,11 +315,7 @@ export async function handleApprovalInterception(
                   cancelPayload.ephemeral = true;
                   cancelPayload.user = requesterEphemeral;
                 }
-                await deliverChannelReply(
-                  replyCallbackUrl,
-                  cancelPayload,
-                  bearerToken,
-                );
+                await deliverChannelReply(replyCallbackUrl, cancelPayload);
               } catch (err) {
                 log.error(
                   { err, conversationId },
@@ -360,7 +353,6 @@ export async function handleApprovalInterception(
                 await deliverChannelReply(
                   replyCallbackUrl,
                   guardianCancelPayload,
-                  bearerToken,
                 );
               } catch (err) {
                 log.error(
@@ -379,7 +371,6 @@ export async function handleApprovalInterception(
               replyCallbackUrl,
               chatId: conversationExternalId,
               assistantId,
-              bearerToken,
               approvalCopyGenerator,
               logger: log,
               errorLogMessage:
@@ -409,11 +400,7 @@ export async function handleApprovalInterception(
                 followupPayload.ephemeral = true;
                 followupPayload.user = followupEphemeral;
               }
-              await deliverChannelReply(
-                replyCallbackUrl,
-                followupPayload,
-                bearerToken,
-              );
+              await deliverChannelReply(replyCallbackUrl, followupPayload);
             } catch (err) {
               log.error(
                 { err, conversationId },
@@ -431,7 +418,6 @@ export async function handleApprovalInterception(
           replyCallbackUrl,
           chatId: conversationExternalId,
           assistantId,
-          bearerToken,
           approvalCopyGenerator,
           logger: log,
           errorLogMessage:
@@ -465,7 +451,6 @@ export async function handleApprovalInterception(
           replyCallbackUrl,
           chatId: conversationExternalId,
           assistantId,
-          bearerToken,
           approvalCopyGenerator,
           logger: log,
           errorLogMessage:
@@ -503,7 +488,6 @@ export async function handleApprovalInterception(
           replyCallbackUrl,
           chatId: conversationExternalId,
           assistantId,
-          bearerToken,
           approvalCopyGenerator,
           logger: log,
           errorLogMessage:
@@ -570,7 +554,6 @@ export async function handleApprovalInterception(
               chatId: conversationExternalId,
               messageTs: approvalMessageTs,
               assistantId,
-              bearerToken,
               conversationId,
             });
           }
@@ -591,16 +574,12 @@ export async function handleApprovalInterception(
             decisionOutcome === "approved" ? "\u2713" : "\u2717";
           const statusLabel =
             decisionOutcome === "approved" ? "Approved" : "Denied";
-          deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: `${statusEmoji} ${statusLabel}`,
-              messageTs: approvalMessageTs,
-              assistantId,
-            },
-            bearerToken,
-          ).catch((err) => {
+          deliverChannelReply(replyCallbackUrl, {
+            chatId: conversationExternalId,
+            text: `${statusEmoji} ${statusLabel}`,
+            messageTs: approvalMessageTs,
+            assistantId,
+          }).catch((err) => {
             log.error(
               { err, conversationId, messageTs: approvalMessageTs },
               "Failed to edit Slack approval message after decision",
@@ -622,7 +601,6 @@ export async function handleApprovalInterception(
           chatId: conversationExternalId,
           messageTs: approvalMessageTs,
           assistantId,
-          bearerToken,
           conversationId,
         });
       }
@@ -644,7 +622,6 @@ export async function handleApprovalInterception(
       replyCallbackUrl,
       content,
       assistantId,
-      bearerToken,
       approvalCopyGenerator,
       approvalConversationGenerator,
       pending,
@@ -684,7 +661,6 @@ export async function handleApprovalInterception(
     replyCallbackUrl,
     chatId: conversationExternalId,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     logger: log,
     errorLogMessage: "Failed to deliver approval status reply",
@@ -712,7 +688,6 @@ function editStaleSlackApprovalMessage(params: {
   chatId: string;
   messageTs: string;
   assistantId: string;
-  bearerToken?: string;
   conversationId: string;
 }): void {
   const statusText = "This approval request has been resolved.";
@@ -726,17 +701,13 @@ function editStaleSlackApprovalMessage(params: {
       elements: [{ type: "mrkdwn", text: statusText }],
     },
   ];
-  deliverChannelReply(
-    params.replyCallbackUrl,
-    {
-      chatId: params.chatId,
-      text: statusText,
-      blocks,
-      messageTs: params.messageTs,
-      assistantId: params.assistantId,
-    },
-    params.bearerToken,
-  ).catch((err) => {
+  deliverChannelReply(params.replyCallbackUrl, {
+    chatId: params.chatId,
+    text: statusText,
+    blocks,
+    messageTs: params.messageTs,
+    assistantId: params.assistantId,
+  }).catch((err) => {
     log.error(
       {
         err,

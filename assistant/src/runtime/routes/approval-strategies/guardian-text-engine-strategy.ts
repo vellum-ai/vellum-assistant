@@ -40,7 +40,6 @@ export interface TextEngineDecisionParams {
   replyCallbackUrl: string;
   content: string;
   assistantId: string;
-  bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator: ApprovalConversationGenerator;
   /** Pending approval info for this conversation. */
@@ -66,7 +65,6 @@ export async function handleGuardianTextEngineDecision(
     replyCallbackUrl,
     content,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     approvalConversationGenerator,
     pending,
@@ -103,11 +101,7 @@ export async function handleGuardianTextEngineDecision(
         keepPendingPayload.ephemeral = true;
         keepPendingPayload.user = ephemeral;
       }
-      await deliverChannelReply(
-        replyCallbackUrl,
-        keepPendingPayload,
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, keepPendingPayload);
     } catch (err) {
       log.error(
         { err, conversationId },
@@ -142,7 +136,7 @@ export async function handleGuardianTextEngineDecision(
         decisionPayload.ephemeral = true;
         decisionPayload.user = ephemeral;
       }
-      await deliverChannelReply(replyCallbackUrl, decisionPayload, bearerToken);
+      await deliverChannelReply(replyCallbackUrl, decisionPayload);
     } catch (err) {
       log.error(
         { err, conversationId },
@@ -162,7 +156,6 @@ export async function handleGuardianTextEngineDecision(
     replyCallbackUrl,
     chatId: conversationExternalId,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     logger: log,
     errorLogMessage: "Failed to deliver stale approval notice",

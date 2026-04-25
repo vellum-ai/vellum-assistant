@@ -10,7 +10,12 @@ import {
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
 import { linkMessage } from "../memory/delivery-crud.js";
-import { getRetryableEvents, markProcessed, markRetryableFailure, recordProcessingFailure } from "../memory/delivery-status.js";
+import {
+  getRetryableEvents,
+  markProcessed,
+  markRetryableFailure,
+  recordProcessingFailure,
+} from "../memory/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
 import type { MessageProcessor } from "./http-types.js";
@@ -79,7 +84,6 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
  */
 export async function sweepFailedEvents(
   processMessage: MessageProcessor,
-  mintBearerToken: (() => string) | undefined,
 ): Promise<void> {
   const events = getRetryableEvents();
   if (events.length === 0) return;
@@ -222,7 +226,6 @@ export async function sweepFailedEvents(
             event.conversationId,
             externalChatId,
             replyCallbackUrl,
-            mintBearerToken?.(),
             assistantId,
             {
               startFromSegment: 0,

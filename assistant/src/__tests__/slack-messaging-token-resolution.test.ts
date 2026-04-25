@@ -45,9 +45,7 @@ mock.module("../memory/external-conversation-store.js", () => ({
   getExternalConversation: () => undefined,
   setExternalConversation: () => {},
 }));
-mock.module("../runtime/auth/token-service.js", () => ({
-  mintDaemonDeliveryToken: async () => "delivery-token",
-}));
+mock.module("../runtime/auth/token-service.js", () => ({}));
 
 // Slack client stubs (not exercised in these tests, but required on import)
 mock.module("../messaging/providers/slack/client.js", () => ({}));

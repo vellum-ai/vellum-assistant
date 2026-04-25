@@ -41,7 +41,6 @@ mock.module("../notifications/emit-signal.js", () => ({
 const deliveredReplies: Array<{
   url: string;
   payload: Record<string, unknown>;
-  bearerToken?: string;
 }> = [];
 let deliverShouldFail = false;
 
@@ -49,12 +48,11 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     url: string,
     payload: Record<string, unknown>,
-    bearerToken?: string,
   ) => {
     if (deliverShouldFail) {
       throw new Error("Delivery failed");
     }
-    deliveredReplies.push({ url, payload, bearerToken });
+    deliveredReplies.push({ url, payload });
     return { ok: true };
   },
 }));
@@ -162,7 +160,6 @@ async function simulateNotifierPoll(params: {
   trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
-  bearerToken?: string;
   assistantId?: string;
   notifiedRequestIds: Map<string, string>;
 }): Promise<boolean> {
@@ -206,15 +203,11 @@ async function simulateNotifierPoll(params: {
   const waitingText = `Waiting for ${guardianName}'s approval...`;
 
   try {
-    await deliverChannelReply(
-      params.replyCallbackUrl,
-      {
-        chatId: params.externalChatId,
-        text: waitingText,
-        assistantId: params.assistantId ?? "self",
-      },
-      params.bearerToken,
-    );
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.externalChatId,
+      text: waitingText,
+      assistantId: params.assistantId ?? "self",
+    });
     return true;
   } catch {
     notifiedRequestIds.delete(info.requestId);
@@ -257,7 +250,6 @@ describe("trusted-contact pending-approval notifier", () => {
       trustClass: "trusted_contact",
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
-      bearerToken: "test-token",
       notifiedRequestIds: notified,
     });
 

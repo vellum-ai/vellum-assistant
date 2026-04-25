@@ -26,8 +26,15 @@ import {
   selectSlackMetaCandidateMetadata,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
-import { clearPendingVerificationReply, getPendingVerificationReply } from "../../memory/delivery-channels.js";
-import { findMessageBySourceId, linkMessage, recordInbound } from "../../memory/delivery-crud.js";
+import {
+  clearPendingVerificationReply,
+  getPendingVerificationReply,
+} from "../../memory/delivery-channels.js";
+import {
+  findMessageBySourceId,
+  linkMessage,
+  recordInbound,
+} from "../../memory/delivery-crud.js";
 import { markProcessed } from "../../memory/delivery-status.js";
 import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
@@ -45,7 +52,6 @@ import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { mintDaemonDeliveryToken } from "../auth/token-service.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { httpError } from "../http-errors.js";
 import type {
@@ -106,13 +112,6 @@ export async function handleChannelInbound(
   // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
   // principal type required) before this handler runs. The exchange JWT
   // itself proves gateway origin.
-
-  // Factory that mints a fresh short-lived JWT for each daemon-to-gateway
-  // delivery callback. The JWT has a 60-second TTL, so long-running
-  // background operations (typing heartbeats, approval watchers, reply
-  // delivery) must call this at each delivery attempt rather than reusing
-  // a single token from request start.
-  const mintBearerToken = (): string => mintDaemonDeliveryToken();
 
   const body = (await req.json()) as {
     sourceChannel?: string;
@@ -253,7 +252,6 @@ export async function handleChannelInbound(
     actorUsername: body.actorUsername,
     sourceMetadata: body.sourceMetadata,
     replyCallbackUrl: body.replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     externalMessageId,
   });
@@ -272,7 +270,6 @@ export async function handleChannelInbound(
     actorDisplayName: body.actorDisplayName,
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     externalMessageId,
   });
@@ -502,20 +499,14 @@ export async function handleChannelInbound(
   // gateway retries (duplicates) re-attempt delivery here. On success the
   // pending marker is cleared so further duplicates short-circuit normally.
   if (result.duplicate && replyCallbackUrl) {
-    const pendingReply = getPendingVerificationReply(
-      result.eventId,
-    );
+    const pendingReply = getPendingVerificationReply(result.eventId);
     if (pendingReply) {
       try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: pendingReply.chatId,
-            text: pendingReply.text,
-            assistantId: pendingReply.assistantId,
-          },
-          mintBearerToken(),
-        );
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: pendingReply.chatId,
+          text: pendingReply.text,
+          assistantId: pendingReply.assistantId,
+        });
         clearPendingVerificationReply(result.eventId);
         log.info(
           { eventId: result.eventId },
@@ -601,7 +592,6 @@ export async function handleChannelInbound(
         sourceChannel,
         actorExternalId: canonicalSenderId ?? rawSenderId,
         replyCallbackUrl,
-        bearerToken: mintBearerToken(),
         trustCtx: trustCtxForReaction,
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
@@ -774,7 +764,6 @@ export async function handleChannelInbound(
     conversationId: result.conversationId,
     eventId: result.eventId,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     actorDisplayName: body.actorDisplayName,
     actorUsername: body.actorUsername,
@@ -812,7 +801,6 @@ export async function handleChannelInbound(
     conversationId: result.conversationId,
     eventId: result.eventId,
     replyCallbackUrl,
-    mintBearerToken,
     trustClass: trustCtx.trustClass,
     guardianPrincipalId: trustCtx.guardianPrincipalId,
     approvalConversationGenerator,
@@ -846,7 +834,6 @@ export async function handleChannelInbound(
       sourceChannel,
       actorExternalId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
-      bearerToken: mintBearerToken(),
       trustCtx,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
@@ -940,16 +927,12 @@ export async function handleChannelInbound(
       // and deliver an ephemeral error so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
       if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
-        deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: "This approval request has been resolved.",
-            messageTs: approvalMessageTs,
-            assistantId: canonicalAssistantId,
-          },
-          mintBearerToken(),
-        ).catch((err) => {
+        deliverChannelReply(replyCallbackUrl, {
+          chatId: conversationExternalId,
+          text: "This approval request has been resolved.",
+          messageTs: approvalMessageTs,
+          assistantId: canonicalAssistantId,
+        }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },
             "Failed to edit stale Slack approval message",
@@ -1117,7 +1100,6 @@ export async function handleChannelInbound(
         commandIntent,
         sourceLanguageCode,
         replyCallbackUrl,
-        mintBearerToken,
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
         chatType: sourceChatType,

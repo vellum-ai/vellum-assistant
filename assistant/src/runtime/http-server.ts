@@ -92,11 +92,7 @@ import {
   authenticateRequest,
 } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
-import {
-  mintDaemonDeliveryToken,
-  mintUiPageToken,
-  verifyToken,
-} from "./auth/token-service.js";
+import { mintUiPageToken, verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
@@ -794,11 +790,10 @@ export class RuntimeHttpServer {
   private startBackgroundSweeps(): void {
     if (this.processMessage && !this.retrySweepTimer) {
       const pm = this.processMessage;
-      const mintBt = () => mintDaemonDeliveryToken();
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(pm, mintBt).finally(() => {
+        sweepFailedEvents(pm).finally(() => {
           this.sweepInProgress = false;
         });
       }, 30_000);
@@ -1578,9 +1573,7 @@ export class RuntimeHttpServer {
       return null;
     }
 
-    const bindings = getBindingsForConversations([
-      conversation.id,
-    ]);
+    const bindings = getBindingsForConversations([conversation.id]);
     const attentionStates = getAttentionStateByConversationIds([
       conversation.id,
     ]);
@@ -1734,10 +1727,7 @@ export class RuntimeHttpServer {
           }
           const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
-          const bindings =
-            getBindingsForConversations(
-              conversationIds,
-            );
+          const bindings = getBindingsForConversations(conversationIds);
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();

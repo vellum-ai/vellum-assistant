@@ -109,7 +109,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       // Callback URL has no threadTs query param → channel-root event
       // that would otherwise call `clearThreadTs`.
       replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
-      mintBearerToken: () => "test-token",
     });
 
     await flush();
@@ -143,7 +142,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       trustCtx,
       metadataHints: [],
       replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${newThreadTs}`,
-      mintBearerToken: () => "test-token",
     });
 
     await flush();

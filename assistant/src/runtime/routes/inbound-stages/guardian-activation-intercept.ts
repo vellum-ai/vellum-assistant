@@ -34,7 +34,6 @@ export interface GuardianActivationInterceptParams {
   actorUsername: string | undefined;
   sourceMetadata: Record<string, unknown> | undefined;
   replyCallbackUrl: string | undefined;
-  mintBearerToken: () => string;
   assistantId: string;
   externalMessageId: string;
 }
@@ -71,7 +70,6 @@ export async function handleGuardianActivationIntercept(
     actorUsername,
     sourceMetadata,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     externalMessageId,
   } = params;
@@ -128,15 +126,11 @@ export async function handleGuardianActivationIntercept(
       sessionOwner === conversationExternalId
     ) {
       if (replyCallbackUrl) {
-        deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
-            assistantId,
-          },
-          mintBearerToken(),
-        ).catch((err) => {
+        deliverChannelReply(replyCallbackUrl, {
+          chatId: conversationExternalId,
+          text: "A verification is already in progress. Check your assistant app for the code and enter it here.",
+          assistantId,
+        }).catch((err) => {
           log.error(
             { err, sourceChannel, conversationExternalId },
             "Failed to deliver guardian activation idempotency reply",
@@ -164,15 +158,11 @@ export async function handleGuardianActivationIntercept(
 
   // ── Send deterministic Telegram reply ──
   if (replyCallbackUrl) {
-    deliverChannelReply(
-      replyCallbackUrl,
-      {
-        chatId: conversationExternalId,
-        text: "Welcome! To verify your identity as guardian, check your assistant app for a verification code and enter it here.",
-        assistantId,
-      },
-      mintBearerToken(),
-    ).catch((err) => {
+    deliverChannelReply(replyCallbackUrl, {
+      chatId: conversationExternalId,
+      text: "Welcome! To verify your identity as guardian, check your assistant app for a verification code and enter it here.",
+      assistantId,
+    }).catch((err) => {
       log.error(
         { err, sourceChannel, conversationExternalId },
         "Failed to deliver guardian activation welcome reply",

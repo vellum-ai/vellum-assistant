@@ -421,7 +421,6 @@ describe("channel-retry-sweep routing state", () => {
           .run();
         return { messageId };
       },
-      undefined,
     );
 
     expect(capturedOptions?.isInteractive).toBe(true);
@@ -447,7 +446,6 @@ describe("channel-retry-sweep routing state", () => {
           .run();
         return { messageId };
       },
-      undefined,
     );
 
     expect(capturedOptions?.isInteractive).toBe(false);
@@ -473,7 +471,6 @@ describe("channel-retry-sweep routing state", () => {
           .run();
         return { messageId };
       },
-      undefined,
     );
 
     expect(capturedOptions?.isInteractive).toBe(true);
@@ -499,7 +496,6 @@ describe("channel-retry-sweep routing state", () => {
           .run();
         return { messageId };
       },
-      undefined,
     );
 
     expect(capturedOptions?.isInteractive).toBe(false);

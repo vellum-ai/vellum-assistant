@@ -381,29 +381,6 @@ export function verifyToken(
 }
 
 // ---------------------------------------------------------------------------
-// Daemon delivery token
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a short-lived JWT for daemon-to-gateway delivery callbacks.
- *
- * Used when the daemon needs to call gateway /deliver/* endpoints. The
- * gateway's deliver-auth middleware validates aud=vellum-daemon, so both
- * sides share the same signing key and audience convention.
- *
- * sub=svc:daemon:self, scope_profile=gateway_service_v1
- */
-export function mintDaemonDeliveryToken(): string {
-  return mintToken({
-    aud: "vellum-daemon",
-    sub: "svc:daemon:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 60,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Edge relay token
 // ---------------------------------------------------------------------------
 
@@ -411,8 +388,7 @@ export function mintDaemonDeliveryToken(): string {
  * Mint a short-lived JWT for relay WebSocket connections through the gateway.
  *
  * The gateway's relay WS handler validates tokens with validateEdgeToken(),
- * which expects aud=vellum-gateway. This is distinct from daemon delivery
- * tokens (aud=vellum-daemon) used for gateway /deliver/* endpoints.
+ * which expects aud=vellum-gateway.
  *
  * sub=svc:daemon:self, scope_profile=gateway_service_v1
  */

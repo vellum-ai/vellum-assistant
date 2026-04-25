@@ -62,7 +62,6 @@ export interface GuardianCallbackDecisionParams {
   sourceChannel: ChannelId;
   actorExternalId: string;
   replyCallbackUrl: string;
-  bearerToken?: string;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator?: ApprovalConversationGenerator;
@@ -95,7 +94,6 @@ export async function handleGuardianCallbackDecision(
     sourceChannel,
     actorExternalId,
     replyCallbackUrl,
-    bearerToken,
     assistantId,
     approvalCopyGenerator,
     approvalConversationGenerator,
@@ -147,7 +145,6 @@ export async function handleGuardianCallbackDecision(
         replyCallbackUrl,
         chatId: conversationExternalId,
         assistantId,
-        bearerToken,
         approvalCopyGenerator,
         logger: log,
         errorLogMessage:
@@ -202,7 +199,6 @@ export async function handleGuardianCallbackDecision(
       replyCallbackUrl,
       chatId: conversationExternalId,
       assistantId,
-      bearerToken,
       approvalCopyGenerator,
       logger: log,
       errorLogMessage: "Failed to deliver guardian identity rejection notice",
@@ -220,7 +216,6 @@ export async function handleGuardianCallbackDecision(
       sourceChannel,
       replyCallbackUrl,
       assistantId,
-      bearerToken,
       approvalCopyGenerator,
       approvalMessageTs,
     });
@@ -251,7 +246,6 @@ export async function handleGuardianCallbackDecision(
       replyCallbackUrl,
       content,
       assistantId,
-      bearerToken,
       approvalCopyGenerator,
       approvalConversationGenerator,
     });
@@ -288,7 +282,7 @@ export async function handleGuardianCallbackDecision(
         fallbackPayload.ephemeral = true;
         fallbackPayload.user = guardianFallbackEphemeral;
       }
-      await deliverChannelReply(replyCallbackUrl, fallbackPayload, bearerToken);
+      await deliverChannelReply(replyCallbackUrl, fallbackPayload);
     } catch (err) {
       log.error(
         { err, conversationExternalId },
@@ -313,7 +307,6 @@ async function handleCallbackDecision(params: {
   sourceChannel: ChannelId;
   replyCallbackUrl: string;
   assistantId: string;
-  bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalMessageTs?: string;
 }): Promise<ApprovalInterceptionResult> {
@@ -324,7 +317,6 @@ async function handleCallbackDecision(params: {
     sourceChannel,
     replyCallbackUrl,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     approvalMessageTs,
   } = params;
@@ -339,7 +331,6 @@ async function handleCallbackDecision(params: {
       actorExternalId,
       replyCallbackUrl,
       assistantId,
-      bearerToken,
     );
     return accessResult;
   }
@@ -387,7 +378,7 @@ async function handleCallbackDecision(params: {
         outcomePayload.ephemeral = true;
         outcomePayload.user = requesterEphemeral;
       }
-      await deliverChannelReply(replyCallbackUrl, outcomePayload, bearerToken);
+      await deliverChannelReply(replyCallbackUrl, outcomePayload);
     } catch (err) {
       log.error(
         { err, conversationId: guardianApproval.conversationId },
@@ -405,7 +396,6 @@ async function handleCallbackDecision(params: {
         messageTs: approvalMessageTs,
         decision: decisionOutcome,
         assistantId,
-        bearerToken,
         conversationId: guardianApproval.conversationId,
       });
     }
@@ -433,7 +423,6 @@ async function handleCallbackDecision(params: {
       messageTs: approvalMessageTs,
       decision: resolvedStatus,
       assistantId,
-      bearerToken,
       conversationId: guardianApproval.conversationId,
     });
   }
@@ -441,17 +430,13 @@ async function handleCallbackDecision(params: {
   // Deliver a visible ephemeral error so the user sees feedback (JARVIS-299).
   if (sourceChannel === "slack") {
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: guardianApproval.guardianChatId,
-          text: "This approval request has already been resolved.",
-          assistantId,
-          ephemeral: true,
-          user: actorExternalId,
-        },
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: guardianApproval.guardianChatId,
+        text: "This approval request has already been resolved.",
+        assistantId,
+        ephemeral: true,
+        user: actorExternalId,
+      });
     } catch (err) {
       log.error(
         { err, conversationId: guardianApproval.conversationId },
@@ -477,7 +462,6 @@ async function handleConversationalDecision(params: {
   replyCallbackUrl: string;
   content: string;
   assistantId: string;
-  bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   approvalConversationGenerator: ApprovalConversationGenerator;
 }): Promise<ApprovalInterceptionResult> {
@@ -491,7 +475,6 @@ async function handleConversationalDecision(params: {
     replyCallbackUrl,
     content,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     approvalConversationGenerator,
   } = params;
@@ -529,11 +512,7 @@ async function handleConversationalDecision(params: {
         keepPendingPayload.ephemeral = true;
         keepPendingPayload.user = guardianEphemeral;
       }
-      await deliverChannelReply(
-        replyCallbackUrl,
-        keepPendingPayload,
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, keepPendingPayload);
     } catch (err) {
       log.error(
         { err, conversationId: guardianApproval.conversationId },
@@ -585,7 +564,6 @@ async function handleConversationalDecision(params: {
       replyCallbackUrl,
       chatId: conversationExternalId,
       assistantId,
-      bearerToken,
       approvalCopyGenerator,
       logger: log,
       errorLogMessage:
@@ -604,7 +582,6 @@ async function handleConversationalDecision(params: {
       actorExternalId,
       replyCallbackUrl,
       assistantId,
-      bearerToken,
     );
     return accessResult;
   }
@@ -653,11 +630,7 @@ async function handleConversationalDecision(params: {
         requesterOutcomePayload.ephemeral = true;
         requesterOutcomePayload.user = requesterEphemeral;
       }
-      await deliverChannelReply(
-        replyCallbackUrl,
-        requesterOutcomePayload,
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, requesterOutcomePayload);
     } catch (err) {
       log.error(
         { err, conversationId: targetApproval.conversationId },
@@ -680,11 +653,7 @@ async function handleConversationalDecision(params: {
         guardianReplyPayload.ephemeral = true;
         guardianReplyPayload.user = guardianEphemeral;
       }
-      await deliverChannelReply(
-        replyCallbackUrl,
-        guardianReplyPayload,
-        bearerToken,
-      );
+      await deliverChannelReply(replyCallbackUrl, guardianReplyPayload);
     } catch (err) {
       log.error(
         { err, conversationId: targetApproval.conversationId },
@@ -703,7 +672,6 @@ async function handleConversationalDecision(params: {
     replyCallbackUrl,
     chatId: conversationExternalId,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     logger: log,
     errorLogMessage: "Failed to deliver stale guardian approval notice",
@@ -732,7 +700,6 @@ function editSlackApprovalMessage(params: {
   messageTs: string;
   decision: "approved" | "denied";
   assistantId: string;
-  bearerToken?: string;
   conversationId: string;
 }): void {
   const {
@@ -741,7 +708,6 @@ function editSlackApprovalMessage(params: {
     messageTs,
     decision,
     assistantId,
-    bearerToken,
     conversationId,
   } = params;
 
@@ -764,17 +730,13 @@ function editSlackApprovalMessage(params: {
     },
   ];
 
-  deliverChannelReply(
-    replyCallbackUrl,
-    {
-      chatId,
-      text: statusText,
-      blocks,
-      messageTs,
-      assistantId,
-    },
-    bearerToken,
-  ).catch((err) => {
+  deliverChannelReply(replyCallbackUrl, {
+    chatId,
+    text: statusText,
+    blocks,
+    messageTs,
+    assistantId,
+  }).catch((err) => {
     log.error(
       { err, conversationId, messageTs },
       "Failed to edit Slack approval message after resolution",
@@ -802,7 +764,6 @@ async function handleAccessRequestApproval(
   decidedByExternalUserId: string,
   replyCallbackUrl: string,
   assistantId: string,
-  bearerToken?: string,
 ): Promise<ApprovalInterceptionResult> {
   const decisionResult = handleAccessRequestDecision(
     approval,
@@ -838,7 +799,6 @@ async function handleAccessRequestApproval(
       replyCallbackUrl,
       requesterChatId: approval.requesterChatId,
       assistantId,
-      bearerToken,
       channel: approval.channel,
       requesterExternalUserId: approval.requesterExternalUserId,
     });
@@ -898,7 +858,6 @@ async function handleAccessRequestApproval(
         requesterIdentifier,
         verificationCode: decisionResult.verificationCode,
         assistantId,
-        bearerToken,
       });
     if (!deliveryResult.ok) {
       log.error(
@@ -923,7 +882,6 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       verificationCode: decisionResult.verificationCode,
       assistantId,
-      bearerToken,
       channel: approval.channel,
       requesterExternalUserId: approval.requesterExternalUserId,
     });
@@ -945,7 +903,6 @@ async function handleAccessRequestApproval(
       replyCallbackUrl,
       requesterChatId: approval.requesterChatId,
       assistantId,
-      bearerToken,
       channel: approval.channel,
       requesterExternalUserId: approval.requesterExternalUserId,
     });
@@ -955,7 +912,6 @@ async function handleAccessRequestApproval(
       replyCallbackUrl,
       requesterChatId: approval.requesterChatId,
       assistantId,
-      bearerToken,
       channel: approval.channel,
       requesterExternalUserId: approval.requesterExternalUserId,
     });

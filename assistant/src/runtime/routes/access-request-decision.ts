@@ -112,7 +112,6 @@ export async function deliverVerificationCodeToGuardian(params: {
   requesterIdentifier: string;
   verificationCode: string;
   assistantId: string;
-  bearerToken?: string;
 }): Promise<DeliveryResult> {
   const text =
     `You approved access for ${params.requesterIdentifier}. ` +
@@ -120,15 +119,11 @@ export async function deliverVerificationCodeToGuardian(params: {
     `The code expires in 10 minutes.`;
 
   try {
-    await deliverChannelReply(
-      params.replyCallbackUrl,
-      {
-        chatId: params.guardianChatId,
-        text,
-        assistantId: params.assistantId,
-      },
-      params.bearerToken,
-    );
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.guardianChatId,
+      text,
+      assistantId: params.assistantId,
+    });
     return { ok: true };
   } catch (err) {
     log.error(
@@ -183,7 +178,6 @@ export async function deliverVerificationCodeToRequester(params: {
   requesterChatId: string;
   verificationCode: string;
   assistantId: string;
-  bearerToken?: string;
   channel?: string;
   requesterExternalUserId?: string;
 }): Promise<DeliveryResult> {
@@ -195,15 +189,11 @@ export async function deliverVerificationCodeToRequester(params: {
   const target = resolveRequesterTarget(params);
 
   try {
-    await deliverChannelReply(
-      target.callbackUrl,
-      {
-        chatId: target.chatId,
-        text,
-        assistantId: params.assistantId,
-      },
-      params.bearerToken,
-    );
+    await deliverChannelReply(target.callbackUrl, {
+      chatId: target.chatId,
+      text,
+      assistantId: params.assistantId,
+    });
     return { ok: true };
   } catch (err) {
     log.error(
@@ -223,7 +213,6 @@ export async function notifyRequesterOfApproval(params: {
   replyCallbackUrl: string;
   requesterChatId: string;
   assistantId: string;
-  bearerToken?: string;
   channel?: string;
   requesterExternalUserId?: string;
 }): Promise<void> {
@@ -234,15 +223,11 @@ export async function notifyRequesterOfApproval(params: {
   const target = resolveRequesterTarget(params);
 
   try {
-    await deliverChannelReply(
-      target.callbackUrl,
-      {
-        chatId: target.chatId,
-        text,
-        assistantId: params.assistantId,
-      },
-      params.bearerToken,
-    );
+    await deliverChannelReply(target.callbackUrl, {
+      chatId: target.chatId,
+      text,
+      assistantId: params.assistantId,
+    });
   } catch (err) {
     log.error(
       { err, requesterChatId: params.requesterChatId },
@@ -260,7 +245,6 @@ export async function notifyRequesterOfDeliveryFailure(params: {
   replyCallbackUrl: string;
   requesterChatId: string;
   assistantId: string;
-  bearerToken?: string;
   channel?: string;
   requesterExternalUserId?: string;
 }): Promise<void> {
@@ -271,15 +255,11 @@ export async function notifyRequesterOfDeliveryFailure(params: {
   const target = resolveRequesterTarget(params);
 
   try {
-    await deliverChannelReply(
-      target.callbackUrl,
-      {
-        chatId: target.chatId,
-        text,
-        assistantId: params.assistantId,
-      },
-      params.bearerToken,
-    );
+    await deliverChannelReply(target.callbackUrl, {
+      chatId: target.chatId,
+      text,
+      assistantId: params.assistantId,
+    });
   } catch (err) {
     log.error(
       { err, requesterChatId: params.requesterChatId },
@@ -295,7 +275,6 @@ export async function notifyRequesterOfDenial(params: {
   replyCallbackUrl: string;
   requesterChatId: string;
   assistantId: string;
-  bearerToken?: string;
   channel?: string;
   requesterExternalUserId?: string;
 }): Promise<void> {
@@ -304,15 +283,11 @@ export async function notifyRequesterOfDenial(params: {
   const target = resolveRequesterTarget(params);
 
   try {
-    await deliverChannelReply(
-      target.callbackUrl,
-      {
-        chatId: target.chatId,
-        text,
-        assistantId: params.assistantId,
-      },
-      params.bearerToken,
-    );
+    await deliverChannelReply(target.callbackUrl, {
+      chatId: target.chatId,
+      text,
+      assistantId: params.assistantId,
+    });
   } catch (err) {
     log.error(
       { err, requesterChatId: params.requesterChatId },

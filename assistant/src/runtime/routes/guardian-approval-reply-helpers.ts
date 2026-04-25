@@ -35,7 +35,6 @@ interface DeliverApprovalReplyParams {
   replyCallbackUrl: string;
   chatId: string;
   assistantId: string;
-  bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   logger: pino.Logger;
   errorLogMessage: string;
@@ -61,7 +60,6 @@ async function composeAndDeliver(
     replyCallbackUrl,
     chatId,
     assistantId,
-    bearerToken,
     approvalCopyGenerator,
     ephemeralUserId,
   } = params;
@@ -80,7 +78,7 @@ async function composeAndDeliver(
     payload.ephemeral = true;
     payload.user = ephemeralUserId;
   }
-  await deliverChannelReply(replyCallbackUrl, payload, bearerToken);
+  await deliverChannelReply(replyCallbackUrl, payload);
 }
 
 /**
@@ -111,7 +109,6 @@ export interface DeliverStaleApprovalReplyParams {
   replyCallbackUrl: string;
   chatId: string;
   assistantId: string;
-  bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   logger: pino.Logger;
   errorLogMessage: string;
@@ -184,7 +181,6 @@ export interface DeliverIdentityMismatchReplyParams {
   replyCallbackUrl: string;
   chatId: string;
   assistantId: string;
-  bearerToken?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   logger: pino.Logger;
   errorLogMessage: string;

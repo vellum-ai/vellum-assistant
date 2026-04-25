@@ -26,7 +26,6 @@ type DeliverRenderedReplyParams = {
   fallbackText?: string;
   attachments?: RuntimeAttachmentMetadata[];
   assistantId?: string;
-  bearerToken?: string;
   interSegmentDelayMs?: number;
   /** Skip segments already delivered on a previous attempt. */
   startFromSegment?: number;
@@ -87,7 +86,6 @@ export async function deliverRenderedReplyViaCallback(
     fallbackText,
     attachments,
     assistantId,
-    bearerToken,
     interSegmentDelayMs = INTER_SEGMENT_DELAY_MS,
     startFromSegment = 0,
     onSegmentDelivered,
@@ -122,7 +120,6 @@ export async function deliverRenderedReplyViaCallback(
           user,
           messageTs,
         },
-        bearerToken,
       );
       if (result.ts) {
         onMessageTs?.(result.ts);
@@ -154,7 +151,6 @@ export async function deliverRenderedReplyViaCallback(
         user,
         messageTs: isFirstSegment ? currentMessageTs : undefined,
       },
-      bearerToken,
     );
 
     if (result.ts) {
@@ -189,7 +185,6 @@ export async function deliverReplyViaCallback(
   conversationId: string,
   externalChatId: string,
   callbackUrl: string,
-  bearerToken?: string,
   assistantId?: string,
   options?: DeliverReplyOptions,
 ): Promise<void> {
@@ -237,7 +232,6 @@ export async function deliverReplyViaCallback(
       fallbackText: rendered.text,
       attachments: replyAttachments,
       assistantId,
-      bearerToken,
       startFromSegment: options?.startFromSegment,
       onSegmentDelivered: options?.onSegmentDelivered,
       ephemeral: options?.ephemeral,

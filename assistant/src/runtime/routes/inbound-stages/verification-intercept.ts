@@ -20,7 +20,10 @@ import {
   revokeGuardianBinding,
   upsertContactChannel,
 } from "../../../contacts/contacts-write.js";
-import { clearPendingVerificationReply, storePendingVerificationReply } from "../../../memory/delivery-channels.js";
+import {
+  clearPendingVerificationReply,
+  storePendingVerificationReply,
+} from "../../../memory/delivery-channels.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
@@ -55,7 +58,6 @@ export interface VerificationInterceptParams {
   conversationId: string;
   eventId: string;
   replyCallbackUrl: string | undefined;
-  mintBearerToken: () => string;
   assistantId: string;
   actorDisplayName: string | undefined;
   actorUsername: string | undefined;
@@ -87,7 +89,6 @@ export async function handleVerificationIntercept(
     conversationId,
     eventId,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     actorDisplayName,
     actorUsername,
@@ -268,15 +269,11 @@ export async function handleVerificationIntercept(
       );
     }
     try {
-      await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId: conversationExternalId,
-          text: replyText,
-          assistantId,
-        },
-        mintBearerToken(),
-      );
+      await deliverChannelReply(replyCallbackUrl, {
+        chatId: conversationExternalId,
+        text: replyText,
+        assistantId,
+      });
     } catch (err) {
       // The challenge is already consumed and side effects applied, so
       // we cannot simply re-throw and let the gateway retry the full
@@ -298,15 +295,11 @@ export async function handleVerificationIntercept(
       // delivery is re-attempted even without a gateway duplicate.
       setTimeout(async () => {
         try {
-          await deliverChannelReply(
-            replyCallbackUrl,
-            {
-              chatId: conversationExternalId,
-              text: replyText,
-              assistantId,
-            },
-            mintBearerToken(),
-          );
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: conversationExternalId,
+            text: replyText,
+            assistantId,
+          });
           log.info({ eventId }, "Verification reply delivered on self-retry");
           clearPendingVerificationReply(eventId);
         } catch (retryErr) {
