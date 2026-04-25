@@ -129,11 +129,19 @@ export interface WakeTarget {
   drainQueue?(): Promise<void>;
   /**
    * Called after a wake produces visible output (text or tool calls).
-   * The daemon adapter uses this to emit a UI surface card so the client
-   * shows a visual indicator that the conversation was woken. Optional
-   * because unit-test stubs typically omit it.
+   * The daemon adapter uses this to inject a UI surface into the first
+   * assistant tail message so the wake indicator is persisted inline
+   * (rendered via `contentOrder` on the client) and to emit a live SSE
+   * event for connected clients. The `firstAssistantMessage` is the
+   * first assistant-role message in the tail — the adapter mutates its
+   * `content` array to prepend a `ui_surface` block. Optional because
+   * unit-test stubs typically omit it.
    */
-  onWakeProducedOutput?(source: string, hint: string): void;
+  onWakeProducedOutput?(
+    source: string,
+    hint: string,
+    firstAssistantMessage: Message,
+  ): void;
 }
 
 export interface WakeOptions {
@@ -489,13 +497,15 @@ export async function wakeAgentForOpportunity(
 
       tailMessageCount = tailMessages.length;
 
-      // Notify the adapter that the wake produced output so it can
-      // emit a visual indicator (e.g. an inline UI card) to connected
-      // clients. Fired BEFORE flushing agent events so the indicator
-      // appears at the top of the wake's output in the chat timeline.
-      if (target.onWakeProducedOutput) {
+      // Inject a UI surface into the first assistant tail message so the
+      // wake indicator is persisted inline and rendered via contentOrder.
+      // Also emits a live SSE event for connected clients. Fired BEFORE
+      // flushing agent events so the indicator appears at the top of the
+      // wake's output in the chat timeline.
+      const firstAssistant = tailMessages.find((m) => m.role === "assistant");
+      if (target.onWakeProducedOutput && firstAssistant) {
         try {
-          target.onWakeProducedOutput(source, hint);
+          target.onWakeProducedOutput(source, hint, firstAssistant);
         } catch (err) {
           log.warn(
             { conversationId, source, err },

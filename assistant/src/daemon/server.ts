@@ -2006,21 +2006,40 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
     pushMessage: (msg) => {
       conversation.messages.push(msg);
     },
-    onWakeProducedOutput: (source, hint) => {
+    onWakeProducedOutput: (source, hint, firstAssistantMessage) => {
+      const surfaceId = `wake-${conversation.conversationId}-${Date.now()}`;
+      const surfaceData = {
+        title: "Conversation Woke",
+        body: hint,
+        metadata: [{ label: "Source", value: source }],
+      };
+
+      // Inject a ui_surface content block into the first assistant tail
+      // message so it gets persisted and rendered inline via contentOrder.
+      const content = Array.isArray(firstAssistantMessage.content)
+        ? firstAssistantMessage.content
+        : [];
+      content.unshift({
+        type: "ui_surface",
+        surfaceId,
+        surfaceType: "card",
+        title: "Conversation Woke",
+        data: surfaceData,
+        display: "inline",
+      } as never);
+      firstAssistantMessage.content = content;
+
+      // Also emit a live SSE event so connected clients see the card
+      // immediately during streaming (before history reconciliation).
       const emit =
         conversation.broadcastToAllClients ??
         conversation.sendToClient.bind(conversation);
-      const surfaceId = `wake-${conversation.conversationId}-${Date.now()}`;
       emit({
         type: "ui_surface_show",
         conversationId: conversation.conversationId,
         surfaceId,
         surfaceType: "card",
-        data: {
-          title: "Conversation Woke",
-          body: hint,
-          metadata: [{ label: "Source", value: source }],
-        },
+        data: surfaceData,
         display: "inline",
       });
     },
