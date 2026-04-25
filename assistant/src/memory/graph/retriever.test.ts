@@ -31,10 +31,12 @@ mock.module("../embed.js", () => ({
   ) => {
     embedCallCount++;
     if (embedShouldThrow) throw new Error("embedding backend down");
-    const firstText = typeof texts[0] === "string" ? texts[0] : "";
-    const vector = embedRouter ? embedRouter(firstText) : embedVector;
+    const vectors = texts.map((t) => {
+      const text = typeof t === "string" ? t : "";
+      return embedRouter ? embedRouter(text) : embedVector;
+    });
     return {
-      vectors: [vector],
+      vectors,
       provider: "test-provider",
       model: "test-model",
     };
@@ -235,6 +237,156 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
 
     expect(result.queryVector).toBeUndefined();
     expect(result.sparseVector).toBeUndefined();
+  });
+});
+
+describe("retrieveForTurn — topic-pivot recovery", () => {
+  // Build a one-hot keyword router so the combined assistant+user query and
+  // the user-only query produce distinct vectors that can be routed to
+  // disjoint Qdrant result sets. The key for the bug fix is that a long
+  // shirt-themed assistant message + a short cake-themed user message
+  // currently produces a vector dominated by the shirt content (the
+  // user-only signal is washed out), so unless the user-only embedding
+  // also runs and feeds Qdrant, cake nodes never enter the candidate pool.
+  function keywordEmbedRouter(text: string): number[] {
+    const lowered = text.toLowerCase();
+    const cakeHits = (lowered.match(/cake/g) ?? []).length;
+    const shirtHits = (lowered.match(/shirt/g) ?? []).length;
+    if (cakeHits > shirtHits) return [0, 1, 0];
+    if (shirtHits > cakeHits) return [1, 0, 0];
+    return [0.1, 0.1, 0.1];
+  }
+
+  let cakeNodeId = "";
+  let shirtNodeId = "";
+
+  function vectorSearchRouter(vector: number[]): SearchHit[] {
+    const [a = 0, b = 0] = vector;
+    if (a === 1 && b === 0) return [{ nodeId: shirtNodeId, score: 0.9 }];
+    if (a === 0 && b === 1) return [{ nodeId: cakeNodeId, score: 0.9 }];
+    return [];
+  }
+
+  function makeEpisodicNode(content: string): NewNode {
+    const now = Date.now();
+    return {
+      content,
+      type: "episodic",
+      created: now,
+      lastAccessed: now,
+      lastConsolidated: now,
+      eventDate: null,
+      emotionalCharge: {
+        valence: 0,
+        intensity: 0,
+        decayCurve: "linear",
+        decayRate: 0,
+        originalIntensity: 0,
+      },
+      fidelity: "vivid",
+      confidence: 1,
+      significance: 0.5,
+      stability: 14,
+      reinforcementCount: 0,
+      lastReinforced: now,
+      sourceConversations: [],
+      sourceType: "direct",
+      narrativeRole: null,
+      partOfStory: null,
+      imageRefs: null,
+      scopeId: "test-scope",
+    };
+  }
+
+  beforeAll(() => {
+    initializeDb();
+  });
+
+  beforeEach(() => {
+    embedShouldThrow = false;
+    embedVector = [0.1, 0.2, 0.3];
+    embedCallCount = 0;
+    embedRouter = keywordEmbedRouter;
+    searchRouter = vectorSearchRouter;
+    resetTestTables(
+      "memory_graph_triggers",
+      "memory_graph_edges",
+      "memory_graph_nodes",
+    );
+    cakeNodeId = createNode(
+      makeEpisodicNode("Notes on the birthday cake from the bakery."),
+    ).id;
+    shirtNodeId = createNode(
+      makeEpisodicNode("Notes on the souvenir shirt from the conference."),
+    ).id;
+  });
+
+  test("user-only embed surfaces topic-pivot candidates the combined embed misses", async () => {
+    const tracker = new InContextTracker();
+    // Long shirt-themed assistant message that dominates the combined
+    // embedding, paired with a short cake-themed user pivot.
+    const assistantLast =
+      "shirt shirt shirt shirt shirt shirt shirt shirt " +
+      "shirt shirt shirt shirt shirt shirt shirt shirt";
+    const userLast = "the birthday cake";
+
+    const result = await retrieveForTurn({
+      assistantLastMessage: assistantLast,
+      userLastMessage: userLast,
+      scopeId: "test-scope",
+      config: TEST_CONFIG,
+      tracker,
+    });
+
+    // Both embeds ran (combined + user-only).
+    expect(embedCallCount).toBe(1);
+    // Combined query embedding (still surfaced for PKB hybrid search).
+    expect(result.queryVector).toEqual([1, 0, 0]);
+    // The cake node should appear in the candidate pool — it would be
+    // missing entirely if only the combined embedding drove the search.
+    const candidateIds = new Set(
+      result.metrics.topCandidates.map((c) => c.nodeId),
+    );
+    expect(candidateIds.has(cakeNodeId)).toBe(true);
+    expect(candidateIds.has(shirtNodeId)).toBe(true);
+  });
+
+  test("skips the user-only chunk when the user message is empty", async () => {
+    const tracker = new InContextTracker();
+    const result = await retrieveForTurn({
+      assistantLastMessage: "shirt shirt shirt shirt shirt",
+      userLastMessage: "",
+      scopeId: "test-scope",
+      config: TEST_CONFIG,
+      tracker,
+    });
+
+    // Only the combined (assistant-only) embedding ran; user-only is skipped.
+    expect(embedCallCount).toBe(1);
+    const candidateIds = new Set(
+      result.metrics.topCandidates.map((c) => c.nodeId),
+    );
+    expect(candidateIds.has(shirtNodeId)).toBe(true);
+    expect(candidateIds.has(cakeNodeId)).toBe(false);
+  });
+
+  test("does not duplicate the user-only chunk when it is already the only chunk", async () => {
+    const tracker = new InContextTracker();
+    // No assistant message → queryText === userLastMessage, so user-only is
+    // already the sole chunk. The dedup check should prevent re-adding it.
+    const result = await retrieveForTurn({
+      assistantLastMessage: "",
+      userLastMessage: "the birthday cake",
+      scopeId: "test-scope",
+      config: TEST_CONFIG,
+      tracker,
+    });
+
+    expect(embedCallCount).toBe(1);
+    const candidateIds = new Set(
+      result.metrics.topCandidates.map((c) => c.nodeId),
+    );
+    expect(candidateIds.has(cakeNodeId)).toBe(true);
   });
 });
 
