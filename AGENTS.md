@@ -114,6 +114,8 @@ Never commit worktree directories or worktree artifacts to the repository. Git w
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
+**Exception — migrations**: Database and data migration files must never be deleted, even when the tables or logic they create have moved elsewhere. Migrations run sequentially on existing installs and skipping an entry breaks the chain. When a migration's responsibility has moved (e.g. a table migrated to another database), keep the file in place and add a comment documenting where the logic now lives.
+
 ## Generic Examples
 
 Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:

@@ -7,6 +7,9 @@ import { tableHasColumn } from "./schema-introspection.js";
  * Stores the SHA-256 hash of each refresh token with family tracking,
  * device binding, and dual expiry (absolute + inactivity).
  * The raw token plaintext is never stored.
+ *
+ * NOTE: This table now lives in the gateway database.
+ * See gateway/src/db/data-migrations/m0002-actor-token-tables-to-gateway.ts.
  */
 export function createActorRefreshTokenRecordsTable(database: DrizzleDb): void {
   database.run(/*sql*/ `
