@@ -62,6 +62,11 @@ export interface OpenAIChatCompletionsProviderOptions {
   streamTimeoutMs?: number;
   /** Extra params spread into every chat.completions.create call (e.g. reasoning). */
   extraCreateParams?: Record<string, unknown>;
+  /** Upper bound for `reasoning_effort` sent on the wire. Defaults to "xhigh"
+   *  (OpenAI's current ceiling). Compatibility providers whose APIs only
+   *  document `low|medium|high` (e.g. Fireworks) should set this to "high" so
+   *  Vellum's `xhigh`/`max` tiers don't 4xx upstream. */
+  maxReasoningEffort?: "high" | "xhigh";
 }
 
 /** Map our internal effort values to OpenAI's reasoning_effort parameter.
@@ -104,6 +109,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private model: string;
   private streamTimeoutMs: number;
   private extraCreateParams: Record<string, unknown>;
+  private maxReasoningEffort: "high" | "xhigh";
 
   constructor(
     apiKey: string,
@@ -119,6 +125,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
     this.extraCreateParams = options.extraCreateParams ?? {};
+    this.maxReasoningEffort = options.maxReasoningEffort ?? "xhigh";
   }
 
   async sendMessage(
@@ -153,7 +160,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
         ? EFFORT_TO_REASONING_EFFORT[effort]
         : undefined;
       if (reasoningEffort) {
-        params.reasoning_effort = reasoningEffort;
+        params.reasoning_effort =
+          reasoningEffort === "xhigh" && this.maxReasoningEffort === "high"
+            ? "high"
+            : reasoningEffort;
       }
 
       if (tools && tools.length > 0) {

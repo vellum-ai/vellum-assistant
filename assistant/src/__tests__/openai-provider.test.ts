@@ -1440,4 +1440,22 @@ describe("OpenAIProvider reasoning_effort", () => {
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
   });
+
+  test('maxReasoningEffort: "high" caps "xhigh"/"max" at "high"', async () => {
+    const capped = new OpenAIProvider("test-key", "gpt-5", {
+      maxReasoningEffort: "high",
+    });
+    await capped.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "xhigh" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+    await capped.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "max" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+    await capped.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "medium" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("medium");
+  });
 });
