@@ -96,9 +96,9 @@ function adaptLogger(name: string): Logger {
   };
 }
 
-function buildLoggerFacet(): LoggerFacet {
+function buildLoggerFacet(skillId: string): LoggerFacet {
   return {
-    get: (name) => adaptLogger(name),
+    get: (name) => adaptLogger(`${skillId}:${name}`),
   };
 }
 
@@ -216,7 +216,7 @@ function buildEventsFacet(): EventsFacet {
   };
 }
 
-function buildRegistriesFacet(): RegistriesFacet {
+function buildRegistriesFacet(skillId: string): RegistriesFacet {
   return {
     // Contract's `Tool` is structurally independent of the daemon's
     // overlay (`assistant/src/tools/types.ts`); the assistant-side
@@ -226,7 +226,11 @@ function buildRegistriesFacet(): RegistriesFacet {
     registerTools: (provider) => registerExternalTools(provider as never),
     registerSkillRoute: (route: SkillRoute): SkillRouteHandle =>
       registerSkillRoute(route) as unknown as SkillRouteHandle,
-    registerShutdownHook: (name, hook) => registerShutdownHook(name, hook),
+    // Namespace hook names by skillId so two skills using the same label
+    // (e.g. "cleanup") cannot silently overwrite each other's entries in
+    // the shared shutdown-hook map.
+    registerShutdownHook: (name, hook) =>
+      registerShutdownHook(`${skillId}:${name}`, hook),
   };
 }
 
@@ -238,24 +242,21 @@ function buildSpeakersFacet(): SpeakersFacet {
 
 /**
  * Build a `SkillHost` for the in-process first-party skill identified by
- * `skillId`. The `skillId` is currently threaded through only for log
- * scoping and future per-skill config gating; the returned host surface is
- * the same for every caller.
+ * `skillId`. The id prefixes logger names (so cross-cutting diagnostics
+ * carry the owning skill) and namespaces shutdown-hook registrations (so
+ * two skills using the same hook label cannot silently overwrite each
+ * other in the shared shutdown-hook map).
  */
 export function createDaemonSkillHost(skillId: string): SkillHost {
-  // `skillId` is intentionally read once for its side-effect name — keep it
-  // visible in the logger default scope so cross-cutting diagnostics (slow
-  // publishes, shutdown-hook failures) carry the owning skill's name.
-  void skillId;
   return {
-    logger: buildLoggerFacet(),
+    logger: buildLoggerFacet(skillId),
     config: buildConfigFacet(),
     identity: buildIdentityFacet(),
     platform: buildPlatformFacet(),
     providers: buildProvidersFacet(),
     memory: buildMemoryFacet(),
     events: buildEventsFacet(),
-    registries: buildRegistriesFacet(),
+    registries: buildRegistriesFacet(skillId),
     speakers: buildSpeakersFacet(),
   };
 }
