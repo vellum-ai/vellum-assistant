@@ -280,11 +280,11 @@ Bad → Good (ticket-speak → natural):
 Bad → Good (assistant voice → user voice):
 - "You've got a busy week ahead" → "Plan my week ahead"
 - "Let me check your calendar" → "Check my Thursday schedule"
-- "Catch up with Alice today" → "Catch up with you today"
+- "Catch up with <user's own name> today" → "Catch up with you today" (only the user's own name becomes "you" — third-party names like a colleague or friend stay as written)
 
 Bad → Good (prompt in assistant's voice → prompt in user's voice):
-- "It's Saturday morning and I haven't connected with him yet. Let me see what he's been up to." → "What have you been up to today? Let's catch up."
-- "She's had a busy week — I should check in on how she's feeling." → "I've had a busy week — can we talk through how it went?"
+- "It's Saturday morning and I haven't connected with <user's own name> yet. Let me see what they've been up to." → "What have you been up to today? Let's catch up." (assistant narrating about the user → user speaking to assistant; only the user's own name becomes "you/I", names of other people are preserved)
+- "<User's own name> has had a busy week — I should check in on how they're feeling." → "I've had a busy week — can we talk through how it went?"
 
 Bad → Good (incomplete phrase → complete):
 - "Prep for Friday's quarterly" → "Prep for Friday's quarterly review"
