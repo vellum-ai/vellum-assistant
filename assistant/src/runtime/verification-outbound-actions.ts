@@ -11,13 +11,12 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { startVerificationCall } from "../calls/call-domain.js";
 import type { ChannelId } from "../channels/types.js";
-import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { sendSlackReply } from "../messaging/providers/slack/send.js";
 import { sendTelegramReply } from "../messaging/providers/telegram-bot/send.js";
 import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import { mintDaemonDeliveryToken } from "./auth/token-service.js";
 import {
   countRecentSendsToDestination,
   createOutboundSession,
@@ -474,7 +473,7 @@ function startOutboundVoice(
 // ---------------------------------------------------------------------------
 
 /**
- * Deliver a verification Slack DM via the gateway's /deliver/slack endpoint.
+ * Deliver a verification Slack DM via the Slack Web API directly.
  * Returns a promise that resolves when the delivery attempt completes.
  */
 export async function deliverVerificationSlackAsync(
@@ -483,26 +482,8 @@ export async function deliverVerificationSlackAsync(
   assistantId: string,
 ): Promise<void> {
   try {
-    const gatewayUrl = getGatewayInternalBaseUrl();
-    const bearerToken = mintDaemonDeliveryToken();
-    const url = `${gatewayUrl}/deliver/slack`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${bearerToken}`,
-      },
-      body: JSON.stringify({ chatId: userId, text, assistantId }),
-    });
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => "<unreadable>");
-      log.error(
-        { userId, assistantId, status: resp.status, body },
-        "Gateway /deliver/slack failed for verification",
-      );
-    } else {
-      log.info({ userId, assistantId }, "Verification Slack DM delivered");
-    }
+    await sendSlackReply(userId, text);
+    log.info({ userId, assistantId }, "Verification Slack DM delivered");
   } catch (err) {
     log.error(
       { err, userId, assistantId },
@@ -512,7 +493,7 @@ export async function deliverVerificationSlackAsync(
 }
 
 /**
- * Deliver a verification Slack DM via the gateway's /deliver/slack endpoint.
+ * Deliver a verification Slack DM via the Slack Web API directly.
  * Fire-and-forget wrapper for use in the daemon process (HTTP route handlers).
  */
 export function deliverVerificationSlack(

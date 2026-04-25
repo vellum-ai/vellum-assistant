@@ -372,26 +372,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   // =========================================================================
   // Assistant -> Gateway (HTTP)
   // =========================================================================
-  // Telegram reply delivery is now a direct Bot API call from the assistant
-  // (assistant/src/messaging/providers/telegram-bot/{api,send}.ts → api.telegram.org).
-  // Not modeled here — the matrix tracks inter-service edges, not external APIs.
-  // WhatsApp reply delivery is now a direct Meta API call from the assistant
-  // (assistant/src/messaging/providers/whatsapp/{api,send}.ts → graph.facebook.com).
-  // Not modeled here — the matrix tracks inter-service edges, not external APIs.
-  {
-    label: "Channel reply delivery (Slack)",
-    caller: "assistant",
-    callee: "gateway",
-    protocol: "http",
-    auth: "JWT Bearer (daemon delivery token)",
-    description:
-      "Assistant delivers reply messages to Slack via the gateway's /deliver/slack endpoint.",
-    callerGlobs: [
-      "assistant/src/runtime/gateway-client.ts",
-      "assistant/src/notifications/adapters/slack.ts",
-    ],
-    calleeGlobs: ["gateway/src/http/routes/slack-deliver.ts"],
-  },
   {
     label: "Trust rules CRUD",
     caller: "assistant",

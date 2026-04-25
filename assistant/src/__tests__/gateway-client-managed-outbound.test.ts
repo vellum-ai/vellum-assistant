@@ -181,7 +181,7 @@ describe("gateway-client managed outbound lane", () => {
 
     let caught: unknown;
     try {
-      await deliverChannelReply("https://gateway.test/deliver/slack", {
+      await deliverChannelReply("https://gateway.test/deliver/voice", {
         chatId: "C123",
         text: "hello",
       });
@@ -207,7 +207,7 @@ describe("gateway-client managed outbound lane", () => {
 
     let caught: unknown;
     try {
-      await deliverChannelReply("https://gateway.test/deliver/slack", {
+      await deliverChannelReply("https://gateway.test/deliver/voice", {
         chatId: "C123",
         text: "hello",
       });
@@ -228,7 +228,7 @@ describe("gateway-client managed outbound lane", () => {
 
     let caught: unknown;
     try {
-      await deliverChannelReply("https://gateway.test/deliver/slack", {
+      await deliverChannelReply("https://gateway.test/deliver/voice", {
         chatId: "C123",
         text: "hello",
       });

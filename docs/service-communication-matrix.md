@@ -37,17 +37,16 @@ This document enumerates every observed communication permutation between the th
 | 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
 | 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
 | 27 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
-| 28 | Assistant -> Gateway | `http` | JWT Bearer (daemon delivery token) | Channel reply delivery (Slack) |
-| 29 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 33 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 34 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 35 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 36 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 38 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 28 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 32 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 33 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 34 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 35 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 37 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -323,7 +322,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
-- **Description:** Gateway proxies channel verification session routes (/v1/channel-verification-sessions) and guardian bootstrap endpoints (/v1/guardian/init, /v1/guardian/refresh) to the assistant. Guardian init enforces a one-time-use bootstrap secret guard before forwarding.
+- **Description:** Gateway proxies channel verification session routes (/v1/channel-verification-sessions) to the assistant. Guardian endpoints (/v1/guardian/init, /v1/guardian/refresh) are handled gateway-native — they operate directly on the assistant's SQLite database via the shared workspace volume.
 
 **Caller files:**
 - `gateway/src/http/routes/channel-verification-session-proxy.ts`
@@ -380,19 +379,6 @@ This document enumerates every observed communication permutation between the th
 - `assistant/src/runtime/http-server.ts`
 
 ## Assistant -> Gateway
-
-### Channel reply delivery (Slack)
-
-- **Protocol:** `http`
-- **Auth:** JWT Bearer (daemon delivery token)
-- **Description:** Assistant delivers reply messages to Slack via the gateway's /deliver/slack endpoint.
-
-**Caller files:**
-- `assistant/src/runtime/gateway-client.ts`
-- `assistant/src/notifications/adapters/slack.ts`
-
-**Callee files:**
-- `gateway/src/http/routes/slack-deliver.ts`
 
 ### Trust rules CRUD
 

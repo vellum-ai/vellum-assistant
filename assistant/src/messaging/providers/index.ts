@@ -5,8 +5,7 @@
  * matcher and send logic here.  The gateway-client consults
  * `isDirectDelivery()` before falling back to the HTTP proxy path.
  *
- * Currently supported: WhatsApp, Telegram.
- * Planned: Slack.
+ * Currently supported: WhatsApp, Telegram, Slack.
  */
 
 import type {
@@ -16,6 +15,13 @@ import type {
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../util/logger.js";
+import {
+  sendSlackAssistantThreadStatus,
+  sendSlackAttachments,
+  sendSlackReaction,
+  sendSlackReply,
+  sendSlackTypingIndicator,
+} from "./slack/send.js";
 import {
   sendTelegramAttachments,
   sendTelegramReply,
@@ -43,6 +49,31 @@ function isWhatsAppCallback(callbackUrl: string): boolean {
 
 function isTelegramCallback(callbackUrl: string): boolean {
   return matchesPathname(callbackUrl, "/deliver/telegram");
+}
+
+function isSlackCallback(callbackUrl: string): boolean {
+  try {
+    return new URL(callbackUrl).pathname === "/deliver/slack";
+  } catch {
+    return callbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+function parseSlackCallbackParams(callbackUrl: string): {
+  channel?: string;
+  threadTs?: string;
+  messageTs?: string;
+} {
+  try {
+    const url = new URL(callbackUrl);
+    return {
+      channel: url.searchParams.get("channel") ?? undefined,
+      threadTs: url.searchParams.get("threadTs") ?? undefined,
+      messageTs: url.searchParams.get("messageTs") ?? undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +144,83 @@ async function deliverTelegram(
   return { ok: true };
 }
 
+async function deliverSlack(
+  callbackUrl: string,
+  payload: ChannelReplyPayload,
+): Promise<ChannelDeliveryResult> {
+  const { chatId, text, attachments, chatAction, blocks } = payload;
+  const params = parseSlackCallbackParams(callbackUrl);
+  const threadTs = params.threadTs;
+
+  // Emoji reaction
+  if (payload.reaction) {
+    await sendSlackReaction(
+      chatId,
+      payload.reaction.name,
+      payload.reaction.messageTs,
+      payload.reaction.action,
+    );
+    return { ok: true };
+  }
+
+  // Assistants API thread status
+  if (payload.assistantThreadStatus) {
+    const {
+      channel,
+      threadTs: statusThreadTs,
+      status,
+    } = payload.assistantThreadStatus;
+    await sendSlackAssistantThreadStatus(channel, statusThreadTs, status);
+    return { ok: true };
+  }
+
+  // Typing indicator
+  if (chatAction === "typing") {
+    const placeholderTs = await sendSlackTypingIndicator(chatId, threadTs);
+    log.debug({ chatId }, "Slack typing indicator delivered (direct)");
+    return { ok: true, ts: placeholderTs };
+  }
+
+  // Text + blocks delivery
+  let sentTs: string | undefined;
+  if (text) {
+    const result = await sendSlackReply(chatId, text, {
+      threadTs,
+      blocks: blocks as unknown[] | undefined,
+      approval: payload.approval,
+      useBlocks: payload.useBlocks,
+      ephemeral: payload.ephemeral,
+      user: payload.user,
+      messageTs: payload.messageTs,
+    });
+    sentTs = result.ts;
+  } else if (payload.approval) {
+    const result = await sendSlackReply(
+      chatId,
+      payload.approval.plainTextFallback || "Approval required",
+      {
+        threadTs,
+        approval: payload.approval,
+      },
+    );
+    sentTs = result.ts;
+  }
+
+  // Attachments
+  if (attachments && attachments.length > 0) {
+    const result = await sendSlackAttachments(chatId, attachments, threadTs);
+    if (result.allFailed && !text) {
+      throw new ChannelDeliveryError(
+        502,
+        `All ${result.failureCount} attachments failed to deliver`,
+      );
+    }
+  }
+
+  log.info({ chatId, hasText: !!text }, "Slack reply delivered (direct)");
+  return { ok: true, ts: sentTs };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -122,7 +230,11 @@ async function deliverTelegram(
  * outbound delivery is handled directly by the assistant (no gateway hop).
  */
 export function isDirectDelivery(callbackUrl: string): boolean {
-  return isWhatsAppCallback(callbackUrl) || isTelegramCallback(callbackUrl);
+  return (
+    isWhatsAppCallback(callbackUrl) ||
+    isTelegramCallback(callbackUrl) ||
+    isSlackCallback(callbackUrl)
+  );
 }
 
 /**
@@ -138,6 +250,9 @@ export async function deliverDirect(
   }
   if (isTelegramCallback(callbackUrl)) {
     return deliverTelegram(payload);
+  }
+  if (isSlackCallback(callbackUrl)) {
+    return deliverSlack(callbackUrl, payload);
   }
 
   // Defensive — isDirectDelivery should have returned false.

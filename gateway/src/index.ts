@@ -48,7 +48,7 @@ import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js"
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
 import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
-import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
+
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import {
@@ -327,29 +327,6 @@ async function main() {
       configFile: configFileCache,
     },
   );
-  // Map: "channel:threadTs" -> { messageTs, expiresAt } for replacing approval
-  // messages with the bot's follow-up content after an approval button click.
-  const pendingApprovalReplacements = new Map<
-    string,
-    { messageTs: string; expiresAt: number }
-  >();
-
-  // Clean up expired entries every 60s
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of pendingApprovalReplacements) {
-      if (entry.expiresAt <= now) pendingApprovalReplacements.delete(key);
-    }
-  }, 60_000);
-
-  const handleSlackDeliver = createSlackDeliverHandler(
-    config,
-    (threadTs) => {
-      slackSocketClient?.trackThread(threadTs);
-    },
-    { credentials: credentialCache, configFile: configFileCache },
-    pendingApprovalReplacements,
-  );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
   const channelVerificationSessionProxy =
@@ -433,7 +410,6 @@ async function main() {
 
   const requireTelegram = requireConfigured(isTelegramConfigured, "Telegram");
   const requireWhatsApp = requireConfigured(isWhatsAppConfigured, "WhatsApp");
-  const requireSlack = requireConfigured(() => slackReady, "Slack");
 
   // ── Route table ──
   // Routes are matched top-to-bottom. The first match wins.
@@ -488,14 +464,6 @@ async function main() {
       auth: "track-failures",
       trackFailureStatuses: [400],
       handler: (req) => handleOAuthCallback(req),
-    },
-
-    // ── Deliver routes (token-tracked) ──
-    {
-      path: "/deliver/slack",
-      precondition: requireSlack,
-      auth: "track-failures",
-      handler: (req) => handleSlackDeliver(req),
     },
 
     // ── Pairing (mixed auth) ──
@@ -1655,7 +1623,6 @@ async function main() {
 
         // Whether this event represents an edit or callback action — these
         // never carry attachments to upload.
-        const messageTs = normalized.event.source.messageId;
         const isEdit = !!normalized.event.message.isEdit;
         const isCallback = !!normalized.event.message.callbackData;
 
@@ -1821,17 +1788,8 @@ async function main() {
           );
         });
 
-        // When an approval button is clicked, store the approval message ts
-        // so the next outbound delivery to this thread replaces the approval
-        // message instead of posting a new one.
-        const callbackData = normalized.event.message.callbackData;
-        if (callbackData?.startsWith("apr:") && messageTs && threadTs) {
-          const key = `${channel}:${threadTs}`;
-          pendingApprovalReplacements.set(key, {
-            messageTs,
-            expiresAt: Date.now() + 60_000, // 60s TTL
-          });
-        }
+        // Approval message replacement is handled by the assistant's
+        // direct Slack delivery path (messaging/providers/slack/send.ts).
       },
     );
 
