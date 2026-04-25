@@ -2,18 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import { buildPkbReminder } from "./pkb-reminder-builder.js";
 
-// Byte-for-byte fixture of the original PKB_SYSTEM_REMINDER from
-// conversation-runtime-assembly.ts. If this ever needs to change, the
-// matching string in conversation-runtime-assembly.ts must change too.
-const ORIGINAL_REMINDER =
+// Byte-for-byte fixture of the base PKB reminder.
+const BASE_REMINDER =
   "<system_reminder>" +
   "\nRead any unread Personal Knowledge Base files that might be even partially relevant to this conversation" +
   "\nUse `remember` for anything you learn immediately" +
+  "\nIf you're unsure about something that may have an answer in your workspace, use `recall` to try to find it before asking or making assumptions" +
   "\n</system_reminder>";
 
 describe("buildPkbReminder", () => {
-  test("empty hints returns exact original reminder byte-for-byte", () => {
-    expect(buildPkbReminder([])).toBe(ORIGINAL_REMINDER);
+  test("empty hints returns exact base reminder byte-for-byte", () => {
+    expect(buildPkbReminder([])).toBe(BASE_REMINDER);
   });
 
   test("single hint renders one bullet with no duplicates or trailing blank line", () => {
@@ -24,6 +23,7 @@ describe("buildPkbReminder", () => {
       "\nBased on the current context, these files look especially relevant:" +
       "\n- projects/alpha.md" +
       "\nUse `remember` for anything you learn immediately" +
+      "\nIf you're unsure about something that may have an answer in your workspace, use `recall` to try to find it before asking or making assumptions" +
       "\n</system_reminder>";
     expect(out).toBe(expected);
 
@@ -46,6 +46,7 @@ describe("buildPkbReminder", () => {
       "\n- sub/b.md" +
       "\n- c/d/e.md" +
       "\nUse `remember` for anything you learn immediately" +
+      "\nIf you're unsure about something that may have an answer in your workspace, use `recall` to try to find it before asking or making assumptions" +
       "\n</system_reminder>";
     expect(out).toBe(expected);
 
