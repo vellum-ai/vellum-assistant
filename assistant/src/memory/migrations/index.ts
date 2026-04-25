@@ -172,6 +172,7 @@ export { migrateScheduleScriptColumn } from "./223-schedule-script-column.js";
 export { migrateOAuthProvidersManagedServiceIsPaid } from "./224-oauth-providers-managed-service-is-paid.js";
 export { migrateOAuthProvidersAvailableScopes } from "./225-oauth-providers-available-scopes.js";
 export { migrateScheduleWakeConversationId } from "./226-schedule-wake-conversation-id.js";
+export { migrateAddConversationInferenceProfile } from "./227-add-conversation-inference-profile.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

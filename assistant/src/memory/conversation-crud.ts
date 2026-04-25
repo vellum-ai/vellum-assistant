@@ -184,6 +184,7 @@ export interface ConversationRow {
   scheduleJobId: string | null;
   lastMessageAt: number | null;
   archivedAt: number | null;
+  inferenceProfile: string | null;
 }
 
 export const parseConversation = createRowMapper<
@@ -212,6 +213,7 @@ export const parseConversation = createRowMapper<
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
+  inferenceProfile: "inferenceProfile",
 });
 
 export interface MessageRow {
