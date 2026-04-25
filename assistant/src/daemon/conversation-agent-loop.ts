@@ -52,7 +52,7 @@ import {
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
-  getConversationOverrideProfile,
+  getConversationOverrideProfileFromRow,
   getLastUserTimestampBefore,
   getMessageById,
   provenanceFromTrustContext,
@@ -624,6 +624,12 @@ export async function runAgentLoopImpl(
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
 
+  // Read the conversation row once for both the override-profile derivation
+  // below and the title-replaceability check at turn start. Later reads in
+  // this function (post-turn truncation, disk sync, home-feed emission)
+  // intentionally re-read because state can change during the turn.
+  const turnStartConversation = getConversation(ctx.conversationId);
+
   // Optional per-turn inference-profile override. Plumbed through to every
   // LLM call the loop emits and inherited by any subagents spawned during
   // this turn. Caller-supplied `options.overrideProfile` (e.g.
@@ -633,7 +639,7 @@ export async function runAgentLoopImpl(
   // explicitly inherited override.
   const turnOverrideProfile =
     options?.overrideProfile ??
-    getConversationOverrideProfile(ctx.conversationId);
+    getConversationOverrideProfileFromRow(turnStartConversation);
 
   // Snapshot for `createToolExecutor` to read into `ToolContext.overrideProfile`
   // — see field doc on `AgentLoopConversationContext` for why the tool needs
@@ -731,9 +737,7 @@ export async function runAgentLoopImpl(
     // cancels the response, since the user message is already persisted.
     // Deferred via setTimeout so the main agent loop LLM call enqueues
     // first, avoiding rate-limit slot contention on strict configs.
-    if (
-      isReplaceableTitle(getConversation(ctx.conversationId)?.title ?? null)
-    ) {
+    if (isReplaceableTitle(turnStartConversation?.title ?? null)) {
       // TurnContext routed through the canonical builder so the pipeline's
       // log record reports the same `conversationId`/`turnIndex` shape as
       // every other slot in this turn. Title generation does not depend on

@@ -1328,18 +1328,32 @@ export function setConversationInferenceProfile(
 }
 
 /**
- * Resolve the per-turn inference-profile override for a conversation.
- * Returns the row's `inferenceProfile` for non-background conversations,
- * `undefined` otherwise — background turns (subagent fan-out, scheduled
- * tasks, update bulletins) run on the workspace defaults rather than
- * inheriting an interactive override.
+ * Resolve the per-turn inference-profile override from an already-loaded
+ * conversation row. Returns the row's `inferenceProfile` for non-background
+ * conversations, `undefined` otherwise — background turns (subagent fan-out,
+ * scheduled tasks, update bulletins) run on the workspace defaults rather
+ * than inheriting an interactive override.
+ *
+ * Prefer this row-based form when the caller already needs to read the
+ * conversation row for other reasons (e.g. the agent loop's title check).
+ */
+export function getConversationOverrideProfileFromRow(
+  conv: ConversationRow | null,
+): string | undefined {
+  if (conv?.conversationType === "background") return undefined;
+  return conv?.inferenceProfile ?? undefined;
+}
+
+/**
+ * Resolve the per-turn inference-profile override by conversation id.
+ * Convenience wrapper around `getConversationOverrideProfileFromRow` for
+ * standalone callers (e.g. subagent spawn, opportunity-wake) that don't
+ * already have the row in hand.
  */
 export function getConversationOverrideProfile(
   conversationId: string,
 ): string | undefined {
-  const conv = getConversation(conversationId);
-  if (conv?.conversationType === "background") return undefined;
-  return conv?.inferenceProfile ?? undefined;
+  return getConversationOverrideProfileFromRow(getConversation(conversationId));
 }
 
 /**

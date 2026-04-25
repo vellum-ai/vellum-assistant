@@ -12,12 +12,12 @@ import {
  * call-site overrides, optional per-call profile, an optional ad-hoc override
  * profile, the workspace's active profile, and the required `llm.default`.
  *
- * Resolution order (highest precedence wins):
- *   1. `llm.callSites[callSite]` fields (call-site override)
- *   2. `llm.profiles[site.profile]` fields (call-site's named profile)
+ * Merge layers (low → high precedence; later layers override earlier):
+ *   1. `llm.default` fields (required base)
+ *   2. `llm.profiles[llm.activeProfile]` (workspace-wide active profile)
  *   3. `llm.profiles[opts.overrideProfile]` (per-call ad-hoc override)
- *   4. `llm.profiles[llm.activeProfile]` (workspace-wide active profile)
- *   5. `llm.default` fields (required base)
+ *   4. `llm.profiles[site.profile]` fields (call-site's named profile)
+ *   5. `llm.callSites[callSite]` fields (call-site override)
  *
  * Nested objects (`thinking`, `contextWindow`, and
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at

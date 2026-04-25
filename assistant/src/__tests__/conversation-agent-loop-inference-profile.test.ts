@@ -123,10 +123,11 @@ mock.module("../memory/conversation-crud.js", () => ({
   clearStrippedInjectionMetadataForConversation: () => {},
   getMessages: () => [],
   getConversation: () => mockConversationRow,
-  getConversationOverrideProfile: () => {
-    if (mockConversationRow?.conversationType === "background")
-      return undefined;
-    const profile = mockConversationRow?.inferenceProfile;
+  getConversationOverrideProfileFromRow: (
+    row: { conversationType?: string; inferenceProfile?: string | null } | null,
+  ) => {
+    if (row?.conversationType === "background") return undefined;
+    const profile = row?.inferenceProfile;
     return typeof profile === "string" ? profile : undefined;
   },
   provenanceFromTrustContext: () => ({
