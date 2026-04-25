@@ -51,6 +51,7 @@ import { seedMainAgentOpusCallsiteMigration } from "./050-seed-main-agent-opus-c
 import { seedConversationSummarizationCallsiteMigration } from "./051-seed-conversation-summarization-callsite.js";
 import { seedDefaultInferenceProfiles052 } from "./052-seed-default-inference-profiles.js";
 import { releaseNotesAcpCodexMigration } from "./053-release-notes-acp-codex.js";
+import { seedRecallCallsiteMigration } from "./054-seed-recall-callsite.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -113,4 +114,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedConversationSummarizationCallsiteMigration,
   seedDefaultInferenceProfiles052,
   releaseNotesAcpCodexMigration,
+  seedRecallCallsiteMigration,
 ];
