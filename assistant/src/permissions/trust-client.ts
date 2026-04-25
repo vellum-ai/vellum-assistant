@@ -82,11 +82,6 @@ export async function removeRule(id: string): Promise<boolean> {
   return getClient().removeRule(id);
 }
 
-/** Clear all user trust rules (default rules are preserved by the gateway). */
-export async function clearRules(): Promise<void> {
-  return getClient().clearRules();
-}
-
 /**
  * Find the highest-priority matching rule for a tool invocation.
  *

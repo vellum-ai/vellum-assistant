@@ -5,7 +5,7 @@
  * finding messages by source identifiers, and managing raw payload storage.
  */
 
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -177,33 +177,3 @@ export function clearPayload(eventId: string): void {
     .run();
 }
 
-/**
- * Retrieve the stored raw payload for a given conversation's most recent
- * inbound event. Used by the escalation decide flow to recover the
- * original message content after an approve/deny decision.
- */
-export function getLatestStoredPayload(
-  conversationId: string,
-): Record<string, unknown> | null {
-  const db = getDb();
-  const row = db
-    .select({
-      rawPayload: channelInboundEvents.rawPayload,
-    })
-    .from(channelInboundEvents)
-    .where(
-      and(
-        eq(channelInboundEvents.conversationId, conversationId),
-        isNotNull(channelInboundEvents.rawPayload),
-      ),
-    )
-    .orderBy(desc(channelInboundEvents.createdAt))
-    .get();
-
-  if (!row?.rawPayload) return null;
-  try {
-    return JSON.parse(row.rawPayload) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}

@@ -73,7 +73,7 @@ export function findLastUndoableUserMessageIndex(messages: Message[]): number {
  * Individual deletion failures are logged and enqueued as retry jobs
  * to prevent silently orphaned vectors.
  */
-export async function cleanupQdrantVectors(
+async function cleanupQdrantVectors(
   conversationId: string,
   segmentIds: string[],
 ): Promise<void> {

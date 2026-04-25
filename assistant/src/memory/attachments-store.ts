@@ -605,21 +605,6 @@ export function getFilePathForAttachment(attachmentId: string): string | null {
 }
 
 /**
- * Returns the source_path (original file path on disk) for an attachment, or null if not set.
- * Uses raw SQL since source_path is added via DB migration and is not in the Drizzle schema.
- */
-export function getSourcePathForAttachment(
-  attachmentId: string,
-): string | null {
-  const row = rawGet<{ source_path: string | null }>(
-    "SELECT source_path FROM attachments WHERE id = ?",
-    attachmentId,
-  );
-  return row?.source_path ?? null;
-}
-
-/**
- * Batch-fetch source_path values for multiple attachment IDs in a single query.
  * Returns a Map of attachment ID → source_path for attachments that have a non-null source_path.
  * Uses raw SQL since source_path is added via runtime migration and is not in the Drizzle schema.
  */

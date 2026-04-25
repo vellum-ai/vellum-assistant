@@ -1,8 +1,5 @@
 /**
  * Tests for the auth-profile derivation helper.
- *
- * Verifies that each known lockfile `cloud` value maps to the correct
- * auth profile, and that unknown values yield `unsupported`.
  */
 
 import { describe, test, expect } from 'bun:test';
@@ -14,14 +11,14 @@ import {
 } from '../assistant-auth-profile.js';
 
 describe('resolveAuthProfile', () => {
-  test('maps "local" to local-pair', () => {
+  test('maps "local" to self-hosted', () => {
     const result = resolveAuthProfile({ cloud: 'local' });
-    expect(result).toBe('local-pair' satisfies AssistantAuthProfile);
+    expect(result).toBe('self-hosted' satisfies AssistantAuthProfile);
   });
 
-  test('maps "apple-container" to local-pair', () => {
+  test('maps "apple-container" to self-hosted', () => {
     const result = resolveAuthProfile({ cloud: 'apple-container' });
-    expect(result).toBe('local-pair' satisfies AssistantAuthProfile);
+    expect(result).toBe('self-hosted' satisfies AssistantAuthProfile);
   });
 
   test('maps "vellum" to vellum-cloud', () => {
@@ -45,13 +42,10 @@ describe('resolveAuthProfile', () => {
   });
 
   test('runtimeUrl presence does not affect the mapping', () => {
-    // The auth profile is derived from the `cloud` value alone. The
-    // runtimeUrl field is part of the topology shape for downstream
-    // consumers but does not change the auth decision.
     const withUrl: LockfileTopology = { cloud: 'local', runtimeUrl: 'http://127.0.0.1:7831' };
     const withoutUrl: LockfileTopology = { cloud: 'local' };
-    expect(resolveAuthProfile(withUrl)).toBe('local-pair');
-    expect(resolveAuthProfile(withoutUrl)).toBe('local-pair');
+    expect(resolveAuthProfile(withUrl)).toBe('self-hosted');
+    expect(resolveAuthProfile(withoutUrl)).toBe('self-hosted');
 
     const cloudWithUrl: LockfileTopology = {
       cloud: 'vellum',
@@ -63,11 +57,9 @@ describe('resolveAuthProfile', () => {
   });
 
   test('is stable across all known cloud values', () => {
-    // Pin the full mapping so a future refactor that accidentally
-    // changes a mapping is caught by this test.
     const expected: Array<[string, AssistantAuthProfile]> = [
-      ['local', 'local-pair'],
-      ['apple-container', 'local-pair'],
+      ['local', 'self-hosted'],
+      ['apple-container', 'self-hosted'],
       ['vellum', 'vellum-cloud'],
       ['platform', 'vellum-cloud'],
     ];

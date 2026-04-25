@@ -5,7 +5,7 @@ import type { ModelIntent } from "./types.js";
  * Derived from PROVIDER_CATALOG — single source of truth for default models.
  * Each provider's `defaultModel` in the catalog populates this map.
  */
-export const PROVIDER_DEFAULT_MODELS: Record<string, string> =
+const PROVIDER_DEFAULT_MODELS: Record<string, string> =
   Object.fromEntries(
     PROVIDER_CATALOG.map((entry) => [entry.id, entry.defaultModel]),
   );

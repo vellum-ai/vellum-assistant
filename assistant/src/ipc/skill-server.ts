@@ -80,8 +80,7 @@ const DEFAULT_SEND_REQUEST_TIMEOUT_MS = 30_000;
  * server also tears down on socket close / daemon shutdown, so this is only
  * needed when the client wants to keep the socket but end one subscription.
  */
-export const SKILL_IPC_SUBSCRIBE_CLOSE_METHOD =
-  "host.events.subscribe.close" as const;
+const SKILL_IPC_SUBSCRIBE_CLOSE_METHOD = "host.events.subscribe.close" as const;
 
 /** Stream handle passed to streaming-handler implementations. */
 export interface SkillIpcStream {

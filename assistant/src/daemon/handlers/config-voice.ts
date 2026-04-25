@@ -6,7 +6,7 @@ import { type HandlerContext, log } from "./shared.js";
  * Used to push configuration changes (e.g. activation key) from the daemon
  * to macOS/iOS clients so they can apply settings immediately.
  */
-export function broadcastClientSettingsUpdate(
+function broadcastClientSettingsUpdate(
   key: string,
   value: string,
   ctx: HandlerContext,

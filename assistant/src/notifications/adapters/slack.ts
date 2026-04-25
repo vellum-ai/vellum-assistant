@@ -52,7 +52,7 @@ function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
  * - Optional context: message preview
  * - Context: approval code instructions + invite directive
  */
-export function buildAccessRequestBlocks(
+function buildAccessRequestBlocks(
   payload: Record<string, unknown>,
 ): unknown[] {
   const blocks: unknown[] = [];

@@ -28,11 +28,8 @@ import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
-import type {
-  TelegramConfigRequest,
-  TelegramConfigResponse,
-} from "../message-protocol.js";
-import { type HandlerContext, log } from "./shared.js";
+import type { TelegramConfigResponse } from "../message-protocol.js";
+import { log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
   /\/bot\d{8,10}:[A-Za-z0-9_-]{30,120}\//g;
@@ -45,7 +42,7 @@ function redactTelegramBotTokens(value: string): string {
     .replace(TELEGRAM_BOT_TOKEN_PATTERN, "[REDACTED]");
 }
 
-export function summarizeTelegramError(err: unknown): string {
+function summarizeTelegramError(err: unknown): string {
   const parts: string[] = [];
   if (err instanceof Error) {
     parts.push(err.message);
@@ -415,45 +412,3 @@ export async function setupTelegram(
 }
 
 // -- Message handler (thin wrapper over extracted functions) --
-
-export async function handleTelegramConfig(
-  msg: TelegramConfigRequest,
-  ctx: HandlerContext,
-): Promise<void> {
-  try {
-    let result: TelegramConfigResult;
-
-    if (msg.action === "get") {
-      result = await getTelegramConfig();
-    } else if (msg.action === "set") {
-      result = await setTelegramConfig(msg.botToken);
-    } else if (msg.action === "clear") {
-      result = await clearTelegramConfig();
-    } else if (msg.action === "set_commands") {
-      result = await setTelegramCommands(msg.commands);
-    } else if (msg.action === "setup") {
-      result = await setupTelegram(msg.commands, msg.botToken);
-    } else {
-      result = {
-        success: false,
-        hasBotToken: false,
-        connected: false,
-        hasWebhookSecret: false,
-        error: `Unknown action: ${String(msg.action)}`,
-      };
-    }
-
-    ctx.send({ type: "telegram_config_response", ...result });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to handle Telegram config");
-    ctx.send({
-      type: "telegram_config_response",
-      success: false,
-      hasBotToken: false,
-      connected: false,
-      hasWebhookSecret: false,
-      error: message,
-    });
-  }
-}

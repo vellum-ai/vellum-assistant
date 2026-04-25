@@ -1,4 +1,4 @@
-import { and, asc, eq, lte, or, sql } from "drizzle-orm";
+import { and, eq, lte, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -48,7 +48,7 @@ export function createFollowUp(input: FollowUpCreateInput): FollowUp {
   return getFollowUp(id)!;
 }
 
-export function getFollowUp(id: string): FollowUp | null {
+function getFollowUp(id: string): FollowUp | null {
   const db = getDb();
   const row = db.select().from(followups).where(eq(followups.id, id)).get();
   if (!row) return null;
@@ -156,72 +156,4 @@ export function getOverdueFollowUps(): FollowUp[] {
     .all();
 
   return rows.map(parseFollowUp);
-}
-
-export function markNudged(id: string): FollowUp {
-  const db = getDb();
-  const now = Date.now();
-
-  const existing = db
-    .select()
-    .from(followups)
-    .where(eq(followups.id, id))
-    .get();
-  if (!existing) throw new Error(`Follow-up "${id}" not found`);
-
-  db.update(followups)
-    .set({ status: "nudged", updatedAt: now })
-    .where(eq(followups.id, id))
-    .run();
-
-  return getFollowUp(id)!;
-}
-
-// ── Brief Helpers ──────────────────────────────────────────────────────
-
-/**
- * Lightweight projection of a follow-up used by the brief compiler.
- */
-export interface BriefFollowUp {
-  id: string;
-  channel: string;
-  conversationId: string;
-  contactId: string | null;
-  expectedResponseBy: number | null;
-  status: FollowUpStatus;
-  updatedAt: number;
-}
-
-/**
- * Return pending and overdue follow-ups for the brief compiler.
- * Ordered by expectedResponseBy ascending (most urgent first).
- */
-export function getPendingAndOverdueFollowUps(): BriefFollowUp[] {
-  const db = getDb();
-
-  const rows = db
-    .select({
-      id: followups.id,
-      channel: followups.channel,
-      conversationId: followups.conversationId,
-      contactId: followups.contactId,
-      expectedResponseBy: followups.expectedResponseBy,
-      status: followups.status,
-      updatedAt: followups.updatedAt,
-    })
-    .from(followups)
-    .where(
-      or(
-        eq(followups.status, "pending"),
-        eq(followups.status, "overdue"),
-        eq(followups.status, "nudged"),
-      ),
-    )
-    .orderBy(
-      sql`CASE WHEN ${followups.expectedResponseBy} IS NULL THEN 1 ELSE 0 END`,
-      asc(followups.expectedResponseBy),
-    )
-    .all();
-
-  return rows as BriefFollowUp[];
 }

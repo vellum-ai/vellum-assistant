@@ -292,36 +292,6 @@ export function revokeMember(
 }
 
 /**
- * Block a contact channel by updating its status.
- * The memberId may be a plain channel ID (internal callers) or a composite
- * contactId:channelId (from the API response format).
- */
-export function blockMember(
-  memberId: string,
-  reason?: string,
-): ContactWriteResult | null {
-  const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
-
-  const channelRow = getChannelById(channelId);
-  if (!channelRow) return null;
-  if (channelRow.status === "blocked") return null;
-
-  updateChannelStatus(channelId, {
-    status: "blocked",
-    blockedReason: reason ?? null,
-  });
-
-  // Use unscoped lookup — the contact was already resolved via channel ID
-  const contact = getContactInternal(channelRow.contactId);
-  if (!contact) return null;
-  const updatedChannel = contact.channels.find((ch) => ch.id === channelId);
-  if (!updatedChannel) return null;
-
-  emitContactChange();
-  return { contact, channel: updatedChannel };
-}
-
-/**
  * Update the lastSeenAt timestamp on a contact channel by its ID.
  * Expects a plain channel UUID (ContactChannel.id), not the composite API ID.
  */

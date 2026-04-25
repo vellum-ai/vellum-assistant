@@ -40,7 +40,7 @@ const CLI_SOURCE_PREFIX = "capability:cli:";
  * Upsert a graph node for a skill capability.
  * Uses sourceConversations[0] as a stable key for deduplication.
  */
-export function upsertSkillCapabilityNode(
+function upsertSkillCapabilityNode(
   skillId: string,
   input: SkillCapabilityInput,
 ): void {
@@ -56,7 +56,7 @@ export function upsertSkillCapabilityNode(
 /**
  * Upsert a graph node for a CLI command capability.
  */
-export function upsertCliCapabilityNode(
+function upsertCliCapabilityNode(
   commandName: string,
   description: string,
 ): void {

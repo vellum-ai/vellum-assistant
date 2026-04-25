@@ -1068,7 +1068,7 @@ export function enforceGuardianCallConversationAffinity(
  * deterministic post-decision guard that prevents the LLM from routing
  * guardian questions for the same call session to different conversations.
  */
-export function enforceConversationAffinity(
+function enforceConversationAffinity(
   decision: NotificationDecision,
   affinityHint: Partial<Record<string, string>> | undefined,
 ): NotificationDecision {

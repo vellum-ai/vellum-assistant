@@ -166,7 +166,7 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   }
   // Interface and channel are orthogonal dimensions; default explicitly
   // instead of deriving interface from channel.
-  return "vellum";
+  return "web";
 }
 
 function resolveCanonicalRequestSourceType(
@@ -2050,7 +2050,7 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
       // `conversation-agent-loop-handlers.ts`. If the live turn channel
       // / interface contexts are missing (a wake can fire on a
       // conversation that has never run a user turn), fall back to the
-      // conversation's origin channel/interface defaults (`"vellum"`)
+      // conversation's origin channel/interface defaults (`"vellum"` / `"web"`)
       // so persisted rows still carry valid channel/interface ids.
       const turnChannelCtx = conversation.getTurnChannelContext();
       const turnInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -2059,10 +2059,9 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
         userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
         assistantMessageChannel:
           turnChannelCtx?.assistantMessageChannel ?? "vellum",
-        userMessageInterface:
-          turnInterfaceCtx?.userMessageInterface ?? "vellum",
+        userMessageInterface: turnInterfaceCtx?.userMessageInterface ?? "web",
         assistantMessageInterface:
-          turnInterfaceCtx?.assistantMessageInterface ?? "vellum",
+          turnInterfaceCtx?.assistantMessageInterface ?? "web",
       };
       const persisted = await addMessage(
         conversation.conversationId,

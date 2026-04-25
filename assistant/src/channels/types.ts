@@ -32,7 +32,7 @@ export const INTERFACE_IDS = [
   "cli",
   "telegram",
   "phone",
-  "vellum",
+  "web",
   "whatsapp",
   "slack",
   "email",
@@ -41,6 +41,22 @@ export const INTERFACE_IDS = [
 
 export type InterfaceId = (typeof INTERFACE_IDS)[number];
 
+/**
+ * Interface IDs that older clients or persisted data may still use.
+ * `normalizeInterfaceId` maps these to their canonical replacements.
+ */
+const LEGACY_INTERFACE_ALIASES: Record<string, InterfaceId> = {
+  // The web client used to report "vellum" as its interface ID. Older
+  // conversation records and in-flight SSE connections may still carry this
+  // value. Normalize to "web" so downstream logic only needs one branch.
+  vellum: "web",
+};
+
+/**
+ * Strict type guard — returns `true` only for canonical `InterfaceId`
+ * values. Legacy aliases like `"vellum"` return `false`; use
+ * `parseInterfaceId` to accept and normalize those.
+ */
 export function isInterfaceId(value: unknown): value is InterfaceId {
   return (
     typeof value === "string" &&
@@ -49,7 +65,12 @@ export function isInterfaceId(value: unknown): value is InterfaceId {
 }
 
 export function parseInterfaceId(value: unknown): InterfaceId | null {
-  return isInterfaceId(value) ? value : null;
+  if (typeof value !== "string") return null;
+  if ((INTERFACE_IDS as readonly string[]).includes(value))
+    return value as InterfaceId;
+  const alias = LEGACY_INTERFACE_ALIASES[value];
+  if (alias) return alias;
+  return null;
 }
 
 /**
@@ -61,7 +82,7 @@ export const INTERACTIVE_INTERFACES: ReadonlySet<InterfaceId> = new Set([
   "macos",
   "ios",
   "cli",
-  "vellum",
+  "web",
 ]);
 
 export function isInteractiveInterface(id: InterfaceId): boolean {
@@ -138,6 +159,24 @@ export function supportsHostProxy(
  */
 export function canServiceRegistryBrowser(id: InterfaceId): boolean {
   return id === "chrome-extension" || id === "macos";
+}
+
+/**
+ * Whether the interface can service host_browser frames via the SSE event
+ * hub when a chrome-extension client is connected over SSE (cloud mode).
+ *
+ * In cloud/platform-hosted deployments the chrome extension connects via
+ * SSE (`GET /v1/events`) instead of a direct WebSocket. There is no
+ * ChromeExtensionRegistry entry, but the extension is a valid SSE consumer
+ * for `host_browser_request` frames and can POST results back to
+ * `/v1/host-browser-result`.
+ *
+ * Returns `true` for interfaces that should provision a `HostBrowserProxy`
+ * with the SSE hub sender when a chrome-extension SSE client is present in
+ * the ClientRegistry.
+ */
+export function canServiceSseBrowser(id: InterfaceId): boolean {
+  return id === "web" || id === "chrome-extension" || id === "macos";
 }
 
 export interface TurnInterfaceContext {

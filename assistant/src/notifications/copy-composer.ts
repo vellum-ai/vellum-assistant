@@ -155,7 +155,7 @@ export function sanitizeMessagePreview(value: string): string {
  *
  * Returns `undefined` when no usable preview is available.
  */
-export function buildAccessRequestMessagePreview(
+function buildAccessRequestMessagePreview(
   payload: Record<string, unknown>,
 ): string | undefined {
   const raw =

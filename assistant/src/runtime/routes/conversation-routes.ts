@@ -19,6 +19,7 @@ import {
 } from "../../agent/message-types.js";
 import {
   canServiceRegistryBrowser,
+  canServiceSseBrowser,
   CHANNEL_IDS,
   INTERFACE_IDS,
   type InterfaceId,
@@ -97,6 +98,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
+import { getClientRegistry } from "../client-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -1241,24 +1243,22 @@ function registerHostProxyPendingInteraction(
 /**
  * Resolve the host_browser sender function for a conversation turn.
  *
- * When the guardian has an active extension connection in the
- * ChromeExtensionRegistry, returns a registry-routed sender that forwards
- * `host_browser_request` / `host_browser_cancel` frames through the
- * WebSocket to the connected extension. Otherwise returns the SSE hub
- * emitter (`onEvent`).
+ * Transport selection:
+ *   1. **WebSocket registry** — when the guardian has an active entry in
+ *      ChromeExtensionRegistry (self-hosted direct WS connection), the
+ *      registry-routed sender is returned. Frames go directly over the
+ *      WebSocket to the extension.
+ *   2. **SSE event hub** — when no WebSocket connection exists but a
+ *      chrome-extension client is connected via SSE (cloud/platform mode),
+ *      the SSE hub sender (`onEvent`) is returned. The extension receives
+ *      `host_browser_request` frames as SSE events and POSTs results back
+ *      to `/v1/host-browser-result`.
  *
- * For `chrome-extension` turns the registry sender is **always** returned
- * regardless of the POST-time connection check. The chrome-extension
- * interface has no SSE consumer for `host_browser_request` frames, so
- * falling back to `onEvent` would cause CDP calls to stall until the proxy
- * timeout (30 s) instead of failing immediately at send time when the
- * registry throws on a missing connection.
- *
- * This helper is interface-agnostic: both chrome-extension and macOS turns
- * can obtain a registry-routed sender when extension connectivity exists.
- * The `isRegistryRouted` flag lets the caller decide whether to set
- * `hostBrowserSenderOverride` and whether to provision a `HostBrowserProxy`
- * for interfaces that don't statically support host_browser (e.g. macOS).
+ * When neither transport is available, `onEvent` is returned as the
+ * default sender (used by macOS for its native host_browser path).
+ * `hasSseExtension` is `false` in that case so the caller can avoid
+ * provisioning a stale `HostBrowserProxy` for interfaces that don't
+ * natively support host_browser.
  */
 function resolveHostBrowserSender(
   conversation: Conversation,
@@ -1266,52 +1266,58 @@ function resolveHostBrowserSender(
   authContext: AuthContext,
   onEvent: (msg: ServerMessage) => void,
   sourceInterface: InterfaceId,
-): { sender: (msg: ServerMessage) => void; isRegistryRouted: boolean } {
-  // Check whether the guardian has any active extension connection.
+): {
+  sender: (msg: ServerMessage) => void;
+  isRegistryRouted: boolean;
+  hasSseExtension: boolean;
+} {
   const guardianId =
     conversation.trustContext?.guardianPrincipalId ??
     authContext.actorPrincipalId;
   const hasExtensionConnection =
     !!guardianId && !!getChromeExtensionRegistry().get(guardianId);
 
-  // For chrome-extension, always use the registry sender so that send-time
-  // failures produce immediate errors rather than 30-second proxy timeouts.
-  // The SSE hub has no extension consumer, so falling back to onEvent is
-  // never correct for this interface.
-  if (!hasExtensionConnection && sourceInterface !== "chrome-extension") {
-    return { sender: onEvent, isRegistryRouted: false };
+  // Priority 1: WebSocket registry — direct WS to the extension.
+  if (hasExtensionConnection) {
+    const registrySender = (msg: ServerMessage): void => {
+      const requestId = registerHostProxyPendingInteraction(
+        msg,
+        conversation,
+        conversationId,
+      );
+      const gid =
+        conversation.trustContext?.guardianPrincipalId ??
+        authContext.actorPrincipalId;
+      if (!gid) {
+        if (requestId) pendingInteractions.resolve(requestId);
+        throw new Error(
+          "host_browser send skipped: no guardianId on AuthContext",
+        );
+      }
+      const ok = getChromeExtensionRegistry().send(gid, msg);
+      if (!ok) {
+        if (requestId) pendingInteractions.resolve(requestId);
+        throw new Error(
+          `host_browser send failed: no active connection for guardian ${gid}`,
+        );
+      }
+    };
+    return {
+      sender: registrySender,
+      isRegistryRouted: true,
+      hasSseExtension: false,
+    };
   }
 
-  // Build a registry-routed sender. The guardian principal ID is resolved
-  // at send time rather than captured here so that queue-drain restores
-  // (which re-fire this closure outside the original POST context) follow
-  // the conversation's bound guardian identity rather than a stale
-  // authContext.actorPrincipalId.
-  const registrySender = (msg: ServerMessage): void => {
-    const requestId = registerHostProxyPendingInteraction(
-      msg,
-      conversation,
-      conversationId,
-    );
-    const gid =
-      conversation.trustContext?.guardianPrincipalId ??
-      authContext.actorPrincipalId;
-    if (!gid) {
-      if (requestId) pendingInteractions.resolve(requestId);
-      throw new Error(
-        "host_browser send skipped: no guardianId on AuthContext",
-      );
-    }
-    const ok = getChromeExtensionRegistry().send(gid, msg);
-    if (!ok) {
-      if (requestId) pendingInteractions.resolve(requestId);
-      throw new Error(
-        `host_browser send failed: no active connection for guardian ${gid}`,
-      );
-    }
-  };
+  // Priority 2: SSE-connected chrome extension (cloud/platform mode).
+  // Check the ClientRegistry for a chrome-extension client specifically —
+  // getMostRecentByCapability("host_browser") would also match macOS
+  // clients, which handle browser frames through their own native path.
+  const hasSseExtension =
+    canServiceSseBrowser(sourceInterface) &&
+    !!getClientRegistry().getMostRecentByInterface("chrome-extension");
 
-  return { sender: registrySender, isRegistryRouted: true };
+  return { sender: onEvent, isRegistryRouted: false, hasSseExtension };
 }
 
 /**
@@ -1678,17 +1684,19 @@ export async function handleSendMessage(
     conversation.setHostBashProxy(undefined);
   }
   // Resolve the host_browser sender — registry-routed when the guardian has
-  // an active extension connection, SSE hub otherwise. This applies to both
-  // chrome-extension and macOS interfaces so that macOS turns can route
-  // browser automation through the user's real Chrome session when available.
-  const { sender: browserProxySendToClient, isRegistryRouted } =
-    resolveHostBrowserSender(
-      conversation,
-      mapping.conversationId,
-      authContext,
-      onEvent,
-      sourceInterface,
-    );
+  // an active WS extension connection, SSE hub when a chrome-extension is
+  // connected via SSE (cloud mode), or SSE hub as default for macOS.
+  const {
+    sender: browserProxySendToClient,
+    isRegistryRouted,
+    hasSseExtension,
+  } = resolveHostBrowserSender(
+    conversation,
+    mapping.conversationId,
+    authContext,
+    onEvent,
+    sourceInterface,
+  );
 
   // Stash the registry-routed sender on the conversation so queue-drain
   // restores (which run outside of conversation-routes.ts and only have
@@ -1703,16 +1711,18 @@ export async function handleSendMessage(
     conversation.hostBrowserSenderOverride = undefined;
   }
 
-  // Provision the host browser proxy. Both macOS and chrome-extension
-  // natively support host_browser. For macOS, the proxy is wired to the
-  // SSE sender by default so `host_browser_request` frames reach the
-  // desktop client directly. When the guardian also has an active extension
-  // connection (isRegistryRouted), the registry-routed sender is used
-  // instead so browser tools route through the user's real Chrome session.
-  // For chrome-extension, the registry sender is always used.
+  // Provision the host browser proxy when a viable transport exists:
+  //   - macOS: natively supports host_browser via its own SSE path
+  //   - WS registry: extension connected via direct WebSocket
+  //   - SSE extension: chrome extension connected via SSE (cloud mode)
+  //
+  // For chrome-extension, require an active transport (WS or SSE). Without
+  // one, host_browser_request frames would be emitted to the SSE hub with
+  // no consumer, causing a 30s proxy timeout instead of failing fast.
   const shouldProvisionBrowserProxy =
-    supportsHostProxy(sourceInterface, "host_browser") ||
-    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
+    supportsHostProxy(sourceInterface) ||
+    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted) ||
+    hasSseExtension;
   if (shouldProvisionBrowserProxy) {
     if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
       const browserProxy = new HostBrowserProxy(

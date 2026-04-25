@@ -136,7 +136,7 @@ function handleAttachmentLookup(params?: Record<string, unknown>) {
 
 // -- Route definitions ----------------------------------------------------
 
-export const attachmentRegisterRoute: IpcRoute = {
+const attachmentRegisterRoute: IpcRoute = {
   method: "attachment/register",
   handler: handleAttachmentRegister,
 };
@@ -146,7 +146,7 @@ const attachmentRegisterAliasRoute: IpcRoute = {
   handler: handleAttachmentRegister,
 };
 
-export const attachmentLookupRoute: IpcRoute = {
+const attachmentLookupRoute: IpcRoute = {
   method: "attachment/lookup",
   handler: handleAttachmentLookup,
 };

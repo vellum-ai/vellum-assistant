@@ -60,7 +60,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  *
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
- *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "vellum").
+ *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "web").
  *
  *   When both are present the client is registered in the ClientRegistry on
  *   connect and unregistered on disconnect.

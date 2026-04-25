@@ -295,7 +295,7 @@ function buildHybridFilter(
   };
 }
 
-export function mapCosineToUnit(value: number): number {
+function mapCosineToUnit(value: number): number {
   return Math.max(0, Math.min(1, (value + 1) / 2));
 }
 

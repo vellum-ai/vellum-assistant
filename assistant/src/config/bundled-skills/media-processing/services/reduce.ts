@@ -260,16 +260,3 @@ export async function reduceForAsset(
   }
   return result;
 }
-
-/**
- * Interactive Q&A mode: load existing map output + user query, send to
- * Claude, return the answer. Functionally identical to reduceForAsset
- * but named distinctly for clarity in call sites.
- */
-export async function queryMapOutput(
-  assetId: string,
-  options: ReduceOptions,
-  onProgress?: (msg: string) => void,
-): Promise<ReduceResult> {
-  return reduceForAsset(assetId, options, onProgress);
-}

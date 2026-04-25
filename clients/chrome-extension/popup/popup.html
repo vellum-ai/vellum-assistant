@@ -573,13 +573,17 @@
 
   <p id="setup-message" class="setup-message" style="display:none"></p>
 
-  <div class="assistant-selector-group" id="assistant-selector-group" style="display:none">
-    <label for="assistant-select">Assistant</label>
-    <select id="assistant-select"></select>
+  <div class="advanced-setting">
+    <label for="gateway-url-input">Gateway URL</label>
+    <div style="display:flex;gap:6px;align-items:stretch;">
+      <input type="text" id="gateway-url-input" placeholder="http://127.0.0.1:7830" value="http://127.0.0.1:7830" style="margin-bottom:0;flex:1;" />
+      <button id="gateway-url-save" type="button" style="width:auto;flex-shrink:0;padding:8px 14px;">Save</button>
+    </div>
+    <p class="hint">The HTTP address of your self-hosted assistant gateway.</p>
   </div>
 
   <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
-  <div id="troubleshoot-section" hidden>
+  <div id="troubleshoot-section">
     <div class="divider"></div>
 
     <button
@@ -593,7 +597,7 @@
       Advanced
     </button>
 
-    <div id="troubleshoot-body" hidden>
+    <div id="troubleshoot-body" style="display:none;">
       <div class="advanced-setting">
         <label for="environment-select">Environment</label>
         <select id="environment-select">
@@ -605,8 +609,8 @@
         <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
       </div>
 
-      <p class="local-status" id="local-status" style="display:none">Not paired</p>
-      <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
+      <p class="local-status" id="local-status">Not paired</p>
+      <button id="btn-pair-local" type="button">Re-pair with gateway</button>
 
     </div>
   </div>
