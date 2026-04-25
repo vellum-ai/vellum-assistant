@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 
 import { getAcpSessionManager } from "../../acp/index.js";
-import { getConfig } from "../../config/loader.js";
+import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -143,19 +143,26 @@ export async function executeAcpSpawn(
     return { content: '"task" is required.', isError: true };
   }
 
-  const config = getConfig();
-  if (!config.acp?.enabled) {
-    return { content: "ACP is not enabled in config.", isError: true };
+  const resolved = resolveAcpAgent(agent);
+  if (!resolved.ok) {
+    switch (resolved.reason) {
+      case "acp_disabled":
+        return { content: resolved.hint, isError: true };
+      case "unknown_agent":
+        return {
+          content: `Unknown agent "${agent}". Available: ${resolved.available.join(
+            ", ",
+          )}.`,
+          isError: true,
+        };
+      case "binary_not_found":
+        return {
+          content: `${resolved.agent.command} is not on PATH. ${resolved.hint}`,
+          isError: true,
+        };
+    }
   }
-
-  const agentConfig = config.acp.agents[agent];
-  if (!agentConfig) {
-    const available = Object.keys(config.acp.agents).join(", ") || "none";
-    return {
-      content: `Unknown agent "${agent}". Available: ${available}`,
-      isError: true,
-    };
-  }
+  const agentConfig = resolved.agent;
 
   const sendToClient = context.sendToClient as
     | ((msg: { type: string; [key: string]: unknown }) => void)
