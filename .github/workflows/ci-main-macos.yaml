@@ -289,6 +289,23 @@ jobs:
           done
 
       - name: Upload app artifact
+        id: upload-app
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-app-dist
+          path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Wait before app artifact upload retry
+        if: steps.upload-app.outcome == 'failure'
+        run: |
+          echo "::warning::Initial app artifact upload failed (likely transient GitHub Actions artifact service timeout). Retrying after 30s."
+          sleep 30
+
+      - name: Upload app artifact (retry)
+        if: steps.upload-app.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-app-dist
