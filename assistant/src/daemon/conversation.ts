@@ -244,6 +244,7 @@ export class Conversation {
    */
   /** @internal */ currentTurnTrustContext?: TrustContext;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
+  /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;

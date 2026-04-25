@@ -136,6 +136,14 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   ) => void;
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
+  /**
+   * Per-turn snapshot of the resolved inference-profile override, set by
+   * `runAgentLoopImpl`. Propagated into `ToolContext.overrideProfile` so
+   * tools that spawn nested invocations (e.g. `subagent_spawn`) can forward
+   * the override without round-tripping through a row read that would
+   * return `undefined` for the in-flight (background) subagent.
+   */
+  currentTurnOverrideProfile?: string;
 }
 
 // ── buildToolDefinitions ─────────────────────────────────────────────
@@ -246,6 +254,7 @@ export function createToolExecutor(
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
       hostBrowserRegistryRouted: !!ctx.hostBrowserSenderOverride,
+      overrideProfile: ctx.currentTurnOverrideProfile,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
