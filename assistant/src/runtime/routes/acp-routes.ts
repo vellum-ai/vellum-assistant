@@ -53,26 +53,32 @@ export function acpRouteDefinitions(): RouteDefinition[] {
         }
         const resolved = resolveAcpAgent(body.agent);
         if (!resolved.ok) {
-          if (resolved.reason === "acp_disabled") {
-            return httpError("BAD_REQUEST", resolved.hint, 400);
+          switch (resolved.reason) {
+            case "acp_disabled":
+              return httpError("BAD_REQUEST", resolved.hint, 400);
+            case "unknown_agent":
+              return httpError(
+                "BAD_REQUEST",
+                `Unknown agent "${body.agent}". Available: ${resolved.available.join(", ")}.`,
+                400,
+              );
+            case "binary_not_found":
+              // 424 FAILED_DEPENDENCY: input is well-formed, but the host
+              // environment is missing the adapter binary — clients render
+              // the install hint as a setup step, not a "fix your input"
+              // error.
+              return httpError(
+                "FAILED_DEPENDENCY",
+                `${resolved.command} is not on PATH. ${resolved.hint}`,
+                424,
+              );
+            default: {
+              const _exhaustive: never = resolved;
+              throw new Error(
+                `Unexpected acp resolver reason: ${(_exhaustive as { reason: string }).reason}`,
+              );
+            }
           }
-          if (resolved.reason === "unknown_agent") {
-            return httpError(
-              "BAD_REQUEST",
-              `Unknown agent "${body.agent}". Available: ${resolved.available.join(", ")}.`,
-              400,
-            );
-          }
-          // binary_not_found — `httpError` does not currently expose a
-          // FAILED_DEPENDENCY (424) code, so surface as 400 with the
-          // command + install hint inline so other clients of
-          // POST /v1/acp/spawn see the same actionable text the LLM
-          // tool surfaces.
-          return httpError(
-            "BAD_REQUEST",
-            `${resolved.agent.command} is not on PATH. ${resolved.hint}`,
-            400,
-          );
         }
         log.info(
           {

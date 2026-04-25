@@ -1,4 +1,4 @@
-import { listAcpAgents } from "../../acp/resolve-agent.js";
+import { ACP_DISABLED_HINT, listAcpAgents } from "../../acp/resolve-agent.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -18,7 +18,7 @@ export async function executeAcpListAgents(
     return {
       content: JSON.stringify({
         enabled: false,
-        hint: "Set 'acp.enabled': true to use ACP agents.",
+        hint: ACP_DISABLED_HINT,
       }),
       isError: false,
     };

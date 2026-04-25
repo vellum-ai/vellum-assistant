@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_ACP_AGENT_PROFILES,
   DEFAULT_AGENT_INSTALL_HINTS,
+  DEFAULT_AGENT_NPM_PACKAGES,
 } from "./acp-defaults.js";
 
 describe("DEFAULT_ACP_AGENT_PROFILES", () => {
@@ -80,5 +81,28 @@ describe("DEFAULT_AGENT_INSTALL_HINTS", () => {
     // exists to surface a type-check failure if the readonly contract regresses.
     expect(_assignNewKey).toBeFunction();
     expect(_assignNewProfile).toBeFunction();
+  });
+});
+
+describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
+  test("is keyed by command name with the canonical npm package", () => {
+    expect(DEFAULT_AGENT_NPM_PACKAGES).toEqual({
+      "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
+      "codex-acp": "@zed-industries/codex-acp",
+    });
+  });
+
+  test("is frozen at runtime so mutation throws in strict mode", () => {
+    expect(Object.isFrozen(DEFAULT_AGENT_NPM_PACKAGES)).toBe(true);
+  });
+
+  test("DEFAULT_AGENT_INSTALL_HINTS is derived from DEFAULT_AGENT_NPM_PACKAGES", () => {
+    for (const [command, pkg] of Object.entries(DEFAULT_AGENT_NPM_PACKAGES)) {
+      expect(DEFAULT_AGENT_INSTALL_HINTS[command]).toBe(`npm i -g ${pkg}`);
+    }
+    // No extra keys in install hints that aren't in the npm map.
+    expect(Object.keys(DEFAULT_AGENT_INSTALL_HINTS).sort()).toEqual(
+      Object.keys(DEFAULT_AGENT_NPM_PACKAGES).sort(),
+    );
   });
 });
