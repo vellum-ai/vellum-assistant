@@ -42,16 +42,10 @@ struct ToolPermissionTesterView: View {
                 )
             }
 
-            // Toggles
-            HStack(spacing: VSpacing.xl) {
-                VToggle(isOn: $model.isInteractive, label: "Interactive")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentSecondary)
-
-                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentSecondary)
-            }
+            // Interactive mode
+            VToggle(isOn: $model.isInteractive, label: "Interactive")
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentSecondary)
         }
     }
 

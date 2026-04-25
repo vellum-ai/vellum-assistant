@@ -7,7 +7,7 @@ final class MockToolClient: ToolClientProtocol {
     // MARK: - Spy State
 
     var fetchToolNamesListCallCount = 0
-    var simulateToolPermissionCalls: [(toolName: String, input: [String: AnyCodable], workingDir: String?, isInteractive: Bool?, forcePromptSideEffects: Bool?)] = []
+    var simulateToolPermissionCalls: [(toolName: String, input: [String: AnyCodable], workingDir: String?, isInteractive: Bool?)] = []
 
     // MARK: - Configurable Responses
 
@@ -31,10 +31,9 @@ final class MockToolClient: ToolClientProtocol {
         toolName: String,
         input: [String: AnyCodable],
         workingDir: String?,
-        isInteractive: Bool?,
-        forcePromptSideEffects: Bool?
+        isInteractive: Bool?
     ) async throws -> ToolPermissionSimulateResponseMessage {
-        simulateToolPermissionCalls.append((toolName, input, workingDir, isInteractive, forcePromptSideEffects))
+        simulateToolPermissionCalls.append((toolName, input, workingDir, isInteractive))
         if let error = simulateError { throw error }
         guard let response = simulateResponse else {
             throw NSError(domain: "MockToolClient", code: 0, userInfo: [NSLocalizedDescriptionKey: "No mock response configured"])

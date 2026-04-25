@@ -96,7 +96,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         model.fieldEnabled = ["command": true]
         model.workingDir = "/tmp"
         model.isInteractive = false
-        model.forcePromptSideEffects = true
         model.simulate()
 
         let predicate = NSPredicate { _, _ in !self.model.isSimulating }
@@ -108,7 +107,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(call.toolName, "host_bash")
         XCTAssertEqual(call.workingDir, "/tmp")
         XCTAssertEqual(call.isInteractive, false)
-        XCTAssertEqual(call.forcePromptSideEffects, true)
     }
 
     func testSimulate_emptyOptionalFieldsSendNil() {
@@ -326,7 +324,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
         XCTAssertEqual(model.toolName, "")
         XCTAssertEqual(model.workingDir, "")
         XCTAssertTrue(model.isInteractive)
-        XCTAssertFalse(model.forcePromptSideEffects)
         XCTAssertFalse(model.isSimulating)
         XCTAssertNil(model.lastResult)
         XCTAssertNil(model.lastError)
