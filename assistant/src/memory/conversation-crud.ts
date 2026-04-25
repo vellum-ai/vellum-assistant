@@ -1316,10 +1316,10 @@ export function unarchiveConversation(id: string): boolean {
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
  */
-export async function setConversationInferenceProfile(
+export function setConversationInferenceProfile(
   conversationId: string,
   profile: string | null,
-): Promise<void> {
+): void {
   const db = getDb();
   db.update(conversations)
     .set({ inferenceProfile: profile, updatedAt: Date.now() })

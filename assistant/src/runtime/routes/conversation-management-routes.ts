@@ -428,7 +428,7 @@ export function conversationManagementRouteDefinitions(
         }
 
         if (conversation.inferenceProfile !== profile) {
-          await setConversationInferenceProfile(resolvedId, profile);
+          setConversationInferenceProfile(resolvedId, profile);
           assistantEventHub
             .publish(
               buildAssistantEvent(
