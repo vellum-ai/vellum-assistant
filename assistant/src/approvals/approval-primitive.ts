@@ -46,7 +46,7 @@ export interface MintGrantParams {
   expiresAt: number;
 }
 
-export type MintGrantResult =
+type MintGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
   | {
       ok: false;
@@ -153,24 +153,7 @@ export function mintGrantFromDecision(
 // Consume
 // ---------------------------------------------------------------------------
 
-export interface ConsumeByRequestIdParams {
-  requestId: string;
-  consumingRequestId: string;
-  now?: number;
-}
-
-export interface ConsumeByToolSignatureParams {
-  toolName: string;
-  inputDigest: string;
-  consumingRequestId: string;
-  executionChannel?: string;
-  conversationId?: string;
-  callSessionId?: string;
-  requesterExternalUserId?: string;
-  now?: number;
-}
-
-export type ConsumeGrantResult =
+type ConsumeGrantResult =
   | { ok: true; grant: ScopedApprovalGrant }
   | {
       ok: false;
@@ -182,7 +165,7 @@ export type ConsumeGrantResult =
         | "aborted";
     };
 
-export interface ConsumeGrantParams {
+interface ConsumeGrantParams {
   requestId?: string;
   toolName: string;
   inputDigest: string;

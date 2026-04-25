@@ -23,14 +23,14 @@ import {
 
 const log = getLogger("call-pointer-messages");
 
-export type PointerEvent =
+type PointerEvent =
   | "started"
   | "completed"
   | "failed"
   | "verification_succeeded"
   | "verification_failed";
 
-export type PointerAudienceMode = "auto" | "trusted" | "untrusted";
+type PointerAudienceMode = "auto" | "trusted" | "untrusted";
 
 /**
  * Daemon-injected function that sends a message through the daemon conversation
@@ -42,7 +42,7 @@ export type PointerAudienceMode = "auto" | "trusted" | "untrusted";
  *   should validate the output and throw if any are missing so the
  *   deterministic fallback fires.
  */
-export type PointerMessageProcessor = (
+type PointerMessageProcessor = (
   conversationId: string,
   instruction: string,
   requiredFacts?: string[],
