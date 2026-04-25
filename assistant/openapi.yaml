@@ -2640,7 +2640,7 @@ paths:
                   description: Idempotency key for the conversation
                 conversationType:
                   type: string
-                  description: "'standard' (default) or 'private'"
+                  description: "'standard' (default)"
               required:
                 - conversationKey
                 - conversationType
