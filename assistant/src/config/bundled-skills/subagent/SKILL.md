@@ -26,6 +26,8 @@ Subagents follow this status flow: `pending` -> `running` -> `completed` / `fail
 
 Each subagent is spawned with a role that determines its tool access. Choose the most restrictive role that can accomplish the task.
 
+`recall` is local information search across memory, the personal knowledge base, past conversations, and workspace files. Use it when a subagent needs prior context that is not already in the prompt.
+
 | Role | Tools | When to use |
 |---|---|---|
 | `general` | Full tool access | Task genuinely needs unrestricted capabilities (rare -- prefer a specialized role) |

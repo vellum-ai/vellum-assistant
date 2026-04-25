@@ -115,6 +115,7 @@ describe("tool manifest", () => {
   test("explicit tools list includes memory and credential tools", () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain("recall");
+    expect(names.filter((name) => name === "recall")).toHaveLength(1);
     expect(names).toContain("remember");
     expect(names).toContain("credential_store");
   });

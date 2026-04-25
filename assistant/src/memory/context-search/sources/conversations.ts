@@ -7,6 +7,7 @@ import { rawAll } from "../../db.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";
+const PRIVATE_CONVERSATION_TYPE = "private";
 
 interface ConversationEvidenceRow {
   message_id: string;
@@ -81,12 +82,14 @@ function searchWithFts(
     JOIN conversations c ON c.id = m.conversation_id
     WHERE messages_fts MATCH ?
       AND c.memory_scope_id = ?
+      AND c.conversation_type != ?
       AND (c.source IS NULL OR c.source NOT IN (?, ?))
     ORDER BY bm25(messages_fts), m.created_at DESC
     LIMIT ?
     `,
     ftsMatch,
     memoryScopeId,
+    PRIVATE_CONVERSATION_TYPE,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
     limit,
@@ -111,12 +114,14 @@ function searchWithLike(
     JOIN conversations c ON c.id = m.conversation_id
     WHERE m.content LIKE ? ESCAPE '\\'
       AND c.memory_scope_id = ?
+      AND c.conversation_type != ?
       AND (c.source IS NULL OR c.source NOT IN (?, ?))
     ORDER BY m.created_at DESC
     LIMIT ?
     `,
     buildLikePattern(query),
     memoryScopeId,
+    PRIVATE_CONVERSATION_TYPE,
     SUBAGENT_SOURCE,
     AUTO_ANALYSIS_SOURCE,
     limit,
