@@ -28,7 +28,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 11 (no-client baseline excludes host tools)", async () => {
+  test("should be exactly 11 with recall occupying the existing slot", async () => {
     await initializeTools();
     const allDefs = buildToolDefinitions();
 
@@ -65,6 +65,7 @@ describe("always-loaded tool count", () => {
     ].sort();
 
     expect(activeNames).toEqual(expectedNames);
+    expect(activeNames.filter((name) => name === "recall")).toHaveLength(1);
     expect(activeTools.length).toBe(11);
   });
 });
