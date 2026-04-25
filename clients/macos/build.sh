@@ -47,6 +47,7 @@ swift_with_retry() {
     local attempt=1
     local _pch_cleaned=0
     local _build_cleaned=0
+    local _artifact_cleaned=0
     local _stderr_log
     _stderr_log=$(mktemp)
     # FIFO for stderr streaming. Process substitutions (2> >(tee ...)) are
@@ -88,6 +89,22 @@ swift_with_retry() {
             echo "warning: stale SPM build cache detected (XCFramework path points to missing worktree), cleaning .build and retrying..."
             rm -rf "$SCRIPT_DIR/../.build"
             _build_cleaned=1
+            continue
+        fi
+        # Auto-clean stale SPM binary artifacts when a previous download was
+        # interrupted, leaving a partial entry that blocks the re-download.
+        # SPM surfaces this as:
+        #   error: failed downloading '<url>' which is required by binary
+        #   target '<name>': <path> already exists in file system
+        # Common on hosted CI runners with rotated/partial caches.
+        if [ "$_artifact_cleaned" -eq 0 ] && grep -q "already exists in file system" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale SPM binary artifact detected, cleaning and retrying..."
+            sed -nE 's/.*: (\/[^[:space:]]+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
+                | sort -u \
+                | while IFS= read -r _stale_path; do
+                    [ -n "$_stale_path" ] && rm -rf "$_stale_path"
+                done
+            _artifact_cleaned=1
             continue
         fi
         # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
