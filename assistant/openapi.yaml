@@ -3204,6 +3204,8 @@ paths:
                     type: string
                   hostAccess:
                     type: boolean
+                  inferenceProfile:
+                    type: string
                 required:
                   - conversationId
                   - title
