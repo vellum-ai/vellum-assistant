@@ -51,7 +51,6 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
     enabled: false,
   }),
   registerCallbackRoute: async () => "",
-  shouldUsePlatformCallbacks: () => false,
   resolveCallbackUrl: async () => "",
 }));
 

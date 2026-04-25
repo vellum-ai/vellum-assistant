@@ -88,7 +88,6 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async (fn: () => string) => fn(),
-  shouldUsePlatformCallbacks: () => false,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({

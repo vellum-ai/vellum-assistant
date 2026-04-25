@@ -20,7 +20,6 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../inbound/platform-callback-registration.js", () => ({
   registerCallbackRoute: async () => {},
-  shouldUsePlatformCallbacks: () => false,
 }));
 
 mock.module("../daemon/handlers/shared.js", () => ({

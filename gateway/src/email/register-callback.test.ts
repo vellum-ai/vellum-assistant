@@ -16,7 +16,6 @@ afterEach(() => {
   resetMockFetch();
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.PLATFORM_INTERNAL_API_KEY;
-  delete process.env.PLATFORM_ASSISTANT_ID;
 });
 
 function makeConfigFile(
@@ -119,9 +118,8 @@ describe("registerEmailCallbackRoute", () => {
     });
   });
 
-  test("falls back to env vars when credential cache is empty", async () => {
+  test("uses credential cache for assistant ID", async () => {
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
-    process.env.PLATFORM_ASSISTANT_ID = "11111111-2222-3333-4444-555555555555";
     process.env.PLATFORM_INTERNAL_API_KEY = "internal-key";
 
     const callbackUrl =
@@ -136,7 +134,11 @@ describe("registerEmailCallbackRoute", () => {
       },
     );
 
-    const result = await registerEmailCallbackRoute();
+    const caches = makeCaches({
+      platformAssistantId: "11111111-2222-3333-4444-555555555555",
+    });
+
+    const result = await registerEmailCallbackRoute(caches);
 
     expect(result).toBe(callbackUrl);
 

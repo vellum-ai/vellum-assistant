@@ -61,7 +61,7 @@ require the assistant to be running.
 Fields:
   isPlatform          Whether IS_PLATFORM is set (boolean)
   baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
-  assistantId         This assistant's platform UUID (from credential store)
+  assistantId         This assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
                       value not disclosed)
   hasAssistantApiKey  Whether a stored assistant API key is available
@@ -227,8 +227,7 @@ Known callback path/type combinations:
   --path oauth/callback             --type oauth
 
 Works for both platform-managed and self-hosted assistants. Requires
-VELLUM_PLATFORM_URL and an assistant ID (from stored credentials via
-'assistant platform connect' or bootstrap). Returns the platform-provided
+VELLUM_PLATFORM_URL and a platform assistant ID. Returns the platform-provided
 stable callback URL that external services should use.
 
 Examples:

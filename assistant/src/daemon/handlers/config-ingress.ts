@@ -50,13 +50,15 @@ export function getIngressConfigResult(): {
   if (getIsPlatform()) {
     const platformBase = getPlatformBaseUrl().replace(/\/+$/, "");
     const assistantId = getPlatformAssistantId();
-    return {
-      enabled: true,
-      publicBaseUrl: `${platformBase}/gateway/callbacks/${assistantId}`,
-      localGatewayTarget: computeGatewayTarget(),
-      managedCallbacks: true,
-      success: true,
-    };
+    if (assistantId) {
+      return {
+        enabled: true,
+        publicBaseUrl: `${platformBase}/gateway/callbacks/${assistantId}`,
+        localGatewayTarget: computeGatewayTarget(),
+        managedCallbacks: true,
+        success: true,
+      };
+    }
   }
 
   const raw = loadRawConfig();
