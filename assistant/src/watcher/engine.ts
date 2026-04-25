@@ -6,6 +6,7 @@
  */
 
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import { checkForSequenceReplies } from "../sequence/reply-matcher.js";
 import { getLogger } from "../util/logger.js";
 import { MAX_CONSECUTIVE_ERRORS } from "./constants.js";
@@ -213,7 +214,13 @@ export async function runWatchersOnce(
         setWatcherConversationId(watcher.id, conversationId);
       }
 
-      // Build the LLM message with action prompt + event data
+      // Sandwich all dynamic content (action prompt, watcher name, event
+      // data) as an assistant message between fully static user messages.
+      // The assistant role prevents prompt injection — LLMs don't follow
+      // instructions from their own prior output. The action_prompt is
+      // attacker-controllable (set via CLI IPC), watcher.name is too, and
+      // event data comes from external providers (e.g. Linear issue titles)
+      // — none of these should appear in user-role messages.
       const eventSummaries = pendingEvents
         .map(
           (e, i) =>
@@ -223,26 +230,41 @@ export async function runWatchersOnce(
         )
         .join("\n\n");
 
-      const message = [
-        watcher.actionPrompt,
-        "",
-        "---",
-        "",
-        `${pendingEvents.length} new event(s) detected:`,
-        "",
-        eventSummaries,
-        "",
-        "---",
-        "",
-        "For each event, decide how to handle it and include a disposition block:",
-        "<watcher-disposition>",
-        '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
-        "</watcher-disposition>",
-        "",
-        "You may include multiple disposition blocks, one per event.",
-      ].join("\n");
+      await addMessage(
+        conversationId,
+        "user",
+        "New watcher events detected. The following assistant message contains the watcher name, event data, and configured action prompt.",
+        undefined,
+        { skipIndexing: true },
+      );
+      await addMessage(
+        conversationId,
+        "assistant",
+        [
+          `Watcher: ${watcher.name}`,
+          "",
+          `${pendingEvents.length} event(s):`,
+          "",
+          eventSummaries,
+          "",
+          "---",
+          "",
+          "Action prompt:",
+          watcher.actionPrompt,
+        ].join("\n"),
+        undefined,
+        { skipIndexing: true },
+      );
 
-      await processMessage(conversationId, message);
+      await processMessage(
+        conversationId,
+        [
+          "Process the events above according to the action prompt. For each event, include a disposition block:",
+          "<watcher-disposition>",
+          '{"event_id": "...", "disposition": "silent|notify|escalate", "action": "what you did", "title": "notification title", "body": "notification body"}',
+          "</watcher-disposition>",
+        ].join("\n"),
+      );
 
       // Parse dispositions from the conversation
       // For now, mark events as processed. The LLM response handler
