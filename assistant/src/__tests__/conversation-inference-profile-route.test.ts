@@ -230,6 +230,69 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
+  test("skips write and event when the profile is unchanged", async () => {
+    const conversation = createConversation("inference-profile-noop");
+
+    const route = findRoute("PUT", "conversations/:id/inference-profile");
+    const setResponse = await route.handler({
+      req: new Request(
+        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile: "balanced" }),
+        },
+      ),
+      url: new URL(
+        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
+      ),
+      server: null as never,
+      authContext: {} as never,
+      params: { id: conversation.id },
+    });
+    expect(setResponse.status).toBe(200);
+    const updatedAtAfterSet = getConversation(conversation.id)?.updatedAt;
+
+    const received: Array<{ profile?: string | null }> = [];
+    const subscription = assistantEventHub.subscribe(
+      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      (event) => {
+        if (event.message.type === "conversation_inference_profile_updated") {
+          received.push({ profile: event.message.profile });
+        }
+      },
+    );
+
+    const repeatResponse = await route.handler({
+      req: new Request(
+        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile: "balanced" }),
+        },
+      ),
+      url: new URL(
+        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
+      ),
+      server: null as never,
+      authContext: {} as never,
+      params: { id: conversation.id },
+    });
+
+    await Promise.resolve();
+
+    expect(repeatResponse.status).toBe(200);
+    expect(await repeatResponse.json()).toEqual({
+      conversationId: conversation.id,
+      profile: "balanced",
+    });
+    expect(getConversation(conversation.id)?.updatedAt).toBe(updatedAtAfterSet);
+    expect(received).toEqual([]);
+
+    subscription.dispose();
+  });
+
   test("returns 404 when the conversation does not exist", async () => {
     const route = findRoute("PUT", "conversations/:id/inference-profile");
     const response = await route.handler({

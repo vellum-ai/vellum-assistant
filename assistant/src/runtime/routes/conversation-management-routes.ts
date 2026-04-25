@@ -427,25 +427,27 @@ export function conversationManagementRouteDefinitions(
           }
         }
 
-        await setConversationInferenceProfile(resolvedId, profile);
-        assistantEventHub
-          .publish(
-            buildAssistantEvent(
-              DAEMON_INTERNAL_ASSISTANT_ID,
-              {
-                type: "conversation_inference_profile_updated",
-                conversationId: resolvedId,
-                profile,
-              },
-              resolvedId,
-            ),
-          )
-          .catch((err) => {
-            log.warn(
-              { err, conversationId: resolvedId },
-              "Failed to publish conversation_inference_profile_updated event",
-            );
-          });
+        if (conversation.inferenceProfile !== profile) {
+          await setConversationInferenceProfile(resolvedId, profile);
+          assistantEventHub
+            .publish(
+              buildAssistantEvent(
+                DAEMON_INTERNAL_ASSISTANT_ID,
+                {
+                  type: "conversation_inference_profile_updated",
+                  conversationId: resolvedId,
+                  profile,
+                },
+                resolvedId,
+              ),
+            )
+            .catch((err) => {
+              log.warn(
+                { err, conversationId: resolvedId },
+                "Failed to publish conversation_inference_profile_updated event",
+              );
+            });
+        }
 
         return Response.json({ conversationId: resolvedId, profile });
       },
