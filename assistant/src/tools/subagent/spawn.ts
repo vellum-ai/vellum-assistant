@@ -73,9 +73,19 @@ export async function executeSubagentSpawn(
   // Pass the parent's profile explicitly via `SubagentConfig` so the
   // PR 6 plumbing in `SubagentManager.spawn` forwards it back into the
   // subagent's `runAgentLoop` call as `options.overrideProfile`.
-  const inheritedOverrideProfile = getConversationOverrideProfile(
-    context.conversationId,
-  );
+  //
+  // Prefer the per-turn `context.overrideProfile` (populated by
+  // `runAgentLoopImpl` from its resolved `turnOverrideProfile`) over a
+  // row read so nested spawns inherit correctly. The current subagent's
+  // own conversation row never has `inferenceProfile` set — its override
+  // arrived via in-memory `SubagentConfig.overrideProfile` — and even if it
+  // were set, `getConversationOverrideProfile` short-circuits for
+  // background conversations and returns `undefined`. Falling back to the
+  // row read preserves behavior for tool calls that originate outside an
+  // agent-loop turn.
+  const inheritedOverrideProfile =
+    context.overrideProfile ??
+    getConversationOverrideProfile(context.conversationId);
 
   try {
     const subagentId = await manager.spawn(

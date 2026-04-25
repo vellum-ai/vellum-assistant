@@ -311,3 +311,93 @@ describe("SubagentManager.spawn — overrideProfile inheritance", () => {
     expect("overrideProfile" in captured).toBe(false);
   });
 });
+
+// ── Nested subagent spawn — context.overrideProfile preferred ────────────
+
+// Verify the third-level inheritance contract: when a subagent's agent loop
+// is running with `currentTurnOverrideProfile`, the executor closure plumbs
+// that value into `ToolContext.overrideProfile`. `executeSubagentSpawn` must
+// then prefer `context.overrideProfile` over a row read against the in-flight
+// subagent's own conversationId — that row never has `inferenceProfile` set,
+// and `getConversationOverrideProfile` short-circuits for background
+// conversations regardless. Without preferring the in-memory context, the
+// inheritance chain breaks at the second nesting level.
+
+mock.module("../memory/conversation-crud.js", () => ({
+  // Always return undefined for the row read so the test fails fast unless
+  // executeSubagentSpawn reads from context.overrideProfile first.
+  getConversationOverrideProfile: () => undefined,
+}));
+
+import { getSubagentManager } from "../subagent/index.js";
+import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
+
+describe("executeSubagentSpawn — nested inheritance via context.overrideProfile", () => {
+  test("forwards context.overrideProfile to SubagentConfig (third-level inheritance)", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "nested-subagent-id";
+    };
+
+    try {
+      // Simulate the second-level spawn: tool invocation occurs inside the
+      // first subagent's tool context, where `overrideProfile` was populated
+      // by `runAgentLoopImpl` from its `currentTurnOverrideProfile` snapshot.
+      // The first subagent's own conversation row has no `inferenceProfile`,
+      // so the row-read fallback would otherwise return undefined.
+      const result = await executeSubagentSpawn(
+        { label: "nested", objective: "do nested work" },
+        {
+          workingDir: "/tmp",
+          conversationId: "subagent-conv-id",
+          trustClass: "guardian",
+          sendToClient: () => {},
+          overrideProfile: "fast",
+        } as import("../tools/types.js").ToolContext,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(capturedConfig).toBeDefined();
+      // The forwarded SubagentConfig must carry the in-memory override so
+      // SubagentManager.spawn forwards it into the nested subagent's
+      // runAgentLoop options — preserving inheritance across the chain.
+      expect(capturedConfig!.overrideProfile).toBe("fast");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("omits overrideProfile when neither context nor row carries it", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedConfig: Record<string, unknown> | undefined;
+    manager.spawn = async (config: Record<string, unknown>) => {
+      capturedConfig = config;
+      return "nested-subagent-id-2";
+    };
+
+    try {
+      await executeSubagentSpawn(
+        { label: "nested", objective: "do nested work" },
+        {
+          workingDir: "/tmp",
+          conversationId: "subagent-conv-id-2",
+          trustClass: "guardian",
+          sendToClient: () => {},
+          // no overrideProfile
+        } as import("../tools/types.js").ToolContext,
+      );
+
+      expect(capturedConfig).toBeDefined();
+      // Field must be absent rather than carrying `undefined` so the
+      // SubagentConfig respects the same "field omitted when unset"
+      // contract the agent loop uses.
+      expect("overrideProfile" in capturedConfig!).toBe(false);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+});

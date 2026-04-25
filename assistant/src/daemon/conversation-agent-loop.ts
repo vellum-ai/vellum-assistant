@@ -466,6 +466,15 @@ export interface AgentLoopConversationContext {
   currentTurnTrustContext?: TrustContext;
   /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
   currentTurnChannelCapabilities?: ChannelCapabilities;
+  /**
+   * Per-turn snapshot of the resolved inference-profile override. Read by
+   * `createToolExecutor` so `ToolContext.overrideProfile` carries the same
+   * profile the agent loop is sending to the provider. Without this, a tool
+   * that spawns nested subagents (e.g. `subagent_spawn`) cannot recover the
+   * override from a row read because the in-flight subagent's own row never
+   * had `inferenceProfile` set.
+   */
+  currentTurnOverrideProfile?: string;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
   /** Task-run scope for the current turn. Cleared at turn end so queued/drained turns don't inherit it. */
@@ -625,6 +634,11 @@ export async function runAgentLoopImpl(
   const turnOverrideProfile =
     options?.overrideProfile ??
     getConversationOverrideProfile(ctx.conversationId);
+
+  // Snapshot for `createToolExecutor` to read into `ToolContext.overrideProfile`
+  // — see field doc on `AgentLoopConversationContext` for why the tool needs
+  // it (nested subagent spawns can't recover the override from a row read).
+  ctx.currentTurnOverrideProfile = turnOverrideProfile;
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
@@ -2753,6 +2767,7 @@ export async function runAgentLoopImpl(
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
     ctx.preactivatedSkillIds = undefined;
+    ctx.currentTurnOverrideProfile = undefined;
     // Channel command intents (e.g. Telegram /start) are single-turn metadata.
     // Clear at turn end so they never leak into subsequent unrelated messages.
     ctx.commandIntent = undefined;

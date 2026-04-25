@@ -267,6 +267,16 @@ export interface ToolContext {
    * cdp-inspect — the proxy was never expected to service browser requests.
    */
   hostBrowserRegistryRouted?: boolean;
+  /**
+   * The per-turn inference-profile override the agent loop is currently
+   * running under, propagated through tool context so subagent-spawn tools
+   * can forward it when spawning nested subagents. Without this, sub-subagent
+   * spawns silently lose inheritance because their own conversation row never
+   * has `inferenceProfile` set — the override only flows through the
+   * in-memory `SubagentConfig.overrideProfile` chain. See
+   * `executeSubagentSpawn` in tools/subagent/spawn.ts.
+   */
+  overrideProfile?: string;
 }
 
 export interface Tool {
