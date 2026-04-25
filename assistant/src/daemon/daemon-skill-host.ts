@@ -18,6 +18,9 @@
  * underlying daemon APIs stay unchanged.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import type {
   AssistantEvent,
   AssistantEventCallback,
@@ -77,7 +80,7 @@ import { registerExternalTools } from "../tools/registry.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir, vellumRoot } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { getAssistantName } from "./identity-helpers.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
@@ -125,7 +128,7 @@ function buildIdentityFacet(): IdentityFacet {
 function buildPlatformFacet(): PlatformFacet {
   return {
     workspaceDir: () => getWorkspaceDir(),
-    vellumRoot: () => vellumRoot(),
+    vellumRoot: () => join(homedir(), ".vellum"),
     runtimeMode: () => getDaemonRuntimeMode(),
   };
 }

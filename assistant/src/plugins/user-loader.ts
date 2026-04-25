@@ -9,9 +9,8 @@
  *
  * The loader deliberately:
  *
- * - Uses {@link vellumRoot} rather than `homedir()` directly so the
- *   multi-instance invariant in the root CLAUDE.md holds — each instance
- *   loads its own plugin set from its own `.vellum` directory.
+ * - Uses `getWorkspaceDir()` so each instance loads its own plugin set
+ *   when `VELLUM_WORKSPACE_DIR` is set.
  * - Prefers `register.js` over `register.ts` when both exist (compiled plugins
  *   always win; this matches how `bun`/Node consumers resolve modules at
  *   runtime in the compiled binary).

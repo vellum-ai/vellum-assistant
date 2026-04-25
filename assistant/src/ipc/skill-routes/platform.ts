@@ -7,8 +7,11 @@
  * bare-metal behavior without reaching into assistant internals.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 import { getDaemonRuntimeMode } from "../../runtime/runtime-mode.js";
-import { getWorkspaceDir, vellumRoot } from "../../util/platform.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import type { IpcRoute } from "../assistant-server.js";
 
 export const hostPlatformWorkspaceDirRoute: IpcRoute = {
@@ -21,7 +24,7 @@ export const hostPlatformWorkspaceDirRoute: IpcRoute = {
 export const hostPlatformVellumRootRoute: IpcRoute = {
   method: "host.platform.vellumRoot",
   handler: () => {
-    return vellumRoot();
+    return join(homedir(), ".vellum");
   },
 };
 

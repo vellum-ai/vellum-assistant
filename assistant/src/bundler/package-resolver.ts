@@ -10,8 +10,8 @@ import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { ensureBun } from "../util/bun-runtime.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("package-resolver");
 

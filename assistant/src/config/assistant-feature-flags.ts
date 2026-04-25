@@ -17,7 +17,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { ipcGetFeatureFlags } from "../ipc/gateway-client.js";
-
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -124,17 +123,6 @@ let cachedOverrides: Record<string, boolean> | null = null;
  * authoritative gateway fetch from running.
  */
 let cachedOverridesFromGateway = false;
-
-/**
- * File format for the local feature-flags.json override file, matching the
- * gateway's feature-flag-store.ts schema.
- */
-interface FeatureFlagFileData {
-  version: 1;
-  values: Record<string, boolean>;
-}
-
-
 
 /**
  * Fetch override values from the gateway via IPC (Unix domain socket).

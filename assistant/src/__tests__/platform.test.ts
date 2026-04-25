@@ -11,7 +11,6 @@ import {
   getInterfacesDir,
   getLogPath,
   getPidPath,
-
   getSandboxRootDir,
   getSandboxWorkingDir,
   getWorkspaceConfigPath,

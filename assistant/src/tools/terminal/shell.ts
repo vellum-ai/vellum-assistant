@@ -50,7 +50,6 @@ function buildCredentialRefTrace(
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
  */
 function buildCesProtectedPaths(): string[] {
-  // and multi-instance setups.
   const protectedDirs = process.env.GATEWAY_SECURITY_DIR
     ? [process.env.GATEWAY_SECURITY_DIR]
     : Array.from(

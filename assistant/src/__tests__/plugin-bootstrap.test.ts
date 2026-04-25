@@ -58,11 +58,11 @@ import {
 
 // Redirect plugin storage directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum.
-const TEST_INSTANCE_DIR = join(
+const TEST_WORKSPACE_DIR = join(
   tmpdir(),
   `vellum-plugin-bootstrap-test-${process.pid}`,
 );
-process.env.VELLUM_WORKSPACE_DIR = join(TEST_INSTANCE_DIR, ".vellum", "workspace");
+process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
@@ -103,7 +103,7 @@ describe("plugin bootstrap", () => {
     // to install their own overrides.
     clearFeatureFlagOverridesCache();
     // Clean storage directory between runs so nothing leaks across cases.
-    await rm(TEST_INSTANCE_DIR, { recursive: true, force: true });
+    await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
   test("noop plugin: init fires with a fully-populated PluginInitContext", async () => {
@@ -128,7 +128,7 @@ describe("plugin bootstrap", () => {
     // Storage dir lives under getWorkspaceDir()/plugins-data/<name> and must have
     // been created on disk by bootstrap.
     expect(ctx.pluginStorageDir).toBe(
-      join(TEST_INSTANCE_DIR, ".vellum", "workspace", "plugins-data", "alpha"),
+      join(TEST_WORKSPACE_DIR, "plugins-data", "alpha"),
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
     expect(ctx.assistantVersion).toBe("9.9.9-test");

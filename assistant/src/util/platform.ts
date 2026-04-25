@@ -4,6 +4,15 @@ import { dirname, join } from "node:path";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
+/**
+ * The daemon's root data directory (`~/.vellum`).
+ *
+ * Multi-instance path relocation is handled by the CLI when spawning the
+ * daemon (via `VELLUM_WORKSPACE_DIR` and `GATEWAY_SECURITY_DIR`); the
+ * assistant itself never reads an env var for this.
+ */
+const VELLUM_ROOT = join(homedir(), ".vellum");
+
 export function isMacOS(): boolean {
   return process.platform === "darwin";
 }
@@ -42,18 +51,6 @@ export function normalizeAssistantId(assistantId: string): string {
   if (ownName && assistantId === ownName) return "self";
 
   return assistantId;
-}
-
-/**
- * The daemon's root data directory.
- *
- * Always resolves to `~/.vellum`. Multi-instance path relocation is
- * handled by the CLI when spawning the daemon (via `VELLUM_WORKSPACE_DIR`
- * and `GATEWAY_SECURITY_DIR`); the assistant itself never needs to know
- * about alternate root directories.
- */
-export function vellumRoot(): string {
-  return join(homedir(), ".vellum");
 }
 
 /**
@@ -132,7 +129,7 @@ export function getTCPPort(): number {
  * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
  */
 export function isTCPEnabled(): boolean {
-  return existsSync(join(vellumRoot(), "tcp-enabled"));
+  return existsSync(join(VELLUM_ROOT, "tcp-enabled"));
 }
 
 /**
@@ -193,7 +190,7 @@ export function getXdgPlatformTokenPath(): string {
  * instances that may have the token written here by the desktop app.
  */
 export function getPlatformTokenPath(): string {
-  return join(vellumRoot(), "platform-token");
+  return join(VELLUM_ROOT, "platform-token");
 }
 
 /**
@@ -215,7 +212,7 @@ export function readPlatformToken(): string | null {
 }
 
 export function getPidPath(): string {
-  return join(vellumRoot(), "vellum.pid");
+  return join(VELLUM_ROOT, "vellum.pid");
 }
 
 /**
@@ -227,7 +224,7 @@ export function getPidPath(): string {
  * not know the workspace override path.
  */
 export function getRuntimePortFilePath(): string {
-  return join(vellumRoot(), "runtime-port");
+  return join(VELLUM_ROOT, "runtime-port");
 }
 
 export function getDbPath(): string {
@@ -253,7 +250,7 @@ export function getHistoryPath(): string {
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
 export function getProtectedDir(): string {
-  return join(vellumRoot(), "protected");
+  return join(VELLUM_ROOT, "protected");
 }
 
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
@@ -287,7 +284,7 @@ export function getBinDir(): string {
 
 /** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
 export function getDotEnvPath(): string {
-  return join(vellumRoot(), ".env");
+  return join(VELLUM_ROOT, ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
@@ -305,7 +302,7 @@ export function getEmbedWorkerPidPath(): string {
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
-  return join(vellumRoot(), "workspace");
+  return join(VELLUM_ROOT, "workspace");
 }
 
 /**
@@ -451,7 +448,7 @@ export function getBundledBunPath(): string | undefined {
 }
 
 export function ensureDataDir(): void {
-  const root = vellumRoot();
+  const root = VELLUM_ROOT;
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
   const dirs = [

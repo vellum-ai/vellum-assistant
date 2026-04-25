@@ -58,11 +58,11 @@ import {
 
 // Per-process temp tree so bootstrap's plugin-storage directory creation
 // doesn't touch the developer's real ~/.vellum.
-const TEST_INSTANCE_DIR = join(
+const TEST_WORKSPACE_DIR = join(
   tmpdir(),
   `vellum-plugin-skill-test-${process.pid}`,
 );
-process.env.VELLUM_WORKSPACE_DIR = join(TEST_INSTANCE_DIR, ".vellum", "workspace");
+process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
@@ -93,7 +93,7 @@ describe("plugin skill contributions", () => {
     resetPluginSkillContributionsForTests();
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async () => undefined);
-    await rm(TEST_INSTANCE_DIR, { recursive: true, force: true });
+    await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
   test("plugin skills are registered after bootstrap and exposed by the catalog", async () => {

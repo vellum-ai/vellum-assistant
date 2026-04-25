@@ -9,23 +9,12 @@ import type { BackupDestination } from "../config/schema.js";
 import { getProtectedDir } from "../util/platform.js";
 
 /**
- * Computes the root ~/.vellum directory without introducing a new export from
- * `platform.ts`. `getProtectedDir()` returns `join(vellumRoot(), "protected")`,
- * so its parent directory is the vellum root. Using `dirname(getProtectedDir())`
- * keeps this module self-contained and avoids expanding the platform.ts surface
- * area just for backups.
- */
-function vellumRootFromProtected(): string {
-  return dirname(getProtectedDir());
-}
-
-/**
  * Returns the backup root directory. Respects the `VELLUM_BACKUP_DIR`
  * environment variable override (used in containerized deployments where
  * backups must be on a persistent volume); falls back to `~/.vellum/backups`.
  */
 export function getBackupRootDir(): string {
-  return getBackupDirOverride() ?? join(vellumRootFromProtected(), "backups");
+  return getBackupDirOverride() ?? join(homedir(), ".vellum", "backups");
 }
 
 /**
