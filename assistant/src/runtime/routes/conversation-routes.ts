@@ -61,7 +61,7 @@ import {
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
 import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
-import * as attachmentsStore from "../../memory/attachments-store.js";
+import { getAttachmentById, getAttachmentMetadataForMessage, getAttachmentsByIds } from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -583,12 +583,12 @@ export function handleListMessages(
       // aren't lost before DB compaction relinks them.
       const idsToQuery = [m.id, ...(mergedIdMap.get(m.id) ?? [])];
       const linked = idsToQuery.flatMap((id) =>
-        attachmentsStore.getAttachmentMetadataForMessage(id),
+        getAttachmentMetadataForMessage(id),
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
           if (a.mimeType.startsWith("image/")) {
-            const full = attachmentsStore.getAttachmentById(a.id, {
+            const full = getAttachmentById(a.id, {
               hydrateFileData: true,
             });
             return {
@@ -1492,7 +1492,7 @@ export async function handleSendMessage(
 
   // Validate that all attachment IDs resolve
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+    const resolved = getAttachmentsByIds(attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));

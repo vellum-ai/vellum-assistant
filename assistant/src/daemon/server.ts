@@ -30,7 +30,7 @@ import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
-import * as attachmentsStore from "../memory/attachments-store.js";
+import { getAttachmentsByIds, getSourcePathsForAttachments, uploadFileBackedAttachment, validateAttachmentUpload } from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -727,7 +727,7 @@ export class DaemonServer {
       if (params.attachments && params.attachments.length > 0) {
         for (const a of params.attachments) {
           try {
-            const validation = attachmentsStore.validateAttachmentUpload(
+            const validation = validateAttachmentUpload(
               a.filename,
               a.mimeType,
             );
@@ -739,7 +739,7 @@ export class DaemonServer {
               continue;
             }
             const size = statSync(a.path).size;
-            const stored = attachmentsStore.uploadFileBackedAttachment(
+            const stored = uploadFileBackedAttachment(
               a.filename,
               a.mimeType,
               a.path,
@@ -1425,11 +1425,11 @@ export class DaemonServer {
 
     const attachments = attachmentIds
       ? (() => {
-          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          const resolved = getAttachmentsByIds(attachmentIds, {
             hydrateFileData: true,
           });
           const sourcePaths =
-            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+            getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,

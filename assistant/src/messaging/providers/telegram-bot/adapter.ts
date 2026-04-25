@@ -5,7 +5,7 @@
  */
 
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
-import * as externalConversationStore from "../../../memory/external-conversation-store.js";
+import { upsertOutboundBinding } from "../../../memory/external-conversation-store.js";
 import type { OAuthConnection } from "../../../oauth/connection.js";
 import { getConnectionByProvider } from "../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
@@ -106,7 +106,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
       const conversationKey = `asst:self:${sourceChannel}:${conversationId}`;
       const { conversationId: internalId } =
         getOrCreateConversation(conversationKey);
-      externalConversationStore.upsertOutboundBinding({
+      upsertOutboundBinding({
         conversationId: internalId,
         sourceChannel,
         externalChatId: conversationId,

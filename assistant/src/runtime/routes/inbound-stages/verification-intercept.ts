@@ -20,7 +20,7 @@ import {
   revokeGuardianBinding,
   upsertContactChannel,
 } from "../../../contacts/contacts-write.js";
-import * as deliveryChannels from "../../../memory/delivery-channels.js";
+import { clearPendingVerificationReply, storePendingVerificationReply } from "../../../memory/delivery-channels.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
@@ -286,7 +286,7 @@ export async function handleVerificationIntercept(
         { err, conversationExternalId },
         "Failed to deliver deterministic verification reply; persisting for retry",
       );
-      deliveryChannels.storePendingVerificationReply(eventId, {
+      storePendingVerificationReply(eventId, {
         chatId: conversationExternalId,
         text: replyText,
         assistantId,
@@ -308,7 +308,7 @@ export async function handleVerificationIntercept(
             mintBearerToken(),
           );
           log.info({ eventId }, "Verification reply delivered on self-retry");
-          deliveryChannels.clearPendingVerificationReply(eventId);
+          clearPendingVerificationReply(eventId);
         } catch (retryErr) {
           log.error(
             { err: retryErr, eventId },

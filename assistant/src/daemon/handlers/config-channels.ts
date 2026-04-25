@@ -10,7 +10,7 @@ import {
 } from "../../contacts/contact-store.js";
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
-import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
@@ -127,7 +127,7 @@ export function getVerificationStatus(
   // Resolve username from external conversation store.
   let guardianUsername: string | undefined;
   if (binding?.guardianDeliveryChatId) {
-    const ext = externalConversationStore.getBindingByChannelChat(
+    const ext = getBindingByChannelChat(
       resolvedChannel,
       binding.guardianDeliveryChatId,
     );

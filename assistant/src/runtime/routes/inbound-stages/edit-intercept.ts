@@ -21,7 +21,7 @@ import {
   updateMessageContent,
   updateMessageContentAndMetadata,
 } from "../../../memory/conversation-crud.js";
-import * as deliveryCrud from "../../../memory/delivery-crud.js";
+import { findMessageBySourceId, recordInbound } from "../../../memory/delivery-crud.js";
 import {
   mergeSlackMetadata,
   readSlackMetadata,
@@ -69,7 +69,7 @@ export async function handleEditIntercept(
   } = params;
 
   // Dedup the edit event itself (retried edited_message webhooks)
-  const editResult = deliveryCrud.recordInbound(
+  const editResult = recordInbound(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
@@ -98,7 +98,7 @@ export async function handleEditIntercept(
 
   let original: { messageId: string; conversationId: string } | null = null;
   for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
-    original = deliveryCrud.findMessageBySourceId(
+    original = findMessageBySourceId(
       sourceChannel,
       conversationExternalId,
       sourceMessageId,

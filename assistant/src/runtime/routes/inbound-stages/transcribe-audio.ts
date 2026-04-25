@@ -9,7 +9,7 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
-import * as attachmentsStore from "../../../memory/attachments-store.js";
+import { getAttachmentById, getAttachmentsByIds } from "../../../memory/attachments-store.js";
 import { resolveBatchTranscriber } from "../../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../../stt/daemon-batch-transcriber.js";
 import { getLogger } from "../../../util/logger.js";
@@ -47,7 +47,7 @@ export async function tryTranscribeAudioAttachments(
     }
 
     // Look up attachments and filter to audio MIME types
-    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+    const resolved = getAttachmentsByIds(attachmentIds);
     const audioAttachments = resolved.filter((a) =>
       a.mimeType.startsWith("audio/"),
     );
@@ -78,7 +78,7 @@ export async function tryTranscribeAudioAttachments(
 
       for (const attachment of audioAttachments) {
         // Hydrate the base64 data for the attachment
-        const hydrated = attachmentsStore.getAttachmentById(attachment.id, {
+        const hydrated = getAttachmentById(attachment.id, {
           hydrateFileData: true,
         });
         if (!hydrated || !hydrated.dataBase64) {

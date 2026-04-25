@@ -1,5 +1,5 @@
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
-import * as attachmentsStore from "../memory/attachments-store.js";
+import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
 import {
   getMessageById,
   getMessages,
@@ -205,7 +205,7 @@ export async function deliverReplyViaCallback(
     }
     const rendered = renderHistoryContent(parsed);
 
-    const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+    const linked = getAttachmentMetadataForMessage(msgs[i].id);
     const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
       id: a.id,
       filename: a.originalFilename,
