@@ -64,7 +64,8 @@ import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 const log = getLogger("conversation-store");
 
 /** Prefix for private-conversation memory scope IDs (`private:<convId>`). */
-export const PRIVATE_SCOPE_PREFIX = "private:";
+const PRIVATE_SCOPE_KIND = "private";
+export const PRIVATE_SCOPE_PREFIX = `${PRIVATE_SCOPE_KIND}:`;
 
 /** Build the memory scope ID for a private conversation. */
 export function privateScopeId(conversationId: string): string {
@@ -90,9 +91,6 @@ const subagentNotificationSchema = z.object({
   error: z.string().optional(),
   conversationId: z.string().optional(),
 });
-
-export const PRIVATE_CONVERSATION_FORK_ERROR =
-  "Private conversations cannot be forked";
 
 export const messageMetadataSchema = z
   .object({
@@ -269,7 +267,11 @@ export function createConversation(
     | string
     | {
         title?: string;
-        conversationType?: "standard" | "private" | "background" | "scheduled";
+        conversationType?:
+          | "standard"
+          | "background"
+          | "scheduled"
+          | (string & {});
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
@@ -283,12 +285,16 @@ export function createConversation(
     typeof titleOrOpts === "string"
       ? { title: titleOrOpts }
       : (titleOrOpts ?? {});
-  const conversationType = opts.conversationType ?? "standard";
+  const requestedConversationType = opts.conversationType;
+  const conversationType: string =
+    requestedConversationType === "background" ||
+    requestedConversationType === "scheduled"
+      ? requestedConversationType
+      : "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
   const id = uuid();
-  const memoryScopeId =
-    conversationType === "private" ? privateScopeId(id) : "default";
+  const memoryScopeId = "default";
 
   // Ensure group_id column exists for deterministic schema readiness,
   // even when this conversation has no groupId (a subsequent query or
@@ -511,10 +517,6 @@ export function forkConversation(params: {
   if (!sourceConversation) {
     throw new UserError(`Conversation ${conversationId} not found`);
   }
-  if (sourceConversation.conversationType === "private") {
-    throw new UserError(PRIVATE_CONVERSATION_FORK_ERROR);
-  }
-
   const sourceMessages = getMessages(conversationId);
 
   if (sourceMessages.length === 0) {
