@@ -65,7 +65,6 @@ mock.module("../memory/conversation-crud.js", () => ({
     scopeByConversation.get(conversationId),
   getConversationOverrideProfile: () => undefined,
   getConversationSource: () => null,
-  getConversationType: () => "standard",
   getMessageById: () => null,
   getMessages: () => [],
   parseConversation: (row: unknown) => row,
@@ -170,7 +169,7 @@ describe("memory admin recall", () => {
   });
 
   test("uses the conversation memory scope and safe admin sources", async () => {
-    scopeByConversation.set("conv-admin", "scope:conv-admin");
+    scopeByConversation.set("conv-admin", "scope-admin");
 
     const result = await queryMemory("launch notes", "conv-admin");
 
@@ -181,7 +180,7 @@ describe("memory admin recall", () => {
     });
     expect(capturedSearches[0].context).toMatchObject({
       workingDir: getWorkspaceDir(),
-      memoryScopeId: "scope:conv-admin",
+      memoryScopeId: "scope-admin",
       conversationId: "conv-admin",
       config: testConfig,
     });

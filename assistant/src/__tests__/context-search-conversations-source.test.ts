@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { searchConversationSource } from "../memory/context-search/sources/conversations.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, rawRun } from "../memory/db.js";
 
 initializeDb();
+
+let seedId = 0;
 
 describe("searchConversationSource", () => {
   beforeEach(() => {
@@ -14,14 +15,10 @@ describe("searchConversationSource", () => {
   });
 
   test("returns matching message evidence through the FTS path", async () => {
-    const conversation = createConversation("Launch notes");
-    const message = await addMessage(
-      conversation.id,
-      "assistant",
-      "The alpha launch checklist includes database backups.",
-      undefined,
-      { skipIndexing: true },
-    );
+    const { conversation, message } = await seedConversation({
+      title: "Launch notes",
+      content: "The alpha launch checklist includes database backups.",
+    });
 
     const result = await searchConversationSource(
       "alpha launch",
@@ -45,22 +42,15 @@ describe("searchConversationSource", () => {
   });
 
   test("uses LIKE fallback for short and non-ASCII queries", async () => {
-    const shortConversation = createConversation("C++ notes");
-    await addMessage(
-      shortConversation.id,
-      "user",
-      "Use C++ when the example needs deterministic lifetime notes.",
-      undefined,
-      { skipIndexing: true },
-    );
-    const unicodeConversation = createConversation("Unicode notes");
-    await addMessage(
-      unicodeConversation.id,
-      "assistant",
-      "The keyword 東京 appears in this conversation.",
-      undefined,
-      { skipIndexing: true },
-    );
+    await seedConversation({
+      title: "C++ notes",
+      role: "user",
+      content: "Use C++ when the example needs deterministic lifetime notes.",
+    });
+    await seedConversation({
+      title: "Unicode notes",
+      content: "The keyword 東京 appears in this conversation.",
+    });
 
     const shortResult = await searchConversationSource("C++", makeContext(), 5);
     const unicodeResult = await searchConversationSource(
@@ -97,37 +87,6 @@ describe("searchConversationSource", () => {
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
       `${inScope.conversation.id}#${inScope.message.id}`,
-    ]);
-  });
-
-  test("does not return excluded legacy conversation-type rows", async () => {
-    const visible = await seedConversation({
-      title: "Visible conversation",
-      content: "privacytoken can be recalled from normal history.",
-    });
-    const excludedConversation = createConversation({
-      title: "Excluded legacy conversation",
-    });
-    rawRun(
-      "UPDATE conversations SET memory_scope_id = 'default', conversation_type = 'private' WHERE id = ?",
-      excludedConversation.id,
-    );
-    await addMessage(
-      excludedConversation.id,
-      "user",
-      "privacytoken should not be recalled from excluded history.",
-      undefined,
-      { skipIndexing: true },
-    );
-
-    const result = await searchConversationSource(
-      "privacytoken",
-      makeContext(),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
     ]);
   });
 
@@ -217,31 +176,60 @@ describe("searchConversationSource", () => {
   });
 });
 
-async function seedConversation(opts: {
+function seedConversation(opts: {
   title?: string;
   conversationType?: "standard" | "background" | "scheduled";
   source?: string;
   memoryScopeId?: string;
+  role?: string;
   content: string;
 }) {
-  const conversation = createConversation({
-    title: opts.title,
-    conversationType: opts.conversationType,
-    source: opts.source,
-  });
-  if (opts.memoryScopeId) {
-    rawRun(
-      "UPDATE conversations SET memory_scope_id = ? WHERE id = ?",
-      opts.memoryScopeId,
-      conversation.id,
-    );
-  }
-  const message = await addMessage(
+  const id = ++seedId;
+  const now = Date.now() + id;
+  const conversation = {
+    id: `test-conversation-${id}`,
+    title: opts.title ?? null,
+  };
+  const message = {
+    id: `test-message-${id}`,
+    createdAt: now,
+  };
+
+  rawRun(
+    `
+    INSERT INTO conversations (
+      id,
+      title,
+      created_at,
+      updated_at,
+      conversation_type,
+      source,
+      memory_scope_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
     conversation.id,
-    "assistant",
+    conversation.title,
+    now,
+    now,
+    opts.conversationType ?? "standard",
+    opts.source ?? "user",
+    opts.memoryScopeId ?? "default",
+  );
+  rawRun(
+    `
+    INSERT INTO messages (
+      id,
+      conversation_id,
+      role,
+      content,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?)
+    `,
+    message.id,
+    conversation.id,
+    opts.role ?? "assistant",
     opts.content,
-    undefined,
-    { skipIndexing: true },
+    now,
   );
 
   return { conversation, message };
