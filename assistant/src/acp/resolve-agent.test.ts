@@ -1,64 +1,22 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AcpAgentConfig } from "../config/acp-schema.js";
+import { installAcpConfigStub } from "./__tests__/helpers/acp-config-stub.js";
+import { installWhichStub } from "./__tests__/helpers/which-stub.js";
 
-// ---------------------------------------------------------------------------
-// Mock infrastructure
-// ---------------------------------------------------------------------------
-
-interface MockAcpConfig {
-  enabled: boolean;
-  maxConcurrentSessions: number;
-  agents: Record<string, AcpAgentConfig>;
-}
-
-let mockAcpConfig: MockAcpConfig = {
-  enabled: true,
-  maxConcurrentSessions: 4,
-  agents: {},
-};
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({ acp: mockAcpConfig }),
-}));
-
-// Swap Bun.which with a stub so tests can deterministically simulate "binary
-// on PATH" / "binary missing" without depending on the host environment.
-// `mock.module` does not work for globals, so we capture the original and
-// restore in afterAll to keep this test file from leaking into others.
-const originalWhich = Bun.which;
-let whichStub: (command: string) => string | null = () => null;
-(Bun as unknown as { which: (cmd: string) => string | null }).which = (cmd) =>
-  whichStub(cmd);
+const config = installAcpConfigStub();
+const which = installWhichStub();
 
 afterAll(() => {
-  (Bun as unknown as { which: typeof originalWhich }).which = originalWhich;
+  which.restore();
 });
 
 const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function setConfig(partial: Partial<MockAcpConfig>): void {
-  mockAcpConfig = {
-    enabled: true,
-    maxConcurrentSessions: 4,
-    agents: {},
-    ...partial,
-  };
-}
-
-function setWhich(map: Record<string, string | null>): void {
-  whichStub = (cmd) => map[cmd] ?? null;
-}
-
 beforeEach(() => {
-  setConfig({});
+  config.setConfig({});
   // Default: every command on PATH so binary preflight passes unless a test
   // explicitly says otherwise.
-  whichStub = (cmd) => `/usr/local/bin/${cmd}`;
+  which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -67,7 +25,7 @@ beforeEach(() => {
 
 describe("resolveAcpAgent", () => {
   test("returns acp_disabled when config.acp.enabled is false", () => {
-    setConfig({ enabled: false });
+    config.setConfig({ enabled: false });
 
     const result = resolveAcpAgent("claude");
 
@@ -80,7 +38,7 @@ describe("resolveAcpAgent", () => {
   });
 
   test("user config wins over default profile", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         claude: {
           command: "my-custom-claude",
@@ -101,7 +59,7 @@ describe("resolveAcpAgent", () => {
   });
 
   test("falls back to default profile when no user entry", () => {
-    setConfig({ agents: {} });
+    config.setConfig({ agents: {} });
 
     const result = resolveAcpAgent("codex");
 
@@ -113,7 +71,7 @@ describe("resolveAcpAgent", () => {
   });
 
   test("falls back to default profile for claude when no user entry", () => {
-    setConfig({ agents: {} });
+    config.setConfig({ agents: {} });
 
     const result = resolveAcpAgent("claude");
 
@@ -124,7 +82,7 @@ describe("resolveAcpAgent", () => {
   });
 
   test("returns unknown_agent with merged available list when id not found", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         "user-only": { command: "some-binary", args: [] },
       },
@@ -142,7 +100,7 @@ describe("resolveAcpAgent", () => {
   });
 
   test("unknown_agent available list contains both defaults when user config is empty", () => {
-    setConfig({ agents: {} });
+    config.setConfig({ agents: {} });
 
     const result = resolveAcpAgent("nonexistent");
 
@@ -155,8 +113,8 @@ describe("resolveAcpAgent", () => {
   });
 
   test("returns binary_not_found with the registered install hint", () => {
-    setConfig({ agents: {} });
-    setWhich({}); // no commands on PATH
+    config.setConfig({ agents: {} });
+    which.setWhich({}); // no commands on PATH
 
     const result = resolveAcpAgent("claude");
 
@@ -170,12 +128,12 @@ describe("resolveAcpAgent", () => {
   });
 
   test("binary_not_found uses generic hint for user-only commands without a registered hint", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         custom: { command: "unknown-binary", args: [] },
       },
     });
-    setWhich({});
+    which.setWhich({});
 
     const result = resolveAcpAgent("custom");
 
@@ -192,12 +150,12 @@ describe("resolveAcpAgent", () => {
   test("binary_not_found uses the install hint based on the resolved command, not the agent id", () => {
     // User aliases id "claude" to the codex binary — the install hint should
     // follow the binary, not the id.
-    setConfig({
+    config.setConfig({
       agents: {
         claude: { command: "codex-acp", args: [] },
       },
     });
-    setWhich({});
+    which.setWhich({});
 
     const result = resolveAcpAgent("claude");
 
@@ -209,12 +167,12 @@ describe("resolveAcpAgent", () => {
   });
 
   test("ok result when user config provides agent and binary is on PATH", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         codex: { command: "codex-acp", args: ["--verbose"] },
       },
     });
-    setWhich({ "codex-acp": "/opt/bin/codex-acp" });
+    which.setWhich({ "codex-acp": "/opt/bin/codex-acp" });
 
     const result = resolveAcpAgent("codex");
 
@@ -231,7 +189,7 @@ describe("resolveAcpAgent", () => {
 
 describe("listAcpAgents", () => {
   test("returns enabled: false with empty agents when ACP is disabled", () => {
-    setConfig({ enabled: false });
+    config.setConfig({ enabled: false });
 
     const result = listAcpAgents();
 
@@ -240,7 +198,7 @@ describe("listAcpAgents", () => {
   });
 
   test("includes both bundled defaults when user config is empty", () => {
-    setConfig({ agents: {} });
+    config.setConfig({ agents: {} });
 
     const result = listAcpAgents();
 
@@ -256,7 +214,7 @@ describe("listAcpAgents", () => {
   });
 
   test("user override flips source to 'config' for the overridden id", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         claude: {
           command: "my-claude",
@@ -265,7 +223,7 @@ describe("listAcpAgents", () => {
         },
       },
     });
-    setWhich({
+    which.setWhich({
       "my-claude": "/usr/bin/my-claude",
       "codex-acp": "/usr/bin/codex-acp",
     });
@@ -281,8 +239,8 @@ describe("listAcpAgents", () => {
   });
 
   test("unavailable agent surfaces install hint from DEFAULT_AGENT_INSTALL_HINTS", () => {
-    setConfig({ agents: {} });
-    setWhich({ "claude-agent-acp": "/usr/bin/claude-agent-acp" });
+    config.setConfig({ agents: {} });
+    which.setWhich({ "claude-agent-acp": "/usr/bin/claude-agent-acp" });
 
     const result = listAcpAgents();
 
@@ -293,7 +251,7 @@ describe("listAcpAgents", () => {
   });
 
   test("user-only agent appended after defaults in stable order", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         "my-agent": {
           command: "my-binary",
@@ -302,7 +260,7 @@ describe("listAcpAgents", () => {
         },
       },
     });
-    setWhich({
+    which.setWhich({
       "claude-agent-acp": "/x",
       "codex-acp": "/x",
       "my-binary": "/x",
@@ -321,12 +279,12 @@ describe("listAcpAgents", () => {
   });
 
   test("unavailable user-only agent without registered hint falls back to generic install hint", () => {
-    setConfig({
+    config.setConfig({
       agents: {
         custom: { command: "unknown-binary", args: [] },
       },
     });
-    setWhich({ "claude-agent-acp": "/x", "codex-acp": "/x" });
+    which.setWhich({ "claude-agent-acp": "/x", "codex-acp": "/x" });
 
     const result = listAcpAgents();
 
