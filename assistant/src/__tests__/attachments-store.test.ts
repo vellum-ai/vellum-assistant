@@ -649,4 +649,47 @@ describe("validateAttachmentUpload", () => {
       expect(result.ok).toBe(false);
     }
   });
+
+  test("trustedSource bypasses MIME allowlist", () => {
+    // video/x-matroska is not on the allowlist
+    expect(validateAttachmentUpload("clip.mkv", "video/x-matroska").ok).toBe(
+      false,
+    );
+    expect(
+      validateAttachmentUpload("clip.mkv", "video/x-matroska", {
+        trustedSource: true,
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("trustedSource bypasses dangerous-extensions blocklist", () => {
+    expect(
+      validateAttachmentUpload("installer.dmg", "application/octet-stream", {
+        trustedSource: true,
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateAttachmentUpload("payload.exe", "application/octet-stream", {
+        trustedSource: true,
+      }).ok,
+    ).toBe(true);
+    expect(
+      validateAttachmentUpload("build.sh", "text/plain", {
+        trustedSource: true,
+      }).ok,
+    ).toBe(true);
+  });
+
+  test("trustedSource: false keeps strict validation", () => {
+    expect(
+      validateAttachmentUpload("clip.mkv", "video/x-matroska", {
+        trustedSource: false,
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateAttachmentUpload("payload.exe", "application/octet-stream", {
+        trustedSource: false,
+      }).ok,
+    ).toBe(false);
+  });
 });

@@ -351,6 +351,12 @@ export type UploadAttachmentInput = {
   filename: string;
   mimeType: string;
   data: string; // base64-encoded
+  /**
+   * Set to true when the upload comes from a channel ingress where the
+   * actor has been resolved to a guardian binding. Forwarded to the
+   * assistant; the assistant only honors it for service-token callers.
+   */
+  trustedSource?: boolean;
 };
 
 export type UploadAttachmentResponse = {

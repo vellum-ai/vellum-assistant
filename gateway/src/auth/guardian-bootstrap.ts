@@ -163,6 +163,39 @@ function findVellumGuardian(db: Database): { principalId: string } | null {
 }
 
 /**
+ * Look up the guardian binding for a given external user on a specific
+ * channel type (e.g. `"slack"`, `"telegram"`, `"whatsapp"`). Returns the
+ * guardian's principal ID when the actor is bound as a guardian on an
+ * active channel of that type, or `null` otherwise.
+ *
+ * Used by channel ingress paths to decide whether an inbound message
+ * came from the assistant's owner — see `index.ts` Slack upload flow.
+ */
+export function findGuardianForChannelActor(
+  channelType: string,
+  externalUserId: string,
+): { principalId: string } | null {
+  if (!channelType || !externalUserId) return null;
+
+  const db = getAssistantDb();
+  const row = db
+    .query<GuardianLookupRow, [string, string]>(
+      `SELECT c.id AS contact_id, c.principal_id
+       FROM contacts c
+       INNER JOIN contact_channels cc ON cc.contact_id = c.id
+       WHERE c.role = 'guardian'
+         AND cc.type = ?
+         AND cc.external_user_id = ?
+         AND cc.status = 'active'
+       LIMIT 1`,
+    )
+    .get(channelType, externalUserId);
+
+  if (!row?.principal_id) return null;
+  return { principalId: row.principal_id };
+}
+
+/**
  * Create a guardian contact + vellum channel binding.
  *
  * Persona-file seeding (`users/<slug>.md`) and trust-rule cache
