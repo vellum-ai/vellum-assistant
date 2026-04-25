@@ -1311,6 +1311,22 @@ export function unarchiveConversation(id: string): boolean {
 }
 
 /**
+ * Set or clear the inference profile override for a conversation.
+ * Pass `null` to clear the override and fall back to the workspace
+ * `llm.activeProfile` resolution.
+ */
+export async function setConversationInferenceProfile(
+  conversationId: string,
+  profile: string | null,
+): Promise<void> {
+  const db = getDb();
+  db.update(conversations)
+    .set({ inferenceProfile: profile, updatedAt: Date.now() })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
  * Delete all conversations, messages, and related data (tool invocations,
  * memory segments, etc.) from the daemon database.
  * Returns { conversations, messages } counts.
