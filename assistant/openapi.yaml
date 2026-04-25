@@ -996,6 +996,11 @@ paths:
                 filePath:
                   type: string
                   description: On-disk file path (file-backed upload)
+                trustedSource:
+                  type: boolean
+                  description:
+                    Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is
+                    authenticated as a gateway service token; ignored otherwise.
               required:
                 - filename
                 - mimeType
@@ -2785,6 +2790,53 @@ paths:
                   type: boolean
               required:
                 - hostAccess
+              additionalProperties: false
+  /v1/conversations/{id}/inference-profile:
+    put:
+      operationId: conversations_by_id_inferenceprofile_put
+      summary: Set conversation inference profile
+      description:
+        Override the LLM inference profile for a single conversation. Pass `null` to clear the override and fall
+        back to the workspace `llm.activeProfile`.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  profile:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - conversationId
+                  - profile
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                profile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - profile
               additionalProperties: false
   /v1/conversations/{id}/name:
     patch:
