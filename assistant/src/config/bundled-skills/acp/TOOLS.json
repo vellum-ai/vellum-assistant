@@ -100,6 +100,24 @@
       },
       "executor": "tools/acp-steer.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "acp_list_agents",
+      "description": "Lists ACP coding agents available to spawn. Each entry includes whether ACP is enabled, whether the agent's binary is on PATH, and an install command if not. Use this to decide between 'claude' and 'codex' or to surface setup steps to the user.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/acp-list-agents.ts",
+      "execution_target": "host"
     }
   ]
 }
