@@ -567,7 +567,7 @@ export function loadConfig(): AssistantConfig {
           setNestedValue(
             fileConfig,
             "memory.embeddings.geminiModel",
-            "gemini-embedding-2-preview",
+            "gemini-embedding-2",
           );
           setNestedValue(
             fileConfig,
@@ -577,7 +577,7 @@ export function loadConfig(): AssistantConfig {
           setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
           writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n");
           log.info(
-            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2-preview, dimensions=3072, vectorSize=3072)",
+            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
           );
           // Re-validate so the returned config reflects the migration.
           config = validateWithSchema(fileConfig);
