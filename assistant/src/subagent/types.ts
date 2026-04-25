@@ -60,6 +60,15 @@ export interface SubagentConfig {
    * for forks, this IS the system prompt (no subagent preamble is built).
    */
   parentSystemPrompt?: string;
+  /**
+   * Optional ad-hoc inference-profile override the parent inherits down to this
+   * subagent. When set, every LLM call the subagent issues carries
+   * `SendMessageOptions.config.overrideProfile = <name>` so the resolver layers
+   * `llm.profiles[<name>]` between the workspace's `activeProfile` and the
+   * call-site's named profile. If a parent conversation is pinned to a
+   * profile, every spawned subagent inherits it automatically.
+   */
+  overrideProfile?: string;
 }
 
 // ── State (runtime) ─────────────────────────────────────────────────────

@@ -574,6 +574,16 @@ export async function runAgentLoopImpl(
      * the agent loop defaults to `'mainAgent'` for user-initiated turns.
      */
     callSite?: LLMCallSite;
+    /**
+     * Optional ad-hoc inference-profile override applied to every LLM call
+     * the loop issues. When set, the agent loop sets
+     * `SendMessageOptions.config.overrideProfile` on each provider call so
+     * the resolver layers `llm.profiles[<name>]` between the workspace's
+     * `activeProfile` and the call-site's named profile. Used by
+     * per-conversation pinned profiles (and inherited by subagents the loop
+     * spawns).
+     */
+    overrideProfile?: string;
   },
 ): Promise<void> {
   if (!ctx.abortController) {
@@ -603,6 +613,11 @@ export async function runAgentLoopImpl(
   // `resolveCallSiteConfig`, picking up any user overrides under
   // `llm.callSites.mainAgent` (falling back to `llm.default` when absent).
   const turnCallSite: LLMCallSite = options?.callSite ?? "mainAgent";
+
+  // Optional per-turn inference-profile override. Plumbed through to every
+  // LLM call the loop emits and inherited by any subagents spawned during
+  // this turn.
+  const turnOverrideProfile = options?.overrideProfile;
 
   // Capture the turn channel context *before* any awaits so a second
   // message from a different channel can't overwrite it mid-flight.
@@ -1687,6 +1702,7 @@ export async function runAgentLoopImpl(
       onCheckpoint,
       turnCallSite,
       loopTurnCtx,
+      turnOverrideProfile,
     );
 
     rlog.info(
@@ -1836,6 +1852,7 @@ export async function runAgentLoopImpl(
         onCheckpoint,
         turnCallSite,
         loopTurnCtx,
+        turnOverrideProfile,
       );
     }
 
@@ -1891,6 +1908,7 @@ export async function runAgentLoopImpl(
         onCheckpoint,
         turnCallSite,
         loopTurnCtx,
+        turnOverrideProfile,
       );
 
       if (state.orderingErrorDetected) {
@@ -2077,6 +2095,7 @@ export async function runAgentLoopImpl(
           onCheckpoint,
           turnCallSite,
           loopTurnCtx,
+          turnOverrideProfile,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -2234,6 +2253,7 @@ export async function runAgentLoopImpl(
             onCheckpoint,
             turnCallSite,
             loopTurnCtx,
+            turnOverrideProfile,
           );
         }
         // action === "fail_gracefully" falls through to the final error below
