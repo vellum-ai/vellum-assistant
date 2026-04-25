@@ -32,6 +32,9 @@ public struct ConversationsListResponse: Decodable {
         public let isPinned: Bool?
         public let groupId: String?
         public let forkParent: ConversationForkParent?
+        /// Per-conversation override for the LLM inference profile. `nil` means
+        /// the conversation inherits the workspace `llm.activeProfile`.
+        public let inferenceProfile: String?
     }
     public let conversations: [Conversation]
     public let hasMore: Bool?

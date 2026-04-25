@@ -385,6 +385,7 @@ final class ConversationRestorer {
                 source: session.source,
                 conversationType: session.conversationType,
                 hostAccess: session.hostAccess ?? false,
+                inferenceProfile: session.inferenceProfile,
                 scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
                 latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {

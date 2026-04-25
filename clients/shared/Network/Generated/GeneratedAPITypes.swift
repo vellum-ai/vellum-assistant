@@ -3527,14 +3527,16 @@ public struct ConversationInfo: Codable, Sendable {
     public let correlationId: String?
     public let conversationType: String?
     public let hostAccess: Bool?
+    public let inferenceProfile: String?
 
-    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil) {
+    public init(type: String, conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil, inferenceProfile: String? = nil) {
         self.type = type
         self.conversationId = conversationId
         self.title = title
         self.correlationId = correlationId
         self.conversationType = conversationType
         self.hostAccess = hostAccess
+        self.inferenceProfile = inferenceProfile
     }
 }
 
@@ -3605,8 +3607,11 @@ public struct ConversationListResponseItem: Codable, Sendable {
     public let groupId: String?
     public let forkParent: ConversationForkParent?
     public let archivedAt: Int?
+    /// Per-conversation override for the LLM inference profile. `nil` means
+    /// the conversation inherits the workspace `llm.activeProfile`.
+    public let inferenceProfile: String?
 
-    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, hostAccess: Bool? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil, archivedAt: Int? = nil) {
+    public init(id: String, title: String, createdAt: Int? = nil, updatedAt: Int, lastMessageAt: Int? = nil, conversationType: String? = nil, source: String? = nil, hostAccess: Bool? = nil, scheduleJobId: String? = nil, channelBinding: ChannelBinding? = nil, conversationOriginChannel: String? = nil, conversationOriginInterface: String? = nil, assistantAttention: AssistantAttention? = nil, displayOrder: Double? = nil, isPinned: Bool? = nil, groupId: String? = nil, forkParent: ConversationForkParent? = nil, archivedAt: Int? = nil, inferenceProfile: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -3625,6 +3630,7 @@ public struct ConversationListResponseItem: Codable, Sendable {
         self.groupId = groupId
         self.forkParent = forkParent
         self.archivedAt = archivedAt
+        self.inferenceProfile = inferenceProfile
     }
 }
 

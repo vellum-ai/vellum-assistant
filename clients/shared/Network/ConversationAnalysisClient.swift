@@ -51,7 +51,8 @@ public struct ConversationAnalysisClient: ConversationAnalysisClientProtocol {
             displayOrder: conversation.displayOrder,
             isPinned: conversation.isPinned,
             groupId: groupId,
-            forkParent: conversation.forkParent
+            forkParent: conversation.forkParent,
+            inferenceProfile: conversation.inferenceProfile
         )
     }
 }

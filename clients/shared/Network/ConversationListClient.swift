@@ -54,7 +54,8 @@ public struct ConversationListClient: ConversationListClientProtocol {
                     displayOrder: $0.displayOrder,
                     isPinned: $0.isPinned,
                     groupId: $0.groupId,
-                    forkParent: $0.forkParent
+                    forkParent: $0.forkParent,
+                    inferenceProfile: $0.inferenceProfile
                 )
             }
             return ConversationListResponse(
@@ -385,6 +386,7 @@ private struct HTTPConversationsListResponse: Decodable {
         let isPinned: Bool?
         let groupId: String?
         let forkParent: ConversationForkParent?
+        let inferenceProfile: String?
     }
     let conversations: [Conversation]
     let hasMore: Bool?

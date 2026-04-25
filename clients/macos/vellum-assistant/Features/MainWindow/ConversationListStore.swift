@@ -461,6 +461,7 @@ final class ConversationListStore {
             source: item.source,
             conversationType: item.conversationType,
             hostAccess: item.hostAccess ?? false,
+            inferenceProfile: item.inferenceProfile,
             scheduleJobId: item.scheduleJobId,
             hasUnseenLatestAssistantMessage: (item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false),
             latestAssistantMessageAt: item.assistantAttention?.latestAssistantMessageAt.map {
@@ -492,6 +493,11 @@ final class ConversationListStore {
     func updateConversationHostAccess(id: UUID, hostAccess: Bool) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].hostAccess = hostAccess
+    }
+
+    func updateConversationInferenceProfile(id: UUID, profile: String?) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].inferenceProfile = profile
     }
 
     /// Rename a conversation and send the rename to the daemon.

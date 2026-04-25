@@ -47,6 +47,9 @@ struct ConversationModel: Identifiable, Hashable {
     /// by older daemons that predate the field; callers should treat `nil` as non-suppressed.
     var conversationType: String?
     var hostAccess: Bool
+    /// Per-conversation override for the LLM inference profile. `nil` means
+    /// the conversation inherits the workspace `llm.activeProfile`.
+    var inferenceProfile: String?
     /// The schedule job ID that created this conversation, if any.
     /// Conversations sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
@@ -56,7 +59,7 @@ struct ConversationModel: Identifiable, Hashable {
     var forkParent: ConversationForkParent?
     var originChannel: String?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, conversationType: String? = nil, hostAccess: Bool = false, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, conversationType: String? = nil, hostAccess: Bool = false, inferenceProfile: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -69,6 +72,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.source = source
         self.conversationType = conversationType
         self.hostAccess = hostAccess
+        self.inferenceProfile = inferenceProfile
         self.scheduleJobId = scheduleJobId
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
@@ -165,6 +169,7 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.source == rhs.source &&
             lhs.conversationType == rhs.conversationType &&
             lhs.hostAccess == rhs.hostAccess &&
+            lhs.inferenceProfile == rhs.inferenceProfile &&
             lhs.scheduleJobId == rhs.scheduleJobId &&
             lhs.hasUnseenLatestAssistantMessage == rhs.hasUnseenLatestAssistantMessage &&
             lhs.latestAssistantMessageAt == rhs.latestAssistantMessageAt &&
@@ -188,6 +193,7 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(source)
         hasher.combine(conversationType)
         hasher.combine(hostAccess)
+        hasher.combine(inferenceProfile)
         hasher.combine(scheduleJobId)
         hasher.combine(hasUnseenLatestAssistantMessage)
         hasher.combine(latestAssistantMessageAt)

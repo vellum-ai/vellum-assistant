@@ -736,6 +736,19 @@ public struct ConversationHostAccessUpdatedMessage: Decodable, Sendable {
     public let hostAccess: Bool
 }
 
+/// Server push: the per-conversation inference-profile override changed.
+/// `profile` is `nil` when the override was cleared (the conversation now
+/// inherits the workspace `llm.activeProfile`).
+public struct ConversationInferenceProfileUpdatedMessage: Decodable, Sendable {
+    public let conversationId: String
+    public let profile: String?
+
+    public init(conversationId: String, profile: String?) {
+        self.conversationId = conversationId
+        self.profile = profile
+    }
+}
+
 /// Server push — tells clients their sidebar conversation list is stale.
 public struct ConversationListInvalidatedMessage: Decodable, Sendable {
     public let reason: String
@@ -2530,6 +2543,7 @@ public enum ServerMessage: Decodable, Sendable {
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
     case conversationHostAccessUpdated(ConversationHostAccessUpdatedMessage)
+    case conversationInferenceProfileUpdated(ConversationInferenceProfileUpdatedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
     case conversationListInvalidated(ConversationListInvalidatedMessage)
@@ -2742,6 +2756,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_host_access_updated":
             let message = try ConversationHostAccessUpdatedMessage(from: decoder)
             self = .conversationHostAccessUpdated(message)
+        case "conversation_inference_profile_updated":
+            let message = try ConversationInferenceProfileUpdatedMessage(from: decoder)
+            self = .conversationInferenceProfileUpdated(message)
         case "conversation_title_updated":
             let message = try ConversationTitleUpdatedMessage(from: decoder)
             self = .conversationTitleUpdated(message)
