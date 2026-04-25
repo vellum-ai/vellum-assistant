@@ -550,6 +550,12 @@ export class MeetHostSupervisor {
 
     child.on("exit", (code, signal) => {
       log.info({ code, signal }, "meet-host child exited");
+      // Stale exit from a child we already replaced: SIGKILL delivers
+      // SIGCHLD on a later event-loop tick, so an old child's exit can
+      // fire after teardownChild has nulled the field and ensureRunning
+      // has spawned a successor. Mutating supervisor state here would
+      // reject the new child's handshake and SIGKILL it.
+      if (this.child !== child) return;
       // Reject any in-flight handshake so callers fail fast instead of
       // hanging waiting for a frame that will never arrive.
       if (this.handshakeReject) {
@@ -564,6 +570,7 @@ export class MeetHostSupervisor {
     });
     child.on("error", (err) => {
       log.error({ err }, "meet-host spawn error");
+      if (this.child !== child) return;
       if (this.handshakeReject) this.handshakeReject(err);
     });
 

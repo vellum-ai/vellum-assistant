@@ -61,17 +61,33 @@ class FakeChild extends EventEmitter {
   pid = 12345;
   stdout = new PassThrough();
   stderr = new PassThrough();
+  /** When true, `kill()` queues the exit until `flushDeferredExit()`. */
+  deferExit = false;
+  private pendingExit: {
+    code: number;
+    signal: NodeJS.Signals | number;
+  } | null = null;
   kill = mock((_signal?: NodeJS.Signals | number) => {
-    // Simulate the process exiting almost immediately on signal.
+    if (this.exitCode != null) return true;
+    this.exitCode = 143;
+    this.killed = true;
+    if (this.deferExit) {
+      this.pendingExit = { code: 143, signal: _signal ?? "SIGTERM" };
+      return true;
+    }
     queueMicrotask(() => {
-      if (this.exitCode == null) {
-        this.exitCode = 143;
-        this.killed = true;
-        this.emit("exit", 143, _signal ?? "SIGTERM");
-      }
+      this.emit("exit", 143, _signal ?? "SIGTERM");
     });
     return true;
   });
+
+  /** Emit a deferred exit queued by `kill()` while `deferExit` was true. */
+  flushDeferredExit() {
+    const pending = this.pendingExit;
+    if (!pending) return;
+    this.pendingExit = null;
+    this.emit("exit", pending.code, pending.signal);
+  }
 
   /** Force-exit the child with a given code (simulated crash). */
   simulateExit(code: number | null, signal: NodeJS.Signals | null = null) {
@@ -232,6 +248,37 @@ describe("MeetHostSupervisor", () => {
     await tick();
     supervisor.notifyHandshake({ sourceHash: "expected-hash" });
     await p2;
+    expect(supervisor.isRunning).toBe(true);
+  });
+
+  test("stale exit handler from a replaced child does not kill the successor", async () => {
+    harness = makeHarness({ manifestHash: "expected-hash" });
+    const { supervisor, spawnFn, child: firstChild } = harness;
+    // Defer the first child's exit so it fires AFTER the respawn —
+    // mirrors real Node.js, where SIGCHLD arrives on a later tick.
+    firstChild.deferExit = true;
+
+    const p = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "wrong-hash" });
+    await expect(p).rejects.toThrow(/source hash mismatch/);
+    expect(firstChild.kill).toHaveBeenCalledWith("SIGKILL");
+
+    // Respawn before the old child's exit event fires.
+    const secondChild = new FakeChild();
+    spawnFn.mockImplementation(() => secondChild as unknown as ChildProcess);
+    const p2 = supervisor.ensureRunning();
+    await tick();
+    supervisor.notifyHandshake({ sourceHash: "expected-hash" });
+    await p2;
+    expect(supervisor.isRunning).toBe(true);
+
+    // Now deliver the stale exit. Without the guard this rejects the
+    // (already-resolved) handshake and SIGKILL's secondChild.
+    firstChild.flushDeferredExit();
+    await tick();
+
+    expect(secondChild.kill).not.toHaveBeenCalled();
     expect(supervisor.isRunning).toBe(true);
   });
 
