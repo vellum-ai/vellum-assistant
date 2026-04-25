@@ -187,10 +187,12 @@ export async function executeAcpSpawn(
       sendToClient as (msg: unknown) => void,
     );
 
-    // `claude --resume <id>` is Claude Code-specific; codex and other
-    // adapters resume differently or not at all, so the hint is gated.
+    // `claude --resume <id>` is Claude Code-specific (the claude-agent-acp
+    // adapter binary). Other adapters resume differently or not at all,
+    // so the hint is gated by the resolved binary, not the agent id —
+    // this stays correct when a user aliases an id to a different binary.
     const resumeHint =
-      agent === "claude"
+      agentConfig.command === "claude-agent-acp"
         ? ` To resume this session later, run: cd ${cwd} && claude --resume ${protocolSessionId}`
         : "";
     const payload = JSON.stringify({

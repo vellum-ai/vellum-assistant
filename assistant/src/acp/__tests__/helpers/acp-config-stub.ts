@@ -4,14 +4,14 @@
  * Bun's `mock.module` is process-global and only intercepts the literal keys
  * the factory returns. ACP test files have all been duplicating the same
  * mutable `mockAcpConfig` + `mock.module(..., () => ({ getConfig: ... }))`
- * boilerplate; this helper consolidates it. The `includeRealLoader` option
- * spreads the real loader's named exports into the mock so tests whose
- * code path transitively imports `loadConfig`, `invalidateConfigCache`,
- * etc. don't fail at parse time on "Export named 'loadConfig' not found".
+ * boilerplate; this helper consolidates it. The real loader's other named
+ * exports are spread into the mock so tests whose code path transitively
+ * imports `loadConfig`, `invalidateConfigCache`, etc. don't fail at parse
+ * time on "Export named 'X' not found".
  *
  * Like `which-stub.ts`, this is a process-global hook by design — Bun's
  * `mock.module` is process-global, so tests can't isolate it per-file.
- * Each test file should call `installAcpConfigStub()` once at the top
+ * Each test file should `await installAcpConfigStub()` once at the top
  * level and drive it via `setConfig(partial)` per test.
  */
 
@@ -37,27 +37,12 @@ export interface AcpConfigStubHandle {
 }
 
 /**
- * Installs a process-global mock of `getConfig`. Returns helpers that drive
- * the config the mock returns and read the current value back.
- *
- * Pass `includeRealLoader: true` when the test's code path transitively
- * imports other named exports from `loader.js` (e.g. `loadConfig`,
- * `invalidateConfigCache`) — without the spread, those imports fail at parse
- * time with "Export named 'X' not found". Resolution must happen *before*
- * the mock is registered: the helper returns a Promise in that case so the
- * caller `await`s it, ensuring downstream dynamic imports see the spread
- * version. The plain (sync) overload covers the common case where only
- * `getConfig` is needed.
+ * Installs a process-global mock of `getConfig`. The real loader's named
+ * exports are resolved *before* the mock registers so downstream dynamic
+ * imports see the spread version — that's why this returns a Promise the
+ * caller must `await`.
  */
-export function installAcpConfigStub(opts: {
-  includeRealLoader: true;
-}): Promise<AcpConfigStubHandle>;
-export function installAcpConfigStub(opts?: {
-  includeRealLoader?: false;
-}): AcpConfigStubHandle;
-export function installAcpConfigStub(opts?: {
-  includeRealLoader?: boolean;
-}): AcpConfigStubHandle | Promise<AcpConfigStubHandle> {
+export async function installAcpConfigStub(): Promise<AcpConfigStubHandle> {
   let mockAcpConfig: MockAcpConfig = { ...DEFAULT_CONFIG };
   const handle: AcpConfigStubHandle = {
     setConfig(partial) {
@@ -68,18 +53,9 @@ export function installAcpConfigStub(opts?: {
     },
   };
 
-  if (opts?.includeRealLoader) {
-    return (async () => {
-      const realLoader = await import("../../../config/loader.js");
-      mock.module("../../../config/loader.js", () => ({
-        ...realLoader,
-        getConfig: () => ({ acp: mockAcpConfig }),
-      }));
-      return handle;
-    })();
-  }
-
+  const realLoader = await import("../../../config/loader.js");
   mock.module("../../../config/loader.js", () => ({
+    ...realLoader,
     getConfig: () => ({ acp: mockAcpConfig }),
   }));
   return handle;

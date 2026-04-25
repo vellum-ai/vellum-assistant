@@ -12,12 +12,12 @@
  *
  * `listAcpAgents()` exposes the merged catalog with availability info for
  * the `acp_list_agents` tool — same merge semantics, plus per-entry
- * `available` / `setupHint` derived from `Bun.which` + `DEFAULT_AGENT_INSTALL_HINTS`.
+ * `available` / `setupHint` derived from `Bun.which` + `DEFAULT_AGENT_NPM_PACKAGES`.
  */
 
 import {
   DEFAULT_ACP_AGENT_PROFILES,
-  DEFAULT_AGENT_INSTALL_HINTS,
+  DEFAULT_AGENT_NPM_PACKAGES,
 } from "../config/acp-defaults.js";
 import type { AcpAgentConfig } from "../config/acp-schema.js";
 import { getConfig } from "../config/loader.js";
@@ -59,10 +59,10 @@ export const ACP_DISABLED_HINT =
   "Set 'acp.enabled': true in ~/.vellum/workspace/config.json (or via the runtime config endpoint).";
 
 function installHintFor(command: string): string {
-  return (
-    DEFAULT_AGENT_INSTALL_HINTS[command] ??
-    `Install '${command}' and ensure it is on PATH.`
-  );
+  const pkg = DEFAULT_AGENT_NPM_PACKAGES[command];
+  return pkg
+    ? `npm i -g ${pkg}`
+    : `Install '${command}' and ensure it is on PATH.`;
 }
 
 /**

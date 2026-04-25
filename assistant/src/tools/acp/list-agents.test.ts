@@ -1,65 +1,17 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { AcpAgentConfig } from "../../config/acp-schema.js";
+import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
+import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { ToolContext } from "../types.js";
 
-// ---------------------------------------------------------------------------
-// Mock infrastructure
-// ---------------------------------------------------------------------------
-
-interface MockAcpConfig {
-  enabled: boolean;
-  maxConcurrentSessions: number;
-  agents: Record<string, AcpAgentConfig>;
-}
-
-let mockAcpConfig: MockAcpConfig = {
-  enabled: true,
-  maxConcurrentSessions: 4,
-  agents: {},
-};
-
-// Spread the real loader's named exports so transitive importers that pull
-// `loadConfig`, `invalidateConfigCache`, etc. from the same module path
-// still resolve at parse time. Bun's `mock.module` is process-global and
-// returns *exactly* the keys the factory returns — without the spread, any
-// module evaluated after this test file errors at load with
-// "Export named '<X>' not found".
-const realLoader = await import("../../config/loader.js");
-mock.module("../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => ({ acp: mockAcpConfig }),
-}));
-
-// Swap Bun.which with a stub so tests can deterministically simulate "binary
-// on PATH" / "binary missing" without depending on the host environment.
-const originalWhich = Bun.which;
-let whichStub: (command: string) => string | null = () => null;
-(Bun as unknown as { which: (cmd: string) => string | null }).which = (cmd) =>
-  whichStub(cmd);
+const config = await installAcpConfigStub();
+const which = installWhichStub();
 
 afterAll(() => {
-  (Bun as unknown as { which: typeof originalWhich }).which = originalWhich;
+  which.restore();
 });
 
 const { executeAcpListAgents } = await import("./list-agents.js");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function setConfig(partial: Partial<MockAcpConfig>): void {
-  mockAcpConfig = {
-    enabled: true,
-    maxConcurrentSessions: 4,
-    agents: {},
-    ...partial,
-  };
-}
-
-function setWhich(map: Record<string, string | null>): void {
-  whichStub = (cmd) => map[cmd] ?? null;
-}
 
 function makeContext(): ToolContext {
   return {
@@ -70,10 +22,10 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  setConfig({});
+  config.setConfig({});
   // Default: every command on PATH so binary preflight passes unless a test
   // explicitly says otherwise.
-  whichStub = (cmd) => `/usr/local/bin/${cmd}`;
+  which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -82,7 +34,7 @@ beforeEach(() => {
 
 describe("executeAcpListAgents", () => {
   test("returns disabled hint when ACP is disabled", async () => {
-    setConfig({ enabled: false });
+    config.setConfig({ enabled: false });
 
     const result = await executeAcpListAgents({}, makeContext());
 
@@ -96,7 +48,7 @@ describe("executeAcpListAgents", () => {
   });
 
   test("enabled, no user config: both defaults present with source 'default' and available based on Bun.which", async () => {
-    setConfig({ agents: {} });
+    config.setConfig({ agents: {} });
 
     const result = await executeAcpListAgents({}, makeContext());
 
@@ -116,7 +68,7 @@ describe("executeAcpListAgents", () => {
   });
 
   test("enabled, user overrides claude: claude has source 'config' and the user's command", async () => {
-    setConfig({
+    config.setConfig({
       agents: {
         claude: {
           command: "my-claude-bin",
@@ -142,9 +94,9 @@ describe("executeAcpListAgents", () => {
     expect(codex.source).toBe("default");
   });
 
-  test("unavailable agent surfaces setupHint from DEFAULT_AGENT_INSTALL_HINTS", async () => {
-    setConfig({ agents: {} });
-    setWhich({ "claude-agent-acp": "/usr/local/bin/claude-agent-acp" });
+  test("unavailable agent surfaces setupHint derived from DEFAULT_AGENT_NPM_PACKAGES", async () => {
+    config.setConfig({ agents: {} });
+    which.setWhich({ "claude-agent-acp": "/usr/local/bin/claude-agent-acp" });
 
     const result = await executeAcpListAgents({}, makeContext());
 

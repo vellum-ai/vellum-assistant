@@ -1,6 +1,8 @@
 import * as realChildProcess from "node:child_process";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
+import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { ToolContext } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -57,53 +59,20 @@ mock.module("node:child_process", () => ({
   execFile: execFileMock,
 }));
 
-// Mock config so getConfig() returns enabled ACP with our test agents. The
-// resolver consumes this same loader, so updates here are visible to it.
-interface MockConfig {
-  acp: {
-    enabled: boolean;
-    maxConcurrentSessions: number;
-    agents: Record<string, { command: string; args: string[] }>;
-  };
-}
-
-const defaultMockConfig: MockConfig = {
-  acp: {
-    enabled: true,
-    maxConcurrentSessions: 5,
-    agents: {
-      claude: { command: "claude-agent-acp", args: [] },
-      codex: { command: "codex-acp", args: [] },
-      "unknown-agent": { command: "some-other-binary", args: [] },
-    },
-  },
+// Default ACP config used by these tests: the `unknown-agent` entry is here
+// to give the "no version check" test a configured agent whose binary isn't
+// in DEFAULT_AGENT_NPM_PACKAGES.
+const DEFAULT_TEST_AGENTS = {
+  claude: { command: "claude-agent-acp", args: [] },
+  codex: { command: "codex-acp", args: [] },
+  "unknown-agent": { command: "some-other-binary", args: [] },
 };
 
-let mockConfig: MockConfig = structuredClone(defaultMockConfig);
-
-// Spread the real loader's named exports so transitive importers that pull
-// `loadConfig`, `invalidateConfigCache`, etc. from the same module path still
-// resolve at parse time. Bun's `mock.module` is process-global and returns
-// *exactly* the keys the factory returns — without the spread, any module
-// evaluated after this test file errors at load with
-// "Export named '<X>' not found".
-const realLoader = await import("../../config/loader.js");
-mock.module("../../config/loader.js", () => ({
-  ...realLoader,
-  getConfig: () => mockConfig,
-}));
-
-// Swap Bun.which with a stub so the resolver's PATH preflight is deterministic
-// regardless of the host environment. By default every command resolves; tests
-// override `whichStub` to simulate a missing binary.
-const originalWhich = Bun.which;
-let whichStub: (command: string) => string | null = (cmd) =>
-  `/usr/local/bin/${cmd}`;
-(Bun as unknown as { which: (cmd: string) => string | null }).which = (cmd) =>
-  whichStub(cmd);
+const config = await installAcpConfigStub();
+const which = installWhichStub();
 
 afterAll(() => {
-  (Bun as unknown as { which: typeof originalWhich }).which = originalWhich;
+  which.restore();
 });
 
 mock.module("../../util/logger.js", () => ({
@@ -161,8 +130,8 @@ beforeEach(() => {
   execFileMock.mockClear();
   spawnMock.mockClear();
   _resetAdapterVersionCacheForTests();
-  mockConfig = structuredClone(defaultMockConfig);
-  whichStub = (cmd) => `/usr/local/bin/${cmd}`;
+  config.setConfig({ agents: DEFAULT_TEST_AGENTS });
+  which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
 });
 
 // ---------------------------------------------------------------------------
@@ -329,7 +298,7 @@ describe("executeAcpSpawn — input validation", () => {
   });
 
   test("acp disabled returns error with config hint", async () => {
-    mockConfig.acp.enabled = false;
+    config.setConfig({ enabled: false, agents: DEFAULT_TEST_AGENTS });
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
       makeContext(),
@@ -339,7 +308,7 @@ describe("executeAcpSpawn — input validation", () => {
   });
 
   test("missing binary returns install hint", async () => {
-    whichStub = () => null;
+    which.setWhich({});
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something" },
       makeContext(),
@@ -356,7 +325,7 @@ describe("executeAcpSpawn — input validation", () => {
     // No user `agents.codex` entry, but `agent: "codex"` works via the bundled
     // default profile (command: "codex-acp"). The resolver merges defaults
     // automatically.
-    mockConfig.acp.agents = {};
+    config.setConfig({ agents: {} });
     execScripts.set("npm ls", { error: new Error("npm not installed") });
     execScripts.set("npm view", { error: new Error("npm not installed") });
 

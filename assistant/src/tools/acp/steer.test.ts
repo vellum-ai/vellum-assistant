@@ -15,7 +15,13 @@ const defaultSteer = (acpSessionId: string, instruction: string) => {
 let steerImpl: (acpSessionId: string, instruction: string) => Promise<void> =
   defaultSteer;
 
+// Spread the real module's exports so transitive importers that pull other
+// names from `../../acp/index.js` (e.g. `broadcastToAllClients` from the
+// HTTP route layer) still resolve at parse time. Bun's `mock.module` is
+// process-global and returns *exactly* the keys the factory returns.
+const realAcpModule = await import("../../acp/index.js");
 mock.module("../../acp/index.js", () => ({
+  ...realAcpModule,
   getAcpSessionManager: () => ({
     steer: (acpSessionId: string, instruction: string) =>
       steerImpl(acpSessionId, instruction),
@@ -80,7 +86,8 @@ describe("executeAcpSteer", () => {
   });
 
   test("manager.steer throwing 'session not found' surfaces the error", async () => {
-    steerImpl = () => Promise.reject(new Error('ACP session "acp-x" not found'));
+    steerImpl = () =>
+      Promise.reject(new Error('ACP session "acp-x" not found'));
 
     const result = await executeAcpSteer(
       { acp_session_id: "acp-x", instruction: "redirect" },

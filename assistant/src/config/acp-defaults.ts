@@ -27,7 +27,7 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
 
 /**
  * Single source of truth for adapter binary → npm package name. Both the
- * version-check probe in `acp_spawn` and the install-hint generator below
+ * version-check probe in `acp_spawn` and the resolver's install-hint format
  * key off this map, so a new adapter only needs one entry here.
  *
  * Keyed by command name (not agent id) so the mapping follows the binary
@@ -38,19 +38,3 @@ export const DEFAULT_AGENT_NPM_PACKAGES: Readonly<Record<string, string>> =
     "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
     "codex-acp": "@zed-industries/codex-acp",
   });
-
-/**
- * Install hints for ACP adapter binaries, keyed by command name (not agent id).
- *
- * Derived from `DEFAULT_AGENT_NPM_PACKAGES` so adapter→package and
- * adapter→install-hint can never drift.
- */
-export const DEFAULT_AGENT_INSTALL_HINTS: Readonly<Record<string, string>> =
-  Object.freeze(
-    Object.fromEntries(
-      Object.entries(DEFAULT_AGENT_NPM_PACKAGES).map(([command, pkg]) => [
-        command,
-        `npm i -g ${pkg}`,
-      ]),
-    ),
-  );

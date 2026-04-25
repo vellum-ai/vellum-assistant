@@ -22,6 +22,9 @@ interface SessionEntry {
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
   cwd: string;
+  /** The adapter binary that was spawned. Used to gate resume hints to
+   *  the only adapter (claude-agent-acp) whose CLI accepts `--resume`. */
+  command: string;
 }
 
 export class AcpSessionManager {
@@ -105,6 +108,7 @@ export class AcpSessionManager {
       currentPrompt: null,
       parentConversationId,
       cwd,
+      command: agentConfig.command,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -299,9 +303,14 @@ export class AcpSessionManager {
             const agentLabel = current.state.agentId;
             const responseText = current.clientHandler.responseText;
             const sessionId = current.state.acpSessionId;
-            const notifyMessage =
-              `[ACP agent "${agentLabel}" completed]\n\n${responseText}\n\n` +
-              `To resume: cd ${current.cwd} && claude --resume ${sessionId}`;
+            // `claude --resume <id>` is Claude Code-specific (the
+            // claude-agent-acp adapter binary). Other adapters resume
+            // differently or not at all, so the hint is gated.
+            const resumeHint =
+              current.command === "claude-agent-acp"
+                ? `\n\nTo resume: cd ${current.cwd} && claude --resume ${sessionId}`
+                : "";
+            const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
             this.onAcpSessionFinished(
               current.parentConversationId,
               notifyMessage,

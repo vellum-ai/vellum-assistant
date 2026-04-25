@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { installAcpConfigStub } from "./__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "./__tests__/helpers/which-stub.js";
 
-const config = await installAcpConfigStub({ includeRealLoader: true });
+const config = await installAcpConfigStub();
 const which = installWhichStub();
 
 afterAll(() => {
@@ -232,7 +232,7 @@ describe("listAcpAgents", () => {
     expect(codex?.source).toBe("default");
   });
 
-  test("unavailable agent surfaces install hint from DEFAULT_AGENT_INSTALL_HINTS", () => {
+  test("unavailable agent surfaces install hint derived from DEFAULT_AGENT_NPM_PACKAGES", () => {
     config.setConfig({ agents: {} });
     which.setWhich({ "claude-agent-acp": "/usr/bin/claude-agent-acp" });
 
