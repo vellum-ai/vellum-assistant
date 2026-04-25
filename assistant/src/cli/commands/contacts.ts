@@ -23,7 +23,7 @@ import {
   redeemVoiceInviteCode,
   revokeIngressInvite,
 } from "../../runtime/invite-service.js";
-import { initializeDb } from "../db.js";
+import { connectDb } from "../db.js";
 import { writeOutput } from "../output.js";
 
 export function registerContactsCommand(program: Command): void {
@@ -98,7 +98,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          initializeDb();
+          connectDb();
           const role = opts.role as ContactRole | undefined;
           const limit = opts.limit ? Number(opts.limit) : undefined;
 
@@ -144,7 +144,7 @@ Examples:
     )
     .action(async (id: string, _opts: unknown, cmd: Command) => {
       try {
-        initializeDb();
+        connectDb();
         const contact = getContact(id);
         if (!contact) {
           writeOutput(cmd, { ok: false, error: "Contact not found" });
@@ -189,7 +189,7 @@ Examples:
     .action(
       async (keepId: string, mergeId: string, _opts: unknown, cmd: Command) => {
         try {
-          initializeDb();
+          connectDb();
           const contact = mergeContacts(keepId, mergeId);
           writeOutput(cmd, { ok: true, contact });
         } catch (err) {
@@ -249,7 +249,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          initializeDb();
+          connectDb();
 
           let channels: unknown[] | undefined;
           if (opts.channels) {
@@ -371,7 +371,7 @@ Examples:
             return;
           }
 
-          initializeDb();
+          connectDb();
 
           const existing = getChannelById(channelId);
           if (!existing) {
@@ -458,7 +458,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          initializeDb();
+          connectDb();
           const result = listIngressInvites({
             sourceChannel: opts.sourceChannel,
             status: opts.status,
@@ -557,7 +557,7 @@ Examples:
             process.exitCode = 1;
             return;
           }
-          initializeDb();
+          connectDb();
           const result = await createIngressInvite({
             sourceChannel: opts.sourceChannel,
             note: opts.note,
@@ -603,7 +603,7 @@ Examples:
     )
     .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
       try {
-        initializeDb();
+        connectDb();
         const result = revokeIngressInvite(inviteId);
         if (result.ok) {
           writeOutput(cmd, { ok: true, invite: result.data });
@@ -663,7 +663,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          initializeDb();
+          connectDb();
           if (opts.code) {
             if (!opts.callerExternalUserId) {
               writeOutput(cmd, {

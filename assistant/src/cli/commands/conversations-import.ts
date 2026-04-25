@@ -19,7 +19,7 @@ import {
   messages as messagesTable,
 } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
-import { initializeDb } from "../db.js";
+import { connectDb } from "../db.js";
 import { log } from "../logger.js";
 
 const importLog = getLogger("conversations-import");
@@ -324,7 +324,7 @@ Examples:
         return;
       }
 
-      initializeDb();
+      connectDb();
       const result = await importConversations(payload);
 
       if (opts.json) {

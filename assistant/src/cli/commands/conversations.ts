@@ -25,7 +25,7 @@ import {
 } from "../../memory/qdrant-client.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { timeAgo } from "../../util/time.js";
-import { initializeDb } from "../db.js";
+import { connectDb } from "../db.js";
 import { log } from "../logger.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
 import { registerConversationsImportCommand } from "./conversations-import.js";
@@ -75,7 +75,7 @@ Examples:
   $ assistant conversations list --include-archived`,
     )
     .action(async (opts?: { includeArchived?: boolean }) => {
-      initializeDb();
+      connectDb();
       const all = listConversations(
         Number.MAX_SAFE_INTEGER,
         false,
@@ -112,7 +112,7 @@ Examples:
     )
     .action(async (title?: string) => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-      initializeDb();
+      connectDb();
       const conversation = createConversation(title);
       log.info(
         `Created conversation: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
@@ -200,7 +200,7 @@ Examples:
         conversationId?: string,
         opts?: { format: string; output?: string },
       ) => {
-        initializeDb();
+        connectDb();
         const format = opts?.format ?? "md";
         if (format !== "md" && format !== "json") {
           log.error('Error: format must be "md" or "json"');
@@ -295,7 +295,7 @@ Examples:
         return;
       }
 
-      initializeDb();
+      connectDb();
       const result = clearAllConversations();
       log.info(
         `Cleared ${result.conversations} conversations, ${result.messages} messages`,
@@ -347,7 +347,7 @@ Examples:
   $ assistant conversations wipe abc123 --yes`,
     )
     .action(async (conversationId: string, opts?: { yes?: boolean }) => {
-      initializeDb();
+      connectDb();
 
       // Resolve conversation with prefix matching (same pattern as `export`)
       let conversation = getConversation(conversationId);
