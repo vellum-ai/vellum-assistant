@@ -3626,6 +3626,9 @@ describe("Permission Checker", () => {
 
     describe("Invariant 6: user can set broad rules if they choose", () => {
       test("wildcard allow rule matches any command in workspace mode", async () => {
+        mockRisk("medium", {
+          commandCandidates: ["curl https://example.com", "action:curl"],
+        });
         testConfig.permissions.mode = "workspace";
         addRule("bash", "*", "everywhere");
         // Use curl (medium risk) since chmod is now high-risk and
@@ -3640,6 +3643,9 @@ describe("Permission Checker", () => {
       });
 
       test("wildcard allow rule matches any command in strict mode", async () => {
+        mockRisk("medium", {
+          commandCandidates: ["curl https://example.com", "action:curl"],
+        });
         testConfig.permissions.mode = "strict";
         addRule("bash", "*", "everywhere");
         // Use curl (medium risk) since chmod is now high-risk and
@@ -3905,6 +3911,9 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 
   test("proxied bash with matching allow rule in strict mode is allowed", async () => {
+    mockRisk("low", {
+      commandCandidates: ["curl https://api.example.com", "action:curl"],
+    });
     testConfig.permissions = { mode: "strict" };
     addRule("bash", "*", "everywhere");
     const result = await check(
@@ -4288,6 +4297,9 @@ describe("shell command candidates wiring (PR 04)", () => {
   });
 
   test("action key rule matches simple shell command", async () => {
+    mockRisk("low", {
+      commandCandidates: ["gh pr view 5525 --json title", "action:gh pr view"],
+    });
     clearCache();
     addRule("bash", "action:gh pr view", "everywhere");
     const result = await check(
