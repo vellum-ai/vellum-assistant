@@ -74,6 +74,32 @@
       },
       "executor": "tools/acp-abort.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "acp_steer",
+      "description": "**Interrupts** the in-flight prompt of a running ACP session and replaces it with `instruction`. Use to redirect the agent (e.g., 'stop, do X instead'). For follow-up work that should happen *after* the current task, do NOT use this — wait for `acp_session_completed` and `acp_spawn` again.",
+      "category": "orchestration",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "acp_session_id": {
+            "type": "string",
+            "description": "The ID of the ACP session to steer."
+          },
+          "instruction": {
+            "type": "string",
+            "description": "The new instruction that replaces the in-flight prompt."
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief explanation of why this tool is being called"
+          }
+        },
+        "required": ["acp_session_id", "instruction"]
+      },
+      "executor": "tools/acp-steer.ts",
+      "execution_target": "host"
     }
   ]
 }
