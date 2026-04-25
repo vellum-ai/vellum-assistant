@@ -676,8 +676,8 @@ export async function runAgentLoopImpl(
         assistantMessageInterface: origin,
       };
     return {
-      userMessageInterface: "vellum" as InterfaceId,
-      assistantMessageInterface: "vellum" as InterfaceId,
+      userMessageInterface: "web" as InterfaceId,
+      assistantMessageInterface: "web" as InterfaceId,
     };
   })();
 
