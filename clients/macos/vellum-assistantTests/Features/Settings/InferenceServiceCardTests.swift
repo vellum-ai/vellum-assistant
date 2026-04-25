@@ -20,37 +20,22 @@ final class InferenceServiceCardTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        mockSettingsClient = MockSettingsClient()
-        mockSettingsClient.patchConfigResponse = true
-        store = SettingsStore(settingsClient: mockSettingsClient)
+        // Tiny deterministic catalog so provider/model lookups are stable.
+        let fixture = SettingsTestFixture.make(
+            providerCatalog: SettingsTestFixture.anthropicAndOpenAICatalog(
+                anthropicApiKeyPlaceholder: "sk-ant-...",
+                openaiApiKeyPlaceholder: "sk-..."
+            )
+        )
+        store = fixture.store
+        mockSettingsClient = fixture.mockClient
         authManager = AuthManager()
         apiKeyTextBox = ApiKeyTextBox()
-        // Tiny deterministic catalog so provider/model lookups are stable.
-        store.providerCatalog = [
-            ProviderCatalogEntry(
-                id: "anthropic",
-                displayName: "Anthropic",
-                models: [
-                    CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
-                    CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
-                ],
-                defaultModel: "claude-sonnet-4-6",
-                apiKeyUrl: nil,
-                apiKeyPlaceholder: "sk-ant-..."
-            ),
-            ProviderCatalogEntry(
-                id: "openai",
-                displayName: "OpenAI",
-                models: [
-                    CatalogModel(id: "gpt-5", displayName: "GPT-5"),
-                ],
-                defaultModel: "gpt-5",
-                apiKeyUrl: nil,
-                apiKeyPlaceholder: "sk-..."
-            ),
-        ]
         // Seed three built-in profiles so the Active Profile dropdown has
-        // real options in tests.
+        // real options in tests. Inlined rather than reusing
+        // `SettingsTestFixture.builtInProfilesPayload` because the card's
+        // dropdown only reads provider+model — the detailed fragment
+        // (maxTokens/effort/thinking) doesn't affect this surface.
         store.loadInferenceProfiles(config: [
             "llm": [
                 "activeProfile": "balanced",

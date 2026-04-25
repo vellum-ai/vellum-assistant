@@ -19,25 +19,13 @@ final class InferenceProfilesSheetTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        mockSettingsClient = MockSettingsClient()
-        mockSettingsClient.patchConfigResponse = true
-        store = SettingsStore(settingsClient: mockSettingsClient)
         // Tiny deterministic catalog so summary lookups produce stable
         // human-readable strings without depending on the live registry.
-        store.providerCatalog = [
-            ProviderCatalogEntry(
-                id: "anthropic",
-                displayName: "Anthropic",
-                models: [
-                    CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
-                    CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
-                    CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
-                ],
-                defaultModel: "claude-sonnet-4-6",
-                apiKeyUrl: nil,
-                apiKeyPlaceholder: nil
-            ),
-        ]
+        let fixture = SettingsTestFixture.make(
+            providerCatalog: SettingsTestFixture.anthropicWithHaikuCatalog
+        )
+        store = fixture.store
+        mockSettingsClient = fixture.mockClient
     }
 
     override func tearDown() {
@@ -51,29 +39,7 @@ final class InferenceProfilesSheetTests: XCTestCase {
     /// Seeds the store with the three canonical built-in profiles plus an
     /// optional custom one. Mirrors the daemon's migration-052 seed shape.
     private func seedBuiltInsAndCustom(includeCustom: Bool = false) {
-        var profiles: [String: Any] = [
-            "quality-optimized": [
-                "provider": "anthropic",
-                "model": "claude-opus-4-7",
-                "maxTokens": 32000,
-                "effort": "max",
-                "thinking": ["enabled": true, "streamThinking": true],
-            ],
-            "balanced": [
-                "provider": "anthropic",
-                "model": "claude-sonnet-4-6",
-                "maxTokens": 16000,
-                "effort": "high",
-                "thinking": ["enabled": true, "streamThinking": true],
-            ],
-            "cost-optimized": [
-                "provider": "anthropic",
-                "model": "claude-haiku-4-5-20251001",
-                "maxTokens": 8192,
-                "effort": "low",
-                "thinking": ["enabled": false, "streamThinking": false],
-            ],
-        ]
+        var profiles = SettingsTestFixture.builtInProfilesPayload
         if includeCustom {
             profiles["experimental"] = [
                 "provider": "anthropic",
