@@ -312,6 +312,7 @@ jobs:
           path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
           retention-days: 30
           if-no-files-found: error
+          overwrite: true
 
       - name: Create DMG
         working-directory: clients/macos
