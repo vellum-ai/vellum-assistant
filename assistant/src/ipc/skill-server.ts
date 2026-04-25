@@ -159,9 +159,13 @@ export interface SkillIpcConnection {
    */
   addRouteHandle(skillId: string, handle: SkillRouteHandle): void;
   /**
-   * Mark a skill id as having registered tools on this connection. On
-   * disconnect the server calls `unregisterSkillTools(skillId)` once per
-   * tracked id so the ref-counted tool registry drops the contribution.
+   * Record that this connection registered tools for `skillId`. The tool
+   * registry's `registerSkillTools` increments its internal refcount on
+   * every call, so each register_tools frame must be paired with exactly
+   * one `unregisterSkillTools` on disconnect — a deduplicated Set would
+   * leak the extra increments and pin stale proxies in the registry. On
+   * teardown the server calls `unregisterSkillTools(skillId)` once per
+   * recorded registration.
    */
   addSkillToolsOwner(skillId: string): void;
 }
@@ -177,7 +181,14 @@ class SkillIpcConnectionState implements SkillIpcConnection {
   readonly connectionId: string;
   readonly socket: Socket;
   private routeHandlesBySkill = new Map<string, SkillRouteHandle[]>();
-  private skillToolOwners = new Set<string>();
+  /**
+   * Per-skill registration counts. `registerSkillTools` increments the
+   * tool-registry refcount on every call; storing a count (rather than a
+   * deduplicated Set) lets `dispose()` issue the matching number of
+   * `unregisterSkillTools` calls so a connection that registered tools in
+   * multiple batches doesn't leak refcount on disconnect.
+   */
+  private skillToolOwnerCounts = new Map<string, number>();
   /**
    * Pending daemon-initiated requests keyed by `d:<n>` id. Cleared on
    * connection teardown so callers never see a hung promise.
@@ -202,7 +213,10 @@ class SkillIpcConnectionState implements SkillIpcConnection {
   }
 
   addSkillToolsOwner(skillId: string): void {
-    this.skillToolOwners.add(skillId);
+    this.skillToolOwnerCounts.set(
+      skillId,
+      (this.skillToolOwnerCounts.get(skillId) ?? 0) + 1,
+    );
   }
 
   dispose(): void {
@@ -219,17 +233,19 @@ class SkillIpcConnectionState implements SkillIpcConnection {
       }
     }
     this.routeHandlesBySkill.clear();
-    for (const skillId of this.skillToolOwners) {
-      try {
-        unregisterSkillTools(skillId);
-      } catch (err) {
-        log.warn(
-          { err, connectionId: this.connectionId, skillId },
-          "skill IPC disconnect: failed to unregister skill tools",
-        );
+    for (const [skillId, count] of this.skillToolOwnerCounts) {
+      for (let i = 0; i < count; i++) {
+        try {
+          unregisterSkillTools(skillId);
+        } catch (err) {
+          log.warn(
+            { err, connectionId: this.connectionId, skillId },
+            "skill IPC disconnect: failed to unregister skill tools",
+          );
+        }
       }
     }
-    this.skillToolOwners.clear();
+    this.skillToolOwnerCounts.clear();
     // Reject every in-flight daemon-initiated request so callers don't
     // hang on a dropped peer. The socket's "close" listener fires before
     // dispose() in the normal path, but defending here keeps behavior

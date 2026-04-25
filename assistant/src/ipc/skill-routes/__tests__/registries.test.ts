@@ -86,6 +86,7 @@ describe("host.registries.register_tools", () => {
           input_schema: { type: "object" },
           defaultRiskLevel: "medium",
           category: "skill",
+          ownerSkillId: "stub-skill",
         },
       ],
     });
@@ -308,6 +309,7 @@ describe("lazy-external short-circuit", () => {
             input_schema: {},
             defaultRiskLevel: "low",
             category: "skill",
+            ownerSkillId: "demo-skill",
           },
         ],
       },

@@ -1098,8 +1098,11 @@ export class SkillHostClient implements SkillHost {
         );
         // The `handler` closure cannot cross IPC; the daemon side installs
         // a proxy that dispatches back over `skill.dispatch_route` (PR D).
+        // `patternFlags` ships separately so `i/m/g/s/u/y` survive the
+        // RegExp → string round-trip — `new RegExp(source)` alone drops them.
         this.call("host.registries.register_skill_route", {
           patternSource: route.pattern.source,
+          patternFlags: route.pattern.flags,
           methods: route.methods,
         }).catch(swallow);
         // The contract models the handle as a branded opaque object — we

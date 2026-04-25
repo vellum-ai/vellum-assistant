@@ -53,7 +53,10 @@ const ToolManifestSchema = z.object({
   category: z.string().min(1),
   executionTarget: z.enum(["sandbox", "host"]).optional(),
   executionMode: z.enum(["local", "proxy"]).optional(),
-  ownerSkillId: z.string().optional(),
+  // Required so disconnect can decrement the tool-registry refcount: a
+  // tool registered without an owner has no ref-counted entry to drop and
+  // would leak into the global registry on socket close.
+  ownerSkillId: z.string().min(1),
   ownerSkillBundled: z.boolean().optional(),
   ownerSkillVersionHash: z.string().optional(),
 });
@@ -237,6 +240,9 @@ async function handleRegisterTools(
   // `registerSkillTools` into the live registry the agent-loop reads from.
   const accepted = registerSkillTools(proxies);
 
+  // `registerSkillTools` increments the registry refcount once per unique
+  // ownerSkillId in the batch; mirror that on the connection so disconnect
+  // issues exactly the matching number of decrements.
   if (conn) {
     const ownerIds = new Set<string>();
     for (const tool of accepted) {
