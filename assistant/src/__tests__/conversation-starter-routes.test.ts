@@ -10,6 +10,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { getSqlite, initializeDb } from "../memory/db.js";
+import type { RouteParams } from "../runtime/http-router.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
   conversationStarterRouteDefinitions,
@@ -30,7 +31,7 @@ function dispatch(path: string, method = "GET"): Response | Promise<Response> {
         r.endpoint === "conversation-starters/:id"),
   );
   if (!route) throw new Error("No conversation-starters route found");
-  const params =
+  const params: RouteParams =
     method === "DELETE"
       ? { id: decodeURIComponent(path.split("/").at(-1) ?? "") }
       : {};
@@ -380,10 +381,10 @@ describe("GET /v1/conversation-starters", () => {
 
   test("returns 404 when deleting an unknown starter", async () => {
     const res = await dispatch(`conversation-starters/${uuid()}`, "DELETE");
-    const body = (await res.json()) as { error: string };
+    const body = (await res.json()) as { error: { code: string } };
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("NOT_FOUND");
+    expect(body.error.code).toBe("NOT_FOUND");
     expect(countStarterJobs()).toBe(0);
   });
 });
