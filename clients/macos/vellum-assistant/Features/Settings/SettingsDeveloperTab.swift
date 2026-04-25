@@ -190,8 +190,9 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
-            .padding(VSpacing.xxl)
+            .padding(VSpacing.lg)
             .frame(minWidth: 260)
+            .background(VColor.surfaceLift)
             .interactiveDismissDisabled()
         }
         .sheet(isPresented: $isRetiring) {
@@ -206,8 +207,9 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
-            .padding(VSpacing.xxl)
+            .padding(VSpacing.lg)
             .frame(minWidth: 260)
+            .background(VColor.surfaceLift)
             .interactiveDismissDisabled()
         }
         .sheet(isPresented: $showingEnvVars) {
