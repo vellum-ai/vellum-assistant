@@ -4,8 +4,10 @@ import VellumAssistantShared
 /// Single editable row in `CallSiteOverridesSheet`. Renders a call site's
 /// display name plus a compact summary, an "Override default" toggle, and
 /// — when the toggle is ON — a profile picker. Most rows pick a named
-/// inference profile; the `"Custom"` sentinel reveals the legacy
-/// provider+model form for one-off overrides that don't fit any profile.
+/// inference profile; a `"Custom"` entry (backed by an internal sentinel
+/// value so it can't collide with a user-chosen profile name) reveals the
+/// legacy provider+model form for one-off overrides that don't fit any
+/// profile.
 ///
 /// State ownership:
 /// - The `draft` binding is the row's working copy. The parent sheet owns
@@ -44,10 +46,14 @@ struct CallSiteOverrideRow: View {
     /// shows configured rows expanded but leaves untouched rows collapsed.
     @State private var isExpanded: Bool = false
 
-    /// Sentinel value used in the profile picker to surface the legacy
-    /// provider+model form. Selecting it keeps the row in raw-fragment
-    /// mode; the existing Save button persists the fragment.
-    static let customSentinel = "Custom"
+    /// Internal sentinel value used in the profile picker to surface the
+    /// legacy provider+model form. Selecting it keeps the row in
+    /// raw-fragment mode; the existing Save button persists the fragment.
+    /// The picker option is labeled "Custom" — this underscore-prefixed
+    /// value exists only to disambiguate from any user-created profile
+    /// that happens to be named "Custom".
+    static let customSentinel = "__custom__"
+    static let customLabel = "Custom"
 
     // MARK: - Computed State
 
@@ -92,15 +98,19 @@ struct CallSiteOverrideRow: View {
     }
 
     /// Computes the profile picker's current value from the draft's state.
-    /// Returns the profile name when set, `"Custom"` when raw
-    /// provider/model fields are populated without a profile, or `""`
-    /// when no override is active.
+    /// Returns the Custom sentinel when raw provider/model fragment fields
+    /// are set (even alongside a profile, since `resolveCallSiteConfig`
+    /// applies fragments after profile layering and they would silently
+    /// shadow the named profile at runtime — surfacing them as Custom
+    /// keeps the editor honest about what will actually run), the profile
+    /// name when only a profile is set, or `""` when no override is
+    /// active.
     static func profilePickerValue(for draft: CallSiteOverride) -> String {
-        if let profile = draft.profile, !profile.isEmpty {
-            return profile
-        }
         if draft.provider != nil || draft.model != nil {
             return Self.customSentinel
+        }
+        if let profile = draft.profile, !profile.isEmpty {
+            return profile
         }
         return ""
     }
@@ -171,6 +181,11 @@ struct CallSiteOverrideRow: View {
                             if !draft.hasOverride {
                                 if let firstProfile = profiles.first {
                                     draft.profile = firstProfile.name
+                                    // The per-row Save button is hidden in
+                                    // profile mode, so persist immediately
+                                    // — otherwise the auto-selection is
+                                    // lost when the sheet closes.
+                                    onSelectProfile(firstProfile.name)
                                 } else {
                                     seedCustomFragment()
                                 }
@@ -267,7 +282,7 @@ struct CallSiteOverrideRow: View {
                     }
                 ),
                 options: profiles.map { (label: $0.name, value: $0.name) }
-                    + [(label: Self.customSentinel, value: Self.customSentinel)]
+                    + [(label: Self.customLabel, value: Self.customSentinel)]
             )
         }
     }
