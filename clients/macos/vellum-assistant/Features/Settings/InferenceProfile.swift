@@ -78,6 +78,24 @@ public struct InferenceProfile: Codable, Hashable, Identifiable {
         self.thinkingStreamThinking = thinking?["streamThinking"] as? Bool
     }
 
+    /// Returns a copy of `self` with every non-nil field on `fragment`
+    /// applied on top — mirrors the daemon's deep-merge semantics for
+    /// `llm.profiles.<name>` patches so the local cache stays in sync
+    /// with what the daemon will store after a partial-update PATCH.
+    public func merging(_ fragment: InferenceProfile) -> InferenceProfile {
+        var merged = self
+        if let v = fragment.provider { merged.provider = v }
+        if let v = fragment.model { merged.model = v }
+        if let v = fragment.maxTokens { merged.maxTokens = v }
+        if let v = fragment.effort { merged.effort = v }
+        if let v = fragment.speed { merged.speed = v }
+        if let v = fragment.verbosity { merged.verbosity = v }
+        if let v = fragment.temperature { merged.temperature = v }
+        if let v = fragment.thinkingEnabled { merged.thinkingEnabled = v }
+        if let v = fragment.thinkingStreamThinking { merged.thinkingStreamThinking = v }
+        return merged
+    }
+
     /// Encodes the profile as a fragment JSON dictionary suitable for
     /// `settingsClient.patchConfig`. Nil keys are omitted; the nested
     /// `thinking` dict is emitted only when at least one of its

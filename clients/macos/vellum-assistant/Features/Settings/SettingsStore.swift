@@ -3231,11 +3231,14 @@ public final class SettingsStore: ObservableObject {
             "llm": ["profiles": [name: fragment.toJSON()]]
         ])
         if success {
-            var copy = fragment
-            copy.name = name
             if let index = profiles.firstIndex(where: { $0.name == name }) {
-                profiles[index] = copy
+                // Daemon deep-merges the patch (toJSON omits nil fields).
+                // Mirror that locally so fields the fragment leaves nil
+                // retain whatever the daemon already had.
+                profiles[index] = profiles[index].merging(fragment)
             } else {
+                var copy = fragment
+                copy.name = name
                 profiles.append(copy)
                 profiles.sort { $0.name < $1.name }
             }
