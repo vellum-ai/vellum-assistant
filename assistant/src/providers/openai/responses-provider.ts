@@ -66,6 +66,7 @@ interface ResponsesStreamEvent {
       input_tokens?: number;
       output_tokens?: number;
       output_tokens_details?: { reasoning_tokens?: number };
+      input_tokens_details?: { cached_tokens?: number };
     };
   };
 }
@@ -199,6 +200,7 @@ export class OpenAIResponsesProvider implements Provider {
       let inputTokens = 0;
       let outputTokens = 0;
       let reasoningTokens = 0;
+      let cachedInputTokens = 0;
       let rawFinalResponse: unknown = undefined;
 
       try {
@@ -296,6 +298,8 @@ export class OpenAIResponsesProvider implements Provider {
                   outputTokens = response.usage.output_tokens ?? 0;
                   reasoningTokens =
                     response.usage.output_tokens_details?.reasoning_tokens ?? 0;
+                  cachedInputTokens =
+                    response.usage.input_tokens_details?.cached_tokens ?? 0;
                 }
                 finishReason = response.status ?? "completed";
               }
@@ -365,6 +369,9 @@ export class OpenAIResponsesProvider implements Provider {
           inputTokens,
           outputTokens,
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
+          ...(cachedInputTokens > 0
+            ? { cacheReadInputTokens: cachedInputTokens }
+            : {}),
         },
         stopReason,
         rawRequest: params,

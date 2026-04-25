@@ -181,6 +181,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       let promptTokens = 0;
       let completionTokens = 0;
       let reasoningTokens = 0;
+      let cachedPromptTokens = 0;
 
       try {
         const stream = await this.client.chat.completions.create(params, {
@@ -215,12 +216,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
           if (chunk.usage) {
             promptTokens = chunk.usage.prompt_tokens;
             completionTokens = chunk.usage.completion_tokens;
-            const details = (
+            const completionDetails = (
               chunk.usage as {
                 completion_tokens_details?: { reasoning_tokens?: number };
               }
             ).completion_tokens_details;
-            reasoningTokens = details?.reasoning_tokens ?? 0;
+            reasoningTokens = completionDetails?.reasoning_tokens ?? 0;
+            const promptDetails = (
+              chunk.usage as {
+                prompt_tokens_details?: { cached_tokens?: number };
+              }
+            ).prompt_tokens_details;
+            cachedPromptTokens = promptDetails?.cached_tokens ?? 0;
           }
 
           responseModel = chunk.model;
@@ -279,6 +286,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 },
               }
             : {}),
+          ...(cachedPromptTokens > 0
+            ? {
+                prompt_tokens_details: {
+                  cached_tokens: cachedPromptTokens,
+                },
+              }
+            : {}),
         },
       };
 
@@ -289,6 +303,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
           inputTokens: promptTokens,
           outputTokens: completionTokens,
           ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
+          ...(cachedPromptTokens > 0
+            ? { cacheReadInputTokens: cachedPromptTokens }
+            : {}),
         },
         stopReason: finishReason,
         rawRequest: params,

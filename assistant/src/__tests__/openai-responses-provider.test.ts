@@ -133,6 +133,7 @@ function completedEvent(
   outputTokens: number,
   opts?: {
     reasoningTokens?: number;
+    cachedTokens?: number;
     model?: string;
     status?: string;
     output?: unknown[];
@@ -155,6 +156,9 @@ function completedEvent(
         output_tokens_details: {
           reasoning_tokens: opts?.reasoningTokens ?? 0,
         },
+        ...(opts?.cachedTokens
+          ? { input_tokens_details: { cached_tokens: opts.cachedTokens } }
+          : {}),
       },
     },
   };
@@ -462,6 +466,40 @@ describe("OpenAIResponsesProvider", () => {
 
     expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(result.usage).not.toHaveProperty("reasoningTokens");
+  });
+
+  // -----------------------------------------------------------------------
+  // Cached input tokens (prompt caching)
+  // -----------------------------------------------------------------------
+  test("maps cached input tokens to cacheReadInputTokens", async () => {
+    // OpenAI's input_tokens already includes the cached portion, so the
+    // normalized inputTokens stays at the API value and the cached subset
+    // surfaces separately as cacheReadInputTokens. Downstream code derives
+    // directInputTokens by subtracting cache read/creation from inputTokens.
+    fakeStreamEvents = [
+      textDeltaEvent("Cached reply"),
+      completedEvent(50_648, 114, { cachedTokens: 49_536 }),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 50_648,
+      outputTokens: 114,
+      cacheReadInputTokens: 49_536,
+    });
+  });
+
+  test("omits cacheReadInputTokens when no cached tokens", async () => {
+    fakeStreamEvents = [textDeltaEvent("Fresh reply"), completedEvent(10, 5)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).not.toHaveProperty("cacheReadInputTokens");
   });
 
   // -----------------------------------------------------------------------

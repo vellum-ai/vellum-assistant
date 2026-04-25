@@ -37,6 +37,9 @@ interface FakeChunk {
     completion_tokens_details?: {
       reasoning_tokens?: number;
     };
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
   } | null;
   model: string;
 }
@@ -177,6 +180,25 @@ function reasoningUsageChunk(
       total_tokens: prompt + completion,
       completion_tokens_details: {
         reasoning_tokens: reasoning,
+      },
+    },
+    model: "gpt-5.2",
+  };
+}
+
+function cachedUsageChunk(
+  prompt: number,
+  completion: number,
+  cached: number,
+): FakeChunk {
+  return {
+    choices: [{ delta: {}, finish_reason: "stop" }],
+    usage: {
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: prompt + completion,
+      prompt_tokens_details: {
+        cached_tokens: cached,
       },
     },
     model: "gpt-5.2",
@@ -963,6 +985,45 @@ describe("OpenAIProvider", () => {
     // rawResponse should not include completion_tokens_details
     const rawUsage = (result.rawResponse as any).usage;
     expect(rawUsage).not.toHaveProperty("completion_tokens_details");
+  });
+
+  // -----------------------------------------------------------------------
+  // Cached input tokens (prompt caching)
+  // -----------------------------------------------------------------------
+  test("maps cached prompt tokens to cacheReadInputTokens", async () => {
+    // OpenAI's prompt_tokens already includes the cached portion, so the
+    // normalized inputTokens stays at the API value and the cached subset
+    // surfaces separately as cacheReadInputTokens.
+    fakeChunks = [
+      textChunk("Cached reply"),
+      cachedUsageChunk(50_648, 114, 49_536),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 50_648,
+      outputTokens: 114,
+      cacheReadInputTokens: 49_536,
+    });
+
+    const rawUsage = (result.rawResponse as any).usage;
+    expect(rawUsage.prompt_tokens_details).toEqual({ cached_tokens: 49_536 });
+  });
+
+  test("omits cacheReadInputTokens when no cached tokens", async () => {
+    fakeChunks = [textChunk("Fresh reply"), usageChunk(10, 5)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).not.toHaveProperty("cacheReadInputTokens");
+
+    const rawUsage = (result.rawResponse as any).usage;
+    expect(rawUsage).not.toHaveProperty("prompt_tokens_details");
   });
 
   // -----------------------------------------------------------------------
