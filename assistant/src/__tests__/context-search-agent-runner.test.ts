@@ -251,7 +251,109 @@ describe("runAgenticRecall", () => {
     ]);
   });
 
-  test("falls back when the provider exhausts the round budget", async () => {
+  test("seeds indirect referent queries with broad object searches", async () => {
+    const searchCalls: SearchCall[] = [];
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer:
+          "Bob's question points to Alice's office birthday cake, with a caveat that the exact referent was initially unresolved.",
+        confidence: "medium",
+        citation_ids: ["workspace:referent", "workspace:cake"],
+        unresolved: ["Bob did not explicitly restate which cake he meant."],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      {
+        query: "the cake Bob asked about",
+        sources: ["workspace"],
+        max_results: 5,
+      },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter(
+              {
+                "the cake Bob asked about": [
+                  makeEvidence("workspace:referent", {
+                    excerpt:
+                      "Bob asked whether the shirt and the cake were Alice's way of sending something into the room.",
+                  }),
+                ],
+                cake: [
+                  makeEvidence("workspace:cake", {
+                    excerpt:
+                      "The office birthday cake had raspberry filling and a message from Alice.",
+                  }),
+                ],
+              },
+              searchCalls,
+            ),
+          ],
+        },
+      },
+    );
+
+    expect(searchCalls.map((call) => call.query)).toEqual([
+      "the cake Bob asked about",
+      "cake",
+      "cake bob",
+      "cake paid delivery design inscription flavor message",
+    ]);
+    expect(result.content).toContain("Alice's office birthday cake");
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "workspace:referent",
+      "workspace:cake",
+    ]);
+  });
+
+  test("preserves direct recall for shirt evidence", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("finish_recall", {
+        answer:
+          "The Property of Example Assistant shirt was black with a pink Cormorant wordmark, deployed on Apr 24 and revealed to Bob's parents.",
+        confidence: "high",
+        citation_ids: ["workspace:shirt", "workspace:shirt-context"],
+      }),
+    ]);
+
+    const result = await runAgenticRecall(
+      {
+        query: "Property of Example Assistant shirt",
+        sources: ["workspace"],
+        max_results: 5,
+      },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({
+              "Property of Example Assistant shirt": [
+                makeEvidence("workspace:shirt", {
+                  excerpt:
+                    "Property of Example Assistant shirt: black shirt with pink Cormorant wordmark.",
+                }),
+                makeEvidence("workspace:shirt-context", {
+                  excerpt:
+                    "The Apr 24 deployment included Bob and the parents reveal context.",
+                }),
+              ],
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(result.content).toContain("black");
+    expect(result.content).toContain("pink Cormorant wordmark");
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "workspace:shirt",
+      "workspace:shirt-context",
+    ]);
+  });
+
+  test("makes a final finish-only call when search exhausts the round budget", async () => {
     const providerCalls: unknown[][] = [];
     configuredProvider = makeProvider(
       [
@@ -259,6 +361,12 @@ describe("runAgenticRecall", () => {
           query: "more notes",
           sources: ["workspace"],
           reason: "Need more.",
+        }),
+        toolResponse("finish_recall", {
+          answer: "The follow-up note resolves it.",
+          confidence: "medium",
+          citation_ids: ["workspace:more"],
+          unresolved: ["The original seed only named the topic."],
         }),
       ],
       providerCalls,
@@ -279,18 +387,19 @@ describe("runAgenticRecall", () => {
       },
     );
 
-    expect(providerCalls).toHaveLength(1);
+    expect(providerCalls).toHaveLength(2);
     expect(result.debug.roundLimit).toBe(1);
     expect(result.debug.roundsUsed).toBe(1);
-    expect(result.debug).toMatchObject({
-      mode: "deterministic_fallback",
-      fallbackReason: "round_limit",
+    expect(result.debug.mode).toBe("agentic");
+    expect(result.debug.finish).toEqual({
+      confidence: "medium",
+      citationIds: ["workspace:more"],
+      unresolved: ["The original seed only named the topic."],
     });
-    expect(result.evidence.map((item) => item.id)).toEqual([
-      "workspace:seed",
-      "workspace:more",
-    ]);
-    expect(result.content).toContain("workspace:more excerpt");
+    const finalTools = providerCalls[1]?.[1] as Array<{ name: string }>;
+    expect(finalTools.map((tool) => tool.name)).toEqual(["finish_recall"]);
+    expect(result.evidence.map((item) => item.id)).toEqual(["workspace:more"]);
+    expect(result.content).toBe("The follow-up note resolves it.");
   });
 
   test("rejects finish citations omitted from the prompted evidence table", async () => {

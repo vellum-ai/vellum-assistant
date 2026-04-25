@@ -1,11 +1,13 @@
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type {
   Message,
+  Provider,
   ProviderResponse,
   ToolUseContent,
 } from "../../providers/types.js";
 import {
   buildRecallAgentPromptBundle,
+  FINISH_RECALL_TOOL_DEFINITION,
   RECALL_AGENT_TOOL_DEFINITIONS,
   validateFinishRecallPayload,
 } from "./agent-protocol.js";
@@ -73,6 +75,71 @@ export interface RunAgenticRecallOptions {
   searchOptions?: DeterministicRecallSearchOptions;
 }
 
+const REFERENT_QUERY_PATTERN =
+  /\b(asked about|referred to|talking about|mentioned|meant by|referent)\b/i;
+const DETAIL_QUERY_PATTERN =
+  /\b(details?|specifics?|flavor|decoration|design|message|inscription|recipient|timing|plan)\b/i;
+
+const DETAIL_EXPANSION_TERMS = [
+  "paid",
+  "delivery",
+  "design",
+  "inscription",
+  "flavor",
+  "message",
+];
+
+const DETAIL_FIELD_TERMS = new Set([
+  "decoration",
+  "design",
+  "details",
+  "detail",
+  "flavor",
+  "inscription",
+  "message",
+  "recipient",
+  "specifics",
+  "timing",
+  "plan",
+]);
+
+const NON_SALIENT_REFERENT_TERMS = new Set([
+  "a",
+  "about",
+  "and",
+  "any",
+  "asked",
+  "by",
+  "did",
+  "does",
+  "find",
+  "for",
+  "from",
+  "is",
+  "it",
+  "me",
+  "mean",
+  "meant",
+  "mention",
+  "mentioned",
+  "of",
+  "on",
+  "or",
+  "referent",
+  "referred",
+  "that",
+  "the",
+  "to",
+  "was",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "with",
+]);
+
 export async function runAgenticRecall(
   input: RecallInput,
   context: RecallSearchContext,
@@ -91,8 +158,8 @@ export async function runAgenticRecall(
 
   const provider = await getConfiguredProvider("recall");
   if (!provider) {
-    const fallbackResult = await runDeterministicRecallSearch(
-      toRecallInput(normalizedInput),
+    const fallbackResult = await runSeedRecallSearch(
+      normalizedInput,
       context,
       options.searchOptions,
     );
@@ -105,8 +172,8 @@ export async function runAgenticRecall(
     );
   }
 
-  const seedResult = await runDeterministicRecallSearch(
-    toRecallInput(normalizedInput),
+  const seedResult = await runSeedRecallSearch(
+    normalizedInput,
     context,
     options.searchOptions,
   );
@@ -143,33 +210,20 @@ export async function runAgenticRecall(
     const toolUses = extractToolUses(response);
     const finishTool = toolUses.find((tool) => tool.name === "finish_recall");
     if (finishTool) {
-      const validation = validateFinishRecallPayload(
-        finishTool.input,
+      const finishResult = finishRecallFromToolUse(
+        finishTool,
         promptBundle.evidence,
+        debug,
       );
-      if (!validation.ok) {
-        fallbackReason = "citation_validation_failed";
-        fallbackDetail = validation.reason;
-        break;
+      if (finishResult.ok) {
+        return finishResult.answer;
       }
 
-      const finish = validation.finish;
-      const citedEvidence = selectCitedEvidence(
-        promptBundle.evidence,
-        finish.citationIds,
-      );
-      debug.finish = {
-        confidence: finish.confidence,
-        citationIds: finish.citationIds,
-        ...(finish.unresolved ? { unresolved: finish.unresolved } : {}),
-      };
-
-      return {
-        content: finish.answer,
-        answer: finish.answer,
-        evidence: citedEvidence,
-        debug,
-      };
+      if (!finishResult.ok) {
+        fallbackReason = "citation_validation_failed";
+        fallbackDetail = finishResult.detail;
+        break;
+      }
     }
 
     const searchTools = toolUses.filter(
@@ -208,6 +262,21 @@ export async function runAgenticRecall(
     }
   }
 
+  if (fallbackReason === "round_limit") {
+    const finalFinish = await tryFinalFinishRecall({
+      provider,
+      normalizedInput,
+      evidence,
+      debug,
+      context,
+    });
+    if (finalFinish.ok) {
+      return finalFinish.answer;
+    }
+    fallbackReason = finalFinish.reason;
+    fallbackDetail = finalFinish.detail;
+  }
+
   return deterministicFallback(
     withFallbackEvidence(seedResult, evidence),
     debug,
@@ -237,6 +306,183 @@ function extractToolUses(response: ProviderResponse): ToolUseContent[] {
   return response.content.filter(
     (block): block is ToolUseContent => block.type === "tool_use",
   );
+}
+
+async function runSeedRecallSearch(
+  input: NormalizedRecallInput,
+  context: RecallSearchContext,
+  searchOptions: DeterministicRecallSearchOptions | undefined,
+): Promise<DeterministicRecallSearchResult> {
+  const baseResult = await runDeterministicRecallSearch(
+    toRecallInput(input),
+    context,
+    searchOptions,
+  );
+  const expansionQueries = buildReferentExpansionQueries(input.query);
+  if (expansionQueries.length === 0) {
+    return baseResult;
+  }
+
+  let evidence = [...baseResult.evidence];
+  for (const query of expansionQueries) {
+    const expansionResult = await runDeterministicRecallSearch(
+      {
+        ...toRecallInput(input),
+        query,
+        depth: "fast",
+        max_results: Math.min(input.maxResults, 8),
+      },
+      context,
+      searchOptions,
+    );
+    evidence = mergeEvidence(expansionResult.evidence, evidence);
+  }
+
+  return withFallbackEvidence(baseResult, evidence);
+}
+
+function buildReferentExpansionQueries(query: string): string[] {
+  const shouldExpandReferent = REFERENT_QUERY_PATTERN.test(query);
+  const shouldExpandDetails = DETAIL_QUERY_PATTERN.test(query);
+  const terms = tokenizeReferentTerms(query);
+  if (terms.length === 0 || (!shouldExpandReferent && !shouldExpandDetails)) {
+    return [];
+  }
+
+  const queries: string[] = [];
+  const objectTerms = terms.filter((term) => !DETAIL_FIELD_TERMS.has(term));
+  const searchTerms = objectTerms.length > 0 ? objectTerms : terms;
+  const firstTerm = searchTerms[0];
+  const lastTerm = searchTerms[searchTerms.length - 1];
+
+  if (shouldExpandReferent && firstTerm) {
+    queries.push(firstTerm);
+  }
+
+  if (shouldExpandReferent && searchTerms.length > 1) {
+    queries.push(searchTerms.slice(0, 2).join(" "));
+  }
+
+  if ((shouldExpandReferent || shouldExpandDetails) && firstTerm) {
+    queries.push(`${firstTerm} ${DETAIL_EXPANSION_TERMS.join(" ")}`);
+  }
+
+  if (
+    shouldExpandDetails &&
+    lastTerm &&
+    lastTerm !== firstTerm &&
+    !DETAIL_FIELD_TERMS.has(lastTerm)
+  ) {
+    queries.push(`${lastTerm} ${DETAIL_EXPANSION_TERMS.join(" ")}`);
+  }
+
+  return [...new Set(queries)].filter((candidate) => candidate !== query);
+}
+
+function tokenizeReferentTerms(query: string): string[] {
+  const tokens = query.toLowerCase().match(/[a-z0-9_]+/g) ?? [];
+  return [...new Set(tokens)].filter(
+    (term) =>
+      term.length >= 2 &&
+      !NON_SALIENT_REFERENT_TERMS.has(term) &&
+      !term.endsWith("'s"),
+  );
+}
+
+async function tryFinalFinishRecall(options: {
+  provider: Provider;
+  normalizedInput: NormalizedRecallInput;
+  evidence: readonly RecallEvidence[];
+  debug: AgenticRecallDebug;
+  context: RecallSearchContext;
+}): Promise<
+  | { ok: true; answer: AgenticRecallAnswer }
+  | {
+      ok: false;
+      reason: AgenticRecallFallbackReason;
+      detail: string;
+    }
+> {
+  const promptBundle = buildPromptBundle(
+    options.normalizedInput,
+    options.evidence,
+    0,
+  );
+
+  let response: ProviderResponse;
+  try {
+    response = await options.provider.sendMessage(
+      [userTextMessage(promptBundle.prompt)],
+      [FINISH_RECALL_TOOL_DEFINITION],
+      undefined,
+      {
+        config: { callSite: "recall", temperature: 0 },
+        signal: options.context.signal,
+      },
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      reason: isAbortError(err) ? "timeout" : "provider_error",
+      detail: errorToMessage(err),
+    };
+  }
+
+  const finishTool = extractToolUses(response).find(
+    (tool) => tool.name === "finish_recall",
+  );
+  if (!finishTool) {
+    return {
+      ok: false,
+      reason: "no_valid_finish",
+      detail:
+        "Recall provider exhausted the search budget and did not return a final finish_recall.",
+    };
+  }
+
+  const finishResult = finishRecallFromToolUse(
+    finishTool,
+    promptBundle.evidence,
+    options.debug,
+  );
+  if (finishResult.ok) {
+    return finishResult;
+  }
+
+  return {
+    ok: false,
+    reason: "citation_validation_failed",
+    detail: finishResult.detail,
+  };
+}
+
+function finishRecallFromToolUse(
+  finishTool: ToolUseContent,
+  evidence: readonly RecallEvidence[],
+  debug: AgenticRecallDebug,
+): { ok: true; answer: AgenticRecallAnswer } | { ok: false; detail: string } {
+  const validation = validateFinishRecallPayload(finishTool.input, evidence);
+  if (!validation.ok) {
+    return { ok: false, detail: validation.reason };
+  }
+
+  const finish = validation.finish;
+  const citedEvidence = selectCitedEvidence(evidence, finish.citationIds);
+  debug.finish = {
+    confidence: finish.confidence,
+    citationIds: finish.citationIds,
+    ...(finish.unresolved ? { unresolved: finish.unresolved } : {}),
+  };
+
+  return {
+    ok: true,
+    answer: {
+      content: finish.answer,
+      answer: finish.answer,
+      evidence: citedEvidence,
+      debug,
+    },
+  };
 }
 
 async function executeSearchSources(

@@ -103,9 +103,10 @@ describe("searchWorkspaceSource", () => {
     ]);
   });
 
-  test("skips hidden, generated, dependency, and secret-shaped paths", async () => {
+  test("allows safe hidden paths while skipping generated, dependency, and secret-shaped paths", async () => {
     const root = makeTempDir();
     writeWorkspaceFile(root, ".hidden.md", "needle hidden");
+    writeWorkspaceFile(root, ".birthday-builds/cake.md", "needle safe hidden");
     writeWorkspaceFile(root, ".git/config.md", "needle git");
     writeWorkspaceFile(root, ".private/notes.md", "needle private");
     writeWorkspaceFile(root, "node_modules/pkg/index.md", "needle dependency");
@@ -129,8 +130,65 @@ describe("searchWorkspaceSource", () => {
     const result = await searchWorkspaceSource("needle", makeContext(root), 10);
 
     expect(result.evidence.map((item) => item.locator)).toEqual([
+      ".birthday-builds/cake.md:1",
+      ".hidden.md:1",
       "src/readme.md:1",
     ]);
+  });
+
+  test("prioritizes live user-authored directories before noisy archives", async () => {
+    const root = makeTempDir();
+    for (
+      let index = 0;
+      index < WORKSPACE_SOURCE_MAX_SCANNED_FILES;
+      index += 1
+    ) {
+      writeWorkspaceFile(
+        root,
+        `backups/${String(index).padStart(3, "0")}.md`,
+        "archive-only marker",
+      );
+    }
+    writeWorkspaceFile(root, "journal/today.md", "journalneedle fresh fact");
+
+    const result = await searchWorkspaceSource(
+      "journalneedle",
+      makeContext(root),
+      10,
+    );
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      "journal/today.md:1",
+    ]);
+  });
+
+  test("skips conversation metadata files in workspace search", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "conversations/conversation-123/meta.json",
+      '{"title":"needle metadata title"}',
+    );
+    writeWorkspaceFile(root, "journal/note.md", "needle journal fact");
+
+    const result = await searchWorkspaceSource("needle", makeContext(root), 10);
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      "journal/note.md:1",
+    ]);
+  });
+
+  test("preserves the matched line when surrounding context is too long", async () => {
+    const root = makeTempDir();
+    writeWorkspaceFile(
+      root,
+      "notes/details.md",
+      [`prefix ${"x".repeat(900)}`, "needle final detail", "tail"].join("\n"),
+    );
+
+    const result = await searchWorkspaceSource("needle", makeContext(root), 10);
+
+    expect(result.evidence[0]?.excerpt).toBe("2: needle final detail");
   });
 
   test("reads only allowed text-like extensions", async () => {

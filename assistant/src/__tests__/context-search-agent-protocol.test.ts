@@ -93,6 +93,9 @@ describe("buildRecallAgentPrompt", () => {
     expect(prompt).not.toContain("pkb: personal knowledge base");
     expect(prompt).toContain("Do not use external web");
     expect(prompt).toContain("Do not guess");
+    expect(prompt).toContain("For indirect references");
+    expect(prompt).toContain("search those candidates");
+    expect(prompt).toContain("not mandatory search terms");
     expect(prompt).toContain("Report conflicts");
     expect(prompt).toContain("finish_recall tool call");
     expect(prompt).toContain("Allowed citation_ids: ev-1, ev-2");

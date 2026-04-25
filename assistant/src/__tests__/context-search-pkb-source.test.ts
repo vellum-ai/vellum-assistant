@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
@@ -136,13 +145,37 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
 const { readPkbContextEvidence, searchPkbSource } =
   await import("../memory/context-search/sources/pkb.js");
 
-function makeContext(signal?: AbortSignal): RecallSearchContext {
+const testDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of testDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTempDir(): string {
+  const dir = realpathSync(
+    mkdtempSync(join(tmpdir(), "context-search-pkb-source-")),
+  );
+  testDirs.push(dir);
+  return dir;
+}
+
+function writeWorkspaceFile(root: string, relativePath: string, text: string) {
+  const filePath = join(root, relativePath);
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, text);
+}
+
+function makeContext(
+  overrides: Partial<RecallSearchContext> = {},
+): RecallSearchContext {
   return {
     workingDir: "/workspace",
     memoryScopeId: "active-conversation-scope",
     conversationId: "conv-xyz",
     config: {} as AssistantConfig,
-    ...(signal ? { signal } : {}),
+    ...overrides,
   };
 }
 
@@ -271,6 +304,76 @@ describe("PKB context-search source", () => {
     const result = await searchPkbSource("notes", makeContext(), 5);
 
     expect(result).toEqual({ evidence: [] });
+  });
+
+  test("uses lexical PKB fallback when semantic search returns no hits", async () => {
+    const root = makeTempDir();
+    embedVectors = [];
+    writeWorkspaceFile(
+      root,
+      "pkb/archive/2026-04-07.md",
+      [
+        "# Apr 7",
+        "- The birthday cake was fully paid. Gold design, vanilla with raspberry filling, and inscription Happy birthday Alice Love Example Assistant.",
+        "- Other notes.",
+      ].join("\n"),
+    );
+
+    const result = await searchPkbSource(
+      "details about the birthday cake flavor decoration message recipient",
+      makeContext({ workingDir: root }),
+      5,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      id: "pkb:lexical:archive/2026-04-07.md:2",
+      source: "pkb",
+      title: "archive/2026-04-07.md",
+      locator: "archive/2026-04-07.md:2",
+      metadata: {
+        retrieval: "lexical",
+        matchedTerms: ["birthday", "cake"],
+      },
+    });
+    expect(result.evidence[0]?.excerpt).toContain("vanilla with raspberry");
+  });
+
+  test("lexical PKB fallback preserves the matched line when context is long", async () => {
+    const root = makeTempDir();
+    embedVectors = [];
+    writeWorkspaceFile(
+      root,
+      "pkb/archive/notes.md",
+      [`prefix ${"x".repeat(900)}`, "needle final detail", "tail"].join("\n"),
+    );
+
+    const result = await searchPkbSource(
+      "needle",
+      makeContext({ workingDir: root }),
+      5,
+    );
+
+    expect(result.evidence[0]?.excerpt).toBe("2: needle final detail");
+  });
+
+  test("returns lexical PKB evidence when Qdrant is unavailable", async () => {
+    const root = makeTempDir();
+    denseThrows = new Error("qdrant unavailable");
+    writeWorkspaceFile(
+      root,
+      "pkb/people/bob.md",
+      "Bob asked whether the cake was Alice's way of sending something into the room.",
+    );
+
+    const result = await searchPkbSource(
+      "the cake Bob asked about",
+      makeContext({ workingDir: root }),
+      5,
+    );
+
+    expect(result.evidence.map((item) => item.locator)).toEqual([
+      "people/bob.md:1",
+    ]);
   });
 
   test("returns no static PKB evidence when injected context is missing", () => {

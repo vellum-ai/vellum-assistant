@@ -13,6 +13,21 @@ export const WORKSPACE_SOURCE_MAX_SCANNED_FILES = 500;
 const EXCERPT_LINE_RADIUS = 1;
 const EXCERPT_MAX_CHARS = 600;
 
+const HIGH_PRIORITY_DIR_NAMES = new Map<string, number>([
+  ["pkb", 10],
+  ["journal", 20],
+  ["scratch", 30],
+  ["users", 40],
+  ["work", 45],
+]);
+
+const LOW_PRIORITY_DIR_NAMES = new Map<string, number>([
+  ["conversations", 50],
+  ["data", 60],
+  ["backups", 70],
+  ["logs", 80],
+]);
+
 const GENERATED_OR_DEPENDENCY_DIR_NAMES = new Set([
   ".git",
   ".private",
@@ -125,7 +140,9 @@ async function walkDirectory(
     return true;
   }
 
-  entries.sort((a, b) => a.name.localeCompare(b.name));
+  entries.sort((a, b) =>
+    compareDirectoryEntries(rootRealPath, directoryPath, a, b),
+  );
 
   for (const entry of entries) {
     throwIfAborted(options.signal);
@@ -189,6 +206,7 @@ async function walkDirectory(
       entryPath,
     );
     if (
+      shouldSkipWorkspaceFile(lexicalRelativePath) ||
       shouldSkipFilePath(lexicalRelativePath) ||
       shouldSkipFilePath(realRelativePath) ||
       entryStats.size > WORKSPACE_SOURCE_MAX_FILE_SIZE_BYTES
@@ -290,7 +308,12 @@ function buildExcerpt(lines: readonly string[], lineIndex: number): string {
     return excerpt;
   }
 
-  return `${excerpt.slice(0, EXCERPT_MAX_CHARS - 3).trimEnd()}...`;
+  const focusedLine = `${lineIndex + 1}: ${lines[lineIndex]?.trimEnd() ?? ""}`;
+  if (focusedLine.length <= EXCERPT_MAX_CHARS) {
+    return focusedLine;
+  }
+
+  return `${focusedLine.slice(0, EXCERPT_MAX_CHARS - 3).trimEnd()}...`;
 }
 
 function toEvidence(match: WorkspaceMatch): RecallEvidence {
@@ -321,6 +344,44 @@ function compareWorkspaceMatches(a: WorkspaceMatch, b: WorkspaceMatch): number {
   return a.lineNumber - b.lineNumber;
 }
 
+function compareDirectoryEntries(
+  rootRealPath: string,
+  directoryPath: string,
+  a: { name: string; isDirectory(): boolean },
+  b: { name: string; isDirectory(): boolean },
+): number {
+  const aRelativePath = toWorkspaceRelativePath(
+    rootRealPath,
+    join(directoryPath, a.name),
+  );
+  const bRelativePath = toWorkspaceRelativePath(
+    rootRealPath,
+    join(directoryPath, b.name),
+  );
+  const priorityCompare =
+    getTraversalPriority(aRelativePath, a.isDirectory()) -
+    getTraversalPriority(bRelativePath, b.isDirectory());
+  if (priorityCompare !== 0) return priorityCompare;
+  return a.name.localeCompare(b.name);
+}
+
+function getTraversalPriority(
+  relativePath: string,
+  isDirectory: boolean,
+): number {
+  if (!relativePath.includes("/") && !isDirectory) {
+    return 0;
+  }
+
+  const [firstSegment = ""] = relativePath.split("/");
+  const lowerFirstSegment = firstSegment.toLowerCase();
+  return (
+    HIGH_PRIORITY_DIR_NAMES.get(lowerFirstSegment) ??
+    LOW_PRIORITY_DIR_NAMES.get(lowerFirstSegment) ??
+    46
+  );
+}
+
 function shouldSkipFilePath(relativePath: string): boolean {
   const pathSegments = relativePath.split("/");
   if (shouldSkipRelativePath(pathSegments)) {
@@ -330,6 +391,15 @@ function shouldSkipFilePath(relativePath: string): boolean {
   return !TEXT_LIKE_EXTENSIONS.has(extname(relativePath).toLowerCase());
 }
 
+function shouldSkipWorkspaceFile(relativePath: string): boolean {
+  const pathSegments = relativePath.split("/");
+  return (
+    pathSegments.length === 3 &&
+    pathSegments[0] === "conversations" &&
+    pathSegments[2] === "meta.json"
+  );
+}
+
 function shouldSkipRelativePath(pathSegments: readonly string[]): boolean {
   return pathSegments.some(shouldSkipSegmentName);
 }
@@ -337,7 +407,6 @@ function shouldSkipRelativePath(pathSegments: readonly string[]): boolean {
 function shouldSkipSegmentName(name: string): boolean {
   const lowerName = name.toLowerCase();
   return (
-    lowerName.startsWith(".") ||
     GENERATED_OR_DEPENDENCY_DIR_NAMES.has(lowerName) ||
     lowerName.startsWith(".env") ||
     lowerName.includes("key") ||
