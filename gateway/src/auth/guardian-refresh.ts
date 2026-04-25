@@ -5,7 +5,6 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { Database } from "bun:sqlite";
 import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
@@ -52,66 +51,41 @@ export interface RotateResult {
 }
 
 // ---------------------------------------------------------------------------
-// SQL helpers (gateway DB)
+// Query helpers (gateway DB — Drizzle)
 // ---------------------------------------------------------------------------
 
-interface RefreshTokenRow {
-  id: string;
-  token_hash: string;
-  family_id: string;
-  guardian_principal_id: string;
-  hashed_device_id: string;
-  platform: string;
-  status: string;
-  issued_at: number;
-  absolute_expires_at: number;
-  inactivity_expires_at: number;
-  last_used_at: number | null;
+function findRefreshByHash(tokenHash: string) {
+  return getGatewayDb()
+    .select()
+    .from(actorRefreshTokenRecords)
+    .where(eq(actorRefreshTokenRecords.tokenHash, tokenHash))
+    .get();
 }
 
-function getRawGatewayDb(): Database {
-  return (getGatewayDb() as unknown as { $client: Database }).$client;
-}
-
-function findRefreshByHash(tokenHash: string): RefreshTokenRow | null {
-  return getRawGatewayDb()
-    .query<RefreshTokenRow, [string]>(
-      `SELECT id, token_hash, family_id, guardian_principal_id,
-              hashed_device_id, platform, status, issued_at,
-              absolute_expires_at, inactivity_expires_at, last_used_at
-       FROM actor_refresh_token_records
-       WHERE token_hash = ?`,
-    )
-    .get(tokenHash);
-}
-
-/**
- * Atomically mark a refresh token as rotated (CAS: active → rotated).
- * Returns true if exactly one row was updated.
- */
 function markRotated(tokenHash: string): boolean {
   const now = Date.now();
-  const result = getRawGatewayDb().run(
-    `UPDATE actor_refresh_token_records
-     SET status = 'rotated', last_used_at = ?, updated_at = ?
-     WHERE token_hash = ? AND status = 'active'`,
-    [now, now, tokenHash],
-  );
+  const result = getGatewayDb()
+    .update(actorRefreshTokenRecords)
+    .set({ status: "rotated", lastUsedAt: now, updatedAt: now })
+    .where(
+      and(
+        eq(actorRefreshTokenRecords.tokenHash, tokenHash),
+        eq(actorRefreshTokenRecords.status, "active"),
+      ),
+    )
+    .run();
   return result.changes > 0;
 }
 
-/** Revoke all tokens in a family (replay detection response). */
 function revokeFamily(familyId: string): void {
   const now = Date.now();
-  getRawGatewayDb().run(
-    `UPDATE actor_refresh_token_records
-     SET status = 'revoked', updated_at = ?
-     WHERE family_id = ?`,
-    [now, familyId],
-  );
+  getGatewayDb()
+    .update(actorRefreshTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(eq(actorRefreshTokenRecords.familyId, familyId))
+    .run();
 }
 
-/** Revoke all active access tokens for a device binding. */
 function revokeActorTokensByDevice(
   guardianPrincipalId: string,
   hashedDeviceId: string,
@@ -246,16 +220,15 @@ export function rotateCredentials(params: {
     return { ok: false, error: "refresh_invalid" };
   }
 
-  // Replay detection: reusing an already-rotated token revokes the family
   if (record.status === "rotated") {
     log.warn(
-      { familyId: record.family_id, hashedDeviceId: record.hashed_device_id },
+      { familyId: record.familyId, hashedDeviceId: record.hashedDeviceId },
       "Refresh token reuse detected — revoking entire family",
     );
-    revokeFamily(record.family_id);
+    revokeFamily(record.familyId);
     revokeActorTokensByDevice(
-      record.guardian_principal_id,
-      record.hashed_device_id,
+      record.guardianPrincipalId,
+      record.hashedDeviceId,
     );
     return { ok: false, error: "refresh_reuse_detected" };
   }
@@ -264,19 +237,17 @@ export function rotateCredentials(params: {
     return { ok: false, error: "revoked" };
   }
 
-  // At this point status === 'active'
   const now = Date.now();
 
-  if (now > record.absolute_expires_at) {
+  if (now > record.absoluteExpiresAt) {
     return { ok: false, error: "refresh_expired" };
   }
 
-  if (now > record.inactivity_expires_at) {
+  if (now > record.inactivityExpiresAt) {
     return { ok: false, error: "refresh_expired" };
   }
 
-  // Verify device binding
-  if (record.hashed_device_id !== hashedDeviceId) {
+  if (record.hashedDeviceId !== hashedDeviceId) {
     return { ok: false, error: "device_binding_mismatch" };
   }
 
@@ -284,49 +255,42 @@ export function rotateCredentials(params: {
     return { ok: false, error: "device_binding_mismatch" };
   }
 
-  // Wrap the rotate-revoke-remint sequence in a transaction on the gateway DB
-  const rawDb = getRawGatewayDb();
+  return getGatewayDb().transaction((tx) => {
+    void tx; // transaction scoped via the underlying bun:sqlite connection
 
-  const txn = rawDb.transaction(() => {
-    // Mark old refresh token as rotated (atomic CAS)
     const didRotate = markRotated(refreshTokenHash);
     if (!didRotate) {
       return { ok: false as const, error: "refresh_reuse_detected" as const };
     }
 
-    // Revoke old access tokens for this device
     revokeActorTokensByDevice(
-      record.guardian_principal_id,
-      record.hashed_device_id,
+      record.guardianPrincipalId,
+      record.hashedDeviceId,
     );
 
-    // Mint new JWT access token
     const access = mintAccessToken(
-      record.guardian_principal_id,
-      record.hashed_device_id,
+      record.guardianPrincipalId,
+      record.hashedDeviceId,
       params.platform,
     );
 
-    // Mint new refresh token in the same family, inheriting the parent's
-    // absolute expiry so rotation resets inactivity but never extends
-    // the session lifetime.
     const refresh = mintRefreshTokenInFamily({
-      guardianPrincipalId: record.guardian_principal_id,
-      hashedDeviceId: record.hashed_device_id,
+      guardianPrincipalId: record.guardianPrincipalId,
+      hashedDeviceId: record.hashedDeviceId,
       platform: params.platform,
-      familyId: record.family_id,
-      absoluteExpiresAt: record.absolute_expires_at,
+      familyId: record.familyId,
+      absoluteExpiresAt: record.absoluteExpiresAt,
     });
 
     log.info(
-      { familyId: record.family_id, platform: params.platform },
+      { familyId: record.familyId, platform: params.platform },
       "Credential rotation completed",
     );
 
     return {
       ok: true as const,
       result: {
-        guardianPrincipalId: record.guardian_principal_id,
+        guardianPrincipalId: record.guardianPrincipalId,
         accessToken: access.token,
         accessTokenExpiresAt: access.expiresAt,
         refreshToken: refresh.refreshToken,
@@ -335,6 +299,4 @@ export function rotateCredentials(params: {
       },
     };
   });
-
-  return txn();
 }

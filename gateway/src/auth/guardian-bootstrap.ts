@@ -453,12 +453,9 @@ export function ensureVellumGuardianBinding(): string {
 /**
  * Execute the full guardian bootstrap flow:
  *   1. Ensure a guardian principal exists for the vellum channel
- *   2. Revoke existing credentials for this device (gateway DB)
- *   3. Mint new JWT access token + opaque refresh token (gateway DB)
- *   4. Persist token hashes (gateway DB)
- *
- * Contact operations still run against the assistant's SQLite database
- * (contacts migration is separate). Token operations use the gateway DB.
+ *   2. Revoke existing credentials for this device
+ *   3. Mint new JWT access token + opaque refresh token
+ *   4. Persist token hashes
  */
 export function bootstrapGuardian(params: {
   platform: string;
@@ -469,7 +466,7 @@ export function bootstrapGuardian(params: {
     .update(params.deviceId)
     .digest("hex");
 
-  // 1. Ensure guardian principal (contacts — still in assistant DB)
+  // 1. Ensure guardian principal
   let isNew = false;
   let guardianPrincipalId: string;
 
@@ -482,11 +479,11 @@ export function bootstrapGuardian(params: {
     isNew = true;
   }
 
-  // 2. Revoke existing credentials for this device (gateway DB)
+  // 2. Revoke existing credentials for this device
   revokeActorTokensByDevice(guardianPrincipalId, hashedDeviceId);
   revokeRefreshTokensByDevice(guardianPrincipalId, hashedDeviceId);
 
-  // 3. Mint new credentials (gateway DB)
+  // 3. Mint new credentials
   const access = mintAccessToken(
     guardianPrincipalId,
     hashedDeviceId,

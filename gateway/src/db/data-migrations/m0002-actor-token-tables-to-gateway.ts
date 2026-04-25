@@ -14,6 +14,7 @@ import { join } from "node:path";
 
 import { Database } from "bun:sqlite";
 
+import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
 import { getWorkspaceDir } from "../../paths.js";
 
@@ -25,13 +26,18 @@ function getAssistantDbPath(): string {
   return join(getWorkspaceDir(), "data", "db", "assistant.db");
 }
 
-export function up(gwDb: Database): MigrationResult {
+function getRawGatewayDb(): Database {
+  return (getGatewayDb() as unknown as { $client: Database }).$client;
+}
+
+export function up(): MigrationResult {
   const assistantDbPath = getAssistantDbPath();
   if (!existsSync(assistantDbPath)) {
     log.info("Assistant database not found — nothing to migrate");
     return "done";
   }
 
+  const gwDb = getRawGatewayDb();
   let assistantDb: Database | null = null;
   try {
     assistantDb = new Database(assistantDbPath);
@@ -82,7 +88,7 @@ export function up(gwDb: Database): MigrationResult {
 
       if (rows.length > 0) {
         const insert = gwDb.prepare(
-          `INSERT OR IGNORE INTO actor_token_records
+          `INSERT OR REPLACE INTO actor_token_records
              (id, token_hash, guardian_principal_id, hashed_device_id,
               platform, status, issued_at, expires_at, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -144,7 +150,7 @@ export function up(gwDb: Database): MigrationResult {
 
       if (rows.length > 0) {
         const insert = gwDb.prepare(
-          `INSERT OR IGNORE INTO actor_refresh_token_records
+          `INSERT OR REPLACE INTO actor_refresh_token_records
              (id, token_hash, family_id, guardian_principal_id, hashed_device_id,
               platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
               last_used_at, created_at, updated_at)
@@ -199,7 +205,7 @@ export function up(gwDb: Database): MigrationResult {
   }
 }
 
-export function down(_gwDb: Database): MigrationResult {
+export function down(): MigrationResult {
   // No-op: we don't move data back to the assistant DB on rollback.
   return "done";
 }

@@ -54,7 +54,7 @@ describe("m0001-guardian-init-lock", () => {
     seedLegacy("guardian-init.lock", "2026-04-01T00:00:00.000Z");
     seedLegacy("guardian-init-consumed.json", "[0]\n");
 
-    expect(up(null as never)).toBe("done");
+    expect(up()).toBe("done");
 
     expect(
       readFileSync(join(protectedDir, "guardian-init.lock"), "utf-8"),
@@ -67,7 +67,7 @@ describe("m0001-guardian-init-lock", () => {
   test("copies only files that exist at the legacy path", () => {
     seedLegacy("guardian-init.lock", "only-lock");
 
-    expect(up(null as never)).toBe("done");
+    expect(up()).toBe("done");
 
     expect(existsSync(join(protectedDir, "guardian-init.lock"))).toBe(true);
     expect(existsSync(join(protectedDir, "guardian-init-consumed.json"))).toBe(
@@ -76,7 +76,7 @@ describe("m0001-guardian-init-lock", () => {
   });
 
   test("no-op when legacy files are absent", () => {
-    expect(up(null as never)).toBe("done");
+    expect(up()).toBe("done");
     expect(existsSync(join(protectedDir, "guardian-init.lock"))).toBe(false);
   });
 
@@ -84,7 +84,7 @@ describe("m0001-guardian-init-lock", () => {
     seedLegacy("guardian-init.lock", "legacy-lock");
     writeFileSync(join(protectedDir, "guardian-init.lock"), "new-lock");
 
-    expect(up(null as never)).toBe("done");
+    expect(up()).toBe("done");
 
     expect(
       readFileSync(join(protectedDir, "guardian-init.lock"), "utf-8"),
@@ -109,7 +109,7 @@ describe("m0001-guardian-init-lock", () => {
     // A stray lock at the user's ~/.vellum (e.g. left behind by first-local).
     seedLegacy("guardian-init.lock", "first-local-lock");
 
-    expect(up(null as never)).toBe("done");
+    expect(up()).toBe("done");
 
     // Named instance's protected dir must NOT pick up first-local's lock.
     expect(existsSync(join(namedInstanceProtected, "guardian-init.lock"))).toBe(
@@ -121,7 +121,7 @@ describe("m0001-guardian-init-lock", () => {
     process.env.GATEWAY_SECURITY_DIR = `${protectedDir}/`;
     seedLegacy("guardian-init.lock", "trailing-slash-lock");
 
-    expect(up(null as never)).toBe("done");
+    expect(up()).toBe("done");
 
     expect(
       readFileSync(join(protectedDir, "guardian-init.lock"), "utf-8"),

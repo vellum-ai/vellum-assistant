@@ -27,8 +27,8 @@ const log = getLogger("data-migrations");
 export type MigrationResult = "done" | "skip";
 
 type MigrationModule = {
-  up: (db: Database) => MigrationResult;
-  down: (db: Database) => MigrationResult;
+  up: () => MigrationResult;
+  down: () => MigrationResult;
 };
 
 const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
@@ -55,7 +55,7 @@ export function runDataMigrations(db: Database): void {
 
     log.info({ key }, "Running one-time data migration");
     try {
-      const result = mod.up(db);
+      const result = mod.up();
       if (result === "done") {
         insert.run(key, Date.now());
         log.info({ key }, "Data migration completed");

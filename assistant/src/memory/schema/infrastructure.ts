@@ -192,9 +192,6 @@ export const lifecycleEvents = sqliteTable("lifecycle_events", {
   createdAt: integer("created_at").notNull(),
 });
 
-// actor_token_records table has been migrated to the gateway database.
-// See gateway/src/db/data-migrations/m0002-actor-token-tables-to-gateway.ts.
-
 export const traceEvents = sqliteTable(
   "trace_events",
   {
@@ -217,6 +214,3 @@ export const traceEvents = sqliteTable(
     ),
   ],
 );
-
-// actor_refresh_token_records table has been migrated to the gateway database.
-// See gateway/src/db/data-migrations/m0002-actor-token-tables-to-gateway.ts.

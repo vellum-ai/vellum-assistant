@@ -22,7 +22,7 @@ const log = getLogger("m0001-guardian-init-lock");
 
 const FILES = ["guardian-init.lock", "guardian-init-consumed.json"] as const;
 
-export function up(_db: import("bun:sqlite").Database): MigrationResult {
+export function up(): MigrationResult {
   const legacyDir = getLegacyRootDir();
   const newDir = getGatewaySecurityDir();
 
@@ -58,7 +58,7 @@ export function up(_db: import("bun:sqlite").Database): MigrationResult {
   return "done";
 }
 
-export function down(_db: import("bun:sqlite").Database): MigrationResult {
+export function down(): MigrationResult {
   // No-op: we don't remove the copied files on rollback.
   return "done";
 }

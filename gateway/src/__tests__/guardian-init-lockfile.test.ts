@@ -97,8 +97,7 @@ async function setupTestDirs(): Promise<void> {
       created_at INTEGER NOT NULL
     )
   `);
-  // actor_token_records and actor_refresh_token_records now live in the
-  // gateway database — no longer created in the assistant DB.
+
   db.close();
 
   // Point gateway at temp dirs
