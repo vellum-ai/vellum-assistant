@@ -29,7 +29,6 @@ import {
   deleteConversation,
   getConversation,
   getConversationHostAccess,
-  PRIVATE_CONVERSATION_FORK_ERROR,
   setConversationInferenceProfile,
   unarchiveConversation,
   updateConversationHostAccess,
@@ -102,9 +101,7 @@ export function conversationManagementRouteDefinitions(
         conversationKey: z
           .string()
           .describe("Idempotency key for the conversation"),
-        conversationType: z
-          .string()
-          .describe("'standard' (default) or 'private'"),
+        conversationType: z.string().describe("'standard' (default)"),
       }),
       responseBody: z.object({
         id: z.string(),
@@ -119,10 +116,8 @@ export function conversationManagementRouteDefinitions(
           // Empty or malformed body — fall through with defaults.
         }
         const conversationKey = body.conversationKey ?? crypto.randomUUID();
-        const requestedType =
-          body.conversationType === "private" ? "private" : "standard";
         const result = getOrCreateConversation(conversationKey, {
-          conversationType: requestedType,
+          conversationType: "standard",
         });
         if (result.created) {
           updateConversationTitle(result.conversationId, "New Conversation");
@@ -208,9 +203,6 @@ export function conversationManagementRouteDefinitions(
           return Response.json({ conversation });
         } catch (err) {
           if (err instanceof UserError) {
-            if (err.message === PRIVATE_CONVERSATION_FORK_ERROR) {
-              return httpError("FORBIDDEN", err.message, 403);
-            }
             return httpError("NOT_FOUND", err.message, 404);
           }
           throw err;

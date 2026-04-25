@@ -36,7 +36,6 @@ import {
   forkConversation,
   getConversationHostAccess,
   getMessages,
-  PRIVATE_CONVERSATION_FORK_ERROR,
 } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb, initializeDb } from "../memory/db.js";
@@ -350,45 +349,6 @@ describe("forkConversation", () => {
     expect(forkJsonl[1]?.attachments).toEqual(["wireframe.png"]);
     expect(getAttachmentsForMessage(sourceAssistant.id)[0]?.id).toBe(
       sourceAttachments[0]?.id,
-    );
-  });
-
-  test("rejects private source forks", async () => {
-    const source = createConversation({
-      title: "Private notes",
-      conversationType: "private",
-    });
-    await addMessage(
-      source.id,
-      "assistant",
-      "This started as private context.",
-      undefined,
-      { skipIndexing: true },
-    );
-
-    const db = getDb();
-    const now = Date.now();
-    db.update(conversations)
-      .set({ originChannel: "telegram", originInterface: "cli" })
-      .where(eq(conversations.id, source.id))
-      .run();
-    db.insert(externalConversationBindings)
-      .values({
-        conversationId: source.id,
-        sourceChannel: "telegram",
-        externalChatId: "chat-1",
-        externalUserId: "user-1",
-        displayName: "Alex",
-        username: "alex",
-        createdAt: now,
-        updatedAt: now,
-        lastInboundAt: now,
-        lastOutboundAt: now,
-      })
-      .run();
-
-    expect(() => forkConversation({ conversationId: source.id })).toThrow(
-      PRIVATE_CONVERSATION_FORK_ERROR,
     );
   });
 
