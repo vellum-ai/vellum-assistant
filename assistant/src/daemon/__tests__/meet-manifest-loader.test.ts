@@ -395,6 +395,35 @@ describe("loadMeetManifestProxies", () => {
     ).rejects.toThrow(/rebuild\/repackage/);
   });
 
+  test("rejects an unknown tool risk level eagerly, before the provider is invoked", async () => {
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(
+        {
+          ...FIXTURE_MANIFEST,
+          tools: [{ ...FIXTURE_MANIFEST.tools[0]!, risk: "extreme" }],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    const stub = makeSupervisorStub();
+    let providerInvoked = false;
+    await expect(
+      loadMeetManifestProxies(stub.supervisor, {
+        manifestPath,
+        registerTools: (p) => {
+          providerInvoked = true;
+          p();
+        },
+        registerRoute: () => undefined,
+        registerShutdown: () => undefined,
+      }),
+    ).rejects.toThrow(/unknown risk level "extreme"/);
+    expect(providerInvoked).toBe(false);
+  });
+
   test("rejects a manifest whose skill field does not match meet-join", async () => {
     writeFileSync(
       manifestPath,
