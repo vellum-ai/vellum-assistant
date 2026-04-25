@@ -370,20 +370,57 @@ struct InferenceProfilesSheet: View {
         // would accept them but the row would render unusably.
         guard !name.isEmpty else { return }
 
+        // setProfile is an upsert keyed by name, so committing under a
+        // name that already belongs to a different profile would silently
+        // overwrite that profile. Reject the collision and surface a
+        // user-facing error before clobbering anything.
+        if name != originalName, store.profiles.contains(where: { $0.name == name }) {
+            actionError = "A profile named \"\(name)\" already exists. Pick a different name."
+            return
+        }
+
         let success = await store.setProfile(name: name, fragment: draft)
         guard success else {
             actionError = "Couldn't save profile. Please try again."
             return
         }
 
-        // Renaming an existing profile: drop the old key. We do this only
-        // when the rename succeeded so a failed rename leaves the source
-        // intact.
+        // Renaming an existing profile: re-point references at the new
+        // name, then drop the old key. Best-effort delete without
+        // re-targeting silently fails when the original is the active
+        // profile or referenced by call sites — `deleteProfile` returns
+        // `.blockedBy*` in those cases — leaving a stale duplicate and
+        // dangling references.
         if let originalName, originalName != name {
-            // Best-effort delete — the editor doesn't surface
-            // blocked-by errors here because the user just renamed; the
-            // worst case is a stale entry the user can clean up manually.
-            _ = await store.deleteProfile(name: originalName)
+            if store.activeProfile == originalName {
+                let switched = await store.setActiveProfile(name)
+                guard switched else {
+                    actionError = "Saved \"\(name)\" but couldn't move the active profile pointer. Old entry \"\(originalName)\" left in place."
+                    return
+                }
+            }
+            let referencingCallSites = store.callSiteOverrides
+                .filter { $0.profile == originalName }
+                .map(\.id)
+            let retargetTasks = referencingCallSites.map { id in
+                store.replaceCallSiteOverride(
+                    id,
+                    provider: nil,
+                    model: nil,
+                    profile: name
+                )
+            }
+            for task in retargetTasks {
+                guard await task.value else {
+                    actionError = "Saved \"\(name)\" but couldn't re-target call-site overrides. Old entry \"\(originalName)\" left in place."
+                    return
+                }
+            }
+            let deleteResult = await store.deleteProfile(name: originalName)
+            guard case .deleted = deleteResult else {
+                actionError = "Saved \"\(name)\" but couldn't remove old entry \"\(originalName)\". Delete it manually."
+                return
+            }
         }
 
         editorState = nil
@@ -416,25 +453,36 @@ struct InferenceProfilesSheet: View {
         case .active(let name, _):
             blockedName = name
             // Re-target the active profile pointer.
-            _ = await store.setActiveProfile(replacement)
+            let switched = await store.setActiveProfile(replacement)
+            guard switched else {
+                actionError = "Couldn't re-target active profile. \"\(name)\" not deleted."
+                blockedState = nil
+                return
+            }
         case .callSites(let name, let ids):
             blockedName = name
-            for id in ids {
-                _ = store.replaceCallSiteOverride(
+            // Issue all reassignments concurrently, then await each so a
+            // failure aborts before the delete. `replaceCallSiteOverride`
+            // updates the local cache synchronously, which means the
+            // local reference scan in `deleteProfile` would otherwise
+            // pass even when the daemon-side PATCH failed — leaving call
+            // sites pointing at a deleted profile.
+            let tasks = ids.map { id in
+                store.replaceCallSiteOverride(
                     id,
                     provider: nil,
                     model: nil,
                     profile: replacement
                 )
             }
-            // Wait for the optimistic local cache to reflect the
-            // replacement so the next deleteProfile reference scan
-            // doesn't re-trip on stale state. The store updates the
-            // cache synchronously in `replaceCallSiteOverride` before
-            // dispatching the daemon PATCH, so the published list is
-            // already correct here — but the daemon-side patches are in
-            // flight. We optimistically retry; the deleteProfile
-            // reference scan reads the local cache, not the daemon.
+            for task in tasks {
+                let success = await task.value
+                guard success else {
+                    actionError = "Couldn't re-target call-site overrides. \"\(name)\" not deleted."
+                    blockedState = nil
+                    return
+                }
+            }
         }
         // Dismiss the blocked sheet first so the retry can re-present it
         // if needed (otherwise SwiftUI would suppress a second sheet
