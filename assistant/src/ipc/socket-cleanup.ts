@@ -1,5 +1,5 @@
 /**
- * Shared helpers for IPC server socket lifecycle. Both `CliIpcServer` and
+ * Shared helpers for IPC server socket lifecycle. Both `AssistantIpcServer` and
  * `SkillIpcServer` need the same probe-before-unlink dance to avoid silently
  * stealing another daemon's listener: a blind `unlinkSync` on a live Unix
  * socket file would orphan the bound listener (Linux/macOS allow unlink while

@@ -319,7 +319,7 @@ New commands that need to invoke daemon-side state (conversations, wake,
 in-memory lookups) should use the `cliIpcCall()` helper from
 `assistant/src/ipc/cli-client.ts` and add a new route file in
 `assistant/src/ipc/routes/`, then register it in
-`assistant/src/ipc/routes/index.ts`. The `CliIpcServer` constructor
+`assistant/src/ipc/routes/index.ts`. The `AssistantIpcServer` constructor
 auto-registers all routes from the index.
 
 The IPC protocol is newline-delimited JSON over the Unix domain socket:
