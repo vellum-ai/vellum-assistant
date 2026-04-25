@@ -1,5 +1,6 @@
 // Subagent lifecycle and communication types.
 
+import type { SubagentStatus } from "../../subagent/types.js";
 import type { UsageStats } from "./shared.js";
 
 // === Server → Client ===
@@ -16,7 +17,7 @@ export interface SubagentSpawned {
 export interface SubagentStatusChanged {
   type: "subagent_status_changed";
   subagentId: string;
-  status: import("../../subagent/types.js").SubagentStatus;
+  status: SubagentStatus;
   error?: string;
   usage?: UsageStats;
 }

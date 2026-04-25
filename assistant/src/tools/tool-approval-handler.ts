@@ -1,5 +1,6 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
+import type { ChannelId } from "../channels/types.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -550,8 +551,7 @@ export class ToolApprovalHandler {
           computeToolApprovalDigest(name, input);
         const escalation = createOrReuseToolGrantRequest({
           assistantId: context.assistantId,
-          sourceChannel:
-            context.executionChannel as import("../channels/types.js").ChannelId,
+          sourceChannel: context.executionChannel as ChannelId,
           conversationId: context.conversationId,
           requesterExternalUserId: context.requesterExternalUserId,
           requesterChatId: context.requesterChatId,

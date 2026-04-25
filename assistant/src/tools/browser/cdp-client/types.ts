@@ -1,4 +1,5 @@
 /**
+import type { BrowserBackend } from "../../../browser-session/types.js";
  * Minimal typed surface over Chrome DevTools Protocol. Implemented by
  * LocalCdpClient (Playwright-backed, same-process Chromium),
  * ExtensionCdpClient (routes through HostBrowserProxy to the user's
@@ -115,6 +116,6 @@ export interface BackendCandidate {
    */
   create(): {
     client: CdpClient;
-    backend: import("../../../browser-session/types.js").BrowserBackend;
+    backend: BrowserBackend;
   };
 }

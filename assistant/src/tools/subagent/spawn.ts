@@ -1,5 +1,7 @@
 import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
+import type { Message } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import type { SubagentRole } from "../../subagent/types.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentSpawn(
@@ -40,7 +42,7 @@ export async function executeSubagentSpawn(
   let forkFields:
     | {
         fork: true;
-        parentMessages: import("../../providers/types.js").Message[];
+        parentMessages: Message[];
         parentSystemPrompt: string;
       }
     | undefined;
@@ -97,9 +99,7 @@ export async function executeSubagentSpawn(
         sendResultToUser,
         // For fork mode, role is ignored by the manager (forced to general),
         // but we still omit it from the config to signal intent.
-        ...(!fork && role
-          ? { role: role as import("../../subagent/types.js").SubagentRole }
-          : {}),
+        ...(!fork && role ? { role: role as SubagentRole } : {}),
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
           : {}),

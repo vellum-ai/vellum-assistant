@@ -53,6 +53,7 @@ import {
 import { finalizeCall } from "./finalize-call.js";
 import { MediaStreamOutput } from "./media-stream-output.js";
 import { parseMediaStreamFrame } from "./media-stream-parser.js";
+import type { MediaStreamStartEvent } from "./media-stream-protocol.js";
 import {
   MediaStreamSttSession,
   type MediaStreamSttSessionCallbacks,
@@ -295,9 +296,7 @@ export class MediaStreamCallSession {
 
   // ── Internal: media-stream event handlers ─────────────────────────
 
-  private handleStart(
-    event: import("./media-stream-protocol.js").MediaStreamStartEvent,
-  ): void {
+  private handleStart(event: MediaStreamStartEvent): void {
     this.streamSid = event.streamSid;
     this.callSid = event.start.callSid;
 

@@ -50,6 +50,7 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
+import type { HostBrowserProxy } from "./host-browser-proxy.js";
 import type {
   ServerMessage,
   UsageStats,
@@ -166,9 +167,7 @@ export interface ProcessConversationContext {
    */
   hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** Replace or clear the conversation's host browser proxy. */
-  setHostBrowserProxy(
-    proxy: import("./host-browser-proxy.js").HostBrowserProxy | undefined,
-  ): void;
+  setHostBrowserProxy(proxy: HostBrowserProxy | undefined): void;
   emitActivityState(
     phase:
       | "idle"

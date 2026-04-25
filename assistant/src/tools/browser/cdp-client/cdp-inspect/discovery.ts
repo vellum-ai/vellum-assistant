@@ -1,4 +1,5 @@
 /**
+import type { CdpWsTransport } from "./ws-transport.js";
  * DevTools discovery helpers for the `cdp-inspect` backend.
  *
  * Two discovery strategies are provided:
@@ -704,7 +705,7 @@ interface CdpTargetInfo {
  * @param signal - Optional abort signal for the CDP call.
  */
 export async function discoverTargetsViaWs(opts: {
-  transport: import("./ws-transport.js").CdpWsTransport;
+  transport: CdpWsTransport;
   host: string;
   port: number;
   signal?: AbortSignal;

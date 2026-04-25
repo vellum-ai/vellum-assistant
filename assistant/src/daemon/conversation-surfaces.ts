@@ -23,6 +23,7 @@ import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
+import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
   ConfirmationSurfaceData,
@@ -317,7 +318,7 @@ export interface SurfaceConversationContext {
     persistent?: boolean;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
-  hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
+  hostCuProxy?: HostCuProxy;
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
