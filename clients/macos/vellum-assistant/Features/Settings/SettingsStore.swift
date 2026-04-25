@@ -3209,14 +3209,26 @@ public final class SettingsStore: ObservableObject {
     /// Persists `llm.activeProfile` so the daemon's resolver layers the
     /// named profile into every callsite resolution. The mock client
     /// captures the patch payload for assertion in tests.
+    ///
+    /// Optimistically updates `self.activeProfile` synchronously before
+    /// the await so SwiftUI bindings reading the published value (e.g.
+    /// the dropdown selection in `InferenceServiceCard`) see the new
+    /// value on the next render cycle without waiting for the network
+    /// round-trip. Reverts on failure, but only when the current state
+    /// still matches the optimistic write — a newer call that has
+    /// already overwritten the value owns the published state and must
+    /// not be stomped by a stale revert.
     @discardableResult
     func setActiveProfile(_ name: String) async -> Bool {
+        let previous = self.activeProfile
+        self.activeProfile = name
         let success = await settingsClient.patchConfig([
             "llm": ["activeProfile": name]
         ])
-        if success {
-            self.activeProfile = name
-        } else {
+        if !success {
+            if self.activeProfile == name {
+                self.activeProfile = previous
+            }
             log.error("Failed to patch config for llm.activeProfile")
         }
         return success

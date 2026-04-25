@@ -54,6 +54,10 @@ struct InferenceServiceCard: View {
     /// Captured at confirmation time so the message stays accurate even if
     /// `initialProvider` is mutated during the deferred save.
     @State private var pendingOverrideOldProviderName: String = ""
+    /// The most recent in-flight `setActiveProfile` task, retained so a
+    /// subsequent dropdown pick can cancel it and avoid an out-of-order
+    /// PATCH landing the older selection last.
+    @State private var activeProfileTask: Task<Void, Never>?
 
     // MARK: - Provider Helpers
 
@@ -449,12 +453,19 @@ struct InferenceServiceCard: View {
     /// `set` for those, so no sync-suppression flag is needed. The
     /// equality guard short-circuits the rare echo where SwiftUI reflects
     /// the latest `get` back through the dropdown's `set`.
+    ///
+    /// `setActiveProfile` updates `store.activeProfile` synchronously
+    /// (optimistic update) so the dropdown reflects the new selection
+    /// immediately; the await only carries the network PATCH. Each pick
+    /// cancels any prior in-flight task to prevent a slower earlier
+    /// PATCH from landing the older selection last.
     private var activeProfileBinding: Binding<String> {
         Binding(
             get: { store.activeProfile },
             set: { newValue in
                 guard newValue != store.activeProfile else { return }
-                Task { _ = await store.setActiveProfile(newValue) }
+                activeProfileTask?.cancel()
+                activeProfileTask = Task { _ = await store.setActiveProfile(newValue) }
             }
         )
     }
