@@ -1715,7 +1715,7 @@ export async function composeInjectorChain(ctx: TurnContext): Promise<string> {
 /**
  * Default block placement. Kept in sync with {@link InjectionBlock} so
  * blocks produced without an explicit `placement` (e.g. third-party
- * injectors written against the pre-G2.1 API) behave predictably.
+ * injectors that omit the field) behave predictably.
  */
 const DEFAULT_PLACEMENT: InjectionPlacement = "append-user-tail";
 
@@ -2128,8 +2128,8 @@ export async function applyRuntimeInjections(
   }
 
   // ── Step 3: hardcoded branches that stayed outside the injector chain ──
-  // These run in the same historical order as before G2.1 so their
-  // interleaving with any prior tail content stays stable.
+  // Their order here is load-bearing: each branch may mutate the tail
+  // user message, so reordering changes how they interleave.
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
