@@ -1,21 +1,21 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { Glob } from "bun";
 
 /**
  * Guard tests for the skill-isolation boundary. See AGENTS.md "Skill
- * Isolation". The end state is zero relative imports across `assistant/` ↔
- * `skills/` in both directions.
+ * Isolation". Both directions are enforced: zero relative imports across
+ * `assistant/` ↔ `skills/`. Skills wire into the daemon through the
+ * `SkillHost` contract in `@vellumai/skill-host-contracts`; the daemon
+ * loads first-party skills as separate processes via the manifest in
+ * `meet-host-startup.ts`.
  *
- * The assistant → skills direction is currently `test.todo` because
- * `assistant/src/daemon/external-skills-bootstrap.ts` is a sanctioned
- * static import (required so `bun --compile` traces the first-party
- * meet-join skill into the binary). It converts to an active `test(...)`
- * once the bootstrap is deleted. Keeping it as `test.todo` rather than an
- * active assertion is required by AGENTS.md's "Never commit
- * normally-failing `test(...)` cases" rule.
+ * Note: `assistant/src/skills/` is the internal skill-catalog loader and
+ * is NOT a violation when referenced via `../skills/...` from within
+ * `assistant/src/`. The guard resolves each import path and only reports
+ * imports whose resolved target is the repo-root `skills/` directory.
  */
 
 /** Resolve repo root (tests run from `assistant/`). */
@@ -24,28 +24,40 @@ function getRepoRoot(): string {
 }
 
 /**
- * Scan files matching `glob` (relative to repo root) for relative imports
- * reaching into `<targetDir>/`. Uses a multiline-capable regex over the
- * full file content so that imports split across lines (common for
- * `await import("../../../path")` wrapped by a formatter) are caught.
+ * Scan files matching `glob` for relative imports of `<targetDir>/`,
+ * resolve each import to an absolute path, and report only those that
+ * land inside the repo-root `<targetDir>/` directory. This filters out
+ * same-name internal directories (e.g. `assistant/src/skills/` is the
+ * catalog loader, not the top-level `skills/` directory).
  */
 function findRelativeImportViolations(
   glob: string,
   targetDir: string,
 ): string[] {
+  // Capture group 1 is the relative import path; we re-resolve it.
   const pattern = new RegExp(
-    String.raw`\b(?:from|import)\s*\(?\s*["'](?:\.\./)+` +
+    String.raw`\b(?:from|import)\s*\(?\s*["']((?:\.\./)+` +
       targetDir +
-      String.raw`/`,
-    "s",
+      String.raw`/[^"']*)["']`,
+    "g",
   );
   const repoRoot = getRepoRoot();
-  const violations: string[] = [];
+  const repoTargetPrefix = `${targetDir}/`;
+  const violations = new Set<string>();
   for (const relPath of new Glob(glob).scanSync({ cwd: repoRoot })) {
-    const content = readFileSync(join(repoRoot, relPath), "utf-8");
-    if (pattern.test(content)) violations.push(relPath);
+    const filePath = join(repoRoot, relPath);
+    const content = readFileSync(filePath, "utf-8");
+    for (const match of content.matchAll(pattern)) {
+      const importPath = match[1]!;
+      const resolved = resolve(dirname(filePath), importPath);
+      const fromRoot = relative(repoRoot, resolved);
+      if (fromRoot === targetDir || fromRoot.startsWith(repoTargetPrefix)) {
+        violations.add(relPath);
+        break;
+      }
+    }
   }
-  return violations.sort();
+  return Array.from(violations).sort();
 }
 
 describe("skill-isolation boundary", () => {
@@ -72,28 +84,22 @@ describe("skill-isolation boundary", () => {
     }
   });
 
-  // Deferred until `external-skills-bootstrap.ts` is deleted — see the
-  // file-level doc block. Body is pre-written so the flip is a `.todo` → `test`
-  // edit rather than a behavior change.
-  test.todo(
-    "no assistant/src/** TypeScript file imports from skills/** via relative path",
-    () => {
-      const violations = findRelativeImportViolations(
-        "assistant/src/**/*.ts",
-        "skills",
-      );
+  test("no assistant/src/** TypeScript file imports from skills/** via relative path", () => {
+    const violations = findRelativeImportViolations(
+      "assistant/src/**/*.ts",
+      "skills",
+    );
 
-      if (violations.length > 0) {
-        const message = [
-          "Found assistant/src/ files that import skills/ via relative path.",
-          'Assistants must not reach into skills/ — see AGENTS.md "Skill Isolation".',
-          "",
-          "Violations:",
-          ...violations.map((f) => `  - ${f}`),
-        ].join("\n");
+    if (violations.length > 0) {
+      const message = [
+        "Found assistant/src/ files that import skills/ via relative path.",
+        'Assistants must not reach into skills/ — see AGENTS.md "Skill Isolation".',
+        "",
+        "Violations:",
+        ...violations.map((f) => `  - ${f}`),
+      ].join("\n");
 
-        expect(violations, message).toEqual([]);
-      }
-    },
-  );
+      expect(violations, message).toEqual([]);
+    }
+  });
 });
