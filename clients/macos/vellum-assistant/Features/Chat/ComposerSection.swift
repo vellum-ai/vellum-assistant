@@ -49,6 +49,12 @@ struct ComposerSection: View, Equatable {
             && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
             && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
             && lhs.showThresholdPicker == rhs.showThresholdPicker
+            // Closure prevents Equatable conformance on the configuration; compare
+            // the value-type fields that drive rendering plus nil/non-nil parity.
+            && lhs.inferenceProfilePicker?.current == rhs.inferenceProfilePicker?.current
+            && lhs.inferenceProfilePicker?.profiles == rhs.inferenceProfilePicker?.profiles
+            && lhs.inferenceProfilePicker?.activeProfile == rhs.inferenceProfilePicker?.activeProfile
+            && (lhs.inferenceProfilePicker == nil) == (rhs.inferenceProfilePicker == nil)
     }
 
     @Binding var inputText: String
@@ -83,6 +89,7 @@ struct ComposerSection: View, Equatable {
     var contextWindowMaxTokens: Int? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
     var showThresholdPicker: Bool = false
+    var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,7 +132,8 @@ struct ComposerSection: View, Equatable {
                 contextWindowTokens: contextWindowTokens,
                 contextWindowMaxTokens: contextWindowMaxTokens,
                 conversationHostAccessControl: conversationHostAccessControl,
-                showThresholdPicker: showThresholdPicker
+                showThresholdPicker: showThresholdPicker,
+                inferenceProfilePicker: inferenceProfilePicker
             )
             .equatable()
         }

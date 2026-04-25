@@ -51,6 +51,12 @@ struct ComposerView: View, Equatable {
             && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
             && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
             && lhs.showThresholdPicker == rhs.showThresholdPicker
+            // Closure prevents Equatable conformance on the configuration; compare
+            // the value-type fields that drive rendering plus nil/non-nil parity.
+            && lhs.inferenceProfilePicker?.current == rhs.inferenceProfilePicker?.current
+            && lhs.inferenceProfilePicker?.profiles == rhs.inferenceProfilePicker?.profiles
+            && lhs.inferenceProfilePicker?.activeProfile == rhs.inferenceProfilePicker?.activeProfile
+            && (lhs.inferenceProfilePicker == nil) == (rhs.inferenceProfilePicker == nil)
     }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
@@ -106,6 +112,7 @@ struct ComposerView: View, Equatable {
     var contextWindowMaxTokens: Int? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
     var showThresholdPicker: Bool = false
+    var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -472,6 +479,16 @@ struct ComposerView: View, Equatable {
 
             if showThresholdPicker {
                 ComposerThresholdPicker(conversationId: conversationId)
+            }
+
+            if let inferenceProfilePicker, !inferenceProfilePicker.profiles.isEmpty {
+                ChatProfilePicker(
+                    conversationId: conversationId,
+                    current: inferenceProfilePicker.current,
+                    profiles: inferenceProfilePicker.profiles,
+                    activeProfile: inferenceProfilePicker.activeProfile,
+                    onSelect: inferenceProfilePicker.onSelect
+                )
             }
 
             VContextWindowIndicator(

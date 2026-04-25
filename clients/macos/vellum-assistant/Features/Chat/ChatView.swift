@@ -32,6 +32,8 @@ struct ChatView: View {
     var configuredProviders: Set<String> = []
     var providerCatalog: [ProviderCatalogEntry] = []
     var mediaEmbedSettings: MediaEmbedResolverSettings?
+    var inferenceProfiles: [InferenceProfile] = []
+    var activeInferenceProfile: String = "balanced"
 
     // MARK: - Parent Callbacks (capture parent state)
 
@@ -536,10 +538,32 @@ struct ChatView: View {
                 contextWindowTokens: viewModel.contextWindowTokens,
                 contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
                 conversationHostAccessControl: conversationHostAccessControl,
-                showThresholdPicker: showThresholdPicker
+                showThresholdPicker: showThresholdPicker,
+                inferenceProfilePicker: inferenceProfilePicker
             )
             .equatable()
         }
+    }
+
+    /// Bundles the inference-profile pill state for ``ComposerView``. Returns
+    /// `nil` when no manager is wired (preview/testing) so the pill stays
+    /// hidden until a real persistence path exists.
+    private var inferenceProfilePicker: ChatProfilePickerConfiguration? {
+        guard let conversationManager else { return nil }
+        return ChatProfilePickerConfiguration(
+            current: currentConversation?.inferenceProfile,
+            profiles: inferenceProfiles,
+            activeProfile: activeInferenceProfile,
+            onSelect: { profile in
+                guard let conversationId else { return }
+                Task { @MainActor in
+                    await conversationManager.setConversationInferenceProfile(
+                        id: conversationId,
+                        profile: profile
+                    )
+                }
+            }
+        )
     }
 
     private func toggleConversationHostAccess() {

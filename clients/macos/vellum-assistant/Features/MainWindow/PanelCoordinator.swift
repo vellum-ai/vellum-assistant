@@ -945,6 +945,8 @@ struct ActiveChatViewWrapper: View {
                     enabledSince: settingsStore.mediaEmbedsEnabledSince,
                     allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
                 ),
+                inferenceProfiles: settingsStore.profiles,
+                activeInferenceProfile: settingsStore.activeProfile,
                 onMicrophoneToggle: onMicrophoneToggle,
                 onForkFromMessage: isReadonly ? nil : { [conversationManager] daemonMessageId in
                     Task { @MainActor in
