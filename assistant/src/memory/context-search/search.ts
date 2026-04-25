@@ -245,11 +245,21 @@ function capEvidence(
   const textSizeBySource = new Map<RecallSource, number>();
   let totalTextSize = 0;
 
-  for (const item of pinnedEvidence) {
+  for (let index = 0; index < pinnedEvidence.length; index += 1) {
+    const item = pinnedEvidence[index];
+    if (!item) continue;
+
+    const pinnedRemaining = pinnedEvidence.length - index;
+    const reservedTextBudget = getReservedPinnedTextBudget(item, {
+      textSizeBySource,
+      totalTextSize,
+      pinnedRemaining,
+    });
     const appended = appendCappedEvidence(item, {
       capped,
       textSizeBySource,
       totalTextSize,
+      textBudget: reservedTextBudget,
     });
     totalTextSize = appended.totalTextSize;
     if (appended.totalRemaining <= 0) {
@@ -279,18 +289,38 @@ function isPinnedPkbContextEvidence(item: RecallEvidence): boolean {
   return item.source === "pkb" && PINNED_PKB_CONTEXT_EVIDENCE_IDS.has(item.id);
 }
 
+function getReservedPinnedTextBudget(
+  item: RecallEvidence,
+  state: {
+    textSizeBySource: Map<RecallSource, number>;
+    totalTextSize: number;
+    pinnedRemaining: number;
+  },
+): number {
+  const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
+  const sourceRemaining = RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE - sourceTextSize;
+  const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
+  const remaining = Math.min(sourceRemaining, totalRemaining);
+  return Math.max(1, Math.floor(remaining / state.pinnedRemaining));
+}
+
 function appendCappedEvidence(
   item: RecallEvidence,
   state: {
     capped: RecallEvidence[];
     textSizeBySource: Map<RecallSource, number>;
     totalTextSize: number;
+    textBudget?: number;
   },
 ): { totalTextSize: number; totalRemaining: number } {
   const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
   const sourceRemaining = RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE - sourceTextSize;
   const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
-  const remaining = Math.min(sourceRemaining, totalRemaining);
+  const remaining = Math.min(
+    sourceRemaining,
+    totalRemaining,
+    state.textBudget ?? Number.MAX_SAFE_INTEGER,
+  );
   if (remaining <= 0) {
     return { totalTextSize: state.totalTextSize, totalRemaining };
   }

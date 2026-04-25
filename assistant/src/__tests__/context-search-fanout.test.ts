@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
 import { formatDeterministicRecallAnswer } from "../memory/context-search/format.js";
+import { RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE } from "../memory/context-search/limits.js";
 import { runDeterministicRecallSearch } from "../memory/context-search/search.js";
 import type {
   RecallEvidence,
@@ -139,6 +140,48 @@ describe("runDeterministicRecallSearch", () => {
       { source: "pkb", status: "searched", evidenceCount: 2 },
       { source: "workspace", status: "searched", evidenceCount: 0 },
     ]);
+  });
+
+  test("reserves text budget for each pinned PKB context row", async () => {
+    const result = await runDeterministicRecallSearch(
+      { query: "launch notes", sources: ["pkb"], max_results: 1 },
+      makeContext(),
+      {
+        adapters: [
+          makeAdapter("pkb", [
+            makeEvidence("pkb", {
+              id: "pkb:search",
+              score: 0.5,
+              excerpt: "Normal PKB search result.",
+            }),
+          ]),
+        ],
+        readPkbContextEvidence: () => [
+          makeEvidence("pkb", {
+            id: "pkb:auto-inject",
+            title: "PKB auto-injected context",
+            locator: "pkb:auto-inject",
+            score: 1,
+            excerpt: "A".repeat(RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE * 2),
+          }),
+          makeEvidence("pkb", {
+            id: "pkb:NOW.md",
+            title: "NOW.md",
+            locator: "NOW.md",
+            score: 0.9,
+            excerpt: "Current launch focus.",
+          }),
+        ],
+      },
+    );
+
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "pkb:auto-inject",
+      "pkb:NOW.md",
+    ]);
+    for (const item of result.evidence) {
+      expect(item.excerpt.length).toBeGreaterThan(0);
+    }
   });
 
   test("searches every source by default", async () => {
