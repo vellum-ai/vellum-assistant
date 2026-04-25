@@ -21,6 +21,7 @@ import { dirname } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { cliIpcRoutes } from "./routes/index.js";
+import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("cli-ipc-server");
@@ -87,21 +88,17 @@ export class CliIpcServer {
   }
 
   /** Start listening on the Unix domain socket. */
-  start(): void {
+  async start(): Promise<void> {
     // Ensure the parent directory exists before listening.
     const socketDir = dirname(this.socketPath);
     if (!existsSync(socketDir)) {
       mkdirSync(socketDir, { recursive: true, mode: 0o700 });
     }
 
-    // Clean up stale socket file from a previous run
-    if (existsSync(this.socketPath)) {
-      try {
-        unlinkSync(this.socketPath);
-      } catch {
-        // Ignore — may already be gone
-      }
-    }
+    // Probe before unlink so a second daemon can't silently orphan an active
+    // listener (Unix lets you unlink a still-bound socket file). See
+    // `ensureSocketPathFree` for the behavior matrix.
+    await ensureSocketPathFree(this.socketPath);
 
     this.server = createServer((socket) => {
       this.clients.add(socket);

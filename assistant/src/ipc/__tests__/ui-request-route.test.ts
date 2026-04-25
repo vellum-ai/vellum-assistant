@@ -42,7 +42,7 @@ beforeEach(async () => {
   resetInteractiveUiResolverForTests();
   resetSurfaceIdCounterForTests();
   server = new CliIpcServer();
-  server.start();
+  await server.start();
   // Allow the server socket to bind.
   await new Promise((resolve) => setTimeout(resolve, 50));
 });

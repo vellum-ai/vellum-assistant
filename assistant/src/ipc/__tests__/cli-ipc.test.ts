@@ -49,7 +49,7 @@ afterEach(() => {
 
 async function startServer(): Promise<void> {
   server = new CliIpcServer();
-  server.start();
+  await server.start();
   await new Promise((resolve) => setTimeout(resolve, 50));
 }
 

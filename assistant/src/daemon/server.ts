@@ -909,7 +909,7 @@ export class DaemonServer {
     // Start the CLI IPC server. Built-in methods (wake_conversation) are
     // registered by the constructor; CLI commands connect to this socket to
     // invoke daemon-side operations that require in-process state.
-    this.cliIpc.start();
+    await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
     // socket to access host capabilities (host.log, host.config.*,
