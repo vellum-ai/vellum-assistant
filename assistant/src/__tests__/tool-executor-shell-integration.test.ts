@@ -132,9 +132,16 @@ mock.module("../security/token-manager.js", () => ({
   TokenExpiredError: class TokenExpiredError extends Error {},
 }));
 
-// ── Gateway IPC client — route classify_risk directly to the gateway handler ──
-import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
-mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+import {
+  installIpcMock,
+  mockIpcResponse,
+} from "./helpers/gateway-classify-mock.js";
+installIpcMock();
+mockIpcResponse("classify_risk", {
+  risk: "medium",
+  reason: "shell",
+  matchType: "shell",
+});
 
 // IMPORTANT: Do NOT mock ../permissions/checker.js — that's the whole point.
 

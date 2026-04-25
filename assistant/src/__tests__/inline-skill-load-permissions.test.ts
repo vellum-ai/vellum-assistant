@@ -57,8 +57,16 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
-mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+import {
+  installIpcMock,
+  mockIpcResponse,
+} from "./helpers/gateway-classify-mock.js";
+installIpcMock();
+mockIpcResponse("classify_risk", {
+  risk: "low",
+  reason: "skill_load",
+  matchType: "unknown",
+});
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 

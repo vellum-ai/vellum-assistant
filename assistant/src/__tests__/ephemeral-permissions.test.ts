@@ -39,8 +39,20 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
-mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+// Mock IPC transport — only the Unix socket layer is faked.
+import {
+  installIpcMock,
+  mockIpcResponse,
+} from "./helpers/gateway-classify-mock.js";
+installIpcMock();
+
+// The warmup classifyRisk("bash", { command: "echo warmup" }) call needs a
+// valid response so the WASM parser initializes without throwing.
+mockIpcResponse("classify_risk", {
+  risk: "low",
+  reason: "echo",
+  matchType: "shell",
+});
 
 import { check, classifyRisk } from "../permissions/checker.js";
 import {
@@ -297,7 +309,12 @@ describe("ephemeral-permissions", () => {
         ephemeralRules,
       };
 
-      // sudo is high-risk
+      // sudo is high-risk — override the default low-risk mock response
+      mockIpcResponse("classify_risk", {
+        risk: "high",
+        reason: "sudo",
+        matchType: "shell",
+      });
       const result = await check(
         "bash",
         { command: "sudo rm -rf /" },
