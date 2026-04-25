@@ -353,6 +353,16 @@ export class AgentLoop {
      * in unit tests.
      */
     turnContext?: TurnContext,
+    /**
+     * Optional ad-hoc inference-profile override applied to every LLM call
+     * the loop issues. When set, each `SendMessageOptions.config` carries
+     * `overrideProfile = <name>` so the provider's resolver layers
+     * `llm.profiles[<name>]` between the workspace `activeProfile` and any
+     * call-site named profile. Missing profile names silently fall through.
+     * Used by per-conversation pinned profiles to override the workspace
+     * default for the lifetime of an agent loop run.
+     */
+    overrideProfile?: string,
   ): Promise<Message[]> {
     const history = [...messages];
     const initialHistoryLength = messages.length;
@@ -450,6 +460,16 @@ export class AgentLoop {
         // analyze, etc.) pass their own `callSite`.
         if (callSite) {
           providerConfig.callSite = callSite;
+        }
+
+        // Per-call inference-profile override. The resolver layers
+        // `llm.profiles[overrideProfile]` between the workspace's
+        // `activeProfile` and any call-site named profile. Threading it on
+        // every send (rather than once at construction) keeps subagents that
+        // share an `AgentLoop` instance but ought to inherit a different
+        // profile correct — and matches how `callSite` is plumbed.
+        if (overrideProfile) {
+          providerConfig.overrideProfile = overrideProfile;
         }
 
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly

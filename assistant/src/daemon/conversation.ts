@@ -1492,6 +1492,15 @@ export class Conversation {
       isUserMessage?: boolean;
       titleText?: string;
       callSite?: LLMCallSite;
+      /**
+       * Optional ad-hoc inference-profile override applied to every LLM call
+       * the loop issues for this turn. Forwarded into
+       * {@link runAgentLoopImpl} and threaded through to
+       * {@link AgentLoop.run} so each provider call carries
+       * `config.overrideProfile`. Subagents spawned during the turn inherit
+       * this value via {@link SubagentManager.spawn}.
+       */
+      overrideProfile?: string;
     },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);

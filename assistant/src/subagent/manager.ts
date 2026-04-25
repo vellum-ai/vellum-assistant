@@ -482,6 +482,9 @@ export class SubagentManager {
       const messageId = await conversation.persistUserMessage(message, []);
       await conversation.runAgentLoop(message, messageId, onEvent, {
         callSite: "subagentSpawn",
+        ...(managed.state.config.overrideProfile
+          ? { overrideProfile: managed.state.config.overrideProfile }
+          : {}),
       });
 
       // Agent loop completed successfully.
@@ -679,6 +682,9 @@ export class SubagentManager {
       conversation
         .runAgentLoop(trimmed, messageId, onEvent, {
           callSite: "subagentSpawn",
+          ...(managed.state.config.overrideProfile
+            ? { overrideProfile: managed.state.config.overrideProfile }
+            : {}),
         })
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
