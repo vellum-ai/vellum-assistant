@@ -39,6 +39,11 @@ struct InferenceProfileEditor: View {
     /// Verbosity mirrors the daemon's `VerbositySetting` schema.
     static let verbosityOptions: [String] = ["low", "medium", "high"]
 
+    /// Temperature seeded when the user toggles the Set switch on. Also used
+    /// as the slider's display fallback when the binding's value is nil so
+    /// the slider position matches what the toggle-on path will write.
+    private static let defaultTemperatureWhenSet: Double = 0.7
+
     /// Live-edited maxTokens text. Kept as a string so partial input
     /// (empty field, mid-typing) doesn't immediately clobber the binding
     /// with `0`. Synced into `profile.maxTokens` on every change.
@@ -294,7 +299,7 @@ struct InferenceProfileEditor: View {
             HStack(spacing: VSpacing.md) {
                 VSlider(
                     value: Binding(
-                        get: { profile.temperature.doubleValue ?? 0.7 },
+                        get: { profile.temperature.doubleValue ?? Self.defaultTemperatureWhenSet },
                         set: { profile.temperature = .value($0) }
                     ),
                     range: 0...2,
@@ -306,13 +311,15 @@ struct InferenceProfileEditor: View {
                         get: { profile.temperature.doubleValue != nil },
                         set: { newValue in
                             // OFF: clear so the resolver falls back to the
-                            // model-default temperature instead of pinning 0.7.
-                            // Maps to `.unset` rather than `.explicitNull` —
-                            // the editor doesn't surface the explicit-null
-                            // distinction; daemon-emitted explicit-null
-                            // values still round-trip through the JSON
-                            // mapper untouched.
-                            profile.temperature = newValue ? .value(0.7) : .unset
+                            // model-default temperature instead of pinning the
+                            // seeded default. Maps to `.unset` rather than
+                            // `.explicitNull` — the editor doesn't surface the
+                            // explicit-null distinction; daemon-emitted
+                            // explicit-null values still round-trip through
+                            // the JSON mapper untouched.
+                            profile.temperature = newValue
+                                ? .value(Self.defaultTemperatureWhenSet)
+                                : .unset
                         }
                     ),
                     label: "Set"

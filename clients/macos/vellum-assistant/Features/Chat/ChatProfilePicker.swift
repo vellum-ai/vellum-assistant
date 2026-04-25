@@ -33,9 +33,12 @@ struct ChatProfilePickerConfiguration {
 /// updates the local conversation model and persists to the daemon.
 @MainActor
 struct ChatProfilePicker: View {
-    /// The conversation whose override is being edited. `nil` disables the
-    /// pill (e.g. for not-yet-persisted draft conversations).
-    let conversationId: UUID?
+    /// Whether the picker can be opened. `false` disables the pill — used
+    /// for not-yet-persisted draft conversations where there's no
+    /// conversation id to attach the override to. The actual conversation
+    /// id needed for persistence is captured into ``onSelect`` by the
+    /// parent.
+    let isEnabled: Bool
 
     /// The current per-conversation inference-profile override. `nil` means
     /// the conversation inherits `activeProfile`.
@@ -64,7 +67,7 @@ struct ChatProfilePicker: View {
     var body: some View {
         #if os(macOS)
         ComposerPillMenu(
-            isEnabled: conversationId != nil,
+            isEnabled: isEnabled,
             accessibilityLabel: "Inference profile",
             accessibilityValue: Self.label(current: current, activeProfile: activeProfile),
             tooltip: "Inference profile for this conversation"

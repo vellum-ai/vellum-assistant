@@ -2,8 +2,9 @@ import Foundation
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-/// Shared scaffolding for the inference-profile test suites. The four
-/// `InferenceProfile*Tests` and `SettingsStoreInferenceProfilesTests`
+/// Shared scaffolding for the inference-profile and call-site-override
+/// test suites. The four `InferenceProfile*Tests` and
+/// `SettingsStoreInferenceProfilesTests` plus `CallSiteOverridesSheetTests`
 /// each rebuilt the same `MockSettingsClient` + `SettingsStore` +
 /// provider-catalog literal in their `setUp`. This factory bundles those
 /// pieces so individual tests only override what they care about.

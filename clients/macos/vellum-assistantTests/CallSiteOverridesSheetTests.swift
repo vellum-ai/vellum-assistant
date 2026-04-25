@@ -17,9 +17,9 @@ final class CallSiteOverridesSheetTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        mockSettingsClient = MockSettingsClient()
-        mockSettingsClient.patchConfigResponse = true
-        store = SettingsStore(settingsClient: mockSettingsClient)
+        let fixture = SettingsTestFixture.make()
+        store = fixture.store
+        mockSettingsClient = fixture.mockClient
     }
 
     override func tearDown() {

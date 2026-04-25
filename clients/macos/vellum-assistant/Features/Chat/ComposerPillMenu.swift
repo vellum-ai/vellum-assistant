@@ -26,15 +26,12 @@ struct ComposerPillMenu<Label: View, Menu: View>: View {
     /// Tooltip shown on hover.
     let tooltip: String
 
-    /// Width of the popover menu surface.
-    var menuWidth: CGFloat = 240
-
     /// Leading content of the pill — typically an icon followed by a label
     /// `Text`. The chevron is appended by this view.
     @ViewBuilder let label: () -> Label
 
     /// Body of the popover menu — typically a ``VMenu`` with ``VMenuItem``
-    /// rows. Wrapped in a ``VMenu`` of width ``menuWidth`` by this view.
+    /// rows. Wrapped in a fixed-width ``VMenu`` by this view.
     @ViewBuilder let menu: () -> Menu
 
     #if os(macOS)
@@ -118,7 +115,7 @@ struct ComposerPillMenu<Label: View, Menu: View>: View {
             sourceAppearance: appearance,
             excludeRect: triggerScreenRect
         ) {
-            VMenu(width: menuWidth) {
+            VMenu(width: 240) {
                 menu()
             }
         } onDismiss: {

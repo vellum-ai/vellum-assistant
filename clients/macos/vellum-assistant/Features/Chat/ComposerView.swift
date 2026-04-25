@@ -483,7 +483,7 @@ struct ComposerView: View, Equatable {
 
             if let inferenceProfilePicker, !inferenceProfilePicker.profiles.isEmpty {
                 ChatProfilePicker(
-                    conversationId: conversationId,
+                    isEnabled: conversationId != nil,
                     current: inferenceProfilePicker.current,
                     profiles: inferenceProfilePicker.profiles,
                     activeProfile: inferenceProfilePicker.activeProfile,

@@ -142,7 +142,7 @@ final class ChatProfilePickerTests: XCTestCase {
         manager: ConversationManager
     ) -> ChatProfilePicker {
         ChatProfilePicker(
-            conversationId: conversationId,
+            isEnabled: true,
             current: current,
             profiles: profiles,
             activeProfile: activeProfile,
