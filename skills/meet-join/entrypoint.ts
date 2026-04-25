@@ -236,9 +236,15 @@ export async function runEntrypoint(args: ParsedArgs): Promise<number> {
 /**
  * Best-effort socket-health watcher. Periodically pokes the client with
  * a no-op ping; if the underlying socket has dropped, the call rejects
- * with "not connected" and we resolve `exitTrigger`. The check interval
- * is set high enough (one second) that it does not hot-loop the daemon
- * while still triggering teardown promptly when the connection drops.
+ * with a connection-closure error and we resolve `exitTrigger`. The
+ * check interval is set high enough (one second) that it does not
+ * hot-loop the daemon while still triggering teardown promptly when
+ * the connection drops.
+ *
+ * Only confirmed connection-closure errors trigger teardown. Timeouts
+ * and other transient `rawCall` failures are ignored — a busy or
+ * temporarily stalled daemon must not be mistaken for a dead socket,
+ * since that would interrupt active sessions.
  *
  * The internal timer is `unref()`d so a hung loop does not pin the
  * process alive past `process.exit` on the happy path.
@@ -251,6 +257,7 @@ async function watchSocketHealth(
   client: SkillHostClient,
   resolveExit: (reason: string) => void,
 ): Promise<void> {
+  const log = client.logger.get("entrypoint");
   const intervalMs = 1_000;
   while (true) {
     await new Promise<void>((resolve) => {
@@ -259,15 +266,31 @@ async function watchSocketHealth(
     });
     try {
       await client.rawCall<string>("host.identity.getInternalAssistantId");
-    } catch {
-      // Either the client has been closed (intentional teardown) or the
-      // socket has dropped (daemon went away). In both cases we want to
-      // resolve the exit trigger; subsequent calls in the steady-state
-      // path are no-ops.
-      resolveExit("socket-disconnect");
-      return;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isConnectionClosureError(message)) {
+        resolveExit("socket-disconnect");
+        return;
+      }
+      // Transient (e.g. call timeout in a busy daemon). Log and keep
+      // polling — the next tick will retry.
+      log.warn("socket health probe failed; continuing", { err: message });
     }
   }
+}
+
+/**
+ * Distinguish confirmed connection-closure errors from transient
+ * `rawCall` failures (timeouts, etc). The message strings are owned by
+ * `SkillHostClient` — see `call()` and the `socket.on("close")` handler
+ * in `packages/skill-host-contracts/src/client.ts`.
+ */
+function isConnectionClosureError(message: string): boolean {
+  return (
+    message.includes("not connected") ||
+    message.includes("client is closed") ||
+    message.includes("socket closed")
+  );
 }
 
 /**
