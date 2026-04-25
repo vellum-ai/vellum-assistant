@@ -21,7 +21,14 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
-import { acceptStarterBundleSync, addRuleSync, clearRulesSync, getAllRulesSync, removeRuleSync, updateRuleSync } from "./trust-client.js";
+import {
+  acceptStarterBundle as ipcAcceptStarterBundle,
+  addRule as ipcAddRule,
+  clearRules as ipcClearRules,
+  getAllRules as ipcGetAllRules,
+  removeRule as ipcRemoveRule,
+  updateRule as ipcUpdateRule,
+} from "./trust-client.js";
 import type {
   AcceptStarterBundleResult,
   StarterBundleRule,
@@ -425,7 +432,7 @@ function getRules(): TrustRule[] {
   return cachedRules;
 }
 
-function fileAddRule(
+async function fileAddRule(
   tool: string,
   pattern: string,
   scope: string,
@@ -434,7 +441,7 @@ function fileAddRule(
   options?: {
     executionTarget?: string;
   },
-): TrustRule {
+): Promise<TrustRule> {
   if (tool.startsWith("__internal:"))
     throw new Error(`Cannot create internal pseudo-rule via addRule: ${tool}`);
 
@@ -473,7 +480,7 @@ function fileAddRule(
   return rule;
 }
 
-function fileUpdateRule(
+async function fileUpdateRule(
   id: string,
   updates: {
     tool?: string;
@@ -482,7 +489,7 @@ function fileUpdateRule(
     decision?: "allow" | "deny" | "ask";
     priority?: number;
   },
-): TrustRule {
+): Promise<TrustRule> {
   if (updates.tool?.startsWith("__internal:"))
     throw new Error(
       `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
@@ -542,7 +549,7 @@ function fileUpdateRule(
   return rule;
 }
 
-function fileRemoveRule(id: string): boolean {
+async function fileRemoveRule(id: string): Promise<boolean> {
   const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
   if (defaultIds.has(id))
     throw new Error(`Cannot remove default trust rule: ${id}`);
@@ -677,11 +684,11 @@ function fileFindDenyRule(
   return findRuleByDecision(tool, command, scope, "deny");
 }
 
-function fileGetAllRules(): TrustRule[] {
+async function fileGetAllRules(): Promise<TrustRule[]> {
   return [...getRules()];
 }
 
-function fileClearAllRules(): void {
+async function fileClearAllRules(): Promise<void> {
   // Reset the starter bundle flag so the bundle can be re-accepted after clear.
   cachedStarterBundleAccepted = false;
   // Re-backfill default rules so protected directory stays guarded.
@@ -785,7 +792,7 @@ function fileIsStarterBundleAccepted(): boolean {
  * `alreadyAccepted` is returned as true.  Rules whose IDs already exist
  * (e.g. from a previous partial acceptance) are skipped individually.
  */
-function fileAcceptStarterBundle(): AcceptStarterBundleResult {
+async function fileAcceptStarterBundle(): Promise<AcceptStarterBundleResult> {
   // Re-read from disk to avoid lost updates.
   cachedRules = null;
   cachedStarterBundleAccepted = null;
@@ -861,13 +868,14 @@ const CACHE_TTL_MS = 5_000;
 
 /**
  * Gateway-backed trust store that caches rules in memory and refreshes
- * on a TTL. Satisfies the synchronous TrustStoreBackend interface by
- * reading from cache and writing via synchronous HTTP calls.
+ * on a TTL. Write operations use async IPC to the gateway socket.
+ * Read operations serve from the in-memory cache synchronously.
  */
 class GatewayTrustStoreAdapter implements TrustStoreBackend {
   private rules: TrustRule[] = [];
   private starterBundleAccepted = false;
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private readonly listeners: Array<() => void> = [];
 
@@ -878,15 +886,27 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
   // ── Initialization ──────────────────────────────────────────────────────
 
   /**
-   * Ensure the cache is populated. Blocks synchronously on the first call
-   * by fetching rules from the gateway via the sync client. Subsequent
-   * calls are no-ops because the background refresh timer keeps the cache
-   * current.
+   * Kick off initialization without awaiting — for sync read methods that
+   * need the cache but can't await. Returns immediately if already initialized.
+   * Reads from empty cache are safe (no rules = no matches).
    */
-  private ensureInitialized(): void {
+  private ensureInitializedSync(): void {
+    if (this.initialized || this.initPromise) return;
+    this.initPromise = this.ensureInitialized().finally(() => {
+      this.initPromise = null;
+    });
+  }
+
+  /**
+   * Ensure the cache is populated. Fetches rules from the gateway via IPC
+   * on first call. Subsequent calls are no-ops because the background
+   * refresh timer keeps the cache current.
+   */
+  private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
+    if (this.initPromise) return this.initPromise;
     try {
-      this.rules = getAllRulesSync();
+      this.rules = await ipcGetAllRules();
       this.rules.sort(ruleOrder);
       this.rebuildPatternCache();
       // Infer starterBundleAccepted from the fetched rules — if any starter
@@ -919,9 +939,9 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     }
   }
 
-  private refreshCache(): void {
+  private async refreshCache(): Promise<void> {
     try {
-      const fresh = getAllRulesSync();
+      const fresh = await ipcGetAllRules();
       fresh.sort(ruleOrder);
       const oldJson = JSON.stringify(this.rules);
       this.rules = fresh;
@@ -981,8 +1001,8 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
   // ── TrustStoreBackend implementation ────────────────────────────────────
 
-  getAllRules(): TrustRule[] {
-    this.ensureInitialized();
+  async getAllRules(): Promise<TrustRule[]> {
+    await this.ensureInitialized();
     return [...this.rules];
   }
 
@@ -993,7 +1013,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     ctx?: PolicyContext,
     resolvedPaths?: readonly string[],
   ): TrustRule | null {
-    this.ensureInitialized();
+    this.ensureInitializedSync();
     const ephemeral = ctx?.ephemeralRules ?? [];
     const allRules =
       ephemeral.length > 0
@@ -1021,7 +1041,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     scope: string,
     resolvedPaths?: readonly string[],
   ): TrustRule | null {
-    this.ensureInitialized();
+    this.ensureInitializedSync();
     for (const rule of this.rules) {
       if (rule.tool !== tool) continue;
       if (rule.decision !== "allow") continue;
@@ -1034,7 +1054,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
   }
 
   findDenyRule(tool: string, command: string, scope: string): TrustRule | null {
-    this.ensureInitialized();
+    this.ensureInitializedSync();
     for (const rule of this.rules) {
       if (rule.tool !== tool) continue;
       if (rule.decision !== "deny") continue;
@@ -1046,7 +1066,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     return null;
   }
 
-  addRule(
+  async addRule(
     tool: string,
     pattern: string,
     scope: string,
@@ -1055,7 +1075,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     options?: {
       executionTarget?: string;
     },
-  ): TrustRule {
+  ): Promise<TrustRule> {
     if (tool.startsWith("__internal:"))
       throw new Error(
         `Cannot create internal pseudo-rule via addRule: ${tool}`,
@@ -1082,8 +1102,8 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       ).executionTarget;
     }
 
-    this.ensureInitialized();
-    const rule = addRuleSync({
+    await this.ensureInitialized();
+    const rule = await ipcAddRule({
       tool: canonical.tool,
       pattern: canonical.pattern,
       // Only send scope for scoped tools — non-scoped tools omit it.
@@ -1102,7 +1122,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     return rule;
   }
 
-  updateRule(
+  async updateRule(
     id: string,
     updates: {
       tool?: string;
@@ -1111,18 +1131,18 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       decision?: "allow" | "deny" | "ask";
       priority?: number;
     },
-  ): TrustRule {
+  ): Promise<TrustRule> {
     if (updates.tool?.startsWith("__internal:"))
       throw new Error(
         `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
       );
-    this.ensureInitialized();
+    await this.ensureInitialized();
 
     // Send only the caller's partial updates to the gateway.  The gateway's
     // own updateRule merges and canonicalizes via parseTrustRule, so doing a
     // full-rule merge here against the local cache would risk overwriting
     // concurrent edits with stale cached values.
-    const rule = updateRuleSync(id, updates);
+    const rule = await ipcUpdateRule(id, updates);
     // Update local cache
     const idx = this.rules.findIndex((r) => r.id === id);
     if (idx >= 0) {
@@ -1137,9 +1157,9 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     return rule;
   }
 
-  removeRule(id: string): boolean {
-    this.ensureInitialized();
-    const success = removeRuleSync(id);
+  async removeRule(id: string): Promise<boolean> {
+    await this.ensureInitialized();
+    const success = await ipcRemoveRule(id);
     if (success) {
       this.rules = this.rules.filter((r) => r.id !== id);
       this.rebuildPatternCache();
@@ -1149,13 +1169,13 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     return success;
   }
 
-  clearAllRules(): void {
-    this.ensureInitialized();
-    clearRulesSync();
+  async clearAllRules(): Promise<void> {
+    await this.ensureInitialized();
+    await ipcClearRules();
     this.starterBundleAccepted = false;
     // Re-fetch to get the default rules the gateway preserves
     try {
-      this.rules = getAllRulesSync();
+      this.rules = await ipcGetAllRules();
       this.rules.sort(ruleOrder);
     } catch {
       this.rules = [];
@@ -1165,13 +1185,13 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     log.info("Cleared all user trust rules via gateway");
   }
 
-  acceptStarterBundle(): AcceptStarterBundleResult {
-    this.ensureInitialized();
-    const result = acceptStarterBundleSync();
+  async acceptStarterBundle(): Promise<AcceptStarterBundleResult> {
+    await this.ensureInitialized();
+    const result = await ipcAcceptStarterBundle();
     this.starterBundleAccepted = true;
     // Refresh cache to include the newly added starter rules
     try {
-      this.rules = getAllRulesSync();
+      this.rules = await ipcGetAllRules();
       this.rules.sort(ruleOrder);
     } catch {
       // Keep stale cache
@@ -1186,7 +1206,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
   }
 
   isStarterBundleAccepted(): boolean {
-    this.ensureInitialized();
+    this.ensureInitializedSync();
     return this.starterBundleAccepted;
   }
 
@@ -1249,7 +1269,7 @@ export function getTrustStore(): TrustStoreBackend {
 // getTrustStore(), they automatically get the right backend (file-based or
 // gateway-backed) without changing their imports.
 
-export function addRule(
+export async function addRule(
   tool: string,
   pattern: string,
   scope: string,
@@ -1258,7 +1278,7 @@ export function addRule(
   options?: {
     executionTarget?: string;
   },
-): TrustRule {
+): Promise<TrustRule> {
   return getTrustStore().addRule(
     tool,
     pattern,
@@ -1269,7 +1289,7 @@ export function addRule(
   );
 }
 
-export function updateRule(
+export async function updateRule(
   id: string,
   updates: {
     tool?: string;
@@ -1278,19 +1298,19 @@ export function updateRule(
     decision?: "allow" | "deny" | "ask";
     priority?: number;
   },
-): TrustRule {
+): Promise<TrustRule> {
   return getTrustStore().updateRule(id, updates);
 }
 
-export function removeRule(id: string): boolean {
+export async function removeRule(id: string): Promise<boolean> {
   return getTrustStore().removeRule(id);
 }
 
-export function clearAllRules(): void {
-  getTrustStore().clearAllRules();
+export async function clearAllRules(): Promise<void> {
+  return getTrustStore().clearAllRules();
 }
 
-export function getAllRules(): TrustRule[] {
+export async function getAllRules(): Promise<TrustRule[]> {
   return getTrustStore().getAllRules();
 }
 
@@ -1327,7 +1347,7 @@ export function findDenyRule(
   return getTrustStore().findDenyRule(tool, command, scope);
 }
 
-export function acceptStarterBundle(): AcceptStarterBundleResult {
+export async function acceptStarterBundle(): Promise<AcceptStarterBundleResult> {
   return getTrustStore().acceptStarterBundle();
 }
 

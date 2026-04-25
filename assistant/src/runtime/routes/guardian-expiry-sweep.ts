@@ -46,7 +46,7 @@ export function sweepExpiredGuardianApprovals(
       action: "reject",
       source: "plain_text",
     };
-    handleChannelDecision(approval.conversationId, expiredDecision);
+    void handleChannelDecision(approval.conversationId, expiredDecision);
 
     const deliverUrl = `/deliver/${approval.channel}`;
 

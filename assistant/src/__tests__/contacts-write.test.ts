@@ -134,9 +134,9 @@ describe("createGuardianBinding seeds users/<slug>.md", () => {
 //     at runtime. Otherwise the model prompts on its first
 //     `file_edit users/<slug>.md`.
 describe("guardian persona seeding and trust-cache invariants", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetContactTables();
-    clearAllRules();
+    await clearAllRules();
     clearTrustCache();
   });
 
@@ -164,11 +164,11 @@ describe("guardian persona seeding and trust-cache invariants", () => {
     expect(existsSync(personaPath)).toBe(false);
   });
 
-  test("createGuardianBinding backfills the guardian-persona auto-allow rule via clearTrustCache", () => {
+  test("createGuardianBinding backfills the guardian-persona auto-allow rule via clearTrustCache", async () => {
     // Warm the trust cache BEFORE a guardian exists so the initial
     // loadFromDisk → backfillDefaults → getDefaultRuleTemplates round
     // sees no guardian and emits no guardian-persona rule.
-    const beforeRules = getAllRules();
+    const beforeRules = await getAllRules();
     const guardianRuleBefore = beforeRules.find(
       (r) => r.id === "default:allow-file_edit-guardian-persona",
     );
@@ -186,7 +186,7 @@ describe("guardian persona seeding and trust-cache invariants", () => {
     // invoked, so the next getAllRules() call re-runs loadFromDisk and
     // backfills the dynamic guardian-persona rule pointing at the
     // newly-resolved users/<slug>.md.
-    const afterRules = getAllRules();
+    const afterRules = await getAllRules();
     const guardianRuleAfter = afterRules.find(
       (r) => r.id === "default:allow-file_edit-guardian-persona",
     );

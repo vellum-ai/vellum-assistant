@@ -338,7 +338,7 @@ async function handleCallbackDecision(params: {
   // Apply the decision through the unified guardian decision primitive.
   // The primitive handles approve_always downgrade, approval info capture,
   // record update, and scoped grant minting.
-  const result = applyGuardianDecision({
+  const result = await applyGuardianDecision({
     approval: guardianApproval,
     decision: callbackDecision,
     actorPrincipalId: undefined, // Callback path — principal not available at this layer
@@ -595,7 +595,7 @@ async function handleConversationalDecision(params: {
   };
 
   // Apply the decision through the unified guardian decision primitive.
-  const result = applyGuardianDecision({
+  const result = await applyGuardianDecision({
     approval: targetApproval,
     decision: engineDecision,
     actorPrincipalId: undefined, // Callback path — principal not available at this layer

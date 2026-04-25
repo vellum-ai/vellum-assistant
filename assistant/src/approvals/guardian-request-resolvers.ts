@@ -211,7 +211,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
         const tool = getTool(details.toolName);
         const executionTarget =
           tool?.origin === "skill" ? details.executionTarget : undefined;
-        addRule(details.toolName, pattern, scope, "allow", 100, {
+        await addRule(details.toolName, pattern, scope, "allow", 100, {
           executionTarget,
         });
       }

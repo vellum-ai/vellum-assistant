@@ -175,11 +175,11 @@ export interface HandleDecisionResult {
  * option and first scope option from the pending confirmation (narrow
  * default). The current invocation is also approved.
  */
-export function handleChannelDecision(
+export async function handleChannelDecision(
   conversationId: string,
   decision: ApprovalDecisionResult,
   decisionContext?: string,
-): HandleDecisionResult {
+): Promise<HandleDecisionResult> {
   const pending = getApprovalInfoByConversation(conversationId);
   if (pending.length === 0) return { applied: false };
 
@@ -217,7 +217,7 @@ export function handleChannelDecision(
       const tool = getTool(details.toolName);
       const executionTarget =
         tool?.origin === "skill" ? details.executionTarget : undefined;
-      addRule(details.toolName, pattern, scope, "allow", 100, {
+      await addRule(details.toolName, pattern, scope, "allow", 100, {
         executionTarget,
       });
     }
