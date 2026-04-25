@@ -174,6 +174,7 @@ export { migrateOAuthProvidersAvailableScopes } from "./225-oauth-providers-avai
 export { migrateScheduleWakeConversationId } from "./226-schedule-wake-conversation-id.js";
 export { migrateAddConversationInferenceProfile } from "./227-add-conversation-inference-profile.js";
 export { migrateRenameInferenceProfileSnakeCase } from "./228-rename-inference-profile-snake-case.js";
+export { migrateDeletePrivateConversations } from "./229-delete-private-conversations.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
