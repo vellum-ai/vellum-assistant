@@ -172,7 +172,7 @@ export async function bridgeCesApproval(
     signal?: AbortSignal;
   },
 ): Promise<CesApprovalBridgeResult> {
-  const { proposal, renderedProposal, proposalHash, sessionId } = approval;
+  const { proposal: _proposal, renderedProposal: _renderedProposal, proposalHash, sessionId } = approval;
 
   // Non-interactive sessions have no client to respond — fail closed.
   if (options?.isInteractive === false) {

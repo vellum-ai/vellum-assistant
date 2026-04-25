@@ -46,7 +46,6 @@ import {
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import {
-  handleGuardianActionDecision,
   listGuardianDecisionPrompts,
 } from "../runtime/routes/guardian-action-routes.js";
 

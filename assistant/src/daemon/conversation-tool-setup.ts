@@ -366,8 +366,8 @@ export function createToolExecutor(
  * user confirmation before proceeding.
  */
 export function createProxyApprovalCallback(
-  prompter: PermissionPrompter,
-  ctx: ToolSetupContext,
+  _prompter: PermissionPrompter,
+  _ctx: ToolSetupContext,
 ): ProxyApprovalCallback {
   return async (_request: ProxyApprovalRequest): Promise<boolean> => {
     // Proxied asks follow the same non-host auto-allow contract as regular

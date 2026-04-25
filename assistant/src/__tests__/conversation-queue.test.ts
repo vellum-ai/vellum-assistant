@@ -1,7 +1,6 @@
 import { rmSync, writeFileSync } from "node:fs";
 import {
   afterAll,
-  afterEach,
   beforeEach,
   describe,
   expect,
