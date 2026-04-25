@@ -833,6 +833,15 @@ export class DaemonServer {
         // but a delayed opportunity callback still fires).
         const existing = getConversation(conversationId);
         if (!existing) return null;
+        // Reject wakes on archived conversations — they should not
+        // be reactivated by background processes.
+        if (existing.archivedAt != null) {
+          log.info(
+            { conversationId },
+            "agent-wake default resolver: conversation is archived; rejecting wake",
+          );
+          return "archived";
+        }
         const conversation = await this.getOrCreateConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
@@ -1996,6 +2005,24 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
     getMessages: () => conversation.getMessages(),
     pushMessage: (msg) => {
       conversation.messages.push(msg);
+    },
+    onWakeProducedOutput: (source, hint) => {
+      const emit =
+        conversation.broadcastToAllClients ??
+        conversation.sendToClient.bind(conversation);
+      const surfaceId = `wake-${conversation.conversationId}-${Date.now()}`;
+      emit({
+        type: "ui_surface_show",
+        conversationId: conversation.conversationId,
+        surfaceId,
+        surfaceType: "card",
+        data: {
+          title: "Conversation Woke",
+          body: hint,
+          metadata: [{ label: "Source", value: source }],
+        },
+        display: "inline",
+      });
     },
     emitAgentEvent: (event) => {
       const frame = translateAgentEventToServerMessage(

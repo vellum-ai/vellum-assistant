@@ -62,21 +62,33 @@ Examples:
 
   conversations
     .command("list")
-    .description("List all conversations")
+    .description("List conversations (excludes archived by default)")
+    .option(
+      "--include-archived",
+      "Include archived conversations in the output",
+    )
     .addHelpText(
       "after",
       `
-Shows all conversations with their ID, title, and a relative timestamp (e.g.
+Shows conversations with their ID, title, and a relative timestamp (e.g.
 "3 hours ago"). Conversations are listed in order of most recently updated.
+Archived conversations are excluded by default; pass --include-archived to
+include them.
 
 Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
-  $ assistant conversations list`,
+  $ assistant conversations list
+  $ assistant conversations list --include-archived`,
     )
-    .action(async () => {
+    .action(async (opts?: { includeArchived?: boolean }) => {
       initializeDb();
-      const all = listConversations(Number.MAX_SAFE_INTEGER);
+      const all = listConversations(
+        Number.MAX_SAFE_INTEGER,
+        false,
+        0,
+        opts?.includeArchived ?? false,
+      );
       if (all.length === 0) {
         log.info("No conversations");
       } else {
@@ -485,7 +497,7 @@ Examples:
         const result = await cliIpcCall<{
           invoked: boolean;
           producedToolCalls: boolean;
-          reason?: "not_found" | "timeout" | "no_resolver";
+          reason?: "not_found" | "archived" | "timeout" | "no_resolver";
         }>("wake_conversation", {
           conversationId,
           hint: opts.hint,
@@ -520,6 +532,11 @@ Examples:
           log.info(
             `Conversation ${conversationId} is busy — wake skipped (retry later)`,
           );
+        } else if (wake.reason === "archived") {
+          log.error(
+            `Could not wake conversation ${conversationId} — conversation is archived`,
+          );
+          process.exitCode = 1;
         } else {
           log.error(
             `Could not wake conversation ${conversationId} — conversation not found`,

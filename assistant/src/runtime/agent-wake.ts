@@ -112,6 +112,13 @@ export interface WakeTarget {
    * user-turn finally path in `conversation-agent-loop.ts`.
    */
   drainQueue?(): Promise<void>;
+  /**
+   * Called after a wake produces visible output (text or tool calls).
+   * The daemon adapter uses this to emit a UI surface card so the client
+   * shows a visual indicator that the conversation was woken. Optional
+   * because unit-test stubs typically omit it.
+   */
+  onWakeProducedOutput?(source: string, hint: string): void;
 }
 
 export interface WakeOptions {
@@ -126,7 +133,11 @@ export interface WakeOptions {
  * exists but stayed busy past the wait-until-idle timeout" — the former is
  * a user-visible error, the latter is an expected transient condition.
  */
-export type WakeSkipReason = "not_found" | "timeout" | "no_resolver";
+export type WakeSkipReason =
+  | "not_found"
+  | "archived"
+  | "timeout"
+  | "no_resolver";
 
 export interface WakeResult {
   invoked: boolean;
@@ -141,8 +152,14 @@ export interface WakeResult {
  * at daemon startup via {@link registerDefaultWakeResolver}.
  */
 export interface WakeDeps {
-  /** Resolve the wake target for a conversationId. Returns `null` if not found. */
-  resolveTarget: (conversationId: string) => Promise<WakeTarget | null>;
+  /**
+   * Resolve the wake target for a conversationId.
+   * Returns `null` if the conversation doesn't exist, `"archived"` if it
+   * exists but is archived, or a `WakeTarget` to proceed with the wake.
+   */
+  resolveTarget: (
+    conversationId: string,
+  ) => Promise<WakeTarget | null | "archived">;
   /** Timestamp source (for deterministic tests). */
   now?: () => number;
 }
@@ -162,7 +179,7 @@ export interface WakeDeps {
 // supplied.
 
 let _defaultResolver:
-  | ((conversationId: string) => Promise<WakeTarget | null>)
+  | ((conversationId: string) => Promise<WakeTarget | null | "archived">)
   | null = null;
 
 /**
@@ -176,7 +193,7 @@ let _defaultResolver:
  * {@link resetDefaultWakeResolverForTests}.
  */
 export function registerDefaultWakeResolver(
-  resolver: (conversationId: string) => Promise<WakeTarget | null>,
+  resolver: (conversationId: string) => Promise<WakeTarget | null | "archived">,
 ): void {
   _defaultResolver = resolver;
 }
@@ -316,14 +333,26 @@ export async function wakeAgentForOpportunity(
   const startedAt = nowFn();
 
   return runSingleFlight(conversationId, async () => {
-    const target = await resolveTarget(conversationId);
-    if (!target) {
+    const resolved = await resolveTarget(conversationId);
+    if (resolved === "archived") {
+      log.info(
+        { conversationId, source },
+        "agent-wake: conversation is archived; skipping",
+      );
+      return {
+        invoked: false,
+        producedToolCalls: false,
+        reason: "archived" as const,
+      };
+    }
+    if (!resolved) {
       log.warn(
         { conversationId, source },
         "agent-wake: conversation not found; skipping",
       );
       return { invoked: false, producedToolCalls: false, reason: "not_found" };
     }
+    const target = resolved;
 
     const idle = await waitUntilIdle(target, nowFn);
     if (!idle) {
@@ -427,6 +456,21 @@ export async function wakeAgentForOpportunity(
       }
 
       tailMessageCount = tailMessages.length;
+
+      // Notify the adapter that the wake produced output so it can
+      // emit a visual indicator (e.g. an inline UI card) to connected
+      // clients. Fired BEFORE flushing agent events so the indicator
+      // appears at the top of the wake's output in the chat timeline.
+      if (target.onWakeProducedOutput) {
+        try {
+          target.onWakeProducedOutput(source, hint);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: onWakeProducedOutput threw; continuing",
+          );
+        }
+      }
 
       // Output produced: flush buffered client events through the
       // target's translator. The internal hint is NOT emitted.
