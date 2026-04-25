@@ -8,6 +8,7 @@ import {
   contacts,
 } from "../memory/schema.js";
 import { emitContactChange } from "./contact-events.js";
+import { syncContactToGateway } from "./gateway-dual-write.js";
 import type {
   AssistantContactMetadata,
   AssistantSpecies,
@@ -237,7 +238,9 @@ export function upsertContact(params: {
       }
 
       emitContactChange();
-      return { ...getContactInternal(contactId)!, created: false };
+      const result = { ...getContactInternal(contactId)!, created: false };
+      syncContactToGateway(result);
+      return result;
     }
   }
 
@@ -277,7 +280,9 @@ export function upsertContact(params: {
 
         syncChannels(contactId, params.channels, now);
         emitContactChange();
-        return { ...getContactInternal(contactId)!, created: false };
+        const result = { ...getContactInternal(contactId)!, created: false };
+        syncContactToGateway(result);
+        return result;
       }
     }
   }
@@ -329,7 +334,9 @@ export function upsertContact(params: {
   }
 
   emitContactChange();
-  return { ...getContactInternal(contactId)!, created: true };
+  const result = { ...getContactInternal(contactId)!, created: true };
+  syncContactToGateway(result);
+  return result;
 }
 
 /**
