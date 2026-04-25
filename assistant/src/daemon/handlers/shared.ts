@@ -138,8 +138,6 @@ export interface ConversationCreateOptions {
   /** Whether this turn can block on interactive approval prompts. */
   isInteractive?: boolean;
   memoryScopeId?: string;
-  isPrivateConversation?: boolean;
-  strictPrivateSideEffects?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */

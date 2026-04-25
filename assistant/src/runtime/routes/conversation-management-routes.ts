@@ -22,6 +22,7 @@
 import { z } from "zod";
 
 import { loadConfig } from "../../config/loader.js";
+import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   archiveConversation,
   batchSetDisplayOrders,
@@ -52,6 +53,13 @@ import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("conversation-management-routes");
+
+function normalizeManagedConversationCreateType(raw: unknown): "standard" {
+  const normalized = normalizeConversationType(
+    typeof raw === "string" ? raw : undefined,
+  );
+  return normalized === "standard" ? normalized : "standard";
+}
 
 // ---------------------------------------------------------------------------
 // Dependency types — injected by the daemon at wiring time
@@ -116,8 +124,11 @@ export function conversationManagementRouteDefinitions(
           // Empty or malformed body — fall through with defaults.
         }
         const conversationKey = body.conversationKey ?? crypto.randomUUID();
+        const conversationType = normalizeManagedConversationCreateType(
+          body.conversationType,
+        );
         const result = getOrCreateConversation(conversationKey, {
-          conversationType: "standard",
+          conversationType,
         });
         if (result.created) {
           updateConversationTitle(result.conversationId, "New Conversation");
@@ -134,7 +145,9 @@ export function conversationManagementRouteDefinitions(
           {
             id: result.conversationId,
             conversationKey,
-            conversationType: result.conversationType,
+            conversationType: normalizeConversationType(
+              result.conversationType,
+            ),
           },
           { status: result.created ? 201 : 200 },
         );
@@ -255,7 +268,7 @@ export function conversationManagementRouteDefinitions(
         return Response.json({
           conversationId: result.conversationId,
           title: result.title,
-          conversationType: result.conversationType,
+          conversationType: normalizeConversationType(result.conversationType),
           hostAccess: result.hostAccess,
           ...(result.inferenceProfile != null
             ? { inferenceProfile: result.inferenceProfile }

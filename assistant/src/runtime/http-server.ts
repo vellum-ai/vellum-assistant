@@ -44,6 +44,7 @@ import {
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { normalizeConversationType } from "../daemon/message-types/shared.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type AttentionState,
@@ -1587,7 +1588,9 @@ export class RuntimeHttpServer {
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
       lastMessageAt: conversation.lastMessageAt,
-      conversationType: conversation.conversationType ?? "standard",
+      conversationType: normalizeConversationType(
+        conversation.conversationType,
+      ),
       source: conversation.source ?? "user",
       hostAccess: conversation.hostAccess === 1,
       ...(conversation.scheduleJobId

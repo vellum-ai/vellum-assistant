@@ -233,6 +233,8 @@ export const parseMessage = createRowMapper<
   metadata: "metadata",
 });
 
+export type ConversationCreateType = "standard" | "background" | "scheduled";
+
 /**
  * Monotonic timestamp source for message ordering. Two messages saved within
  * the same millisecond (e.g., tool_results user message + assistant message in
@@ -252,11 +254,7 @@ export function createConversation(
     | string
     | {
         title?: string;
-        conversationType?:
-          | "standard"
-          | "background"
-          | "scheduled"
-          | (string & {});
+        conversationType?: ConversationCreateType;
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
@@ -271,11 +269,8 @@ export function createConversation(
       ? { title: titleOrOpts }
       : (titleOrOpts ?? {});
   const requestedConversationType = opts.conversationType;
-  const conversationType: string =
-    requestedConversationType === "background" ||
-    requestedConversationType === "scheduled"
-      ? requestedConversationType
-      : "standard";
+  const conversationType: ConversationCreateType =
+    requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
   const groupId = opts.groupId;
   const id = uuid();

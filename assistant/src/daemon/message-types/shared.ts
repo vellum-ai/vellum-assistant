@@ -1,12 +1,15 @@
 // Shared types used across multiple message domains.
 
-export type ConversationType = "standard" | "private";
+export type ConversationType = "standard" | "background" | "scheduled";
 
 /** Runtime normalizer — collapses unknown/legacy DB values to 'standard'. */
 export function normalizeConversationType(
   raw: string | null | undefined,
 ): ConversationType {
-  return raw === "private" ? "private" : "standard";
+  if (raw === "background" || raw === "scheduled") {
+    return raw;
+  }
+  return "standard";
 }
 
 export interface UsageStats {
