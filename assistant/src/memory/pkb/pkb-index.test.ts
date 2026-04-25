@@ -3,11 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { makeMockLogger } from "../../__tests__/helpers/mock-logger.js";
+
 mock.module("../../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  getLogger: () => makeMockLogger(),
 }));
 
 // Capture calls to embedAndUpsert so we can assert on targetType + payload.
@@ -101,7 +100,7 @@ mock.module("../qdrant-client.js", () => ({
 
 // The circuit breaker is a thin wrapper; just call the function through.
 mock.module("../qdrant-circuit-breaker.js", () => ({
-  withQdrantBreaker: async <T,>(fn: () => Promise<T>) => fn(),
+  withQdrantBreaker: async <T>(fn: () => Promise<T>) => fn(),
 }));
 
 import {
