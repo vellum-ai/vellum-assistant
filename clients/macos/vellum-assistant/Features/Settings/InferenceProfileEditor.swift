@@ -173,8 +173,11 @@ struct InferenceProfileEditor: View {
                         // with the new provider's catalog default keeps
                         // Save immediately reachable.
                         if let provider = normalized {
-                            let firstModel = store.dynamicProviderModels(provider).first?.id ?? ""
-                            profile.model = firstModel.isEmpty ? nil : firstModel
+                            let defaultModel = store.dynamicProviderDefaultModel(provider)
+                            let seeded = defaultModel.isEmpty
+                                ? (store.dynamicProviderModels(provider).first?.id ?? "")
+                                : defaultModel
+                            profile.model = seeded.isEmpty ? nil : seeded
                         } else {
                             profile.model = nil
                         }
@@ -258,7 +261,7 @@ struct InferenceProfileEditor: View {
                 items: Self.speedOptions.map { (label: $0, tag: $0) },
                 selection: Binding(
                     get: { profile.speed ?? "standard" },
-                    set: { profile.speed = $0 }
+                    set: { profile.speed = $0 == "standard" ? nil : $0 }
                 )
             )
         }
@@ -270,7 +273,7 @@ struct InferenceProfileEditor: View {
                 items: Self.verbosityOptions.map { (label: $0, tag: $0) },
                 selection: Binding(
                     get: { profile.verbosity ?? "medium" },
-                    set: { profile.verbosity = $0 }
+                    set: { profile.verbosity = $0 == "medium" ? nil : $0 }
                 )
             )
         }
