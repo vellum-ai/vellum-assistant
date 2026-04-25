@@ -1,9 +1,7 @@
 import type { Command } from "commander";
 
-import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
 import { ensureDaemonRunning } from "../../daemon/daemon-control.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
@@ -25,11 +23,6 @@ import {
   initQdrantClient,
   resolveQdrantUrl,
 } from "../../memory/qdrant-client.js";
-import {
-  initAuthSigningKey,
-  loadOrCreateSigningKey,
-  mintDaemonDeliveryToken,
-} from "../../runtime/auth/token-service.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
@@ -388,38 +381,31 @@ Examples:
         }
       }
 
-      // When the assistant is running, delegate to its HTTP wipe endpoint
-      // so it tears down in-memory conversation state before deleting DB
-      // rows — preventing FK constraint failures from follow-up writes.
-      if (await isHttpHealthy()) {
-        const port = getRuntimeHttpPort();
-        const host = healthCheckHost(getRuntimeHttpHost());
-        initAuthSigningKey(loadOrCreateSigningKey());
-        const token = mintDaemonDeliveryToken();
-        const res = await fetch(
-          `http://${host}:${port}/v1/conversations/${conversation.id}/wipe`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-        if (!res.ok) {
-          const body = await res.text();
-          log.error(`Assistant wipe failed (${res.status}): ${body}`);
-          process.exit(1);
-        }
-        const json = (await res.json()) as {
-          unsupersededItems: number;
-          deletedSummaries: number;
-          cancelledJobs: number;
-        };
+      // When the assistant daemon is running, delegate via CLI IPC so it
+      // tears down in-memory conversation state before deleting DB rows.
+      const ipcWipe = await cliIpcCall<{
+        wiped: boolean;
+        unsupersededItems: number;
+        deletedSummaries: number;
+        cancelledJobs: number;
+      }>("wipe_conversation", { conversationId: conversation.id });
+      if (ipcWipe.ok && ipcWipe.result) {
         log.info(
           `Wiped conversation "${conversation.title ?? "Untitled"}". ` +
-            `Restored ${json.unsupersededItems} memory items, ` +
-            `deleted ${json.deletedSummaries} summaries, ` +
-            `cancelled ${json.cancelledJobs} jobs.`,
+            `Restored ${ipcWipe.result.unsupersededItems} memory items, ` +
+            `deleted ${ipcWipe.result.deletedSummaries} summaries, ` +
+            `cancelled ${ipcWipe.result.cancelledJobs} jobs.`,
         );
         return;
+      }
+      if (
+        ipcWipe.ok === false &&
+        ipcWipe.error &&
+        !ipcWipe.error.includes("Could not connect")
+      ) {
+        // Daemon is running but wipe failed (e.g. conversation not found
+        // in daemon memory) — report the error and fall through to direct.
+        log.warn(`Daemon wipe failed: ${ipcWipe.error}`);
       }
 
       // Cancel the associated schedule job (if any) before wiping —

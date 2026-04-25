@@ -1,33 +1,19 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
 
-let fallbackValues = new Map<string, string>();
+/**
+ * Mock only the IPC client (to simulate daemon-unreachable) and the logger.
+ * Do NOT mock secure-keys.js — our daemon-credential-client reads directly
+ * from it, so we test against the real module backed by the test workspace's
+ * encrypted store.
+ */
 
-mock.module("../config/env.js", () => ({
-  getRuntimeHttpHost: () => "127.0.0.1",
-  getRuntimeHttpPort: () => 4123,
-}));
-
-mock.module("../daemon/daemon-control.js", () => ({
-  healthCheckHost: (host: string) => host,
-  isHttpHealthy: async () => true,
-}));
-
-mock.module("../runtime/auth/token-service.js", () => ({
-  initAuthSigningKey: () => {},
-  loadOrCreateSigningKey: () => "signing-key",
-  mintDaemonDeliveryToken: () => "daemon-token",
-}));
-
-mock.module("../security/secure-keys.js", () => ({
-  deleteSecureKeyAsync: async () => "deleted" as const,
-  getSecureKeyAsync: async (account: string) => fallbackValues.get(account),
-  getSecureKeyResultAsync: async (account: string) => ({
-    value: fallbackValues.get(account),
-    unreachable: false,
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: async () => ({
+    ok: false,
+    error: "Could not connect to assistant daemon. Is it running?",
   }),
-  setSecureKeyAsync: async () => true,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -40,84 +26,59 @@ mock.module("../util/logger.js", () => ({
 import {
   getSecureKeyResultViaDaemon,
   getSecureKeyViaDaemon,
+  setSecureKeyViaDaemon,
 } from "../cli/lib/daemon-credential-client.js";
-
-const originalFetch = globalThis.fetch;
-const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
-
-function getRequestBody(index = 0): Record<string, unknown> {
-  const body = fetchCalls[index]?.init?.body;
-  if (typeof body !== "string") {
-    throw new Error("Expected fetch body to be a JSON string");
-  }
-  return JSON.parse(body) as Record<string, unknown>;
-}
-
-beforeEach(() => {
-  fallbackValues = new Map();
-  fetchCalls.length = 0;
-  const mockFetch = mock(
-    async (input: string | URL | Request, init?: RequestInit) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-      fetchCalls.push({ url, init });
-      return new Response(
-        JSON.stringify({ found: true, value: "secret-value" }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      );
-    },
-  );
-  globalThis.fetch = mockFetch as unknown as typeof globalThis.fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-});
+import { setSecureKeyAsync } from "../security/secure-keys.js";
 
 describe("daemon credential read requests", () => {
-  test("keeps provider secrets on the api_key path", async () => {
-    const value = await getSecureKeyViaDaemon("openai");
-
-    expect(value).toBe("secret-value");
-    expect(fetchCalls).toHaveLength(1);
-    expect(fetchCalls[0]?.url).toBe("http://127.0.0.1:4123/v1/secrets/read");
-    expect(getRequestBody()).toEqual({
-      type: "api_key",
-      name: "openai",
-      reveal: true,
-    });
-  });
-
-  test("converts canonical credential keys into credential reads", async () => {
-    const value = await getSecureKeyViaDaemon(
+  beforeEach(async () => {
+    // Seed the real secure-keys store with test values
+    await setSecureKeyAsync("openai", "sk-test-123");
+    await setSecureKeyAsync(
       credentialKey("vellum", "platform_base_url"),
+      "https://api.vellum.ai",
     );
-
-    expect(value).toBe("secret-value");
-    expect(getRequestBody()).toEqual({
-      type: "credential",
-      name: "vellum:platform_base_url",
-      reveal: true,
-    });
+    await setSecureKeyAsync(
+      credentialKey("google", "client_secret"),
+      "google-secret",
+    );
   });
 
-  test("preserves compound credential service names on metadata reads", async () => {
-    const result = await getSecureKeyResultViaDaemon(
-      credentialKey("google", "client_secret"),
-    );
+  test("reads go directly to secure-keys without daemon", async () => {
+    const value = await getSecureKeyViaDaemon("openai");
+    expect(value).toBe("sk-test-123");
+  });
 
-    expect(result).toEqual({ value: "secret-value", unreachable: false });
-    expect(getRequestBody()).toEqual({
-      type: "credential",
-      name: "google:client_secret",
-      reveal: true,
-    });
+  test("reads canonical credential keys directly", async () => {
+    const key = credentialKey("vellum", "platform_base_url");
+    const value = await getSecureKeyViaDaemon(key);
+    expect(value).toBe("https://api.vellum.ai");
+  });
+
+  test("getSecureKeyResultViaDaemon returns structured result", async () => {
+    const key = credentialKey("google", "client_secret");
+    const result = await getSecureKeyResultViaDaemon(key);
+    expect(result.value).toBe("google-secret");
+    expect(result.unreachable).toBe(false);
+  });
+
+  test("returns undefined for missing keys", async () => {
+    const value = await getSecureKeyViaDaemon("nonexistent");
+    expect(value).toBeUndefined();
+  });
+});
+
+describe("daemon credential writes (daemon unreachable)", () => {
+  test("falls back to direct write when daemon is not running", async () => {
+    const result = await setSecureKeyViaDaemon(
+      "api_key",
+      "test-provider",
+      "test-value",
+    );
+    expect(result).toBe(true);
+
+    // Verify the value was written directly
+    const readBack = await getSecureKeyViaDaemon("test-provider");
+    expect(readBack).toBe("test-value");
   });
 });

@@ -28,6 +28,8 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
+import { makeSecretsRoutes } from "../ipc/routes/secrets.js";
+import { makeWipeConversationRoute } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -911,6 +913,22 @@ export class DaemonServer {
     // registered by the constructor; CLI commands connect to this socket to
     // invoke daemon-side operations that require in-process state.
     await this.cliIpc.start();
+
+    // Register daemon-scoped IPC methods that require in-process singletons.
+    // These replace the previous pattern where CLI commands minted JWTs to
+    // call the daemon's own HTTP API.
+    const wipeRoute = makeWipeConversationRoute((id) =>
+      this.destroyConversation(id),
+    );
+    this.cliIpc.registerMethod(wipeRoute.method, wipeRoute.handler);
+
+    for (const route of makeSecretsRoutes({
+      getCesClient: () => this.getCesClient(),
+      onProviderCredentialsChanged: () =>
+        this.refreshConversationsForProviderChange(),
+    })) {
+      this.cliIpc.registerMethod(route.method, route.handler);
+    }
 
     // Start the skill IPC server. First-party skill processes connect to this
     // socket to access host capabilities (host.log, host.config.*,
