@@ -3,9 +3,9 @@
  *
  * Returns a JSON summary of the assistant's process tree so the CLI
  * (and platform UI) can render `vellum ps` without SSH or local process
- * detection.  The gateway probes the co-located daemon's health
- * endpoint and reports its own status implicitly (it's serving the
- * request).
+ * detection.  The gateway calls the daemon's own `/v1/ps` endpoint
+ * (which dynamically probes qdrant, embed-worker, etc.) and appends
+ * the gateway's own entry.
  */
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
@@ -28,17 +28,10 @@ interface PsResponse {
 
 export function createPsHandler(config: GatewayConfig) {
   async function handlePs(): Promise<Response> {
-    const assistantStatus = await probeAssistant(config);
+    const assistantProcesses = await fetchAssistantPs(config);
 
     const processes: ProcessEntry[] = [
-      {
-        name: "assistant",
-        status: assistantStatus,
-        children: [
-          { name: "qdrant", status: assistantStatus },
-          { name: "embed-worker", status: assistantStatus },
-        ],
-      },
+      ...assistantProcesses,
       {
         name: "gateway",
         status: "running",
@@ -53,11 +46,11 @@ export function createPsHandler(config: GatewayConfig) {
   return { handlePs };
 }
 
-async function probeAssistant(
+async function fetchAssistantPs(
   config: GatewayConfig,
-): Promise<"running" | "not_running" | "unreachable"> {
+): Promise<ProcessEntry[]> {
   try {
-    const url = `${config.assistantRuntimeBaseUrl}/v1/health`;
+    const url = `${config.assistantRuntimeBaseUrl}/v1/ps`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -70,12 +63,15 @@ async function probeAssistant(
 
     clearTimeout(timeoutId);
 
-    if (response.ok) return "running";
+    if (response.ok) {
+      const data = (await response.json()) as PsResponse;
+      return data.processes;
+    }
 
-    log.warn({ status: response.status }, "Daemon health probe non-OK");
-    return "not_running";
+    log.warn({ status: response.status }, "Daemon /v1/ps probe non-OK");
+    return [{ name: "assistant", status: "not_running" }];
   } catch (err) {
-    log.warn({ err }, "Daemon health probe failed");
-    return "unreachable";
+    log.warn({ err }, "Daemon /v1/ps probe failed");
+    return [{ name: "assistant", status: "unreachable" }];
   }
 }

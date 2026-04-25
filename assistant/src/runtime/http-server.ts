@@ -213,6 +213,7 @@ import {
 } from "./routes/pairing-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
+import { psRouteDefinitions } from "./routes/ps-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
@@ -1717,6 +1718,7 @@ export class RuntimeHttpServer {
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
       ...identityRouteDefinitions(),
+      ...psRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),
       ...workspaceCommitRouteDefinitions(),
       ...migrationRollbackRouteDefinitions(),

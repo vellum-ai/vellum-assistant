@@ -6601,6 +6601,50 @@ paths:
           required: true
           schema:
             type: string
+  /v1/ps:
+    get:
+      operationId: ps_get
+      summary: Process status
+      description: Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processes:
+                    type: array
+                    items:
+                      $ref: "#/$defs/__schema0"
+                required:
+                  - processes
+                additionalProperties: false
+                $defs:
+                  __schema0:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - running
+                          - not_running
+                          - unreachable
+                      children:
+                        type: array
+                        items:
+                          $ref: "#/$defs/__schema0"
+                      info:
+                        type: string
+                    required:
+                      - name
+                      - status
+                    additionalProperties: false
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post

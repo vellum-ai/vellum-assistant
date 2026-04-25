@@ -72,43 +72,41 @@ function printTable(rows: TableRow[]): void {
 
 // ── Managed process tree rendering ──────────────────────────────
 
-function processStatusLabel(s: ManagedProcessEntry["status"]): string {
-  switch (s) {
-    case "running":
-      return "running";
-    case "not_running":
-      return "not running";
-    case "unreachable":
-      return "unreachable";
-  }
-}
+const STATUS_LABELS: Record<ManagedProcessEntry["status"], string> = {
+  running: "running",
+  not_running: "not running",
+  unreachable: "unreachable",
+};
 
 function flattenProcessTree(
   entries: ManagedProcessEntry[],
   depth = 0,
 ): TableRow[] {
   const rows: TableRow[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
+  for (const entry of entries) {
     const children = entry.children ?? [];
-    const hasChildren = children.length > 0;
 
     rows.push({
       name:
         depth === 0 ? entry.name : `${"  ".repeat(depth - 1)}├─ ${entry.name}`,
-      status: withStatusEmoji(processStatusLabel(entry.status)),
+      status: withStatusEmoji(STATUS_LABELS[entry.status]),
       info: entry.info ?? "",
     });
 
-    if (hasChildren) {
-      for (let j = 0; j < children.length; j++) {
-        const child = children[j];
-        const isLast = j === children.length - 1;
-        rows.push({
-          name: `${"  ".repeat(depth)}${isLast ? "└─" : "├─"} ${child.name}`,
-          status: withStatusEmoji(processStatusLabel(child.status)),
-          info: child.info ?? "",
-        });
+    for (let j = 0; j < children.length; j++) {
+      const child = children[j];
+      const isLast = j === children.length - 1;
+      const prefix = `${"  ".repeat(depth)}${isLast ? "└─" : "├─"} ${child.name}`;
+      rows.push({
+        name: prefix,
+        status: withStatusEmoji(STATUS_LABELS[child.status]),
+        info: child.info ?? "",
+      });
+
+      // Recurse into grandchildren
+      const grandchildren = child.children ?? [];
+      if (grandchildren.length > 0) {
+        rows.push(...flattenProcessTree(grandchildren, depth + 2));
       }
     }
   }
