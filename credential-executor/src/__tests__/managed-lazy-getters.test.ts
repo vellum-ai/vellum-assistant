@@ -260,7 +260,7 @@ describe("managed lazy getters — missing platform config fields", () => {
     /**
      * Verifies that updating assistantIdRef.current after buildLazyGetters
      * makes previously-undefined options become defined — the core fix for
-     * warm-pool pods where PLATFORM_ASSISTANT_ID is empty at CES startup.
+     * warm-pool pods where the assistant ID is empty at CES startup.
      */
 
     // GIVEN an API key is available but assistant ID is empty (warm-pool startup)

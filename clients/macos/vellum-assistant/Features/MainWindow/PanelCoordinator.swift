@@ -712,7 +712,7 @@ extension MainWindowView {
                 onVoiceModeToggle: isVoiceModeEnabled ? {
                     toggleVoiceMode()
                 } : nil,
-                conversationId: conversationManager.activeConversationId,
+                conversationId: conversationManager.activeConversationId ?? conversationManager.draftLocalId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
             )

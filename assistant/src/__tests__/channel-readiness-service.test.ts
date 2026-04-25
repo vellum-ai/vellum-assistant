@@ -6,7 +6,7 @@ let mockTwilioPhoneNumber: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
-let mockShouldUsePlatformCallbacks: boolean;
+let mockGetIsPlatform: boolean;
 
 mock.module("../calls/twilio-rest.js", () => ({
   getPhoneNumberSid: async () => null,
@@ -48,9 +48,11 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-mock.module("../inbound/platform-callback-registration.js", () => ({
-  shouldUsePlatformCallbacks: () => mockShouldUsePlatformCallbacks,
+mock.module("../config/env-registry.js", () => ({
+  getIsPlatform: () => mockGetIsPlatform,
 }));
+
+mock.module("../inbound/platform-callback-registration.js", () => ({}));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
@@ -109,7 +111,7 @@ describe("ChannelReadinessService", () => {
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
-    mockShouldUsePlatformCallbacks = false;
+    mockGetIsPlatform = false;
   });
 
   test("local checks run on every call (no caching of local results)", async () => {
@@ -272,7 +274,7 @@ describe("ChannelReadinessService", () => {
   });
 
   test("telegram readiness accepts managed callback routing when ingress is absent", async () => {
-    mockShouldUsePlatformCallbacks = true;
+    mockGetIsPlatform = true;
     mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
     mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
 
@@ -288,7 +290,7 @@ describe("ChannelReadinessService", () => {
   });
 
   test("phone readiness accepts managed callback routing when ingress is absent", async () => {
-    mockShouldUsePlatformCallbacks = true;
+    mockGetIsPlatform = true;
     mockHasTwilioCredentials = true;
     mockTwilioPhoneNumber = "+15555550123";
 

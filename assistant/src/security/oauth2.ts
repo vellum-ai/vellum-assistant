@@ -19,6 +19,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
+import { getIsPlatform } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { renderOAuthCompletionPage as renderLoopbackPage } from "./oauth-completion-page.js";
 
@@ -738,12 +739,8 @@ export async function startOAuth2Flow(
 
   // When containerized with a platform, callback routes are registered
   // through the platform gateway — treat as having a public URL.
-  if (!hasPublicUrl) {
-    const { shouldUsePlatformCallbacks } =
-      await import("../inbound/platform-callback-registration.js");
-    if (shouldUsePlatformCallbacks()) {
-      hasPublicUrl = true;
-    }
+  if (!hasPublicUrl && getIsPlatform()) {
+    hasPublicUrl = true;
   }
 
   // Determine transport: explicit option > auto-detect from config

@@ -74,7 +74,7 @@ Examples:
         }
         if (!client.platformAssistantId) {
           throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+            "Assistant ID not configured. Run: assistant platform connect",
           );
         }
 
@@ -157,7 +157,7 @@ Examples:
         }
         if (!client.platformAssistantId) {
           throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+            "Assistant ID not configured. Run: assistant platform connect",
           );
         }
 
@@ -258,7 +258,7 @@ Examples:
         }
         if (!client.platformAssistantId) {
           throw new Error(
-            "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+            "Assistant ID not configured. Run: assistant platform connect",
           );
         }
 
@@ -378,7 +378,7 @@ Examples:
           }
           if (!client.platformAssistantId) {
             throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+              "Assistant ID not configured. Run: assistant platform connect",
             );
           }
 
@@ -502,7 +502,7 @@ Examples:
           }
           if (!client.platformAssistantId) {
             throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+              "Assistant ID not configured. Run: assistant platform connect",
             );
           }
 
@@ -661,7 +661,7 @@ Examples:
           }
           if (!client.platformAssistantId) {
             throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+              "Assistant ID not configured. Run: assistant platform connect",
             );
           }
 
@@ -817,7 +817,7 @@ $ assistant email attachment msg_abc1 --list --json`,
           }
           if (!client.platformAssistantId) {
             throw new Error(
-              "Assistant ID not configured. Set PLATFORM_ASSISTANT_ID or run: assistant platform connect",
+              "Assistant ID not configured. Run: assistant platform connect",
             );
           }
 

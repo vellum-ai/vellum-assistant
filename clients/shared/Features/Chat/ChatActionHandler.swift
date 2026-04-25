@@ -410,11 +410,13 @@ final class ChatActionHandler {
                 let attachments = vm.pendingUserAttachments
                 let automated = vm.pendingUserMessageAutomated
                 let pendingClientMessageId = vm.pendingUserMessageClientMessageId
+                let pendingInferenceProfile = vm.pendingUserInferenceProfile
                 vm.pendingUserMessage = nil
                 vm.pendingUserMessageDisplayText = nil
                 vm.pendingUserAttachments = nil
                 vm.pendingUserMessageAutomated = false
                 vm.pendingUserMessageClientMessageId = nil
+                vm.pendingUserInferenceProfile = nil
                 vm.eventStreamClient.sendUserMessage(
                     content: pending,
                     conversationId: info.conversationId,
@@ -422,7 +424,8 @@ final class ChatActionHandler {
                     conversationType: nil,
                     automated: automated ? true : nil,
                     bypassSecretCheck: nil,
-                    clientMessageId: pendingClientMessageId
+                    clientMessageId: pendingClientMessageId,
+                    inferenceProfile: pendingInferenceProfile
                 )
             } else {
                 // Message-less conversation create — conversation is claimed,

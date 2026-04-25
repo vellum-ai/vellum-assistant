@@ -12,11 +12,11 @@
 
 import type { Command } from "commander";
 
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfig } from "../../config/loader.js";
 import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
-  shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { log } from "../logger.js";
@@ -132,7 +132,7 @@ Examples:
           let callbackUrl: string;
           let mode: "platform" | "self-hosted";
 
-          if (shouldUsePlatformCallbacks()) {
+          if (getIsPlatform()) {
             // Platform-managed: register callback route
             callbackUrl = await registerCallbackRoute(
               webhookPath,

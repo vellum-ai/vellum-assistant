@@ -286,7 +286,6 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
   registerCallbackRoute: async () => {},
   resolveCallbackUrl: async (resolver: () => string | Promise<string>) =>
     await resolver(),
-  shouldUsePlatformCallbacks: () => false,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({

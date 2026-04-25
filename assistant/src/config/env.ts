@@ -217,11 +217,14 @@ export function setPlatformAssistantId(value: string | undefined): void {
 }
 
 /**
- * PLATFORM_ASSISTANT_ID — UUID of this assistant on the platform.
- * Required for registering callback routes when containerized.
+ * Platform assistant ID — UUID of this assistant on the platform.
+ *
+ * Resolved from the in-memory override (populated by providers-setup
+ * rehydration from the credential store at daemon startup, or by
+ * secret-routes when the platform pushes the value).
  */
 export function getPlatformAssistantId(): string {
-  return str("PLATFORM_ASSISTANT_ID") ?? _platformAssistantIdOverride ?? "";
+  return _platformAssistantIdOverride ?? "";
 }
 
 let _platformOrganizationIdOverride: string | undefined;

@@ -41,6 +41,18 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         return nil
     }
 
+    /// Returns the most recent `llm.profileOrder` patch payload captured by
+    /// the mock client, or `nil` if no such patch has been emitted.
+    private func lastProfileOrderPatch() -> [String]? {
+        for payload in mockSettingsClient.patchConfigCalls.reversed() {
+            if let llm = payload["llm"] as? [String: Any],
+               let order = llm["profileOrder"] as? [String] {
+                return order
+            }
+        }
+        return nil
+    }
+
     /// Returns the most recent `llm.activeProfile` value captured by the
     /// mock client, or `nil` if no such patch has been emitted.
     private func lastActiveProfilePatch() -> String? {
@@ -108,6 +120,24 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(balanced?.effort, "high")
         XCTAssertEqual(balanced?.thinkingEnabled, true)
         XCTAssertEqual(balanced?.thinkingStreamThinking, true)
+    }
+
+    func testLoadInferenceProfilesUsesExplicitOrderAndNormalizesStaleEntries() {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "fast",
+                "profileOrder": ["fast", "missing", "fast"],
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "fast": ["model": "claude-haiku-4-5"],
+                    "quality-optimized": ["model": "claude-opus-4-7"],
+                ],
+            ]
+        ])
+
+        XCTAssertEqual(store.activeProfile, "fast")
+        XCTAssertEqual(store.profiles.map(\.name), ["fast", "balanced", "quality-optimized"])
+        XCTAssertEqual(store.profileOrder, ["fast", "balanced", "quality-optimized"])
     }
 
     func testLoadInferenceProfilesEmptyConfigKeepsDefaultActiveProfile() {
@@ -188,6 +218,48 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(store.profiles.map(\.name), ["fast"])
         let stored = store.profiles.first(where: { $0.name == "fast" })
         XCTAssertEqual(stored?.model, "claude-haiku-4-5")
+    }
+
+    func testSetProfileAppendsToExplicitProfileOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profileOrder": ["fast", "balanced"],
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "fast": ["model": "claude-haiku-4-5"],
+                ],
+            ]
+        ])
+
+        let fragment = InferenceProfile(name: "custom", model: "gpt-5.5")
+        let success = await store.setProfile(name: "custom", fragment: fragment)
+
+        XCTAssertTrue(success)
+        XCTAssertEqual(store.profiles.map(\.name), ["fast", "balanced", "custom"])
+        XCTAssertEqual(lastProfileOrderPatch(), ["fast", "balanced", "custom"])
+    }
+
+    func testSetProfileRenameReplacesOldNameInExplicitProfileOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profileOrder": ["other", "old-name"],
+                "profiles": [
+                    "old-name": ["model": "claude-sonnet-4-6"],
+                    "other": ["model": "claude-haiku-4-5"],
+                ],
+            ]
+        ])
+
+        let fragment = InferenceProfile(name: "new-name", model: "gpt-5.5")
+        let success = await store.setProfile(
+            name: "new-name",
+            fragment: fragment,
+            replacingOrderName: "old-name"
+        )
+
+        XCTAssertTrue(success)
+        XCTAssertEqual(store.profiles.map(\.name), ["other", "new-name"])
+        XCTAssertEqual(lastProfileOrderPatch(), ["other", "new-name"])
     }
 
     func testSetProfileUpdatesExistingEntry() async {
@@ -352,6 +424,26 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertTrue(store.profiles.contains(where: { $0.name == "balanced" }))
     }
 
+    func testDeleteProfileRemovesNameFromExplicitProfileOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "activeProfile": "balanced",
+                "profileOrder": ["experimental", "balanced"],
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "experimental": ["model": "experimental-model"],
+                ],
+            ]
+        ])
+
+        let result = await store.deleteProfile(name: "experimental")
+
+        XCTAssertEqual(result, .deleted)
+        XCTAssertEqual(store.profiles.map(\.name), ["balanced"])
+        XCTAssertEqual(store.profileOrder, ["balanced"])
+        XCTAssertEqual(lastProfileOrderPatch(), ["balanced"])
+    }
+
     func testDeleteProfileFailureSurfacedAsFailed() async {
         store.loadInferenceProfiles(config: [
             "llm": [
@@ -368,6 +460,63 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
         XCTAssertEqual(result, .failed)
         // Local cache must remain intact when the daemon PATCH fails.
         XCTAssertTrue(store.profiles.contains(where: { $0.name == "experimental" }))
+    }
+
+    // MARK: - profileOrder reordering
+
+    func testMoveProfilePersistsPresentationOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "cost-optimized": ["model": "claude-haiku-4-5"],
+                    "quality-optimized": ["model": "claude-opus-4-7"],
+                ],
+            ]
+        ])
+
+        let success = await store.moveProfile(
+            sourceName: "quality-optimized",
+            targetName: "balanced",
+            insertAfterTarget: false
+        )
+
+        XCTAssertTrue(success)
+        XCTAssertEqual(
+            store.profiles.map(\.name),
+            ["quality-optimized", "balanced", "cost-optimized"]
+        )
+        XCTAssertEqual(
+            lastProfileOrderPatch(),
+            ["quality-optimized", "balanced", "cost-optimized"]
+        )
+    }
+
+    func testMoveProfileFailureRevertsLocalOrder() async {
+        store.loadInferenceProfiles(config: [
+            "llm": [
+                "profileOrder": ["balanced", "cost-optimized", "quality-optimized"],
+                "profiles": [
+                    "balanced": ["model": "claude-sonnet-4-6"],
+                    "cost-optimized": ["model": "claude-haiku-4-5"],
+                    "quality-optimized": ["model": "claude-opus-4-7"],
+                ],
+            ]
+        ])
+        mockSettingsClient.patchConfigResponse = false
+
+        let success = await store.moveProfile(
+            sourceName: "quality-optimized",
+            targetName: "balanced",
+            insertAfterTarget: false
+        )
+
+        XCTAssertFalse(success)
+        XCTAssertEqual(
+            store.profiles.map(\.name),
+            ["balanced", "cost-optimized", "quality-optimized"]
+        )
+        XCTAssertEqual(store.profileOrder, ["balanced", "cost-optimized", "quality-optimized"])
     }
 
     // MARK: - replaceCallSiteOverride profile-only path

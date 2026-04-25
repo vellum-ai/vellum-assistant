@@ -7,9 +7,8 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: jest.fn().mockResolvedValue("deleted"),
 }));
 
-// Mock platform-callback-registration (imported by client.ts)
-mock.module("../inbound/platform-callback-registration.js", () => ({
-  shouldUsePlatformCallbacks: jest.fn().mockReturnValue(false),
+mock.module("../config/env-registry.js", () => ({
+  getIsPlatform: () => false,
 }));
 
 const { McpClient } = await import("../mcp/client.js");

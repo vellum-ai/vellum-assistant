@@ -203,6 +203,7 @@ describe("resolveCallSiteConfig", () => {
     const llm: z.infer<typeof LLMSchema> = {
       default: fullDefault,
       profiles: {},
+      profileOrder: [],
       callSites: {
         mainAgent: { profile: "nonexistent" },
       },
@@ -335,6 +336,7 @@ describe("resolveCallSiteConfig", () => {
     const llm: z.infer<typeof LLMSchema> = {
       default: fullDefault,
       profiles: {},
+      profileOrder: [],
       callSites: {},
       activeProfile: "nonexistent",
       pricingOverrides: [],

@@ -80,6 +80,18 @@ public final class SettingsStore: ObservableObject {
     /// via `loadInferenceProfiles(config:)`.
     @Published var profiles: [InferenceProfile] = []
 
+    /// Canonical presentation order for `profiles`, mirrored from
+    /// `llm.profileOrder` when the workspace has one. The resolver ignores
+    /// this list; it is used only so every settings/chat picker presents
+    /// profiles in the same user-chosen order.
+    private(set) var profileOrder: [String] = []
+
+    /// Whether the current config payload explicitly carried
+    /// `llm.profileOrder`. When absent, existing workspaces retain the
+    /// historical alphabetical order and CRUD does not start writing an order
+    /// until the user drags a row.
+    private var hasExplicitProfileOrder = false
+
     /// Name of the active inference profile (`llm.activeProfile` in the
     /// workspace config). Seeded with the canonical default `"balanced"`
     /// so the UI renders predictable state before the first config push.
@@ -3183,10 +3195,10 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Inference Profiles
 
-    /// Reads `llm.profiles` and `llm.activeProfile` from the workspace
-    /// config dictionary and replaces the published `profiles` /
-    /// `activeProfile` state. Profiles are emitted in alphabetical order
-    /// by name so the UI renders a stable list across config refreshes.
+    /// Reads `llm.profiles`, `llm.profileOrder`, and `llm.activeProfile`
+    /// from the workspace config dictionary and replaces the published
+    /// `profiles` / `activeProfile` state. When the config has no explicit
+    /// profile order, profiles keep the historical alphabetical fallback.
     ///
     /// `activeProfile` is preserved at its current value when the config
     /// payload omits the key — the seeded `"balanced"` default keeps the
@@ -3194,16 +3206,47 @@ public final class SettingsStore: ObservableObject {
     func loadInferenceProfiles(config: [String: Any]) {
         let llm = config["llm"] as? [String: Any]
         let profilesRaw = (llm?["profiles"] as? [String: Any]) ?? [:]
+        let rawOrder = llm?["profileOrder"] as? [String]
         var decoded: [InferenceProfile] = []
         for (name, raw) in profilesRaw {
             guard let entry = raw as? [String: Any] else { continue }
             decoded.append(InferenceProfile(name: name, json: entry))
         }
-        decoded.sort { $0.name < $1.name }
-        self.profiles = decoded
+        let orderedNames = Self.normalizedProfileOrder(
+            profileNames: decoded.map(\.name),
+            storedOrder: rawOrder
+        )
+        let profilesByName = Dictionary(uniqueKeysWithValues: decoded.map { ($0.name, $0) })
+        self.profileOrder = orderedNames
+        self.hasExplicitProfileOrder = rawOrder != nil
+        self.profiles = orderedNames.compactMap { profilesByName[$0] }
         if let active = (llm?["activeProfile"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
             self.activeProfile = active
         }
+    }
+
+    /// Normalizes a persisted profile order against the currently defined
+    /// profile names. Stale entries and duplicates are ignored; profiles not
+    /// mentioned in the order are appended alphabetically for deterministic
+    /// backward compatibility.
+    static func normalizedProfileOrder(
+        profileNames: [String],
+        storedOrder: [String]?
+    ) -> [String] {
+        let validNames = Set(profileNames)
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for name in storedOrder ?? [] {
+            guard validNames.contains(name), seen.insert(name).inserted else { continue }
+            result.append(name)
+        }
+
+        for name in profileNames.sorted() where !seen.contains(name) {
+            seen.insert(name)
+            result.append(name)
+        }
+        return result
     }
 
     /// Persists `llm.activeProfile` so the daemon's resolver layers the
@@ -3238,12 +3281,26 @@ public final class SettingsStore: ObservableObject {
     /// fragment merges into any existing entry — callers that want
     /// "replace" semantics should use `replaceProfile(name:fragment:)`.
     @discardableResult
-    func setProfile(name: String, fragment: InferenceProfile) async -> Bool {
+    func setProfile(
+        name: String,
+        fragment: InferenceProfile,
+        replacingOrderName: String? = nil
+    ) async -> Bool {
+        let existingIndex = profiles.firstIndex(where: { $0.name == name })
+        let nextOrder = nextProfileOrderAfterSaving(
+            name: name,
+            isNewProfile: existingIndex == nil,
+            replacingOrderName: replacingOrderName
+        )
+        var llmPatch: [String: Any] = ["profiles": [name: fragment.toJSON()]]
+        if let nextOrder {
+            llmPatch["profileOrder"] = nextOrder
+        }
         let success = await settingsClient.patchConfig([
-            "llm": ["profiles": [name: fragment.toJSON()]]
+            "llm": llmPatch
         ])
         if success {
-            if let index = profiles.firstIndex(where: { $0.name == name }) {
+            if let index = existingIndex {
                 // Daemon deep-merges the patch (toJSON omits nil fields).
                 // Mirror that locally so fields the fragment leaves nil
                 // retain whatever the daemon already had.
@@ -3252,7 +3309,17 @@ public final class SettingsStore: ObservableObject {
                 var copy = fragment
                 copy.name = name
                 profiles.append(copy)
-                profiles.sort { $0.name < $1.name }
+                if let nextOrder {
+                    profileOrder = nextOrder
+                    reorderPublishedProfiles(to: nextOrder)
+                } else {
+                    profiles.sort { $0.name < $1.name }
+                    profileOrder = profiles.map(\.name)
+                }
+            }
+            if let nextOrder, existingIndex != nil {
+                profileOrder = nextOrder
+                reorderPublishedProfiles(to: nextOrder)
             }
         } else {
             log.error("Failed to patch config for llm.profiles.\(name, privacy: .public)")
@@ -3265,19 +3332,44 @@ public final class SettingsStore: ObservableObject {
     /// the assistant route, so hidden or toggled-off editor controls do not
     /// leave stale values in `llm.profiles.<name>`.
     @discardableResult
-    func replaceProfile(name: String, fragment: InferenceProfile) async -> Bool {
+    func replaceProfile(
+        name: String,
+        fragment: InferenceProfile,
+        replacingOrderName: String? = nil
+    ) async -> Bool {
+        let existingIndex = profiles.firstIndex(where: { $0.name == name })
+        let nextOrder = nextProfileOrderAfterSaving(
+            name: name,
+            isNewProfile: existingIndex == nil,
+            replacingOrderName: replacingOrderName
+        )
         let success = await settingsClient.replaceInferenceProfile(
             name: name,
             fragment: fragment.toJSON()
         )
+        if success, let nextOrder {
+            let orderSuccess = await settingsClient.patchConfig([
+                "llm": ["profileOrder": nextOrder]
+            ])
+            guard orderSuccess else {
+                log.error("Failed to patch llm.profileOrder after replacing llm.profiles.\(name, privacy: .public)")
+                return false
+            }
+        }
         if success {
             var copy = fragment
             copy.name = name
-            if let index = profiles.firstIndex(where: { $0.name == name }) {
+            if let index = existingIndex {
                 profiles[index] = copy
             } else {
                 profiles.append(copy)
+            }
+            if let nextOrder {
+                profileOrder = nextOrder
+                reorderPublishedProfiles(to: nextOrder)
+            } else {
                 profiles.sort { $0.name < $1.name }
+                profileOrder = profiles.map(\.name)
             }
         } else {
             log.error("Failed to replace llm.profiles.\(name, privacy: .public)")
@@ -3331,16 +3423,115 @@ public final class SettingsStore: ObservableObject {
         if !conflictingCallSites.isEmpty {
             return .blockedByCallSites(conflictingCallSites)
         }
+        let nextOrder = hasExplicitProfileOrder ? profileOrder.filter { $0 != name } : nil
+        var llmPatch: [String: Any] = ["profiles": [name: NSNull()]]
+        if let nextOrder {
+            llmPatch["profileOrder"] = nextOrder
+        }
         let success = await settingsClient.patchConfig([
-            "llm": ["profiles": [name: NSNull()]]
+            "llm": llmPatch
         ])
         if success {
             profiles.removeAll(where: { $0.name == name })
+            if let nextOrder {
+                profileOrder = nextOrder
+            } else {
+                profileOrder = profiles.map(\.name)
+            }
             return .deleted
         } else {
             log.error("Failed to patch config to delete llm.profiles.\(name, privacy: .public)")
             return .failed
         }
+    }
+
+    /// Moves one profile relative to another and persists `llm.profileOrder`.
+    /// This is presentation-only; inference resolution is unchanged.
+    @discardableResult
+    func moveProfile(
+        sourceName: String,
+        targetName: String,
+        insertAfterTarget: Bool
+    ) async -> Bool {
+        guard sourceName != targetName else { return true }
+        var names = profiles.map(\.name)
+        guard let sourceIndex = names.firstIndex(of: sourceName) else { return false }
+        names.remove(at: sourceIndex)
+        guard let targetIndex = names.firstIndex(of: targetName) else { return false }
+        let insertionIndex = insertAfterTarget ? min(targetIndex + 1, names.endIndex) : targetIndex
+        names.insert(sourceName, at: insertionIndex)
+        return await setProfileOrder(names)
+    }
+
+    /// Persists the exact profile presentation order used by the settings
+    /// sheet, active-profile picker, call-site picker, and chat picker.
+    @discardableResult
+    func setProfileOrder(_ orderedNames: [String]) async -> Bool {
+        let normalized = Self.normalizedProfileOrder(
+            profileNames: profiles.map(\.name),
+            storedOrder: orderedNames
+        )
+        guard !hasExplicitProfileOrder || normalized != profileOrder else { return true }
+
+        let previousProfiles = profiles
+        let previousOrder = profileOrder
+        let previousExplicit = hasExplicitProfileOrder
+
+        profileOrder = normalized
+        hasExplicitProfileOrder = true
+        reorderPublishedProfiles(to: normalized)
+
+        let success = await settingsClient.patchConfig([
+            "llm": ["profileOrder": normalized]
+        ])
+        if !success {
+            profiles = previousProfiles
+            profileOrder = previousOrder
+            hasExplicitProfileOrder = previousExplicit
+            log.error("Failed to patch config for llm.profileOrder")
+        }
+        return success
+    }
+
+    private func nextProfileOrderAfterSaving(
+        name: String,
+        isNewProfile: Bool,
+        replacingOrderName: String?
+    ) -> [String]? {
+        guard hasExplicitProfileOrder else { return nil }
+
+        var nextOrder = profileOrder
+        if let replacingOrderName, replacingOrderName != name {
+            if let replaceIndex = nextOrder.firstIndex(of: replacingOrderName) {
+                nextOrder[replaceIndex] = name
+            } else if !nextOrder.contains(name) {
+                nextOrder.append(name)
+            }
+            var sawNewName = false
+            nextOrder = nextOrder.filter { candidate in
+                guard candidate == name else { return true }
+                if sawNewName { return false }
+                sawNewName = true
+                return true
+            }
+            return Self.normalizedProfileOrder(
+                profileNames: profiles.map(\.name).filter { $0 != replacingOrderName } + [name],
+                storedOrder: nextOrder
+            )
+        }
+
+        if isNewProfile, !nextOrder.contains(name) {
+            nextOrder.append(name)
+        }
+        return Self.normalizedProfileOrder(
+            profileNames: isNewProfile ? profiles.map(\.name) + [name] : profiles.map(\.name),
+            storedOrder: nextOrder
+        )
+    }
+
+    private func reorderPublishedProfiles(to orderedNames: [String]) {
+        let profilesByName = Dictionary(uniqueKeysWithValues: profiles.map { ($0.name, $0) })
+        profiles = orderedNames.compactMap { profilesByName[$0] }
     }
 
     /// Persists an override for a single call site at

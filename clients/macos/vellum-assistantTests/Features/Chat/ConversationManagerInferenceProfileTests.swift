@@ -156,6 +156,32 @@ final class ConversationManagerInferenceProfileTests: XCTestCase {
         XCTAssertNil(conversationManager.conversations[0].inferenceProfile)
     }
 
+    func testSetConversationInferenceProfileStagesDraftSelection() async throws {
+        let draftLocalId = try XCTUnwrap(conversationManager.draftLocalId)
+        let draftViewModel = try XCTUnwrap(conversationManager.draftViewModel)
+
+        let success = await conversationManager.setConversationInferenceProfile(
+            id: draftLocalId,
+            profile: "quality-optimized"
+        )
+
+        XCTAssertTrue(success)
+        XCTAssertTrue(mockProfileClient.setCalls.isEmpty)
+        XCTAssertEqual(draftViewModel.pendingInferenceProfile, "quality-optimized")
+        XCTAssertTrue(conversationManager.conversations.isEmpty)
+    }
+
+    func testDraftSelectionCarriesIntoPromotedConversation() throws {
+        let draftLocalId = try XCTUnwrap(conversationManager.draftLocalId)
+        let draftViewModel = try XCTUnwrap(conversationManager.draftViewModel)
+        draftViewModel.pendingInferenceProfile = "cost-optimized"
+
+        draftViewModel.onUserMessageSent?()
+
+        XCTAssertEqual(conversationManager.conversations.first?.id, draftLocalId)
+        XCTAssertEqual(conversationManager.conversations.first?.inferenceProfile, "cost-optimized")
+    }
+
     // MARK: - Event-hub convergence
 
     func testConversationInferenceProfileUpdatedEventMergesIntoConversation() async throws {

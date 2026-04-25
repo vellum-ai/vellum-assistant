@@ -40,7 +40,7 @@ Examples:
       `
 Fields:
   platformUrl         The Vellum platform base URL this assistant connects to
-  assistantId         This assistant's platform UUID (from PLATFORM_ASSISTANT_ID)
+  assistantId         This assistant's platform UUID
   organizationId      The organization this assistant belongs to (from PLATFORM_ORGANIZATION_ID)
   userId              The user who owns this assistant (from PLATFORM_USER_ID)
   authenticated       Whether all prerequisites for platform authentication are met

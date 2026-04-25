@@ -61,7 +61,7 @@ require the assistant to be running.
 Fields:
   isPlatform          Whether IS_PLATFORM is set (boolean)
   baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
-  assistantId         PLATFORM_ASSISTANT_ID — this assistant's platform UUID
+  assistantId         This assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
                       value not disclosed)
   hasAssistantApiKey  Whether a stored assistant API key is available
@@ -227,8 +227,7 @@ Known callback path/type combinations:
   --path oauth/callback             --type oauth
 
 Works for both platform-managed and self-hosted assistants. Requires
-VELLUM_PLATFORM_URL and PLATFORM_ASSISTANT_ID (from environment or stored
-credentials via 'assistant platform connect'). Returns the platform-provided
+VELLUM_PLATFORM_URL and a platform assistant ID. Returns the platform-provided
 stable callback URL that external services should use.
 
 Examples:
@@ -281,7 +280,7 @@ Lists all callback routes registered with the platform for this assistant.
 Shows the route type, callback URL, and path for each registered webhook.
 
 Requires platform credentials (run 'assistant platform connect' first or
-ensure IS_PLATFORM, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID are set).
+ensure IS_PLATFORM and VELLUM_PLATFORM_URL are set and credentials are stored).
 
 Examples:
   $ assistant platform callback-routes list

@@ -9,11 +9,11 @@ import {
   getPlatformBaseUrl,
   setIngressPublicBaseUrl,
 } from "../../config/env.js";
+import { getIsPlatform } from "../../config/env-registry.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import {
   registerCallbackRoute,
   resolveCallbackUrl,
-  shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import {
   getTwilioStatusCallbackUrl,
@@ -47,16 +47,18 @@ export function getIngressConfigResult(): {
   // they receive webhooks through platform callback routing. Surface the
   // platform callback URL and flag managedCallbacks so consumers (including
   // the assistant LLM) don't mistakenly try to set up ngrok or a tunnel.
-  if (shouldUsePlatformCallbacks()) {
+  if (getIsPlatform()) {
     const platformBase = getPlatformBaseUrl().replace(/\/+$/, "");
     const assistantId = getPlatformAssistantId();
-    return {
-      enabled: true,
-      publicBaseUrl: `${platformBase}/gateway/callbacks/${assistantId}`,
-      localGatewayTarget: computeGatewayTarget(),
-      managedCallbacks: true,
-      success: true,
-    };
+    if (assistantId) {
+      return {
+        enabled: true,
+        publicBaseUrl: `${platformBase}/gateway/callbacks/${assistantId}`,
+        localGatewayTarget: computeGatewayTarget(),
+        managedCallbacks: true,
+        success: true,
+      };
+    }
   }
 
   const raw = loadRawConfig();
@@ -186,7 +188,7 @@ export async function handleIngressConfig(
       // This must happen independently of ingress URL — in containerized
       // deployments without ingress.publicBaseUrl, platform callbacks are the
       // only way to receive Telegram webhooks.
-      if (shouldUsePlatformCallbacks()) {
+      if (getIsPlatform()) {
         registerCallbackRoute("webhooks/telegram", "telegram").catch((err) => {
           log.warn(
             { err },

@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockLoadConfig: () => unknown;
-let mockShouldUsePlatformCallbacks: () => boolean;
+let mockGetIsPlatform: () => boolean;
 
 mock.module("../config/loader.js", () => ({
   loadConfig: () => mockLoadConfig(),
 }));
 
-mock.module("../inbound/platform-callback-registration.js", () => ({
-  shouldUsePlatformCallbacks: () => mockShouldUsePlatformCallbacks(),
+mock.module("../config/env-registry.js", () => ({
+  getIsPlatform: () => mockGetIsPlatform(),
 }));
 
 import { preflightVoiceIngress } from "../calls/voice-ingress-preflight.js";
@@ -18,11 +18,11 @@ describe("voice ingress preflight", () => {
     mockLoadConfig = () => ({
       ingress: { enabled: true, publicBaseUrl: "https://example.com" },
     });
-    mockShouldUsePlatformCallbacks = () => false;
+    mockGetIsPlatform = () => false;
   });
 
   test("returns success immediately for platform-callback deployments", async () => {
-    mockShouldUsePlatformCallbacks = () => true;
+    mockGetIsPlatform = () => true;
     mockLoadConfig = () => ({ ingress: { enabled: false } });
 
     const result = await preflightVoiceIngress();
