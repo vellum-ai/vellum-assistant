@@ -305,6 +305,7 @@ struct ChatView: View {
                     conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
                     conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
                     onSelectStarter: { starter in viewModel.inputText = starter.prompt },
+                    onRemoveStarter: { starter in viewModel.removeConversationStarter(starter) },
                     onFetchConversationStarters: { viewModel.fetchConversationStarters() },
                     conversationHostAccessControl: conversationHostAccessControl,
                     showThresholdPicker: showThresholdPicker

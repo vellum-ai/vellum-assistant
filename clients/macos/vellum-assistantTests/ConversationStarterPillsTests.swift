@@ -10,39 +10,36 @@ final class ConversationStarterPillsTests: XCTestCase {
         ConversationStarter(id: id, label: label, prompt: prompt, category: nil, batch: 0)
     }
 
-    /// Mirrors the even-count capping logic in ConversationStarterPillRow.
+    /// Mirrors the capping logic in ConversationStarterPillRow.
     private func visibleStarters(from starters: [ConversationStarter]) -> [ConversationStarter] {
-        let count = min(starters.count, 6)
-        let evenCount = count - (count % 2)
-        guard evenCount > 0 else { return [] }
-        return Array(starters.prefix(evenCount))
+        Array(starters.prefix(4))
     }
 
     // MARK: - Visible Count Cap
 
-    /// The pill row must never show more than six items, even when more are provided.
-    func testMaxVisibleCountIsSix() {
+    /// The pill row must never show more than four items, even when more are provided.
+    func testMaxVisibleCountIsFour() {
         let starters = (0..<10).map { i in
-            makeStarter(id: "\(i)", label: "Starter \(i)", prompt: "prompt \(i)")
-        }
-        XCTAssertEqual(visibleStarters(from: starters).count, 6)
-    }
-
-    /// Odd counts are rounded down to the nearest even number.
-    func testOddCountRoundsDown() {
-        let starters = (0..<5).map { i in
             makeStarter(id: "\(i)", label: "Starter \(i)", prompt: "prompt \(i)")
         }
         XCTAssertEqual(visibleStarters(from: starters).count, 4)
     }
 
-    /// A single starter produces no pills (rounds down to 0).
-    func testSingleStarterShowsNone() {
-        let starters = [makeStarter(id: "0", label: "Solo", prompt: "prompt")]
-        XCTAssertEqual(visibleStarters(from: starters).count, 0)
+    /// Odd counts stay visible so removing one chip does not hide another.
+    func testOddCountStaysVisible() {
+        let starters = (0..<3).map { i in
+            makeStarter(id: "\(i)", label: "Starter \(i)", prompt: "prompt \(i)")
+        }
+        XCTAssertEqual(visibleStarters(from: starters).count, 3)
     }
 
-    /// When given fewer than six even starters, all are shown.
+    /// A single remaining starter stays visible.
+    func testSingleStarterStaysVisible() {
+        let starters = [makeStarter(id: "0", label: "Solo", prompt: "prompt")]
+        XCTAssertEqual(visibleStarters(from: starters).count, 1)
+    }
+
+    /// When given fewer than four starters, all are shown.
     func testPillRowShowsAllWhenFewerThanCap() {
         let starters = (0..<2).map { i in
             makeStarter(id: "\(i)", label: "Starter \(i)", prompt: "prompt \(i)")

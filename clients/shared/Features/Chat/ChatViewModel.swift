@@ -43,6 +43,7 @@ struct ConversationStartersResponse: Codable {
 @MainActor
 protocol ConversationStarterClientProtocol {
     func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse?
+    func deleteConversationStarter(id: String) async -> Bool
 }
 
 @MainActor
@@ -55,6 +56,17 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
             params: ["limit": String(limit)]
         ), response.isSuccess else { return nil }
         return try? JSONDecoder().decode(ConversationStartersResponse.self, from: response.data)
+    }
+
+    func deleteConversationStarter(id: String) async -> Bool {
+        guard let response = try? await GatewayHTTPClient.delete(
+            path: "assistants/{assistantId}/conversation-starters/\(Self.pathEscape(id))"
+        ) else { return false }
+        return response.isSuccess || response.statusCode == 404
+    }
+
+    private static func pathEscape(_ component: String) -> String {
+        component.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? component
     }
 }
 
@@ -1323,6 +1335,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public func fetchConversationStarters() {
         greetingState.fetchConversationStarters()
+    }
+
+    public func removeConversationStarter(_ starter: ConversationStarter) {
+        greetingState.removeConversationStarter(starter)
     }
 
     func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
