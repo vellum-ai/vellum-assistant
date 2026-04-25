@@ -11,10 +11,6 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import {
-  isPrivateScopeId,
-  listPrivateMemoryScopeIds,
-} from "../conversation-crud.js";
 import { buildExcerpt, buildFtsMatchQuery } from "../conversation-queries.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
@@ -71,7 +67,7 @@ export async function handleRecall(
 async function handleMemoryRecall(
   input: RecallInput,
   config: AssistantConfig,
-  scopeId: string,
+  _scopeId: string,
 ): Promise<RecallResult> {
   // Embed the query
   let queryVector: number[] | null = null;
@@ -101,28 +97,17 @@ async function handleMemoryRecall(
     if (!isNaN(beforeMs)) dateRange.beforeMs = beforeMs;
   }
 
-  // Recall searches across the assistant's whole memory by default. When
-  // invoked from inside a private conversation, pin to that scope so the
-  // private conversation stays isolated from itself outward AND can't
-  // see other memories. From any non-private scope, search every scope
-  // EXCEPT the set of private conversation scopes.
-  const isPrivateScope = isPrivateScopeId(scopeId);
-  const callScopeIds = isPrivateScope ? [scopeId] : undefined;
-  const excludeScopeIds = isPrivateScope
-    ? undefined
-    : listPrivateMemoryScopeIds();
-
   // Search graph nodes
   const limit = Math.max(1, Math.min(input.num_results ?? 20, 50));
   const searchResults = await searchGraphNodes(
     queryVector,
     limit,
-    callScopeIds,
+    undefined,
     sparseVector,
     dateRange.afterMs != null || dateRange.beforeMs != null
       ? dateRange
       : undefined,
-    excludeScopeIds,
+    undefined,
   );
   if (searchResults.length === 0) {
     return { results: [], mode: "memory", query: input.query };

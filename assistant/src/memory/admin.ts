@@ -184,7 +184,7 @@ export function findReextractTargets(limit: number): ReextractTarget[] {
     .from(conversations)
     .leftJoin(messages, eq(messages.conversationId, conversations.id))
     .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+      sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
     )
     .groupBy(conversations.id)
     .orderBy(desc(sql`count(${messages.id})`))

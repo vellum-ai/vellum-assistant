@@ -14,7 +14,6 @@ import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
-import { privateScopeId } from "./conversation-crud.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db.js";
@@ -141,7 +140,7 @@ export function resolveConversationId(idOrKey: string): string | null {
  */
 export function getOrCreateConversation(
   conversationKey: string,
-  opts?: { conversationType?: "standard" | "private" },
+  opts?: { conversationType?: "standard" },
 ): {
   conversationId: string;
   conversationType: string;
@@ -220,10 +219,7 @@ export function getOrCreateConversation(
     const now = Date.now();
     const conversationId = uuid();
     const title = GENERATING_TITLE;
-    const memoryScopeId =
-      conversationType === "private"
-        ? privateScopeId(conversationId)
-        : "default";
+    const memoryScopeId = "default";
 
     tx.insert(conversations)
       .values({

@@ -255,8 +255,7 @@ export function conversationManagementRouteDefinitions(
         return Response.json({
           conversationId: result.conversationId,
           title: result.title,
-          conversationType:
-            result.conversationType === "private" ? "private" : "standard",
+          conversationType: result.conversationType,
           hostAccess: result.hostAccess,
           ...(result.inferenceProfile != null
             ? { inferenceProfile: result.inferenceProfile }

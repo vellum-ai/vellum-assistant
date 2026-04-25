@@ -6,7 +6,6 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
-import { getConversationType } from "./conversation-crud.js";
 import { upsertAutoAnalysisJob } from "./jobs-store.js";
 
 const log = getLogger("auto-analysis-enqueue");
@@ -25,20 +24,14 @@ const log = getLogger("auto-analysis-enqueue");
  *     remembering before the window narrows further. Fires immediately
  *     (`runAfter = now`) like `"batch"`.
  */
-export type AutoAnalysisTrigger =
-  | "batch"
-  | "idle"
-  | "lifecycle"
-  | "compaction";
+export type AutoAnalysisTrigger = "batch" | "idle" | "lifecycle" | "compaction";
 
 /**
  * Conditionally enqueue a `conversation_analyze` job for the given
  * conversation. Skips silently when:
  *   - the `auto-analyze` feature flag is disabled, OR
  *   - the source conversation is itself an auto-analysis conversation
- *     (recursion guard — we never analyze our own analysis output), OR
- *   - the source conversation is private (`analyzeConversation` rejects
- *     private conversations, so enqueueing would guarantee a failed job).
+ *     (recursion guard — we never analyze our own analysis output).
  *
  * Immediate triggers (`"batch"`, `"compaction"`) and debounced triggers
  * (`"idle"`, `"lifecycle"`) are written to separate rows keyed by a
@@ -72,14 +65,6 @@ export function enqueueAutoAnalysisIfEnabled(args: {
     log.debug(
       { conversationId, trigger },
       "Skipping auto-analysis enqueue: source is an auto-analysis conversation",
-    );
-    return;
-  }
-
-  if (getConversationType(conversationId) === "private") {
-    log.debug(
-      { conversationId, trigger },
-      "Skipping auto-analysis enqueue: source is a private conversation",
     );
     return;
   }

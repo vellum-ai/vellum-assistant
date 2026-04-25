@@ -25,10 +25,6 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import {
-  isPrivateScopeId,
-  PRIVATE_SCOPE_PREFIX,
-} from "../../memory/conversation-crud.js";
 import { getDb } from "../../memory/db.js";
 import {
   embedWithBackend,
@@ -51,7 +47,7 @@ import type {
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
-import { conversations, memoryGraphNodes } from "../../memory/schema.js";
+import { memoryGraphNodes } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
@@ -155,49 +151,6 @@ function nodeToPayload(
     supersedes: null,
     supersededBy: null,
   };
-}
-
-/**
- * Resolve a `scopeLabel` for a memory item based on its `scopeId`.
- */
-function resolveScopeLabel(
-  scopeId: string,
-  titleMap: Map<string, string | null>,
-): string | null {
-  if (scopeId === "default") return null;
-  if (isPrivateScopeId(scopeId)) {
-    const conversationId = scopeId.slice(PRIVATE_SCOPE_PREFIX.length);
-    const title = titleMap.get(conversationId);
-    return title ? `Private · ${title}` : "Private";
-  }
-  return null;
-}
-
-/**
- * Batch-fetch conversation titles for a set of private-scoped memory items.
- */
-function buildConversationTitleMap(
-  db: ReturnType<typeof getDb>,
-  scopeIds: string[],
-): Map<string, string | null> {
-  const conversationIds = scopeIds
-    .filter(isPrivateScopeId)
-    .map((s) => s.slice(PRIVATE_SCOPE_PREFIX.length));
-
-  const uniqueIds = [...new Set(conversationIds)];
-  if (uniqueIds.length === 0) return new Map();
-
-  const rows = db
-    .select({ id: conversations.id, title: conversations.title })
-    .from(conversations)
-    .where(inArray(conversations.id, uniqueIds))
-    .all();
-
-  const map = new Map<string, string | null>();
-  for (const row of rows) {
-    map.set(row.id, row.title);
-  }
-  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,13 +341,9 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
       const idOrder = new Map(pageIds.map((id, i) => [id, i]));
       rows.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
 
-      const titleMap = buildConversationTitleMap(
-        db,
-        rows.map((r) => r.scopeId),
-      );
       const items = rows.map((row) => {
         const node = rowToNode(row);
-        return nodeToPayload(node, resolveScopeLabel(node.scopeId, titleMap));
+        return nodeToPayload(node);
       });
 
       return Response.json({ items, total, kindCounts: semanticKindCounts });
@@ -455,13 +404,9 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
     .offset(offsetParam)
     .all();
 
-  const titleMap = buildConversationTitleMap(
-    db,
-    rows.map((r) => r.scopeId),
-  );
   const items = rows.map((row) => {
     const node = rowToNode(row);
-    return nodeToPayload(node, resolveScopeLabel(node.scopeId, titleMap));
+    return nodeToPayload(node);
   });
 
   return Response.json({ items, total, kindCounts });
@@ -479,11 +424,7 @@ export function handleGetMemoryItem(ctx: RouteContext): Response {
     return httpError("NOT_FOUND", "Memory item not found", 404);
   }
 
-  const db = getDb();
-  const titleMap = buildConversationTitleMap(db, [node.scopeId]);
-  const scopeLabel = resolveScopeLabel(node.scopeId, titleMap);
-
-  return Response.json({ item: nodeToPayload(node, scopeLabel) });
+  return Response.json({ item: nodeToPayload(node) });
 }
 
 // ---------------------------------------------------------------------------
@@ -577,13 +518,7 @@ export async function handleCreateMemoryItem(
   const created = createNode(newNode);
   enqueueMemoryJob("embed_graph_node", { nodeId: created.id });
 
-  const titleMap = buildConversationTitleMap(db, [created.scopeId]);
-  const scopeLabel = resolveScopeLabel(created.scopeId, titleMap);
-
-  return Response.json(
-    { item: nodeToPayload(created, scopeLabel) },
-    { status: 201 },
-  );
+  return Response.json({ item: nodeToPayload(created) }, { status: 201 });
 }
 
 // ---------------------------------------------------------------------------
@@ -695,11 +630,7 @@ export async function handleUpdateMemoryItem(
     return httpError("NOT_FOUND", "Memory item not found after update", 404);
   }
 
-  const db = getDb();
-  const titleMap = buildConversationTitleMap(db, [updated.scopeId]);
-  const scopeLabel = resolveScopeLabel(updated.scopeId, titleMap);
-
-  return Response.json({ item: nodeToPayload(updated, scopeLabel) });
+  return Response.json({ item: nodeToPayload(updated) });
 }
 
 // ---------------------------------------------------------------------------

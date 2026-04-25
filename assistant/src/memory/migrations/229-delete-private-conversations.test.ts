@@ -250,7 +250,7 @@ describe("migrateDeletePrivateConversations", () => {
     raw.exec(/*sql*/ `
       INSERT INTO memory_summaries (id, scope_id, summary, created_at, updated_at)
       VALUES
-        ('summary-private', 'private:conv-private', 'private', ${now}, ${now}),
+        ('summary-private', 'private:conv-private', 'removed', ${now}, ${now}),
         ('summary-standard', 'default', 'standard', ${now}, ${now}),
         ('summary-background', 'background:conv-background', 'background', ${now}, ${now});
 

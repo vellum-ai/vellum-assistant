@@ -50,7 +50,6 @@ import { indexMessageNow } from "./indexer.js";
 import {
   channelInboundEvents,
   conversations,
-  conversationStarters,
   llmRequestLogs,
   memoryEmbeddings,
   memorySegments,
@@ -62,20 +61,6 @@ import {
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 
 const log = getLogger("conversation-store");
-
-/** Prefix for private-conversation memory scope IDs (`private:<convId>`). */
-const PRIVATE_SCOPE_KIND = "private";
-export const PRIVATE_SCOPE_PREFIX = `${PRIVATE_SCOPE_KIND}:`;
-
-/** Build the memory scope ID for a private conversation. */
-export function privateScopeId(conversationId: string): string {
-  return `${PRIVATE_SCOPE_PREFIX}${conversationId}`;
-}
-
-/** True if the scope ID belongs to a private conversation. */
-export function isPrivateScopeId(scopeId: string): boolean {
-  return scopeId.startsWith(PRIVATE_SCOPE_PREFIX);
-}
 
 // ── Message metadata Zod schema ──────────────────────────────────────
 // Validates the JSON stored in messages.metadata. Known fields are typed;
@@ -459,32 +444,9 @@ export function getConversationSource(conversationId: string): string | null {
   return row?.source ?? null;
 }
 
-export function getConversationType(
-  conversationId: string,
-): "standard" | "private" {
-  const conv = getConversation(conversationId);
-  const raw = conv?.conversationType;
-  return raw === "private" ? "private" : "standard";
-}
-
 export function getConversationMemoryScopeId(conversationId: string): string {
   const conv = getConversation(conversationId);
   return conv?.memoryScopeId ?? "default";
-}
-
-/**
- * Return the list of memory scope IDs that belong to private conversations.
- * Used by recall to exclude private-conversation memories when called from
- * a non-private scope, so private conversations stay isolated.
- */
-export function listPrivateMemoryScopeIds(): string[] {
-  const db = getDb();
-  const rows = db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.conversationType, "private"))
-    .all();
-  return rows.map((r) => privateScopeId(r.id));
 }
 
 export function getConversationHostAccess(conversationId: string): boolean {
@@ -740,10 +702,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
   // resolve the conversation's disk-view directory path after deletion.
   const convBeforeDelete = getConversation(id);
   const createdAtForDiskCleanup = convBeforeDelete?.createdAt;
-  const memoryScopeId = convBeforeDelete?.memoryScopeId;
-  const isPrivateScope = memoryScopeId
-    ? isPrivateScopeId(memoryScopeId)
-    : false;
 
   db.transaction((tx) => {
     // Collect all message IDs for this conversation.
@@ -791,36 +749,6 @@ export function deleteConversation(id: string): DeletedMemoryIds {
         .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
-        .run();
-    }
-
-    if (isPrivateScope && memoryScopeId) {
-      // Sweep memory summaries with this private scopeId.
-      const scopeSummaries = tx
-        .select({ id: memorySummaries.id })
-        .from(memorySummaries)
-        .where(eq(memorySummaries.scopeId, memoryScopeId))
-        .all();
-      const scopeSummaryIds = scopeSummaries.map((r) => r.id);
-
-      if (scopeSummaryIds.length > 0) {
-        tx.delete(memoryEmbeddings)
-          .where(
-            and(
-              eq(memoryEmbeddings.targetType, "summary"),
-              inArray(memoryEmbeddings.targetId, scopeSummaryIds),
-            ),
-          )
-          .run();
-        tx.delete(memorySummaries)
-          .where(inArray(memorySummaries.id, scopeSummaryIds))
-          .run();
-        result.deletedSummaryIds.push(...scopeSummaryIds);
-      }
-
-      // Sweep conversation starters with this private scopeId.
-      tx.delete(conversationStarters)
-        .where(eq(conversationStarters.scopeId, memoryScopeId))
         .run();
     }
 
@@ -890,50 +818,6 @@ export function wipeConversation(id: string): WipeConversationResult {
       ...deletedMemoryIds.deletedSummaryIds,
     ],
     cancelledJobCount,
-  };
-}
-
-/**
- * Delete all private (temporary) conversations and their associated data.
- * Called at daemon startup to clean up ephemeral conversations from previous sessions.
- * Returns the count and aggregated deleted memory IDs for Qdrant cleanup.
- */
-export function purgePrivateConversations(): {
-  count: number;
-  deletedMemory: DeletedMemoryIds;
-} {
-  const db = getDb();
-  const privateConvs = db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.conversationType, "private"))
-    .all();
-
-  if (privateConvs.length === 0) {
-    return {
-      count: 0,
-      deletedMemory: {
-        segmentIds: [],
-        deletedSummaryIds: [],
-      },
-    };
-  }
-
-  const allSegmentIds: string[] = [];
-  const allDeletedSummaryIds: string[] = [];
-
-  for (const conv of privateConvs) {
-    const deleted = deleteConversation(conv.id);
-    allSegmentIds.push(...deleted.segmentIds);
-    allDeletedSummaryIds.push(...deleted.deletedSummaryIds);
-  }
-
-  return {
-    count: privateConvs.length,
-    deletedMemory: {
-      segmentIds: allSegmentIds,
-      deletedSummaryIds: allDeletedSummaryIds,
-    },
   };
 }
 
