@@ -906,6 +906,63 @@ describe("runAgenticRecall", () => {
     });
   });
 
+  test("keeps auto-injected context behind concrete evidence after agent searches", async () => {
+    configuredProvider = makeProvider([
+      toolResponse("search_sources", {
+        query: "follow up",
+        sources: ["workspace"],
+        reason: "Need concrete follow-up evidence.",
+      }),
+      textResponse("not a finish"),
+    ]);
+
+    const result = await runAgenticRecall(
+      {
+        query: "launch notes",
+        sources: ["pkb", "workspace"],
+        max_results: 3,
+      },
+      makeContext(),
+      {
+        searchOptions: {
+          adapters: [
+            makeAdapter({}, [], "pkb"),
+            makeAdapter(
+              {
+                "launch notes": [makeEvidence("workspace:seed")],
+                "follow up": [makeEvidence("workspace:searched")],
+              },
+              [],
+              "workspace",
+            ),
+          ],
+          readPkbContextEvidence: () => [
+            makeEvidence("pkb:auto-inject", {
+              source: "pkb",
+              title: "PKB auto-injected context",
+              locator: "pkb:auto-inject",
+              excerpt: "Always-present background context.",
+            }),
+            makeEvidence("pkb:NOW.md", {
+              source: "pkb",
+              title: "NOW.md",
+              locator: "NOW.md",
+              excerpt: "Always-present NOW context.",
+            }),
+          ],
+        },
+      },
+    );
+
+    expect(result.debug.mode).toBe("deterministic_fallback");
+    expect(result.evidence.map((item) => item.id)).toEqual([
+      "workspace:seed",
+      "workspace:searched",
+      "pkb:NOW.md",
+      "pkb:auto-inject",
+    ]);
+  });
+
   test("routes provider calls through the recall call site with temperature zero", async () => {
     const providerCalls: unknown[][] = [];
     configuredProvider = makeProvider(

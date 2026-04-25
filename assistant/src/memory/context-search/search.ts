@@ -39,11 +39,11 @@ const SOURCE_PRIORITY = new Map<RecallSource, number>(
   ALL_RECALL_SOURCES.map((source, index) => [source, index]),
 );
 
-const PINNED_PKB_CONTEXT_EVIDENCE_IDS = new Set([
+const AUTO_INJECTED_PKB_CONTEXT_EVIDENCE_IDS = new Set([
   "pkb:auto-inject",
   "pkb:NOW.md",
 ]);
-const PINNED_PKB_CONTEXT_TEXT_CAP = Math.floor(
+const AUTO_INJECTED_PKB_CONTEXT_TEXT_CAP = Math.floor(
   RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE / 2,
 );
 
@@ -253,39 +253,18 @@ function capEvidence(
   evidence: readonly RecallEvidence[],
   maxResults: number,
 ): RecallEvidence[] {
-  const pinnedEvidence = evidence.filter(isPinnedPkbContextEvidence);
+  const autoInjectedContextEvidence = evidence.filter(
+    isAutoInjectedPkbContextEvidence,
+  );
   const regularEvidence = evidence.filter(
-    (item) => !isPinnedPkbContextEvidence(item),
+    (item) => !isAutoInjectedPkbContextEvidence(item),
   );
   const capped: RecallEvidence[] = [];
   const textSizeBySource = new Map<RecallSource, number>();
   let totalTextSize = 0;
 
-  for (let index = 0; index < pinnedEvidence.length; index += 1) {
-    const item = pinnedEvidence[index];
-    if (!item) continue;
-
-    const pinnedRemaining = pinnedEvidence.length - index;
-    const reservedTextBudget = getReservedPinnedTextBudget(item, {
-      textSizeBySource,
-      totalTextSize,
-      pinnedRemaining,
-    });
-    const appended = appendCappedEvidence(item, {
-      capped,
-      textSizeBySource,
-      totalTextSize,
-      textBudget: reservedTextBudget,
-    });
-    totalTextSize = appended.totalTextSize;
-    if (appended.totalRemaining <= 0) {
-      return capped;
-    }
-  }
-
-  const resultLimit = Math.max(maxResults, capped.length);
   for (const item of regularEvidence) {
-    if (capped.length >= resultLimit) {
+    if (capped.length >= maxResults) {
       break;
     }
 
@@ -298,30 +277,60 @@ function capEvidence(
     if (appended.totalRemaining <= 0) break;
   }
 
+  for (let index = 0; index < autoInjectedContextEvidence.length; index += 1) {
+    if (capped.length >= maxResults) {
+      break;
+    }
+
+    const item = autoInjectedContextEvidence[index];
+    if (!item) continue;
+
+    const autoInjectedRemaining = autoInjectedContextEvidence.length - index;
+    const reservedTextBudget = getReservedAutoInjectedTextBudget(item, {
+      textSizeBySource,
+      totalTextSize,
+      autoInjectedRemaining,
+    });
+    const appended = appendCappedEvidence(item, {
+      capped,
+      textSizeBySource,
+      totalTextSize,
+      textBudget: reservedTextBudget,
+    });
+    totalTextSize = appended.totalTextSize;
+    if (appended.totalRemaining <= 0) {
+      break;
+    }
+  }
+
   return capped;
 }
 
-function isPinnedPkbContextEvidence(item: RecallEvidence): boolean {
-  return item.source === "pkb" && PINNED_PKB_CONTEXT_EVIDENCE_IDS.has(item.id);
+export function isAutoInjectedPkbContextEvidence(
+  item: RecallEvidence,
+): boolean {
+  return (
+    item.source === "pkb" && AUTO_INJECTED_PKB_CONTEXT_EVIDENCE_IDS.has(item.id)
+  );
 }
 
-function getReservedPinnedTextBudget(
+function getReservedAutoInjectedTextBudget(
   item: RecallEvidence,
   state: {
     textSizeBySource: Map<RecallSource, number>;
     totalTextSize: number;
-    pinnedRemaining: number;
+    autoInjectedRemaining: number;
   },
 ): number {
   const sourceTextSize = state.textSizeBySource.get(item.source) ?? 0;
-  const pinnedSourceCap =
+  const autoInjectedSourceCap =
     item.source === "pkb"
-      ? PINNED_PKB_CONTEXT_TEXT_CAP
+      ? AUTO_INJECTED_PKB_CONTEXT_TEXT_CAP
       : RECALL_EVIDENCE_TEXT_CAP_PER_SOURCE;
-  const sourceRemaining = pinnedSourceCap - sourceTextSize;
+  const sourceRemaining = autoInjectedSourceCap - sourceTextSize;
   const totalRemaining = RECALL_TOTAL_EVIDENCE_TEXT_CAP - state.totalTextSize;
   const remaining = Math.min(sourceRemaining, totalRemaining);
-  return Math.max(1, Math.floor(remaining / state.pinnedRemaining));
+  return Math.max(1, Math.floor(remaining / state.autoInjectedRemaining));
 }
 
 function appendCappedEvidence(

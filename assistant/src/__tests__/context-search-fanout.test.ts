@@ -87,14 +87,14 @@ describe("runDeterministicRecallSearch", () => {
       "workspace",
     ]);
     expect(result.evidence.map((item) => item.id)).toEqual([
-      "pkb:NOW.md",
-      "pkb:auto-inject",
       "pkb:search",
       "workspace:evidence",
+      "pkb:NOW.md",
+      "pkb:auto-inject",
     ]);
   });
 
-  test("keeps PKB pinned context evidence through very low result caps", async () => {
+  test("does not let PKB auto-injected context displace concrete evidence", async () => {
     const result = await runDeterministicRecallSearch(
       { query: "launch notes", sources: ["pkb", "workspace"], max_results: 1 },
       makeContext(),
@@ -133,29 +133,20 @@ describe("runDeterministicRecallSearch", () => {
     );
 
     expect(result.evidence.map((item) => item.id)).toEqual([
-      "pkb:NOW.md",
-      "pkb:auto-inject",
+      "workspace:search",
     ]);
     expect(result.searchedSources).toEqual([
-      { source: "pkb", status: "searched", evidenceCount: 2 },
-      { source: "workspace", status: "searched", evidenceCount: 0 },
+      { source: "pkb", status: "searched", evidenceCount: 0 },
+      { source: "workspace", status: "searched", evidenceCount: 1 },
     ]);
   });
 
-  test("reserves text budget for each pinned PKB context row", async () => {
+  test("uses PKB auto-injected context when no concrete evidence is available", async () => {
     const result = await runDeterministicRecallSearch(
       { query: "launch notes", sources: ["pkb"], max_results: 1 },
       makeContext(),
       {
-        adapters: [
-          makeAdapter("pkb", [
-            makeEvidence("pkb", {
-              id: "pkb:search",
-              score: 0.5,
-              excerpt: "Normal PKB search result.",
-            }),
-          ]),
-        ],
+        adapters: [makeAdapter("pkb", [])],
         readPkbContextEvidence: () => [
           makeEvidence("pkb", {
             id: "pkb:auto-inject",
@@ -175,16 +166,13 @@ describe("runDeterministicRecallSearch", () => {
       },
     );
 
-    expect(result.evidence.map((item) => item.id)).toEqual([
-      "pkb:auto-inject",
-      "pkb:NOW.md",
-    ]);
+    expect(result.evidence.map((item) => item.id)).toEqual(["pkb:auto-inject"]);
     for (const item of result.evidence) {
       expect(item.excerpt.length).toBeGreaterThan(0);
     }
   });
 
-  test("pinned PKB context leaves excerpt budget for exact PKB hits", async () => {
+  test("auto-injected PKB context leaves excerpt budget for exact PKB hits", async () => {
     const result = await runDeterministicRecallSearch(
       { query: "where does alice live", sources: ["pkb"], max_results: 3 },
       makeContext(),

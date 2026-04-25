@@ -26,6 +26,7 @@ import {
 import {
   type DeterministicRecallSearchOptions,
   type DeterministicRecallSearchResult,
+  isAutoInjectedPkbContextEvidence,
   runDeterministicRecallSearch,
 } from "./search.js";
 import {
@@ -1085,7 +1086,7 @@ function collectInspectableWorkspacePaths(
 }
 
 function collectEvidenceWorkspacePaths(item: RecallEvidence): string[] {
-  if (isPinnedPkbContextEvidence(item)) {
+  if (isAutoInjectedPkbContextEvidence(item)) {
     return [];
   }
 
@@ -1109,10 +1110,6 @@ function collectEvidenceWorkspacePaths(item: RecallEvidence): string[] {
     }
   }
   return [...new Set(paths)];
-}
-
-function isPinnedPkbContextEvidence(item: RecallEvidence): boolean {
-  return item.id === "pkb:auto-inject" || item.id === "pkb:NOW.md";
 }
 
 function normalizeRequestedWorkspaceInspectionPath(
@@ -1201,7 +1198,24 @@ function mergeEvidence(
     merged.push(item);
   }
 
-  return merged;
+  return demoteAutoInjectedContextEvidence(merged);
+}
+
+function demoteAutoInjectedContextEvidence(
+  evidence: readonly RecallEvidence[],
+): RecallEvidence[] {
+  const regularEvidence: RecallEvidence[] = [];
+  const autoInjectedContextEvidence: RecallEvidence[] = [];
+
+  for (const item of evidence) {
+    if (isAutoInjectedPkbContextEvidence(item)) {
+      autoInjectedContextEvidence.push(item);
+    } else {
+      regularEvidence.push(item);
+    }
+  }
+
+  return [...regularEvidence, ...autoInjectedContextEvidence];
 }
 
 function toRecallInput(input: NormalizedRecallInput): RecallInput {
@@ -1228,8 +1242,9 @@ function withFallbackEvidence(
   result: DeterministicRecallSearchResult,
   evidence: readonly RecallEvidence[],
 ): DeterministicRecallSearchResult {
+  const orderedEvidence = demoteAutoInjectedContextEvidence(evidence);
   const evidenceCountBySource = new Map<RecallSource, number>();
-  for (const item of evidence) {
+  for (const item of orderedEvidence) {
     evidenceCountBySource.set(
       item.source,
       (evidenceCountBySource.get(item.source) ?? 0) + 1,
@@ -1238,7 +1253,7 @@ function withFallbackEvidence(
 
   return {
     ...result,
-    evidence: [...evidence],
+    evidence: orderedEvidence,
     searchedSources: result.searchedSources.map((note) => ({
       ...note,
       evidenceCount: evidenceCountBySource.get(note.source) ?? 0,
