@@ -447,21 +447,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     ],
   },
 
-  {
-    label: "Slack thread tracking IPC",
-    caller: "assistant",
-    callee: "gateway",
-    protocol: "ipc-unix-ndjson",
-    auth: "none (local socket)",
-    description:
-      "Assistant notifies the gateway of Slack thread activity via IPC (slack_track_thread method) so the socket-mode event filter forwards follow-up replies.",
-    callerGlobs: ["assistant/src/messaging/providers/index.ts"],
-    calleeGlobs: [
-      "gateway/src/ipc/slack-thread-handlers.ts",
-      "gateway/src/ipc/server.ts",
-    ],
-  },
-
   // =========================================================================
   // Assistant -> CES (stdio NDJSON — local mode)
   // =========================================================================

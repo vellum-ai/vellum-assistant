@@ -14,7 +14,6 @@ import type {
 } from "@vellumai/gateway-client";
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
-import { ipcCall } from "../../ipc/gateway-client.js";
 import { getLogger } from "../../util/logger.js";
 import {
   sendSlackAssistantThreadStatus,
@@ -219,16 +218,6 @@ async function deliverSlack(
   }
 
   log.info({ chatId, hasText: !!text }, "Slack reply delivered (direct)");
-
-  // Notify the gateway about thread activity so its socket-mode event
-  // filter forwards follow-up replies (without @mention) in this thread.
-  const activeThreadTs = sentTs ?? threadTs;
-  if (activeThreadTs) {
-    ipcCall("slack_track_thread", { threadTs: activeThreadTs }).catch(() => {
-      // Best-effort — gateway may not be running (e.g. non-containerized mode)
-    });
-  }
-
   return { ok: true, ts: sentTs };
 }
 

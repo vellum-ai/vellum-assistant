@@ -147,7 +147,6 @@ import {
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { trustRuleRoutes } from "./ipc/trust-rule-handlers.js";
-import { createSlackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
@@ -1926,9 +1925,6 @@ async function main() {
     ...thresholdRoutes,
     ...trustRuleRoutes,
     ...riskClassificationRoutes,
-    ...createSlackThreadRoutes(
-      () => slackSocketClient?.trackThread.bind(slackSocketClient) ?? null,
-    ),
   ]);
   ipcServer.start();
 

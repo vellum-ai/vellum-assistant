@@ -692,6 +692,14 @@ export class SlackSocketModeClient {
       return;
     }
 
+    // Track threads on the inbound side so follow-up replies (without
+    // @mention) continue to be forwarded. Any forwarded event that carries
+    // a thread_ts implies bot participation in that thread.
+    const threadTs = (event as { thread_ts?: string }).thread_ts;
+    if (threadTs) {
+      this.store.trackThread(threadTs, ACTIVE_THREAD_TTL_MS);
+    }
+
     // Enrich actor display name if the sync cache missed.
     // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
     // so this adds negligible latency on subsequent messages. A 3s timeout
