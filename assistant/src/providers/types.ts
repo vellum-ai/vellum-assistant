@@ -137,9 +137,9 @@ export interface SendMessageConfig {
   model?: string;
   /**
    * LLM call-site identifier. `RetryProvider` resolves
-   * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
-   * via `resolveCallSiteConfig(callSite, config.llm)`, falling back to
-   * `llm.default` when no callSite-specific entry is present.
+   * provider/model/maxTokens/effort/speed/verbosity/temperature/thinking/
+   * contextWindow via `resolveCallSiteConfig(callSite, config.llm)`, falling
+   * back to `llm.default` when no callSite-specific entry is present.
    */
   callSite?: LLMCallSite;
   /**
@@ -153,6 +153,7 @@ export interface SendMessageConfig {
   overrideProfile?: string;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
+  verbosity?: "low" | "medium" | "high";
   [key: string]: unknown;
 }
 
