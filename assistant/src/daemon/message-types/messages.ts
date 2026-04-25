@@ -351,6 +351,18 @@ export interface ConversationHostAccessUpdated {
   hostAccess: boolean;
 }
 
+/**
+ * Broadcast to clients when a conversation's inference-profile override
+ * changes. `profile` is the profile name (a key in `llm.profiles`) or
+ * `null` when the override is cleared and the conversation falls back to
+ * the workspace `llm.activeProfile` resolution.
+ */
+export interface ConversationInferenceProfileUpdated {
+  type: "conversation_inference_profile_updated";
+  conversationId: string;
+  profile: string | null;
+}
+
 export type TraceEventKind =
   | "request_received"
   | "request_queued"
@@ -413,4 +425,5 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
-  | ConversationHostAccessUpdated;
+  | ConversationHostAccessUpdated
+  | ConversationInferenceProfileUpdated;

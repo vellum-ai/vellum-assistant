@@ -135,6 +135,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/name", scopes: ["chat.write"] },
   { endpoint: "conversations/host-access:GET", scopes: ["chat.read"] },
   { endpoint: "conversations/host-access", scopes: ["approval.write"] },
+  { endpoint: "conversations/inference-profile", scopes: ["chat.write"] },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
   { endpoint: "conversations/undo", scopes: ["chat.write"] },
   { endpoint: "conversations/regenerate", scopes: ["chat.write"] },
