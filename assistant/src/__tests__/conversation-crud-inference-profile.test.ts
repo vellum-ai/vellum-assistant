@@ -38,12 +38,8 @@ describe("setConversationInferenceProfile", () => {
 
   test("does not throw when called with a valid conversation id", async () => {
     const conv = createConversation("inference-profile-no-throw");
-    await expect(
-      setConversationInferenceProfile(conv.id, "balanced"),
-    ).resolves.toBeUndefined();
-    await expect(
-      setConversationInferenceProfile(conv.id, null),
-    ).resolves.toBeUndefined();
+    await setConversationInferenceProfile(conv.id, "balanced");
+    await setConversationInferenceProfile(conv.id, null);
   });
 
   test("getConversation surfaces the column on every fetch", async () => {
