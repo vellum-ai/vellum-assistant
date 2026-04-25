@@ -34,6 +34,7 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
+import { isServiceGatewayPrincipal } from "../auth/context.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -431,7 +432,7 @@ export async function handleAddGuardianChannel(
   // email as a guardian channel. Direct actor/local calls are not permitted
   // because the endpoint bypasses normal channel verification (no code sent,
   // no confirmation) and would allow guardian channel takeover (ATL-102).
-  if (authContext.principalType !== "svc_gateway") {
+  if (!isServiceGatewayPrincipal(authContext)) {
     return httpError(
       "FORBIDDEN",
       "This endpoint is restricted to platform service calls",

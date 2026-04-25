@@ -7,7 +7,10 @@ import {
   initSigningKey,
 } from "./auth/token-service.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
-import { ensureVellumGuardianBinding } from "./auth/guardian-bootstrap.js";
+import {
+  ensureVellumGuardianBinding,
+  findGuardianForChannelActor,
+} from "./auth/guardian-bootstrap.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
@@ -1694,6 +1697,17 @@ async function main() {
                 config.maxAttachmentBytes.slack ??
                 config.maxAttachmentBytes.default;
 
+              // Guardian-actor bypass: when the Slack sender is the
+              // assistant's owner, the upload is marked trustedSource so the
+              // assistant accepts arbitrary MIME types and extensions
+              // (e.g. .mkv, .dmg) for downstream processing. Resolved once
+              // per message — the assistant re-checks gateway-service auth
+              // before honoring the flag, so impersonation is not possible.
+              const slackActorId = normalized.event.actor.actorExternalId;
+              const isGuardianActor = slackActorId
+                ? !!findGuardianForChannelActor("slack", slackActorId)
+                : false;
+
               // Filter oversized attachments
               const eligible = eventAttachments.filter((att) => {
                 if (att.fileSize !== undefined && att.fileSize > maxBytes) {
@@ -1735,9 +1749,11 @@ async function main() {
                       slackFile,
                       botToken,
                     );
-                    return uploadAttachment(config, downloaded, {
-                      skipCircuitBreaker: true,
-                    });
+                    return uploadAttachment(
+                      config,
+                      { ...downloaded, trustedSource: isGuardianActor },
+                      { skipCircuitBreaker: true },
+                    );
                   }),
                 );
                 for (let j = 0; j < results.length; j++) {

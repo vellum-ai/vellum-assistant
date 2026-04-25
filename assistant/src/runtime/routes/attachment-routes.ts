@@ -19,6 +19,8 @@ import {
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { isServiceGatewayPrincipal } from "../auth/context.js";
+import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -122,8 +124,14 @@ function attachmentResponse(
 /**
  * Handle multipart/form-data upload.
  * Expects: "file" (Blob), "filename" (string), "mimeType" (string).
+ *
+ * `gatewayTrustedSource` is true only when the caller is the gateway
+ * service AND requested the bypass — see `handleUploadAttachment`.
  */
-async function handleMultipartUpload(req: Request): Promise<Response> {
+async function handleMultipartUpload(
+  req: Request,
+  gatewayTrustedSource: boolean,
+): Promise<Response> {
   // Pre-check Content-Length before parsing to reject oversized requests
   // without buffering the full multipart body into memory. Binary uploads
   // have no base64 overhead, so use the raw file size limit directly.
@@ -172,7 +180,12 @@ async function handleMultipartUpload(req: Request): Promise<Response> {
     );
   }
 
-  const validation = validateAttachmentUpload(filename, mimeType);
+  const trustedSource =
+    gatewayTrustedSource && formData.get("trustedSource") === "true";
+
+  const validation = validateAttachmentUpload(filename, mimeType, {
+    trustedSource,
+  });
   if (!validation.ok) {
     return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
@@ -190,8 +203,13 @@ async function handleMultipartUpload(req: Request): Promise<Response> {
 /**
  * Handle application/octet-stream upload.
  * filename and mimeType come from URL query params.
+ *
+ * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-async function handleOctetStreamUpload(req: Request): Promise<Response> {
+async function handleOctetStreamUpload(
+  req: Request,
+  gatewayTrustedSource: boolean,
+): Promise<Response> {
   // Pre-check Content-Length before buffering to reject oversized requests
   // without reading the full body into memory.
   const contentLength = req.headers.get("content-length");
@@ -232,7 +250,12 @@ async function handleOctetStreamUpload(req: Request): Promise<Response> {
     );
   }
 
-  const validation = validateAttachmentUpload(filename, mimeType);
+  const trustedSource =
+    gatewayTrustedSource && url.searchParams.get("trustedSource") === "true";
+
+  const validation = validateAttachmentUpload(filename, mimeType, {
+    trustedSource,
+  });
   if (!validation.ok) {
     return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
@@ -249,8 +272,13 @@ async function handleOctetStreamUpload(req: Request): Promise<Response> {
 
 /**
  * Handle application/json upload (existing behaviour — base64 or file-path).
+ *
+ * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-async function handleJsonUpload(req: Request): Promise<Response> {
+async function handleJsonUpload(
+  req: Request,
+  gatewayTrustedSource: boolean,
+): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
     return httpError(
@@ -265,6 +293,7 @@ async function handleJsonUpload(req: Request): Promise<Response> {
     mimeType?: string;
     data?: string;
     filePath?: string;
+    trustedSource?: boolean;
   };
 
   const { filename, mimeType, data, filePath } = body;
@@ -277,7 +306,11 @@ async function handleJsonUpload(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "mimeType is required", 400);
   }
 
-  const validation = validateAttachmentUpload(filename, mimeType);
+  const trustedSource = gatewayTrustedSource && body.trustedSource === true;
+
+  const validation = validateAttachmentUpload(filename, mimeType, {
+    trustedSource,
+  });
   if (!validation.ok) {
     return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
@@ -361,19 +394,29 @@ async function handleJsonUpload(req: Request): Promise<Response> {
   return attachmentResponse(attachment);
 }
 
-export async function handleUploadAttachment(req: Request): Promise<Response> {
+export async function handleUploadAttachment(
+  req: Request,
+  authContext: AuthContext,
+): Promise<Response> {
   const contentType = req.headers.get("content-type") ?? "";
 
+  // Decide once whether the caller is allowed to opt into the validation
+  // bypass; each handler combines this with its own per-request flag
+  // (form field, query param, or JSON body) to produce the final
+  // trustedSource boolean. End-user actor tokens never get the bypass —
+  // the assistant ignores any trustedSource flag on such requests.
+  const gatewayTrustedSource = isServiceGatewayPrincipal(authContext);
+
   if (contentType.includes("multipart/form-data")) {
-    return handleMultipartUpload(req);
+    return handleMultipartUpload(req, gatewayTrustedSource);
   }
 
   if (contentType.includes("application/octet-stream")) {
-    return handleOctetStreamUpload(req);
+    return handleOctetStreamUpload(req, gatewayTrustedSource);
   }
 
   // Default: JSON+base64 (existing behaviour)
-  return handleJsonUpload(req);
+  return handleJsonUpload(req, gatewayTrustedSource);
 }
 
 export async function handleDeleteAttachment(req: Request): Promise<Response> {
@@ -564,6 +607,12 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
           .string()
           .describe("On-disk file path (file-backed upload)")
           .optional(),
+        trustedSource: z
+          .boolean()
+          .describe(
+            "Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is authenticated as a gateway service token; ignored otherwise.",
+          )
+          .optional(),
       }),
       responseBody: z.object({
         id: z.string(),
@@ -572,7 +621,8 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
         size_bytes: z.number(),
         kind: z.string(),
       }),
-      handler: async ({ req }) => handleUploadAttachment(req),
+      handler: async ({ req, authContext }) =>
+        handleUploadAttachment(req, authContext),
     },
     {
       endpoint: "attachments",

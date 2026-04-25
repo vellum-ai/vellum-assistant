@@ -460,14 +460,26 @@ export type AttachmentValidationResult =
  *
  * Rejects files whose extension is in the dangerous blocklist or whose
  * MIME type is not on the allowlist.
+ *
+ * When `opts.trustedSource` is true, both the dangerous-extensions
+ * blocklist and the MIME allowlist are bypassed. This is intended for
+ * gateway-mediated channel ingress where the actor has already been
+ * resolved to a guardian binding — the threat model behind those filters
+ * (untrusted senders staging executables) does not apply when the
+ * guardian themselves is the sender. Filename normalization still runs.
  */
 export function validateAttachmentUpload(
   filename: string,
   mimeType: string,
+  opts?: { trustedSource?: boolean },
 ): AttachmentValidationResult {
   // Normalize filename: trim whitespace and strip trailing dots to prevent
   // bypasses like "payload.exe " or "payload.exe."
   const normalizedFilename = filename.trim().replace(/\.+$/, "");
+
+  if (opts?.trustedSource) {
+    return { ok: true };
+  }
 
   const dot = normalizedFilename.lastIndexOf(".");
   if (dot !== -1) {
