@@ -92,10 +92,12 @@ export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
  * `skills/meet-join/config-schema.ts` and is sourced from the separate
  * `<workspace>/config/meet.json` file the skill owns.
  *
- * `lazy_external` gates the manifest-driven lazy-spawn path. While the
- * default is `false`, `external-skills-bootstrap.ts` keeps running the
- * in-process `register(host)` path — identical to pre-isolation behavior.
- * PR 32 flips the default to `true` after the remaining scaffolding lands.
+ * `lazy_external` gates the manifest-driven lazy-spawn path. The default
+ * is `true`: the daemon reads the shipped meet-join manifest at startup
+ * and spawns the meet-host child via `bun run` on first tool/route use.
+ * Setting `false` keeps the in-process `register(host)` path that
+ * `external-skills-bootstrap.ts` runs as an opt-out — useful for local
+ * iteration when the manifest or shipped skill source is stale.
  */
 export const MeetHostConfigSchema = z
   .object({
@@ -103,7 +105,7 @@ export const MeetHostConfigSchema = z
       .boolean({
         error: "services.meet.host.lazy_external must be a boolean",
       })
-      .default(false)
+      .default(true)
       .describe(
         "When true, the daemon installs meet-join tools from the shipped manifest and spawns the meet-host child on first use instead of loading the skill in-process.",
       ),
