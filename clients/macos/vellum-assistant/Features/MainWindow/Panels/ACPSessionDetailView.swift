@@ -180,7 +180,11 @@ struct ACPSessionDetailView: View {
     func handleCancelTap() {
         guard !cancelInFlight else { return }
         cancelInFlight = true
-        let id = session.state.acpSessionId
+        // `state.id` (the daemon UUID) is the canonical identifier the
+        // daemon's `acp/:id/cancel` route looks up — `state.acpSessionId`
+        // is the protocol-level handle and would 404 the route for any
+        // session past initialization.
+        let id = session.state.id
         Task { @MainActor in
             // The store flips `state.status` optimistically on success, which
             // hides this control via `isCancelable`. On failure we reset the
@@ -596,9 +600,11 @@ struct ACPSessionDetailView: View {
             content: "→ steered: \(instruction)"
         ))
 
-        // `acpSessionId` (not `state.id`) is the daemon-side session handle
-        // the steer route accepts and the store keys its dictionary by.
-        Task { await store.steer(id: session.state.acpSessionId, instruction: instruction) }
+        // `state.id` is the daemon UUID — the value the steer route
+        // (`acp/:id/steer`) accepts and the store keys its dictionary by.
+        // `state.acpSessionId` is the protocol-level handle and would
+        // miss the lookup for any session past initialization.
+        Task { await store.steer(id: session.state.id, instruction: instruction) }
     }
 
     // MARK: - Delete Footer
@@ -637,7 +643,10 @@ struct ACPSessionDetailView: View {
     func handleDeleteTap() {
         guard !isDeleting else { return }
         isDeleting = true
-        let id = session.state.acpSessionId
+        // `state.id` is the daemon UUID — what
+        // `acp_session_history.id` is keyed by and what the
+        // `DELETE /v1/acp/sessions/:id` route looks up.
+        let id = session.state.id
         Task { @MainActor in
             let result = await store.delete(id: id)
             isDeleting = false

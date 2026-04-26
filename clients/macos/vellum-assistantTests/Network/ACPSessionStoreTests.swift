@@ -170,13 +170,20 @@ final class ACPSessionStoreTests: XCTestCase {
     func test_updateBeforeSpawn_isStitchedOnSeed() async {
         let store = ACPSessionStore()
 
+        // The wire's `acpSessionId` field carries the daemon UUID on
+        // every ACP event — same value the daemon puts in
+        // `ACPSessionState.id`. The seed snapshot below has a divergent
+        // protocol-level `acpSessionId`, so the orphan must key off the
+        // daemon UUID to match.
         store.handle(.acpSessionUpdate(ACPSessionUpdateMessage(
-            acpSessionId: "acp-seeded",
+            acpSessionId: "sess-seeded",
             updateType: .agentMessageChunk,
             content: "early"
         )))
 
         // Seed returns a snapshot containing the orphan's parent session.
+        // `id` is the daemon UUID; `acpSessionId` is the protocol-level
+        // handle filled in once the agent's `createSession` resolved.
         MockACPSessionStoreURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
                 url: request.url!,
@@ -191,7 +198,7 @@ final class ACPSessionStoreTests: XCTestCase {
                     {
                       "id": "sess-seeded",
                       "agentId": "claude-code",
-                      "acpSessionId": "acp-seeded",
+                      "acpSessionId": "acp-protocol-seeded",
                       "parentConversationId": "conv-seeded",
                       "status": "running",
                       "startedAt": 1700000000000
@@ -206,7 +213,12 @@ final class ACPSessionStoreTests: XCTestCase {
         await store.seed()
 
         XCTAssertEqual(store.seedState, .loaded)
-        let viewModel = try! XCTUnwrap(store.sessions["acp-seeded"])
+        // Store is keyed by `state.id` (the daemon UUID) so the seeded
+        // entry lands under "sess-seeded" — even though the protocol id
+        // is different — and the buffered orphan flushes onto it.
+        let viewModel = try! XCTUnwrap(store.sessions["sess-seeded"])
+        XCTAssertEqual(viewModel.state.acpSessionId, "acp-protocol-seeded",
+                       "Seed should preserve the protocol-level id, distinct from the store key")
         XCTAssertEqual(viewModel.events.count, 1)
         XCTAssertEqual(viewModel.events.first?.content, "early")
     }
@@ -244,13 +256,16 @@ final class ACPSessionStoreTests: XCTestCase {
     func test_seed_mergesSnapshotIntoSessions_inMemoryWinsOnCollision() async {
         let store = ACPSessionStore()
 
-        // Existing in-memory session populated via SSE.
+        // Existing in-memory session populated via SSE. The wire's
+        // `acpSessionId` field IS the daemon UUID — same value the seed
+        // snapshot below carries as `id`, so the two collide on
+        // `state.id` (the store's key) and the in-memory entry wins.
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
-            acpSessionId: "acp-existing",
+            acpSessionId: "sess-existing",
             agent: "claude-code",
             parentConversationId: "conv-existing"
         )))
-        let originalViewModel = try! XCTUnwrap(store.sessions["acp-existing"])
+        let originalViewModel = try! XCTUnwrap(store.sessions["sess-existing"])
 
         MockACPSessionStoreURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -261,22 +276,23 @@ final class ACPSessionStoreTests: XCTestCase {
             )!
             // Snapshot includes both the existing in-memory session AND a
             // brand-new one. The existing entry should be left alone; the
-            // new entry should be inserted.
+            // new entry should be inserted. The two `id` values match the
+            // daemon UUIDs the SSE pipeline already saw / will see.
             let data = Data(
                 #"""
                 {
                   "sessions": [
                     {
-                      "id": "sess-a",
+                      "id": "sess-existing",
                       "agentId": "stale",
-                      "acpSessionId": "acp-existing",
+                      "acpSessionId": "acp-protocol-existing",
                       "status": "completed",
                       "startedAt": 1
                     },
                     {
-                      "id": "sess-b",
+                      "id": "sess-new",
                       "agentId": "agent-x",
-                      "acpSessionId": "acp-new",
+                      "acpSessionId": "acp-protocol-new",
                       "status": "running",
                       "startedAt": 2000000000000
                     }
@@ -292,11 +308,11 @@ final class ACPSessionStoreTests: XCTestCase {
         XCTAssertEqual(store.seedState, .loaded)
         XCTAssertEqual(store.sessions.count, 2)
         // Existing view model should be the SAME instance — not replaced.
-        XCTAssertTrue(store.sessions["acp-existing"] === originalViewModel,
-                      "In-memory entry should win on id collision")
+        XCTAssertTrue(store.sessions["sess-existing"] === originalViewModel,
+                      "In-memory entry should win on id collision (keyed by state.id)")
         XCTAssertEqual(originalViewModel.state.agentId, "claude-code",
                        "In-memory state should not be overwritten by stale snapshot")
-        XCTAssertNotNil(store.sessions["acp-new"])
+        XCTAssertNotNil(store.sessions["sess-new"])
     }
 
     func test_seed_sortsSessionOrderByStartedAtDescending() async {
@@ -312,9 +328,9 @@ final class ACPSessionStoreTests: XCTestCase {
                 #"""
                 {
                   "sessions": [
-                    {"id":"s1","agentId":"a","acpSessionId":"acp-old","status":"running","startedAt":100},
-                    {"id":"s2","agentId":"a","acpSessionId":"acp-newest","status":"running","startedAt":300},
-                    {"id":"s3","agentId":"a","acpSessionId":"acp-mid","status":"running","startedAt":200}
+                    {"id":"sess-old","agentId":"a","acpSessionId":"acp-old","status":"running","startedAt":100},
+                    {"id":"sess-newest","agentId":"a","acpSessionId":"acp-newest","status":"running","startedAt":300},
+                    {"id":"sess-mid","agentId":"a","acpSessionId":"acp-mid","status":"running","startedAt":200}
                   ]
                 }
                 """#.utf8
@@ -324,7 +340,9 @@ final class ACPSessionStoreTests: XCTestCase {
 
         await store.seed()
 
-        XCTAssertEqual(store.sessionOrder, ["acp-newest", "acp-mid", "acp-old"])
+        // `sessionOrder` is keyed by `state.id` (the daemon UUID) — same
+        // identifier the store's `sessions` dictionary uses.
+        XCTAssertEqual(store.sessionOrder, ["sess-newest", "sess-mid", "sess-old"])
     }
 
     func test_seed_recordsErrorOnTransportFailure() async {
@@ -363,6 +381,68 @@ final class ACPSessionStoreTests: XCTestCase {
         // Oldest 100 should have been dropped — first kept event is index 100.
         XCTAssertEqual(viewModel.events.first?.content, "msg-100")
         XCTAssertEqual(viewModel.events.last?.content, "msg-599")
+    }
+
+    // MARK: - SSE → seed dedupe across diverged ids
+
+    /// `state.id` (daemon UUID) and `state.acpSessionId` (protocol-level
+    /// handle) diverge for any session that has progressed past
+    /// initialization. The wire's `acpSessionId` field always carries the
+    /// daemon UUID, so an SSE-spawned entry and the same session arriving
+    /// later via `seed()` must collapse onto a single store entry — not
+    /// stack up as two separate rows keyed by the two different
+    /// identifiers.
+    func test_sseSpawnThenSeed_doesNotDuplicateSession() async {
+        let store = ACPSessionStore()
+
+        // SSE spawn with the daemon UUID (the value the wire actually
+        // sends — see `assistant/src/acp/session-manager.ts` line 215
+        // where `acpSessionId` is set to the manager's randomUUID()).
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "sess-uuid",
+            agent: "claude-code",
+            parentConversationId: "conv-1"
+        )))
+
+        let spawned = try! XCTUnwrap(store.sessions["sess-uuid"])
+        XCTAssertEqual(store.sessions.count, 1)
+
+        // Now seed returns the same session — `id` matches the daemon
+        // UUID we already saw, but `acpSessionId` is the (different)
+        // protocol-level handle that has since been resolved.
+        MockACPSessionStoreURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data(
+                #"""
+                {
+                  "sessions": [
+                    {
+                      "id": "sess-uuid",
+                      "agentId": "claude-code",
+                      "acpSessionId": "acp-protocol-handle",
+                      "parentConversationId": "conv-1",
+                      "status": "running",
+                      "startedAt": 1700000000000
+                    }
+                  ]
+                }
+                """#.utf8
+            )
+            return (response, data)
+        }
+
+        await store.seed()
+
+        XCTAssertEqual(store.sessions.count, 1,
+                       "SSE-spawned + seeded entry for the same daemon UUID must collapse")
+        XCTAssertTrue(store.sessions["sess-uuid"] === spawned,
+                      "In-memory SSE-spawned view model wins on collision (no replacement)")
+        XCTAssertEqual(store.sessionOrder, ["sess-uuid"])
     }
 
     // MARK: - Spawn dedupe
@@ -431,6 +511,72 @@ final class ACPSessionStoreTests: XCTestCase {
         XCTAssertNotNil(store.sessions["acp-2"], "Other sessions should be left alone")
         XCTAssertFalse(store.sessionOrder.contains("acp-1"), "sessionOrder should not include deleted id")
         XCTAssertTrue(store.sessionOrder.contains("acp-2"))
+    }
+
+    /// Sessions loaded via `seed()` carry diverged `state.id` /
+    /// `state.acpSessionId` values. A delete keyed by the daemon UUID
+    /// (`state.id`) must hit the matching row in the store — historically
+    /// the store keyed by `state.acpSessionId` and the optimistic removal
+    /// silently no-op'd because the URL `:id` parameter the daemon
+    /// expects is the `state.id` value. This test pins the contract.
+    func test_delete_seedLoadedSession_dropsRowKeyedByDaemonUUID() async {
+        let store = ACPSessionStore()
+
+        // Seed with a session whose protocol-level handle differs from
+        // its daemon UUID — the realistic shape for any session past
+        // initialization.
+        MockACPSessionStoreURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let data = Data(
+                #"""
+                {
+                  "sessions": [
+                    {
+                      "id": "sess-target",
+                      "agentId": "claude-code",
+                      "acpSessionId": "acp-protocol-target",
+                      "parentConversationId": "conv-1",
+                      "status": "completed",
+                      "startedAt": 1700000000000,
+                      "completedAt": 1700000010000
+                    }
+                  ]
+                }
+                """#.utf8
+            )
+            return (response, data)
+        }
+        await store.seed()
+        XCTAssertNotNil(store.sessions["sess-target"])
+
+        // Now arrange the DELETE response and exercise the helper.
+        MockACPSessionStoreURLProtocol.requestHandler = { request in
+            // The URL must carry the daemon UUID, not the protocol id.
+            XCTAssertTrue(
+                request.url?.path.hasSuffix("/sess-target") ?? false,
+                "Delete URL must carry the daemon UUID (state.id)"
+            )
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"deleted":true}"#.utf8))
+        }
+
+        let result = await store.delete(id: "sess-target")
+        guard case .success(true) = result else {
+            return XCTFail("Expected .success(true), got \(result)")
+        }
+        XCTAssertNil(store.sessions["sess-target"],
+                     "Delete keyed by daemon UUID must drop the seed-loaded row")
+        XCTAssertFalse(store.sessionOrder.contains("sess-target"))
     }
 
     func test_delete_leavesStoreUntouched_onFailure() async {

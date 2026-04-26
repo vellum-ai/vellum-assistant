@@ -426,14 +426,14 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
         let session = makeSession(status: .running)
         // Register the session with the store so the optimistic mutation in
         // the spy override has a view model to update.
-        store.sessions[session.state.acpSessionId] = session
+        store.sessions[session.state.id] = session
 
         let view = ACPSessionDetailViewIOS(session: session, store: store)
         view.handleCancelTap()
 
         await waitForSpyInvocation { !store.cancelInvocations.isEmpty }
 
-        XCTAssertEqual(store.cancelInvocations, [session.state.acpSessionId])
+        XCTAssertEqual(store.cancelInvocations, [session.state.id])
     }
 
     // MARK: - Steer footer
@@ -441,7 +441,7 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
     func test_submitSteer_invokesStoreWithTrimmedInstructionAndAppendsSyntheticEvent() async {
         let store = SpyACPSessionStore()
         let session = makeSession(status: .running)
-        store.sessions[session.state.acpSessionId] = session
+        store.sessions[session.state.id] = session
 
         let view = ACPSessionDetailViewIOS(session: session, store: store)
         // Leading/trailing whitespace exercises the trim path — return-key
@@ -456,7 +456,7 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
         await waitForSpyInvocation { !store.steerInvocations.isEmpty }
 
         XCTAssertEqual(store.steerInvocations.count, 1)
-        XCTAssertEqual(store.steerInvocations.first?.id, session.state.acpSessionId)
+        XCTAssertEqual(store.steerInvocations.first?.id, session.state.id)
         XCTAssertEqual(
             store.steerInvocations.first?.instruction,
             "slow down and explain",
@@ -467,7 +467,7 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
     func test_submitSteer_emptyInputIsNoOp() async {
         let store = SpyACPSessionStore()
         let session = makeSession(status: .running)
-        store.sessions[session.state.acpSessionId] = session
+        store.sessions[session.state.id] = session
 
         let view = ACPSessionDetailViewIOS(session: session, store: store)
         view.submitSteer(rawInstruction: "   ")
@@ -485,8 +485,8 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
     func test_handleDeleteTap_invokesStoreDeleteOnce_andDismisses() async {
         let store = SpyACPSessionStore()
         let session = makeSession(status: .completed)
-        store.sessions[session.state.acpSessionId] = session
-        store.sessionOrder = [session.state.acpSessionId]
+        store.sessions[session.state.id] = session
+        store.sessionOrder = [session.state.id]
 
         let dismissed = expectation(description: "onDismiss fires")
         let view = ACPSessionDetailViewIOS(
@@ -498,10 +498,10 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
 
         await fulfillment(of: [dismissed], timeout: 1.0)
 
-        XCTAssertEqual(store.deleteInvocations, [session.state.acpSessionId])
-        XCTAssertNil(store.sessions[session.state.acpSessionId],
+        XCTAssertEqual(store.deleteInvocations, [session.state.id])
+        XCTAssertNil(store.sessions[session.state.id],
                      "Spy store mirror should drop the row on success")
-        XCTAssertFalse(store.sessionOrder.contains(session.state.acpSessionId))
+        XCTAssertFalse(store.sessionOrder.contains(session.state.id))
     }
 
     func test_handleDeleteTap_doesNotDismiss_whenStoreReportsFailure() async {
@@ -510,8 +510,8 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
         // place and skip the dismissal so the user has a chance to react.
         store.deleteResult = .failure(.httpError(statusCode: 409))
         let session = makeSession(status: .completed)
-        store.sessions[session.state.acpSessionId] = session
-        store.sessionOrder = [session.state.acpSessionId]
+        store.sessions[session.state.id] = session
+        store.sessionOrder = [session.state.id]
 
         var dismissCount = 0
         let view = ACPSessionDetailViewIOS(
@@ -524,9 +524,9 @@ final class ACPSessionDetailViewIOSTests: XCTestCase {
         await waitForSpyInvocation { !store.deleteInvocations.isEmpty }
         await Task.yield()
 
-        XCTAssertEqual(store.deleteInvocations, [session.state.acpSessionId])
+        XCTAssertEqual(store.deleteInvocations, [session.state.id])
         XCTAssertEqual(dismissCount, 0, "onDismiss must not fire on failure")
-        XCTAssertNotNil(store.sessions[session.state.acpSessionId],
+        XCTAssertNotNil(store.sessions[session.state.id],
                         "Failed delete should leave the row in place")
     }
 

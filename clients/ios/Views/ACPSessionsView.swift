@@ -165,6 +165,9 @@ struct ACPSessionsView: View {
     }
 
     private var sessionList: some View {
+        // `sessionOrder` is keyed by `state.id` (the daemon UUID), so the
+        // swipe-to-cancel and selection bindings below all flow through
+        // the canonical identifier the daemon's mutation routes accept.
         List(selection: horizontalSizeClass == .regular ? $selectedSessionId : nil) {
             ForEach(store.sessionOrder, id: \.self) { sessionId in
                 if let viewModel = store.sessions[sessionId] {
@@ -192,13 +195,17 @@ struct ACPSessionsView: View {
         if horizontalSizeClass == .regular {
             // Regular: rely on `List(selection:)` to drive the detail
             // pane. Wrapping the row in a `NavigationLink` would
-            // double-bind the selection.
+            // double-bind the selection. Tag value is the daemon UUID so
+            // the selection binding flows through the same key the store
+            // uses.
             ACPSessionsViewRow(state: state)
-                .tag(state.acpSessionId)
+                .tag(state.id)
         } else {
             // Compact: NavigationStack push via `value:` keeps the row
-            // tap target large and matches the iOS list idiom.
-            NavigationLink(value: state.acpSessionId) {
+            // tap target large and matches the iOS list idiom. Pushed
+            // value is the daemon UUID — `detailView(for:)` uses it to
+            // look the session up in the store.
+            NavigationLink(value: state.id) {
                 ACPSessionsViewRow(state: state)
             }
         }

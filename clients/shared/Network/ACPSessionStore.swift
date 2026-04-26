@@ -8,10 +8,17 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ACPSe
 
 /// Per-session observable state for ACP (Agent Client Protocol) sessions.
 ///
-/// Stored in `ACPSessionStore.sessions` keyed by `acpSessionId`. Each session
-/// gets its own instance so SwiftUI tracks observation per session: streaming
-/// updates to one session's `events` only invalidate views that read that
-/// specific view model.
+/// Stored in `ACPSessionStore.sessions` keyed by `state.id` — the daemon's
+/// canonical UUID, which is also the value the daemon's `cancel`/`steer`/
+/// `delete` routes accept and the value the wire's `acp_session_*` events
+/// carry as `acpSessionId`. We deliberately do **not** key by
+/// `state.acpSessionId`, because that field gets overwritten with the
+/// protocol-level handle once `createSession` resolves — using it would
+/// break mutation routes for any session loaded via `seed()`.
+///
+/// Each session gets its own instance so SwiftUI tracks observation per
+/// session: streaming updates to one session's `events` only invalidate
+/// views that read that specific view model.
 @MainActor @Observable
 public final class ACPSessionViewModel: Identifiable, Hashable {
     /// Snapshot of the session as last reported by the daemon.
@@ -21,7 +28,7 @@ public final class ACPSessionViewModel: Identifiable, Hashable {
     /// dropped first to bound memory.
     public var events: [ACPSessionUpdateMessage] = []
 
-    public var id: String { state.acpSessionId }
+    public var id: String { state.id }
 
     public init(state: ACPSessionState) {
         self.state = state
@@ -60,9 +67,16 @@ public final class ACPSessionViewModel: Identifiable, Hashable {
 
 /// Observable store for ACP sessions.
 ///
-/// Holds a per-session ``ACPSessionViewModel`` keyed by `acpSessionId` plus
-/// an `[acpSessionId]` order array sorted by `startedAt` descending so list
-/// views render newest-first without re-sorting on every change.
+/// Holds a per-session ``ACPSessionViewModel`` keyed by `state.id` — the
+/// daemon UUID — plus an order array sorted by `startedAt` descending so
+/// list views render newest-first without re-sorting on every change.
+/// `state.id` is the canonical identifier the daemon's mutation routes
+/// (`cancel`/`steer`/`delete`) and persisted history primary key all use,
+/// and is also what the wire's `acp_session_*` events carry as their
+/// `acpSessionId` field. Keying by `state.acpSessionId` instead would
+/// break for sessions whose protocol-level handle has been filled in
+/// (i.e. anything past initialization), since `state.id !=
+/// state.acpSessionId` once `createSession` resolves.
 ///
 /// SSE events from the gateway flow through ``handle(_:)``: a `spawned`
 /// event creates a view model, `update` events append to its `events`,
@@ -99,29 +113,31 @@ open class ACPSessionStore {
         case error(String)
     }
 
-    /// Per-session observable state. Mutating an entry's properties only
+    /// Per-session observable state, keyed by the daemon UUID
+    /// (``ACPSessionState/id``). Mutating an entry's properties only
     /// invalidates views that read that specific view model; mutating the
     /// dictionary itself (insert/remove) invalidates list-level readers.
     public var sessions: [String: ACPSessionViewModel] = [:]
-    /// `acpSessionId` order sorted by `startedAt` descending — list views
+    /// Daemon-UUID order sorted by `startedAt` descending — list views
     /// iterate this to render rows in newest-first order.
     public var sessionOrder: [String] = []
     /// State of the most recent ``seed()`` call. Views show a loading
     /// placeholder while `.loading`, an error banner on `.error`, etc.
     public var seedState: SeedState = .idle
 
-    /// Programmatic deep-link target. When set to a non-nil
-    /// `acpSessionId`, ``ACPSessionsPanel`` reacts by pushing the
-    /// matching ``ACPSessionViewModel`` onto its `NavigationStack`. The
-    /// panel clears this back to `nil` after consuming the value so a
+    /// Programmatic deep-link target. When set to a non-nil daemon UUID
+    /// (``ACPSessionState/id``), ``ACPSessionsPanel`` reacts by pushing
+    /// the matching ``ACPSessionViewModel`` onto its `NavigationStack`.
+    /// The panel clears this back to `nil` after consuming the value so a
     /// later set with the same id still triggers a fresh push. Used by
     /// the inline `acp_spawn` tool block to jump straight from a chat
     /// bubble into the corresponding session detail view.
     public var selectedSessionId: String?
 
     /// Update messages received before their parent `spawned` event,
-    /// keyed by `acpSessionId`. Reapplied during ``seed()`` once the
-    /// parent appears in the polled snapshot.
+    /// keyed by the wire `acpSessionId` field — which the daemon
+    /// populates with the daemon UUID on every ACP event. Reapplied
+    /// during ``seed()`` once the parent appears in the polled snapshot.
     @ObservationIgnored
     private var orphanedUpdates: [String: [ACPSessionUpdateMessage]] = [:]
 
@@ -155,9 +171,13 @@ open class ACPSessionStore {
 
     private func mergeSnapshot(_ snapshot: [ACPSessionState]) {
         // In-memory entries already populated via SSE win on collision —
-        // SSE is strictly newer than the polled snapshot.
-        for state in snapshot where sessions[state.acpSessionId] == nil {
-            sessions[state.acpSessionId] = ACPSessionViewModel(state: state)
+        // SSE is strictly newer than the polled snapshot. Both branches
+        // dedupe by `state.id` (the daemon UUID) so an SSE-spawned entry
+        // and the same session arriving via the seed snapshot collapse
+        // onto a single store entry — the SSE-spawn path also writes
+        // `state.id` as the daemon UUID, so the keys line up.
+        for state in snapshot where sessions[state.id] == nil {
+            sessions[state.id] = ACPSessionViewModel(state: state)
         }
         rebuildSessionOrder()
     }
@@ -178,7 +198,7 @@ open class ACPSessionStore {
     private func rebuildSessionOrder() {
         sessionOrder = sessions.values
             .sorted { $0.state.startedAt > $1.state.startedAt }
-            .map(\.state.acpSessionId)
+            .map(\.state.id)
     }
 
     // MARK: - Filtering
@@ -216,10 +236,15 @@ open class ACPSessionStore {
     }
 
     private func handleSpawned(_ message: ACPSessionSpawnedMessage) {
+        // The wire's `acpSessionId` IS the daemon UUID — the daemon
+        // populates it from the same `state.id` that the cancel/steer/
+        // delete routes accept. Use it as both the dictionary key and the
+        // synthetic `state.id` so a later `seed()` snapshot for the same
+        // session collapses onto this entry instead of duplicating it.
+        // `state.acpSessionId` is set to the wire value as a placeholder;
+        // a subsequent seed will overwrite it with the protocol-level
+        // session id once the agent's `createSession` has resolved.
         if sessions[message.acpSessionId] == nil {
-            // Spawned events carry fewer fields than `ACPSessionState`. Fill
-            // in placeholder timestamps; the daemon will overwrite via the
-            // next status-changing event or a subsequent seed snapshot.
             let state = ACPSessionState(
                 id: message.acpSessionId,
                 agentId: message.agent,

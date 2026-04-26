@@ -111,17 +111,22 @@ public struct ToolCallProgressBar: View {
     // MARK: - acp_spawn deep-link helpers
 
     /// Best-effort JSON probe for the `acpSessionId` field in
-    /// `acp_spawn`'s result payload. The tool returns a JSON object on
-    /// the first line and may append a free-form outdated-adapter
-    /// warning after a blank line (see `assistant/src/tools/acp/spawn.ts`),
-    /// so we parse the leading line rather than the full string —
-    /// otherwise the appended diagnostic invalidates the JSON and the
-    /// deep link would silently disappear in that case. On failure or
-    /// any non-JSON shape we return `nil` so the caller falls back to
-    /// the regular progress bar. Shared between iOS and macOS — macOS
-    /// `ToolCallStepDetailRow.acpSessionIdToOpen` calls this helper so
-    /// both platforms accept the same payload shapes from a single
-    /// implementation.
+    /// `acp_spawn`'s result payload — the daemon UUID
+    /// (``ACPSessionState/id``) the manager generated for the new
+    /// session. That same UUID is what ``ACPSessionStore`` keys its
+    /// `sessions` dictionary by, so the value flows straight into
+    /// `store.sessions[id]` lookups without translation.
+    ///
+    /// The tool returns a JSON object on the first line and may append
+    /// a free-form outdated-adapter warning after a blank line (see
+    /// `assistant/src/tools/acp/spawn.ts`), so we parse the leading line
+    /// rather than the full string — otherwise the appended diagnostic
+    /// invalidates the JSON and the deep link would silently disappear
+    /// in that case. On failure or any non-JSON shape we return `nil` so
+    /// the caller falls back to the regular progress bar. Shared between
+    /// iOS and macOS — macOS `ToolCallStepDetailRow.acpSessionIdToOpen`
+    /// calls this helper so both platforms accept the same payload
+    /// shapes from a single implementation.
     public static func extractAcpSessionId(from result: String) -> String? {
         let leading = result.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init) ?? ""
