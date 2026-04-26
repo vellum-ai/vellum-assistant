@@ -28,7 +28,7 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
-import { registerCredentialPromptDeps } from "../ipc/routes/credential-prompt.js";
+import { createCredentialPromptRoute } from "../ipc/routes/credential-prompt.js";
 import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
 import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
@@ -919,10 +919,12 @@ export class DaemonServer {
       onProviderCredentialsChanged: () =>
         this.refreshConversationsForProviderChange(),
     });
-    registerCredentialPromptDeps({
-      requestSecretStandalone: (params) =>
-        requestSecretStandalone(this.handlerContext(), params),
-    });
+    this.cliIpc.registerRoute(
+      createCredentialPromptRoute({
+        requestSecretStandalone: (params) =>
+          requestSecretStandalone(this.handlerContext(), params),
+      }),
+    );
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this

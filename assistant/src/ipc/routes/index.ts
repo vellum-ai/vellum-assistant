@@ -3,7 +3,6 @@ import { attachmentRoutes } from "./attachment.js";
 import { avatarNotifyRoute } from "./avatar-notify.js";
 import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
-import { credentialPromptRoute } from "./credential-prompt.js";
 import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
 import { listClientsRoute } from "./list-clients.js";
@@ -26,7 +25,6 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...attachmentRoutes,
   avatarNotifyRoute,
   browserExecuteRoute,
-  credentialPromptRoute,
   ...deferRoutes,
   getContactRoute,
   listClientsRoute,

@@ -75,6 +75,16 @@ export class AssistantIpcServer {
     }
   }
 
+  /**
+   * Register a late-bound route whose handler depends on daemon-level state.
+   * Use this for routes built via factory functions (e.g.
+   * `createCredentialPromptRoute`) instead of the module-level
+   * `registerFooDeps()` antipattern.
+   */
+  registerRoute(route: IpcRoute): void {
+    this.methods.set(route.method, route.handler);
+  }
+
   /** Start listening on the Unix domain socket. */
   async start(): Promise<void> {
     // Ensure the parent directory exists before listening.

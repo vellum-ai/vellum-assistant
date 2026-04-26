@@ -2,8 +2,11 @@
  * IPC route for securely prompting the user for a credential via the UI.
  *
  * CLI commands and skill scripts call this route to trigger a secure input
- * prompt in the user's app. The handler broadcasts the prompt to all
- * connected clients, stores the credential and its metadata on success.
+ * prompt in the user's app. The handler sends the prompt to connected
+ * clients, stores the credential and its metadata on success.
+ *
+ * This route uses the factory pattern — the daemon server passes deps when
+ * registering the route via `AssistantIpcServer.registerRoute()`.
  */
 
 import { z } from "zod";
@@ -53,7 +56,7 @@ export type CredentialPromptResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Dependency injection
+// Deps interface
 // ---------------------------------------------------------------------------
 
 export interface CredentialPromptDeps {
@@ -69,64 +72,58 @@ export interface CredentialPromptDeps {
   }) => Promise<SecretPromptResult>;
 }
 
-let deps: CredentialPromptDeps | null = null;
+// ---------------------------------------------------------------------------
+// Route factory
+// ---------------------------------------------------------------------------
 
-export function registerCredentialPromptDeps(d: CredentialPromptDeps): void {
-  deps = d;
+export function createCredentialPromptRoute(
+  deps: CredentialPromptDeps,
+): IpcRoute {
+  return {
+    method: "credentials/prompt",
+    handler: async (params) => {
+      const validated = CredentialPromptParams.parse(params);
+
+      assertMetadataWritable();
+
+      const result = await deps.requestSecretStandalone({
+        service: validated.service,
+        field: validated.field,
+        label: validated.label,
+        description: validated.description,
+        placeholder: validated.placeholder,
+        allowedTools: validated.allowedTools,
+        allowedDomains: validated.allowedDomains,
+      });
+
+      if (!result.value) {
+        const reason =
+          result.error === "unsupported_channel"
+            ? "No connected client supports secure credential entry"
+            : "User cancelled the credential prompt";
+        return { ok: false, error: reason };
+      }
+
+      // Store the secret
+      const key = credentialKey(validated.service, validated.field);
+      const stored = await setSecureKeyAsync(key, result.value);
+      if (!stored) {
+        return { ok: false, error: "Failed to store credential" };
+      }
+
+      // Write metadata and sync provider connection state
+      upsertCredentialMetadata(validated.service, validated.field, {
+        allowedTools: validated.allowedTools,
+        allowedDomains: validated.allowedDomains,
+        injectionTemplates: validated.injectionTemplates,
+      });
+      await syncManualTokenConnection(validated.service);
+
+      return {
+        ok: true,
+        service: validated.service,
+        field: validated.field,
+      };
+    },
+  };
 }
-
-// ---------------------------------------------------------------------------
-// Route
-// ---------------------------------------------------------------------------
-
-export const credentialPromptRoute: IpcRoute = {
-  method: "credentials/prompt",
-  handler: async (params) => {
-    if (!deps) {
-      throw new Error("credentials/prompt: deps not registered");
-    }
-
-    const validated = CredentialPromptParams.parse(params);
-
-    assertMetadataWritable();
-
-    const result = await deps.requestSecretStandalone({
-      service: validated.service,
-      field: validated.field,
-      label: validated.label,
-      description: validated.description,
-      placeholder: validated.placeholder,
-      allowedTools: validated.allowedTools,
-      allowedDomains: validated.allowedDomains,
-    });
-
-    if (!result.value) {
-      const reason =
-        result.error === "unsupported_channel"
-          ? "No connected client supports secure credential entry"
-          : "User cancelled the credential prompt";
-      return { ok: false, error: reason };
-    }
-
-    // Store the secret
-    const key = credentialKey(validated.service, validated.field);
-    const stored = await setSecureKeyAsync(key, result.value);
-    if (!stored) {
-      return { ok: false, error: "Failed to store credential" };
-    }
-
-    // Write metadata and sync provider connection state
-    upsertCredentialMetadata(validated.service, validated.field, {
-      allowedTools: validated.allowedTools,
-      allowedDomains: validated.allowedDomains,
-      injectionTemplates: validated.injectionTemplates,
-    });
-    await syncManualTokenConnection(validated.service);
-
-    return {
-      ok: true,
-      service: validated.service,
-      field: validated.field,
-    };
-  },
-};
