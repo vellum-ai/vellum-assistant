@@ -57,6 +57,47 @@ const log = getLogger("graph-extraction");
 
 const EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET = 24_000;
 
+export const EVENT_DATE_PROMPT_RULES = `Event date grounding:
+- Treat the authoritative conversation timestamp as the only current date/time source. Do not use the model's built-in current date.
+- Resolve relative dates from that timestamp ("today", "tomorrow", "next Tuesday", "last week").
+- If the transcript gives a month/day or weekday/month/day without a year, use the authoritative conversation year unless the transcript explicitly says another year ("2025", "last year", "next year").
+- Never backdate a month/day-only reference into the prior year just because the event is in the past.
+- Sanity-check weekdays against the resolved year. For example, with an authoritative timestamp in 2026, "April 19 (Sunday night)" resolves to 2026-04-19, not 2025-04-19.
+- If the year is ambiguous after those checks, leave event_date null rather than guessing.`;
+
+export function formatAuthoritativeConversationTimestamp(
+  conversationTimestamp: number,
+): string {
+  const convDate = new Date(conversationTimestamp);
+  const timeZone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
+  const localDate = convDate.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const localTime = convDate.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  });
+
+  return `Local: ${localDate} at ${localTime} (${timeZone})\nISO: ${convDate.toISOString()}`;
+}
+
+export function buildAuthoritativeConversationTimestampBlock(
+  conversationTimestamp: number,
+): string {
+  return `## Authoritative Conversation Timestamp
+
+${formatAuthoritativeConversationTimestamp(conversationTimestamp)}
+
+Use this timestamp when resolving relative or partial dates in the transcript.`;
+}
+
 function buildGraphExtractionSystemPrompt(
   candidateNodes: Array<{ id: string; type: string; content: string }>,
   identityContext: string | null,
@@ -108,7 +149,10 @@ Do not: set the scene, describe surrounding context, preserve dialogue verbatim,
   - 0.9: Transformative moments, identity-defining events ("User said 'I love you' for the first time")
   - 1.0: RARE — reserve for the single most important memories. A graph of 1000 nodes should have fewer than 20 at 1.0.
 - **confidence**: 0-1. How sure are you this is accurate? Direct statements: 0.9+. Inferences: 0.4-0.7.
-- **event_date**: If this memory is anchored to a specific future date/time (flight, appointment, birthday, deadline, trip), provide the epoch ms. Use the conversation date above to resolve relative references ("next Tuesday", "tomorrow"). ALSO create a matching event trigger with the same date. Leave null for open-ended plans or recurring patterns.
+- **event_date**: If this memory is anchored to a specific calendar date/time, past or future (flight, appointment, birthday, deadline, trip, dated milestone), provide the epoch ms. For future dates, ALSO create a matching event trigger with the same date. Leave null for open-ended plans or recurring patterns.
+
+${EVENT_DATE_PROMPT_RULES}
+
 - **sourceType**: "direct" (user stated it), "inferred" (you derived it), "observed" (you noticed a pattern), "told-by-other".
 
 Also notice patterns in the ASSISTANT's own behavior — meta-memory. "I tend to skip verification when I'm confident." "I write more when I'm processing something big."
@@ -286,7 +330,7 @@ const EXTRACT_TOOL_SCHEMA = {
             event_date: {
               type: ["number", "null"],
               description:
-                "Epoch ms of the event date for calendar-anchored events (flights, appointments, birthdays, deadlines). Null for non-event memories.",
+                "Epoch ms for a calendar-anchored event. Resolve partial dates from the authoritative conversation timestamp and do not infer a prior year unless stated. Null for non-event memories.",
             },
             triggers: {
               type: "array",
@@ -384,7 +428,7 @@ const EXTRACT_TOOL_SCHEMA = {
             event_date: {
               type: ["number", "null"],
               description:
-                "Epoch ms of the event date. Use to update when an event is rescheduled. Set to null to clear.",
+                "Epoch ms of the event date. Resolve partial dates from the authoritative conversation timestamp. Use to update when an event is rescheduled. Set to null to clear.",
             },
           },
           required: ["id"],
@@ -1002,20 +1046,8 @@ export async function runGraphExtraction(
     imageResult?.lastTimestamp ??
     Date.now();
 
-  const convDate = new Date(conversationTimestamp);
-  const conversationDate =
-    convDate.toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }) +
-    " at " +
-    convDate.toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
+  const conversationTimestampBlock =
+    buildAuthoritativeConversationTimestampBlock(conversationTimestamp);
 
   // 6. LLM call — use multimodal message when images are present
   const useMultimodal = imageResult?.hasImages === true;
@@ -1027,7 +1059,7 @@ export async function runGraphExtraction(
           content: [
             {
               type: "text" as const,
-              text: `## Conversation Date\n\n${conversationDate}\n\n## Conversation Transcript\n\n`,
+              text: `${conversationTimestampBlock}\n\n## Conversation Transcript\n\n`,
             },
             ...imageResult.message.content,
           ],
@@ -1035,7 +1067,7 @@ export async function runGraphExtraction(
       ]
     : [
         userMessage(
-          `## Conversation Date\n\n${conversationDate}\n\n## Conversation Transcript\n\n${transcript}`,
+          `${conversationTimestampBlock}\n\n## Conversation Transcript\n\n${transcript}`,
         ),
       ];
 

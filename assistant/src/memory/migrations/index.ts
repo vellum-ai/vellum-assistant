@@ -176,6 +176,7 @@ export { migrateAddConversationInferenceProfile } from "./227-add-conversation-i
 export { migrateRenameInferenceProfileSnakeCase } from "./228-rename-inference-profile-snake-case.js";
 export { migrateDeletePrivateConversations } from "./229-delete-private-conversations.js";
 export { migrate230AcpSessionHistory } from "./230-acp-session-history.js";
+export { migrate231RepairMemoryGraphEventDates } from "./231-repair-memory-graph-event-dates.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

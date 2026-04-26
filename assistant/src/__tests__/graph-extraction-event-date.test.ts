@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildAuthoritativeConversationTimestampBlock,
+  EVENT_DATE_PROMPT_RULES,
   parseEpochMs,
   parseExtractionResponse,
 } from "../memory/graph/extraction.js";
@@ -40,6 +42,34 @@ describe("parseEpochMs", () => {
 
   test("returns null for empty string", () => {
     expect(parseEpochMs("")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// event_date prompt grounding
+// ---------------------------------------------------------------------------
+
+describe("event_date prompt grounding", () => {
+  test("conversation timestamp block includes local and ISO anchors", () => {
+    const timestamp = Date.UTC(2026, 3, 26, 18, 30, 0);
+    const block = buildAuthoritativeConversationTimestampBlock(timestamp);
+
+    expect(block).toContain("## Authoritative Conversation Timestamp");
+    expect(block).toContain("Local:");
+    expect(block).toContain("ISO: 2026-04-26T18:30:00.000Z");
+    expect(block).toContain(
+      "Use this timestamp when resolving relative or partial dates",
+    );
+  });
+
+  test("event date rules prefer the conversation year for partial dates", () => {
+    expect(EVENT_DATE_PROMPT_RULES).toContain(
+      "use the authoritative conversation year",
+    );
+    expect(EVENT_DATE_PROMPT_RULES).toContain(
+      "Never backdate a month/day-only reference into the prior year",
+    );
+    expect(EVENT_DATE_PROMPT_RULES).toContain("April 19 (Sunday night)");
   });
 });
 
