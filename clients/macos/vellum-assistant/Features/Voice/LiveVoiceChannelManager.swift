@@ -31,6 +31,7 @@ protocol LiveVoiceAudioPlaying: AnyObject {
     func handleEnd()
     func handleSessionError()
     func resetForNextResponse()
+    func waitUntilPlaybackFinishes() async
 }
 
 extension LiveVoiceAudioPlayer: LiveVoiceAudioPlaying {}
@@ -260,7 +261,7 @@ final class LiveVoiceChannelManager {
             state = .speaking
 
         case .ttsDone:
-            closeCompletedUtteranceSession()
+            closeCompletedUtteranceSessionAfterPlayback(generation: generation)
 
         case .metrics, .archived:
             break
@@ -417,17 +418,20 @@ final class LiveVoiceChannelManager {
         playback.resetForNextResponse()
     }
 
-    private func closeCompletedUtteranceSession() {
+    private func closeCompletedUtteranceSessionAfterPlayback(generation: UInt64) {
         responseAudioStarted = false
-        sessionGeneration &+= 1
-        stopCapture()
-
         let completedClient = client
-        resetIgnoredSessionState()
-        sessionId = nil
-        state = .idle
 
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.playback.waitUntilPlaybackFinishes()
+            guard generation == self.sessionGeneration else { return }
+
+            self.sessionGeneration &+= 1
+            self.stopCapture()
+            self.resetIgnoredSessionState()
+            self.sessionId = nil
+            self.state = .idle
             await completedClient?.close()
         }
     }

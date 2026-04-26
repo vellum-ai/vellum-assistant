@@ -88,6 +88,7 @@ final class LiveVoiceAudioPlayer {
     @ObservationIgnored private var activeChunk: LiveVoiceAudioChunk?
     @ObservationIgnored private var playbackGeneration: UInt64 = 0
     @ObservationIgnored private var acceptsAudio = true
+    @ObservationIgnored private var playbackWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(output: (any LiveVoiceAudioOutput)? = nil) {
         self.output = output ?? AVFoundationLiveVoiceAudioOutput()
@@ -136,6 +137,7 @@ final class LiveVoiceAudioPlayer {
         activeChunk = nil
         output.stop()
         state = .stopped(reason)
+        notifyPlaybackWaiters()
     }
 
     func resetForNextResponse() {
@@ -145,6 +147,15 @@ final class LiveVoiceAudioPlayer {
         activeChunk = nil
         acceptsAudio = true
         state = .idle
+        notifyPlaybackWaiters()
+    }
+
+    func waitUntilPlaybackFinishes() async {
+        guard state == .playing || activeChunk != nil || !queuedChunks.isEmpty else { return }
+
+        await withCheckedContinuation { continuation in
+            playbackWaiters.append(continuation)
+        }
     }
 
     private func playNextChunkIfNeeded() {
@@ -169,6 +180,7 @@ final class LiveVoiceAudioPlayer {
         case .success:
             if queuedChunks.isEmpty {
                 state = .idle
+                notifyPlaybackWaiters()
             } else {
                 playNextChunkIfNeeded()
             }
@@ -179,6 +191,17 @@ final class LiveVoiceAudioPlayer {
             queuedChunks.removeAll()
             output.stop()
             state = .failed(error.localizedDescription)
+            notifyPlaybackWaiters()
+        }
+    }
+
+    private func notifyPlaybackWaiters() {
+        guard state != .playing, activeChunk == nil, queuedChunks.isEmpty else { return }
+
+        let waiters = playbackWaiters
+        playbackWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 }

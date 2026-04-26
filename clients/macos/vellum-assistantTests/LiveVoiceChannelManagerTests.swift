@@ -108,6 +108,7 @@ private final class FakeLiveVoiceAudioPlayback: LiveVoiceAudioPlaying {
     private(set) var resetCallCount = 0
 
     var isPlaying = false
+    private var playbackWaiters: [CheckedContinuation<Void, Never>] = []
 
     func enqueueTTSAudio(
         data: Data,
@@ -129,22 +130,49 @@ private final class FakeLiveVoiceAudioPlayback: LiveVoiceAudioPlaying {
     func handleInterrupt() {
         interruptCallCount += 1
         isPlaying = false
+        notifyPlaybackWaiters()
     }
 
     func handleEnd() {
         endCallCount += 1
         isPlaying = false
+        notifyPlaybackWaiters()
     }
 
     func handleSessionError() {
         sessionErrorCallCount += 1
         isPlaying = false
+        notifyPlaybackWaiters()
     }
 
     func resetForNextResponse() {
         resetCallCount += 1
         enqueuedChunks.removeAll()
         isPlaying = false
+        notifyPlaybackWaiters()
+    }
+
+    func waitUntilPlaybackFinishes() async {
+        guard isPlaying else { return }
+
+        await withCheckedContinuation { continuation in
+            playbackWaiters.append(continuation)
+        }
+    }
+
+    func finishPlayback() {
+        isPlaying = false
+        notifyPlaybackWaiters()
+    }
+
+    private func notifyPlaybackWaiters() {
+        guard !isPlaying else { return }
+
+        let waiters = playbackWaiters
+        playbackWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -316,9 +344,67 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         client.emit(.ttsDone(turnId: "turn-123"))
         await flushAsyncTasks()
 
+        XCTAssertEqual(manager.state, .speaking)
+        XCTAssertNotNil(manager.sessionId)
+        XCTAssertEqual(client.closeCallCount, 0)
+
+        playback.finishPlayback()
+        await flushAsyncTasks()
+
         XCTAssertEqual(manager.state, .idle)
         XCTAssertNil(manager.sessionId)
         XCTAssertEqual(client.closeCallCount, 1)
+    }
+
+    func testTtsDoneWithoutQueuedPlaybackClosesSessionImmediately() async {
+        await startReadySession()
+        await manager.stopListening()
+
+        client.emit(.thinking(turnId: "turn-123"))
+        client.emit(.ttsDone(turnId: "turn-123"))
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertNil(manager.sessionId)
+        XCTAssertEqual(client.closeCallCount, 1)
+    }
+
+    func testManualBargeInBeforePlaybackFinishesInterruptsInsteadOfAutoClosing() async {
+        let firstClient = FakeLiveVoiceChannelClient()
+        let secondClient = FakeLiveVoiceChannelClient()
+        var factoryCalls = 0
+        manager = LiveVoiceChannelManager(
+            clientFactory: {
+                factoryCalls += 1
+                return factoryCalls == 1 ? firstClient : secondClient
+            },
+            capture: capture,
+            playback: playback,
+            bargeInAmplitudeThreshold: 0.2
+        )
+
+        await manager.start(conversationId: "conv-123")
+        firstClient.emit(.ready(sessionId: "session-1", conversationId: "conv-123"))
+        await flushAsyncTasks()
+        await manager.stopListening()
+        firstClient.emit(.ttsAudio(data: Data([9, 8]), mimeType: "audio/pcm", sampleRate: 16_000, seq: 4))
+        firstClient.emit(.ttsDone(turnId: "turn-123"))
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.state, .speaking)
+        XCTAssertEqual(firstClient.closeCallCount, 0)
+
+        await manager.interruptSpeakingAndStartListening(conversationId: "conv-123")
+
+        XCTAssertEqual(firstClient.interruptCallCount, 1)
+        XCTAssertEqual(firstClient.closeCallCount, 1)
+        XCTAssertEqual(playback.interruptCallCount, 1)
+        XCTAssertEqual(secondClient.startCalls.count, 1)
+
+        playback.finishPlayback()
+        await flushAsyncTasks()
+
+        XCTAssertEqual(firstClient.closeCallCount, 1)
     }
 
     func testSpeakingOverAssistantAudioSendsInterruptOnce() async {
