@@ -19,6 +19,10 @@ struct LiveVoiceAudioChunk: Equatable {
         self.sampleRate = sampleRate
         self.channels = channels
     }
+
+    var isPCM: Bool {
+        mimeType.lowercased().hasPrefix("audio/pcm")
+    }
 }
 
 enum LiveVoiceAudioStopReason: Equatable {
@@ -85,7 +89,7 @@ final class LiveVoiceAudioPlayer {
 
     @ObservationIgnored private let output: any LiveVoiceAudioOutput
     @ObservationIgnored private var queuedChunks: [LiveVoiceAudioChunk] = []
-    @ObservationIgnored private var activeChunk: LiveVoiceAudioChunk?
+    @ObservationIgnored private var scheduledPlaybackCount = 0
     @ObservationIgnored private var playbackGeneration: UInt64 = 0
     @ObservationIgnored private var acceptsAudio = true
     @ObservationIgnored private var playbackWaiters: [CheckedContinuation<Void, Never>] = []
@@ -134,7 +138,7 @@ final class LiveVoiceAudioPlayer {
         playbackGeneration &+= 1
         acceptsAudio = false
         queuedChunks.removeAll()
-        activeChunk = nil
+        scheduledPlaybackCount = 0
         output.stop()
         state = .stopped(reason)
         notifyPlaybackWaiters()
@@ -144,14 +148,14 @@ final class LiveVoiceAudioPlayer {
         playbackGeneration &+= 1
         output.stop()
         queuedChunks.removeAll()
-        activeChunk = nil
+        scheduledPlaybackCount = 0
         acceptsAudio = true
         state = .idle
         notifyPlaybackWaiters()
     }
 
     func waitUntilPlaybackFinishes() async {
-        guard state == .playing || activeChunk != nil || !queuedChunks.isEmpty else { return }
+        guard state == .playing || scheduledPlaybackCount > 0 || !queuedChunks.isEmpty else { return }
 
         await withCheckedContinuation { continuation in
             playbackWaiters.append(continuation)
@@ -159,36 +163,44 @@ final class LiveVoiceAudioPlayer {
     }
 
     private func playNextChunkIfNeeded() {
-        guard acceptsAudio, activeChunk == nil, !queuedChunks.isEmpty else { return }
+        while acceptsAudio, !queuedChunks.isEmpty {
+            let chunk = queuedChunks[0]
+            if scheduledPlaybackCount > 0, !chunk.isPCM {
+                return
+            }
 
-        let chunk = queuedChunks.removeFirst()
-        let generation = playbackGeneration
-        activeChunk = chunk
-        state = .playing
+            queuedChunks.removeFirst()
+            let generation = playbackGeneration
+            scheduledPlaybackCount += 1
+            state = .playing
 
-        output.play(chunk) { [weak self] result in
-            self?.handlePlaybackCompletion(result, generation: generation)
+            output.play(chunk) { [weak self] result in
+                self?.handlePlaybackCompletion(result, generation: generation)
+            }
+
+            if !chunk.isPCM {
+                return
+            }
         }
     }
 
     private func handlePlaybackCompletion(_ result: Result<Void, Error>, generation: UInt64) {
-        guard generation == playbackGeneration, activeChunk != nil else { return }
-
-        activeChunk = nil
+        guard generation == playbackGeneration, scheduledPlaybackCount > 0 else { return }
+        scheduledPlaybackCount -= 1
 
         switch result {
         case .success:
-            if queuedChunks.isEmpty {
+            playNextChunkIfNeeded()
+            if queuedChunks.isEmpty, scheduledPlaybackCount == 0 {
                 state = .idle
                 notifyPlaybackWaiters()
-            } else {
-                playNextChunkIfNeeded()
             }
 
         case .failure(let error):
             playbackGeneration &+= 1
             acceptsAudio = false
             queuedChunks.removeAll()
+            scheduledPlaybackCount = 0
             output.stop()
             state = .failed(error.localizedDescription)
             notifyPlaybackWaiters()
@@ -196,7 +208,7 @@ final class LiveVoiceAudioPlayer {
     }
 
     private func notifyPlaybackWaiters() {
-        guard state != .playing, activeChunk == nil, queuedChunks.isEmpty else { return }
+        guard state != .playing, scheduledPlaybackCount == 0, queuedChunks.isEmpty else { return }
 
         let waiters = playbackWaiters
         playbackWaiters.removeAll()
@@ -223,15 +235,15 @@ final class AVFoundationLiveVoiceAudioOutput: NSObject, LiveVoiceAudioOutput, AV
         _ chunk: LiveVoiceAudioChunk,
         completion: @escaping @MainActor (Result<Void, Error>) -> Void
     ) {
-        stop()
-        self.completion = completion
-
         do {
-            if chunk.mimeType.lowercased().hasPrefix("audio/pcm") {
-                try playPCM(chunk)
-            } else {
-                try playBufferedAudio(chunk)
+            if chunk.isPCM {
+                try playPCM(chunk, completion: completion)
+                return
             }
+
+            stop()
+            self.completion = completion
+            try playBufferedAudio(chunk)
         } catch {
             self.completion = nil
             completion(.failure(error))
@@ -265,7 +277,10 @@ final class AVFoundationLiveVoiceAudioOutput: NSObject, LiveVoiceAudioOutput, AV
         }
     }
 
-    private func playPCM(_ chunk: LiveVoiceAudioChunk) throws {
+    private func playPCM(
+        _ chunk: LiveVoiceAudioChunk,
+        completion: @escaping @MainActor (Result<Void, Error>) -> Void
+    ) throws {
         guard chunk.channels == 1, chunk.sampleRate > 0 else {
             throw LiveVoiceAudioOutputError.unsupportedPCMFormat
         }
@@ -275,11 +290,15 @@ final class AVFoundationLiveVoiceAudioOutput: NSObject, LiveVoiceAudioOutput, AV
 
         let sampleCount = chunk.data.count / MemoryLayout<Int16>.size
         guard sampleCount > 0 else {
-            complete(.success(()))
+            completion(.success(()))
             return
         }
 
         let key = PCMFormatKey(sampleRate: chunk.sampleRate, channels: chunk.channels)
+        if let node = pcmPlayerNode, node.isPlaying, pcmFormatKey != nil, pcmFormatKey != key {
+            throw LiveVoiceAudioOutputError.unsupportedPCMFormat
+        }
+
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: Double(chunk.sampleRate),
@@ -310,9 +329,9 @@ final class AVFoundationLiveVoiceAudioOutput: NSObject, LiveVoiceAudioOutput, AV
         node.scheduleBuffer(
             buffer,
             completionCallbackType: .dataPlayedBack
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.complete(.success(()))
+        ) { _ in
+            Task { @MainActor in
+                completion(.success(()))
             }
         }
         if !node.isPlaying {
