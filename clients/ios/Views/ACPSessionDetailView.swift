@@ -109,7 +109,7 @@ struct ACPSessionDetailViewIOS: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(ACPSessionsViewRow.agentLabel(for: session.state.agentId))
+                Text(ACPSessionStateFormatter.agentLabel(for: session.state.agentId))
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)

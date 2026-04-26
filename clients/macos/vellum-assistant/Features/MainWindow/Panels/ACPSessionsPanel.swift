@@ -357,7 +357,7 @@ struct ACPSessionsPanelRow: View {
 
     @ViewBuilder
     private var agentBadge: some View {
-        Text(Self.agentLabel(for: state.agentId))
+        Text(ACPSessionStateFormatter.agentLabel(for: state.agentId))
             .font(VFont.labelDefault)
             .foregroundStyle(VColor.contentDefault)
             .padding(.horizontal, VSpacing.sm)
@@ -369,12 +369,12 @@ struct ACPSessionsPanelRow: View {
     }
 
     private var statusPill: some View {
-        let tint = Self.statusColor(state.status)
+        let tint = ACPSessionStateFormatter.statusColor(state.status)
         return HStack(spacing: VSpacing.xs) {
             Circle()
                 .fill(tint)
                 .frame(width: 6, height: 6)
-            Text(Self.statusLabel(state.status))
+            Text(ACPSessionStateFormatter.statusLabel(state.status))
                 .font(VFont.labelDefault)
                 .foregroundStyle(tint)
         }
@@ -389,11 +389,11 @@ struct ACPSessionsPanelRow: View {
     @ViewBuilder
     private var metadataLine: some View {
         HStack(spacing: VSpacing.xs) {
-            Text(Self.elapsedLabel(startedAt: state.startedAt, completedAt: state.completedAt))
+            Text(ACPSessionStateFormatter.elapsedLabel(startedAt: state.startedAt, completedAt: state.completedAt))
                 .font(VFont.labelSmall)
                 .foregroundStyle(VColor.contentTertiary)
                 .monospacedDigit()
-            if let parentLabel = Self.parentConversationLabel(state.parentConversationId) {
+            if let parentLabel = ACPSessionStateFormatter.parentConversationLabel(state.parentConversationId) {
                 Text("·")
                     .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
@@ -409,69 +409,13 @@ struct ACPSessionsPanelRow: View {
 
     private var accessibilityLabel: String {
         var parts: [String] = [
-            Self.agentLabel(for: state.agentId),
-            Self.statusLabel(state.status),
-            Self.elapsedLabel(startedAt: state.startedAt, completedAt: state.completedAt)
+            ACPSessionStateFormatter.agentLabel(for: state.agentId),
+            ACPSessionStateFormatter.statusLabel(state.status),
+            ACPSessionStateFormatter.elapsedLabel(startedAt: state.startedAt, completedAt: state.completedAt)
         ]
-        if let parentLabel = Self.parentConversationLabel(state.parentConversationId) {
+        if let parentLabel = ACPSessionStateFormatter.parentConversationLabel(state.parentConversationId) {
             parts.append("conversation \(parentLabel)")
         }
         return parts.joined(separator: ", ")
-    }
-
-    // MARK: - Formatting (static for testability)
-
-    /// Unknown ids fall through to the raw value so a new agent type still
-    /// renders without a code change.
-    static func agentLabel(for agentId: String) -> String {
-        switch agentId {
-        case "claude-code": return "Claude"
-        case "codex": return "Codex"
-        default: return agentId
-        }
-    }
-
-    static func statusLabel(_ status: ACPSessionState.Status) -> String {
-        switch status {
-        case .initializing: return "Starting"
-        case .running: return "Running"
-        case .completed: return "Completed"
-        case .failed: return "Failed"
-        case .cancelled: return "Cancelled"
-        case .unknown: return "Unknown"
-        }
-    }
-
-    static func statusColor(_ status: ACPSessionState.Status) -> Color {
-        switch status {
-        case .running, .initializing: return VColor.primaryActive
-        case .completed: return VColor.systemPositiveStrong
-        case .failed, .cancelled: return VColor.systemNegativeStrong
-        case .unknown: return VColor.contentTertiary
-        }
-    }
-
-    /// Locale-aware "5m ago" for live sessions; wall-clock duration for
-    /// terminated sessions so a finished row doesn't keep ticking.
-    static func elapsedLabel(startedAt: Int, completedAt: Int?) -> String {
-        let started = Date(timeIntervalSince1970: TimeInterval(startedAt) / 1000)
-        if let completedAt {
-            let completed = Date(timeIntervalSince1970: TimeInterval(completedAt) / 1000)
-            return VCollapsibleStepRowDurationFormatter.format(
-                max(0, completed.timeIntervalSince(started))
-            )
-        }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: started, relativeTo: Date())
-    }
-
-    /// Returns `nil` for empty/missing ids so the metadata line degrades
-    /// gracefully instead of rendering a stray separator.
-    static func parentConversationLabel(_ parentId: String?) -> String? {
-        guard let parentId, !parentId.isEmpty else { return nil }
-        let prefixLength = 8
-        if parentId.count <= prefixLength { return parentId }
-        return String(parentId.prefix(prefixLength)) + "…"
     }
 }

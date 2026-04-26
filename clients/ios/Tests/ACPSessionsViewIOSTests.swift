@@ -34,48 +34,48 @@ final class ACPSessionsViewIOSTests: XCTestCase {
     // MARK: - Agent / status label mapping
 
     func test_agentLabel_mapsKnownAgentIds() {
-        XCTAssertEqual(ACPSessionsViewRow.agentLabel(for: "claude-code"), "Claude")
-        XCTAssertEqual(ACPSessionsViewRow.agentLabel(for: "codex"), "Codex")
+        XCTAssertEqual(ACPSessionStateFormatter.agentLabel(for: "claude-code"), "Claude")
+        XCTAssertEqual(ACPSessionStateFormatter.agentLabel(for: "codex"), "Codex")
     }
 
     func test_agentLabel_fallsBackToRawIdForUnknownAgents() {
         XCTAssertEqual(
-            ACPSessionsViewRow.agentLabel(for: "future-agent"),
+            ACPSessionStateFormatter.agentLabel(for: "future-agent"),
             "future-agent",
             "Unknown agent ids must fall through so a new agent type still renders"
         )
     }
 
     func test_statusLabel_capitalisesEveryCase() {
-        XCTAssertEqual(ACPSessionsViewRow.statusLabel(.initializing), "Starting")
-        XCTAssertEqual(ACPSessionsViewRow.statusLabel(.running), "Running")
-        XCTAssertEqual(ACPSessionsViewRow.statusLabel(.completed), "Completed")
-        XCTAssertEqual(ACPSessionsViewRow.statusLabel(.failed), "Failed")
-        XCTAssertEqual(ACPSessionsViewRow.statusLabel(.cancelled), "Cancelled")
-        XCTAssertEqual(ACPSessionsViewRow.statusLabel(.unknown), "Unknown")
+        XCTAssertEqual(ACPSessionStateFormatter.statusLabel(.initializing), "Starting")
+        XCTAssertEqual(ACPSessionStateFormatter.statusLabel(.running), "Running")
+        XCTAssertEqual(ACPSessionStateFormatter.statusLabel(.completed), "Completed")
+        XCTAssertEqual(ACPSessionStateFormatter.statusLabel(.failed), "Failed")
+        XCTAssertEqual(ACPSessionStateFormatter.statusLabel(.cancelled), "Cancelled")
+        XCTAssertEqual(ACPSessionStateFormatter.statusLabel(.unknown), "Unknown")
     }
 
     // MARK: - Parent conversation truncation
 
     func test_parentConversationLabel_truncatesLongIds() {
-        let label = ACPSessionsViewRow.parentConversationLabel("conv-abcdef-1234567890")
+        let label = ACPSessionStateFormatter.parentConversationLabel("conv-abcdef-1234567890")
         XCTAssertEqual(label, "conv-abc…")
     }
 
     func test_parentConversationLabel_returnsShortIdsUntouched() {
-        XCTAssertEqual(ACPSessionsViewRow.parentConversationLabel("short"), "short")
+        XCTAssertEqual(ACPSessionStateFormatter.parentConversationLabel("short"), "short")
     }
 
     func test_parentConversationLabel_isNilForMissingOrEmptyIds() {
-        XCTAssertNil(ACPSessionsViewRow.parentConversationLabel(nil))
-        XCTAssertNil(ACPSessionsViewRow.parentConversationLabel(""))
+        XCTAssertNil(ACPSessionStateFormatter.parentConversationLabel(nil))
+        XCTAssertNil(ACPSessionStateFormatter.parentConversationLabel(""))
     }
 
     // MARK: - Elapsed-time formatting
 
     func test_elapsedLabel_completedSessionReportsDuration() {
         // 1700000000000 ms → +90s == 1m 30s.
-        let label = ACPSessionsViewRow.elapsedLabel(
+        let label = ACPSessionStateFormatter.elapsedLabel(
             startedAt: 1_700_000_000_000,
             completedAt: 1_700_000_000_000 + 90_000
         )
@@ -83,7 +83,7 @@ final class ACPSessionsViewIOSTests: XCTestCase {
     }
 
     func test_elapsedLabel_subMinuteCompletedSessionReportsSeconds() {
-        let label = ACPSessionsViewRow.elapsedLabel(
+        let label = ACPSessionStateFormatter.elapsedLabel(
             startedAt: 1_700_000_000_000,
             completedAt: 1_700_000_000_000 + 5_000
         )
@@ -93,7 +93,7 @@ final class ACPSessionsViewIOSTests: XCTestCase {
     func test_elapsedLabel_runningSessionFallsBackToRelativeFormatter() {
         // No `completedAt` → relative-time formatter takes over. We can't
         // pin its exact string (locale-dependent) but it must not be empty.
-        let label = ACPSessionsViewRow.elapsedLabel(
+        let label = ACPSessionStateFormatter.elapsedLabel(
             startedAt: Int(Date().addingTimeInterval(-120).timeIntervalSince1970 * 1000),
             completedAt: nil
         )
