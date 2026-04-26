@@ -817,9 +817,9 @@ private final class StepDetailAttributedStringCacheEntry: NSObject {
 /// `ToolCallData`.
 ///
 /// `internal` rather than `private` so unit tests can reach the static
-/// `acp_spawn` deep-link helpers (`extractAcpSessionId`,
-/// `applyACPSessionDeepLink`) without standing up the full SwiftUI view
-/// tree. Production callers stay scoped to this file.
+/// `acp_spawn` deep-link helper (`applyACPSessionDeepLink`) without
+/// standing up the full SwiftUI view tree. Production callers stay scoped
+/// to this file.
 struct ToolCallStepDetailRow: View {
     @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
@@ -921,6 +921,10 @@ struct ToolCallStepDetailRow: View {
     /// chat-side behaviour unsurprising — a still-running or failed spawn
     /// has no detail view to jump to, so the row falls back to the regular
     /// expandable shape so the user can read the live output / error.
+    ///
+    /// Delegates payload parsing to ``ToolCallProgressBar/extractAcpSessionId(from:)``
+    /// in `clients/shared/` so iOS and macOS accept identical payload shapes
+    /// from a single implementation.
     var acpSessionIdToOpen: String? {
         guard toolCall.toolName == "acp_spawn",
               toolCall.isComplete,
@@ -929,29 +933,7 @@ struct ToolCallStepDetailRow: View {
               !result.isEmpty else {
             return nil
         }
-        return ToolCallStepDetailRow.extractAcpSessionId(from: result)
-    }
-
-    /// Best-effort JSON probe for the `acpSessionId` field in
-    /// `acp_spawn`'s result payload. The tool returns a JSON object on
-    /// the first line and may append a free-form outdated-adapter
-    /// warning after a blank line (see `assistant/src/tools/acp/spawn.ts`),
-    /// so we parse the leading line rather than the full string —
-    /// otherwise the appended diagnostic invalidates the JSON and the
-    /// deep link would silently disappear in that case. On failure or
-    /// any non-JSON shape we return nil so the caller falls back to the
-    /// regular collapsible row. Static so unit tests can exercise the
-    /// parser without standing up the full view.
-    static func extractAcpSessionId(from result: String) -> String? {
-        let leading = result.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-            .first.map(String.init) ?? ""
-        guard let data = leading.data(using: .utf8) else { return nil }
-        let parsed = try? JSONSerialization.jsonObject(with: data)
-        guard let dict = parsed as? [String: Any] else { return nil }
-        guard let id = dict["acpSessionId"] as? String, !id.isEmpty else {
-            return nil
-        }
-        return id
+        return ToolCallProgressBar.extractAcpSessionId(from: result)
     }
 
     var body: some View {

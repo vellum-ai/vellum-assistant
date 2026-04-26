@@ -52,6 +52,10 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     }
 
     // MARK: - extractAcpSessionId
+    //
+    // The parser lives in shared code (`ToolCallProgressBar.extractAcpSessionId`)
+    // so iOS and macOS accept identical `acp_spawn` payload shapes. These
+    // tests exercise the shared helper rather than a per-platform copy.
 
     /// Happy path: the tool returns a JSON object with `acpSessionId` set.
     /// We must surface exactly that string so the deep link lands on the
@@ -59,7 +63,7 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     func test_extractAcpSessionId_returnsIdFromCanonicalPayload() {
         let payload = #"{"acpSessionId":"acp-abc-123","protocolSessionId":"proto-x","agent":"claude","cwd":"/tmp","status":"running","message":"…"}"#
         XCTAssertEqual(
-            ToolCallStepDetailRow.extractAcpSessionId(from: payload),
+            ToolCallProgressBar.extractAcpSessionId(from: payload),
             "acp-abc-123"
         )
     }
@@ -76,7 +80,7 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
         Note: claude-agent-acp is outdated (installed: 1.0.0, latest: 1.1.0).
         """
         XCTAssertEqual(
-            ToolCallStepDetailRow.extractAcpSessionId(from: payload),
+            ToolCallProgressBar.extractAcpSessionId(from: payload),
             "acp-xyz-789"
         )
     }
@@ -86,9 +90,9 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     /// silently rendering an unparseable row as a tap-to-open card would
     /// strand the user on a broken link.
     func test_extractAcpSessionId_returnsNilForEmptyOrMalformedJson() {
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: ""))
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: "not-json"))
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: "{"))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: ""))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: "not-json"))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: "{"))
     }
 
     /// A JSON object that doesn't carry `acpSessionId` (e.g. an error
@@ -96,7 +100,7 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     /// malformed JSON.
     func test_extractAcpSessionId_returnsNilWhenFieldMissing() {
         let payload = #"{"error":"binary not found","agent":"claude"}"#
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: payload))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: payload))
     }
 
     /// `acpSessionId` exists but is empty — also treated as no link, since
@@ -104,15 +108,15 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     /// would never resolve.
     func test_extractAcpSessionId_returnsNilForEmptyIdString() {
         let payload = #"{"acpSessionId":"","agent":"claude"}"#
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: payload))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: payload))
     }
 
     /// A non-string `acpSessionId` (number, null) must not crash the parse
     /// or coerce to a stringified value — it must surface as nil so the
     /// fallback row renders.
     func test_extractAcpSessionId_returnsNilForNonStringIdValues() {
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: #"{"acpSessionId":42}"#))
-        XCTAssertNil(ToolCallStepDetailRow.extractAcpSessionId(from: #"{"acpSessionId":null}"#))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: #"{"acpSessionId":42}"#))
+        XCTAssertNil(ToolCallProgressBar.extractAcpSessionId(from: #"{"acpSessionId":null}"#))
     }
 
     // MARK: - applyACPSessionDeepLink
