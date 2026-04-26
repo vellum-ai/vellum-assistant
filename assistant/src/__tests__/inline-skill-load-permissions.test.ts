@@ -188,7 +188,7 @@ describe("inline-command skill_load permissions", () => {
       );
 
       // Add an exact hash rule
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load_dynamic:dynamic-pinned@${transitiveHash}`,
         "everywhere",
@@ -216,7 +216,7 @@ describe("inline-command skill_load permissions", () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-anyver", "Dynamic Any Version Skill");
 
-      addRule(
+      await addRule(
         "skill_load",
         "skill_load_dynamic:dynamic-anyver",
         "everywhere",
@@ -257,7 +257,7 @@ describe("inline-command skill_load permissions", () => {
       );
 
       // Add a version-specific rule for v1
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load_dynamic:dynamic-reprompt@${hashV1}`,
         "everywhere",
@@ -324,7 +324,7 @@ describe("inline-command skill_load permissions", () => {
       const skillDir = join(testDir, "skills", "plain-pinned");
       const diskHash = computeSkillVersionHash(skillDir);
 
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:plain-pinned@${diskHash}`,
         "everywhere",

@@ -197,9 +197,9 @@ describe("ephemeral-permissions", () => {
       expect(result!.decision).toBe("allow");
     });
 
-    test("user deny rules at higher priority override ephemeral allow rules", () => {
+    test("user deny rules at higher priority override ephemeral allow rules", async () => {
       // Add a persistent user deny rule with priority 100
-      addRule("file_read", "**", "/home/user/project", "deny", 100);
+      await addRule("file_read", "**", "/home/user/project", "deny", 100);
 
       const ephemeralRules: TrustRule[] = [
         {
@@ -451,7 +451,7 @@ describe("ephemeral-permissions", () => {
     });
 
     test("explicit deny rule overrides workspace mode auto-allow", async () => {
-      addRule("file_write", "**", testDir, "deny", 100);
+      await addRule("file_write", "**", testDir, "deny", 100);
       const filePath = join(testDir, "should-be-denied.txt");
       const result = await check("file_write", { path: filePath }, testDir);
       expect(result.decision).toBe("deny");
@@ -469,7 +469,7 @@ describe("ephemeral-permissions", () => {
 
     test("ephemeral task rules + workspace mode: deny rule wins", async () => {
       // Add a persistent deny rule for file_write in the workspace
-      addRule("file_write", "**", testDir, "deny", 100);
+      await addRule("file_write", "**", testDir, "deny", 100);
 
       // Create ephemeral allow rules (lower priority than deny)
       const ephemeralRules: TrustRule[] = [

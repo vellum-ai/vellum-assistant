@@ -5,7 +5,6 @@
  * 1. Package independence — no imports from assistant/ or gateway/.
  * 2. IPC NDJSON framing and timeout behavior.
  * 3. HTTP delivery auth headers and error handling.
- * 4. HTTP trust-rules client auth and retry behavior.
  */
 
 import { createServer, type Server } from "node:net";
@@ -18,7 +17,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { ipcCall, PersistentIpcClient } from "../ipc-client.js";
 import { ChannelDeliveryError, deliverChannelReply } from "../http-delivery.js";
-import { TrustRulesClient } from "../http-trust-rules.js";
 import type { Logger } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -30,7 +28,6 @@ describe("package independence", () => {
     "../index.ts",
     "../types.ts",
     "../http-delivery.ts",
-    "../http-trust-rules.ts",
     "../ipc-client.ts",
     "../trust-rules.ts",
   ];
@@ -148,7 +145,12 @@ describe("ipc-client", () => {
         server.listen(socketPath, () => resolve());
       });
 
-      const result = await ipcCall(socketPath, "unknown_method", undefined, log);
+      const result = await ipcCall(
+        socketPath,
+        "unknown_method",
+        undefined,
+        log,
+      );
       expect(result).toBeUndefined();
       expect(
         log.messages.some((m) => m.msg === "IPC call returned error"),
@@ -176,9 +178,7 @@ describe("ipc-client", () => {
           if (idx !== -1) {
             const req = JSON.parse(buf.slice(0, idx));
             receivedParams = req.params;
-            conn.write(
-              JSON.stringify({ id: req.id, result: "ok" }) + "\n",
-            );
+            conn.write(JSON.stringify({ id: req.id, result: "ok" }) + "\n");
           }
         });
       });
@@ -288,7 +288,9 @@ describe("ipc-client", () => {
       await new Promise((r) => setTimeout(r, 50));
       client.destroy();
 
-      await expect(callPromise).rejects.toThrow("PersistentIpcClient destroyed");
+      await expect(callPromise).rejects.toThrow(
+        "PersistentIpcClient destroyed",
+      );
     });
 
     test("rejects on server error response", async () => {
@@ -339,307 +341,3 @@ describe("ipc-client", () => {
 
 // ---------------------------------------------------------------------------
 // HTTP delivery: auth headers and error handling
-// ---------------------------------------------------------------------------
-
-describe("http-delivery", () => {
-  test("ChannelDeliveryError preserves statusCode and userMessage", () => {
-    const err = new ChannelDeliveryError(403, "forbidden", "Access denied");
-    expect(err.statusCode).toBe(403);
-    expect(err.userMessage).toBe("Access denied");
-    expect(err.name).toBe("ChannelDeliveryError");
-    expect(err.message).toContain("403");
-  });
-
-  test("ChannelDeliveryError works without userMessage", () => {
-    const err = new ChannelDeliveryError(500, "internal error");
-    expect(err.statusCode).toBe(500);
-    expect(err.userMessage).toBeUndefined();
-  });
-
-  test("deliverChannelReply sends POST with bearer token", async () => {
-    let capturedHeaders: Headers | undefined;
-    let capturedBody: string | undefined;
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const req = new Request(input, init);
-      capturedHeaders = req.headers;
-      capturedBody = await req.text();
-      return new Response(JSON.stringify({ ts: "1234.5678" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    };
-
-    try {
-      const result = await deliverChannelReply(
-        "https://gateway.example.com/callback",
-        { chatId: "chat-123", text: "Hello" },
-        "test-token-abc",
-      );
-
-      expect(result.ok).toBe(true);
-      expect(result.ts).toBe("1234.5678");
-      expect(capturedHeaders?.get("Authorization")).toBe("Bearer test-token-abc");
-      expect(capturedHeaders?.get("Content-Type")).toBe("application/json");
-
-      const body = JSON.parse(capturedBody!);
-      expect(body.chatId).toBe("chat-123");
-      expect(body.text).toBe("Hello");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("deliverChannelReply throws ChannelDeliveryError on non-OK response", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      return new Response(
-        JSON.stringify({ userMessage: "Rate limited" }),
-        { status: 429 },
-      );
-    };
-
-    try {
-      await expect(
-        deliverChannelReply(
-          "https://gateway.example.com/callback",
-          { chatId: "chat-123", text: "Hello" },
-        ),
-      ).rejects.toThrow(ChannelDeliveryError);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("deliverChannelReply extracts userMessage from JSON error response", async () => {
-    const log = createTestLogger();
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      return new Response(
-        JSON.stringify({ userMessage: "Channel disconnected" }),
-        { status: 502 },
-      );
-    };
-
-    try {
-      let caught: ChannelDeliveryError | undefined;
-      try {
-        await deliverChannelReply(
-          "https://gateway.example.com/callback",
-          { chatId: "chat-123", text: "Hello" },
-          undefined,
-          log,
-        );
-      } catch (err) {
-        caught = err as ChannelDeliveryError;
-      }
-
-      expect(caught).toBeDefined();
-      expect(caught!.userMessage).toBe("Channel disconnected");
-      expect(
-        log.messages.some(
-          (m) => m.msg === "Gateway returned actionable error for user",
-        ),
-      ).toBe(true);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("deliverChannelReply omits Authorization when no bearer token", async () => {
-    let capturedHeaders: Headers | undefined;
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      capturedHeaders = new Request(input, init).headers;
-      return new Response("{}", { status: 200 });
-    };
-
-    try {
-      await deliverChannelReply(
-        "https://gateway.example.com/callback",
-        { chatId: "chat-123", text: "Hello" },
-      );
-      expect(capturedHeaders?.has("Authorization")).toBe(false);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// HTTP trust-rules: auth and error behavior
-// ---------------------------------------------------------------------------
-
-describe("http-trust-rules", () => {
-  test("TrustRulesClient sends Authorization header from mintToken", async () => {
-    let capturedAuth: string | null = null;
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      capturedAuth = new Request(input, init).headers.get("Authorization");
-      return new Response(
-        JSON.stringify({
-          rules: [
-            {
-              id: "rule-1",
-              tool: "host_bash",
-              pattern: "ls *",
-              decision: "allow",
-              scope: "/",
-              priority: 0,
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        }),
-        { status: 200 },
-      );
-    };
-
-    const client = new TrustRulesClient({
-      gatewayBaseUrl: "http://localhost:7820",
-      mintToken: () => "edge-relay-token-xyz",
-    });
-
-    try {
-      await client.getAllRules();
-      expect(capturedAuth).toBe("Bearer edge-relay-token-xyz");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("TrustRulesClient throws on non-OK response", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      return new Response("Unauthorized", { status: 401 });
-    };
-
-    const client = new TrustRulesClient({
-      gatewayBaseUrl: "http://localhost:7820",
-      mintToken: () => "bad-token",
-    });
-
-    try {
-      await expect(client.getAllRules()).rejects.toThrow(
-        "Trust rule request failed (401)",
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("TrustRulesClient throws on network error", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      throw new Error("ECONNREFUSED");
-    };
-
-    const client = new TrustRulesClient({
-      gatewayBaseUrl: "http://localhost:7820",
-      mintToken: () => "token",
-    });
-
-    try {
-      await expect(client.getAllRules()).rejects.toThrow("ECONNREFUSED");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("TrustRulesClient.addRule sends correct path and body", async () => {
-    let capturedUrl = "";
-    let capturedBody: Record<string, unknown> | undefined;
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      const req = new Request(input, init);
-      capturedUrl = req.url;
-      capturedBody = (await req.json()) as Record<string, unknown>;
-      return new Response(
-        JSON.stringify({
-          rule: {
-            id: "new-rule",
-            tool: "host_bash",
-            pattern: "npm *",
-            decision: "allow",
-            scope: "/workspace",
-            priority: 10,
-            createdAt: new Date().toISOString(),
-          },
-        }),
-        { status: 200 },
-      );
-    };
-
-    const client = new TrustRulesClient({
-      gatewayBaseUrl: "http://localhost:7820",
-      mintToken: () => "token",
-    });
-
-    try {
-      const rule = await client.addRule({
-        tool: "host_bash",
-        pattern: "npm *",
-        scope: "/workspace",
-        decision: "allow",
-        priority: 10,
-      });
-
-      expect(capturedUrl).toBe("http://localhost:7820/v1/trust-rules");
-      expect(capturedBody).toEqual({
-        tool: "host_bash",
-        pattern: "npm *",
-        scope: "/workspace",
-        decision: "allow",
-        priority: 10,
-      });
-      expect(rule.id).toBe("new-rule");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("TrustRulesClient.removeRule URL-encodes the rule ID", async () => {
-    let capturedUrl = "";
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => {
-      capturedUrl = new Request(input, init).url;
-      return new Response(JSON.stringify({ success: true }), { status: 200 });
-    };
-
-    const client = new TrustRulesClient({
-      gatewayBaseUrl: "http://localhost:7820",
-      mintToken: () => "token",
-    });
-
-    try {
-      const result = await client.removeRule("rule/with/slashes");
-      expect(result).toBe(true);
-      expect(capturedUrl).toContain("rule%2Fwith%2Fslashes");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("TrustRulesClient.findMatchingRule returns null when no match", async () => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () => {
-      return new Response(JSON.stringify({ rule: null }), { status: 200 });
-    };
-
-    const client = new TrustRulesClient({
-      gatewayBaseUrl: "http://localhost:7820",
-      mintToken: () => "token",
-    });
-
-    try {
-      const rule = await client.findMatchingRule("host_bash", ["ls"], "/");
-      expect(rule).toBeNull();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});

@@ -7,7 +7,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./http-delivery": "./src/http-delivery.ts",
-    "./http-trust-rules": "./src/http-trust-rules.ts",
     "./ipc-client": "./src/ipc-client.ts",
     "./trust-rules": "./src/trust-rules.ts"
   },

@@ -2,8 +2,8 @@
  * @vellumai/gateway-client
  *
  * Shared client package for assistant-to-gateway communication. Provides
- * HTTP delivery, trust-rule CRUD, and Unix-socket IPC helpers that the
- * assistant daemon uses to interact with the gateway service.
+ * HTTP delivery and Unix-socket IPC helpers that the assistant daemon
+ * uses to interact with the gateway service.
  *
  * This package is intentionally free of imports from `assistant/` or
  * `gateway/` so both sides can depend on it without circular references.
@@ -15,16 +15,7 @@ export {
   deliverChannelReply,
 } from "./http-delivery.js";
 
-export {
-  TrustRulesClient,
-  type AcceptStarterBundleResult,
-  type TrustRulesClientOptions,
-} from "./http-trust-rules.js";
-
-export {
-  ipcCall,
-  PersistentIpcClient,
-} from "./ipc-client.js";
+export { ipcCall, PersistentIpcClient } from "./ipc-client.js";
 
 export type {
   ApprovalActionOption,
