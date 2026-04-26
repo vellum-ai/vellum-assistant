@@ -11,7 +11,10 @@ import { createRequire } from "module";
 import { homedir, hostname, networkInterfaces, platform, tmpdir } from "os";
 import { dirname, join } from "path";
 
-import { type LocalInstanceResources } from "./assistant-config.js";
+import {
+  getDaemonPidPath,
+  type LocalInstanceResources,
+} from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
@@ -56,12 +59,9 @@ function computeIpcSocketDirOverride(workspaceDir: string): string | undefined {
  * a short override directory and set all IPC socket env vars on the target
  * env object. No-op on non-macOS or when paths are within limits.
  */
-function applyIpcSocketDirOverride(
-  env: Record<string, string>,
-): void {
+function applyIpcSocketDirOverride(env: Record<string, string>): void {
   const workspaceDir =
-    env.VELLUM_WORKSPACE_DIR ||
-    join(homedir(), ".vellum", "workspace");
+    env.VELLUM_WORKSPACE_DIR || join(homedir(), ".vellum", "workspace");
   const override = computeIpcSocketDirOverride(workspaceDir);
   if (!override) return;
 
@@ -274,10 +274,9 @@ async function startDaemonFromSource(
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
   // Ensure the directory containing PID/socket files exists. For named
-  // instances this is instanceDir/.vellum/ (matching daemon's getRootDir()).
-  mkdirSync(dirname(resources.pidFile), { recursive: true });
-
-  const pidFile = resources.pidFile;
+  // instances this is instanceDir/.vellum/workspace/ (matching daemon's getWorkspaceDir()).
+  const pidFile = getDaemonPidPath(resources);
+  mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
@@ -401,9 +400,8 @@ async function startDaemonWatchFromSource(
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
   }
 
-  mkdirSync(dirname(resources.pidFile), { recursive: true });
-
-  const pidFile = resources.pidFile;
+  const pidFile = getDaemonPidPath(resources);
+  mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   // If a daemon is already running, skip spawning a new one.
@@ -831,7 +829,7 @@ export async function startLocalDaemon(
     // In watch mode, skip the bundled binary and use source (bun --watch
     // only works with source files, not compiled binaries).
 
-    const pidFile = resources.pidFile;
+    const pidFile = getDaemonPidPath(resources);
 
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
@@ -1249,7 +1247,7 @@ export async function stopLocalProcesses(
   const vellumDir = resources
     ? join(resources.instanceDir, ".vellum")
     : join(homedir(), ".vellum");
-  const daemonPidFile = resources?.pidFile ?? join(vellumDir, "vellum.pid");
+  const daemonPidFile = getDaemonPidPath(resources);
   await stopProcessByPidFile(daemonPidFile, "daemon");
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");

@@ -1,6 +1,7 @@
 import {
   findAssistantByName,
   loadAllAssistants,
+  getDaemonPidPath,
   removeAssistantEntry,
   saveAssistantEntry,
   setActiveAssistant,
@@ -1310,10 +1311,12 @@ export async function teleport(): Promise<void> {
       const res = dockerResourceNames(fromEntry.assistantId);
       await sleepContainers(res);
     } else if (fromEntry.resources) {
-      const pidFile = fromEntry.resources.pidFile;
       const vellumDir = join(fromEntry.resources.instanceDir, ".vellum");
       const gatewayPidFile = join(vellumDir, "gateway.pid");
-      await stopProcessByPidFile(pidFile, "assistant");
+      await stopProcessByPidFile(
+        getDaemonPidPath(fromEntry.resources),
+        "assistant",
+      );
       await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
     }
     console.log(`Source assistant '${from}' stopped.`);

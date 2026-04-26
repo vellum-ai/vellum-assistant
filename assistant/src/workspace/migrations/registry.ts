@@ -56,6 +56,7 @@ import { releaseNotesAgenticRecallMigration } from "./055-release-notes-agentic-
 import { releaseNotesInferenceProfileReorderingMigration } from "./056-release-notes-inference-profile-reordering.js";
 import { repairStaleGeminiModelIdsMigration } from "./057-repair-stale-gemini-model-ids.js";
 import { releaseNotesAcpSessionsUiMigration } from "./058-release-notes-acp-sessions-ui.js";
+import { movePidToWorkspaceMigration } from "./059-move-pid-to-workspace.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -123,4 +124,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   releaseNotesInferenceProfileReorderingMigration,
   repairStaleGeminiModelIdsMigration,
   releaseNotesAcpSessionsUiMigration,
+  movePidToWorkspaceMigration,
 ];

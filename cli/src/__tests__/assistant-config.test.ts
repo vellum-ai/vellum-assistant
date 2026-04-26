@@ -216,7 +216,7 @@ describe("migrateLegacyEntry", () => {
   test("synthesises full resources when none exist", () => {
     /**
      * Tests that a legacy local entry with no resources object gets a
-     * complete resources object synthesised with default ports and pidFile.
+     * complete resources object synthesised with default ports.
      */
 
     // GIVEN a local entry with no resources
@@ -239,7 +239,6 @@ describe("migrateLegacyEntry", () => {
     expect(resources.gatewayPort).toBe(7830);
     expect(resources.qdrantPort).toBe(6333);
     expect(resources.cesPort).toBe(8090);
-    expect(resources.pidFile).toContain("vellum.pid");
   });
 
   test("infers gateway port from runtimeUrl", () => {
@@ -312,7 +311,6 @@ describe("migrateLegacyEntry", () => {
     expect(resources.gatewayPort).toBe(7830);
     expect(resources.qdrantPort).toBe(6333);
     expect(resources.cesPort).toBe(8090);
-    expect(resources.pidFile).toBe("/custom/path/.vellum/vellum.pid");
   });
 
   test("does not overwrite existing resources fields", () => {
@@ -331,7 +329,6 @@ describe("migrateLegacyEntry", () => {
         gatewayPort: 8001,
         qdrantPort: 8002,
         cesPort: 8003,
-        pidFile: "/my/path/.vellum/vellum.pid",
       },
     };
 
@@ -366,7 +363,6 @@ describe("migrateLegacyEntry", () => {
         daemonPort: 7821,
         gatewayPort: 7830,
         qdrantPort: 6333,
-        pidFile: "/new/path/.vellum/vellum.pid",
       },
     };
 
@@ -393,7 +389,6 @@ describe("migrateLegacyEntry", () => {
         daemonPort: 7821,
         gatewayPort: 7830,
         qdrantPort: 6333,
-        pidFile: "/custom/path/.vellum/vellum.pid",
       },
     };
     // WHEN we migrate the entry
@@ -415,7 +410,6 @@ describe("migrateLegacyEntry", () => {
         gatewayPort: 8001,
         qdrantPort: 8002,
         cesPort: 9090,
-        pidFile: "/my/path/.vellum/vellum.pid",
       },
     };
     const changed = migrateLegacyEntry(entry);

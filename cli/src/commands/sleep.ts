@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
-import { resolveTargetAssistant } from "../lib/assistant-config.js";
+import {
+  getDaemonPidPath,
+  resolveTargetAssistant,
+} from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { dockerResourceNames, sleepContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
@@ -93,7 +96,7 @@ export async function sleep(): Promise<void> {
     process.exit(1);
   }
   const resources = entry.resources;
-  const assistantPidFile = resources.pidFile;
+  const assistantPidFile = getDaemonPidPath(resources);
   const vellumDir = getAssistantRootDir(entry);
   const gatewayPidFile = join(vellumDir, "gateway.pid");
 

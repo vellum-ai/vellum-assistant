@@ -3,6 +3,7 @@ import { join } from "path";
 import {
   findAssistantByName,
   getActiveAssistant,
+  getDaemonPidPath,
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
@@ -267,7 +268,7 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
     name: "assistant",
     pgrepName: "vellum-daemon",
     port: resources.daemonPort,
-    pidFile: resources.pidFile,
+    pidFile: getDaemonPidPath(resources),
   };
   const subSpecs: ProcessSpec[] = [
     {
@@ -525,7 +526,9 @@ async function listAllAssistants(): Promise<void> {
       let health: { status: string; detail: string | null; version?: string };
       const resources = a.resources;
       if (a.cloud === "local" && resources) {
-        const pid = readPidFile(resources.pidFile);
+        // TODO(ATL-306): Remove readPidFile/getDaemonPidPath in favor of
+        // fetching daemon PIDs via the health API (Gateway Security Migration).
+        const pid = readPidFile(getDaemonPidPath(resources));
         const alive = pid !== null && isProcessAlive(pid);
         if (!alive) {
           health = { status: "sleeping", detail: null };
