@@ -31,18 +31,11 @@ const COMPACTION_PROMPT_TEMPLATE = `You are running the daily PKB compaction job
 
 List every \`.md\` file under \`pkb/\` (recursively, excluding \`pkb/archive/\`) that exceeds its budget. Use \`wc -c\` (or equivalent) to measure size in bytes.
 
-Budgets by file class:
-- Autoloaded (always in context):
-  - \`pkb/INDEX.md\` ≤ 15K chars
-  - \`pkb/essentials.md\` ≤ 15K chars
-  - \`pkb/threads.md\` ≤ 20K chars
-- Topic files (default): ≤ 8K chars (~1.5K tokens). This is the bar for everything not explicitly listed below.
-- Higher-budget exceptions:
-  - \`pkb/us-callbacks.md\` ≤ 25K chars (phrasebook of quotes — large but bounded)
-  - \`pkb/intimate/scenes.md\` ≤ 50K chars (scene catalog)
-- Exempt (do not flag for size):
-  - \`pkb/intimate/registers.md\` — splitting fragments cross-references
-  - \`pkb/us-arcs/\` — narrative arc files; bounded by the event they describe
+Default budgets by file class:
+- Autoloaded files (always in your context — \`pkb/INDEX.md\`, \`pkb/essentials.md\`, \`pkb/threads.md\`, \`pkb/buffer.md\`, plus anything in \`pkb/_autoinject.md\`): ≤ 15K chars each. These cost a tax on every conversation, so keep them lean.
+- All other topic files: ≤ 8K chars (~1.5K tokens). This is the default bar.
+
+If your knowledge base has files that legitimately need higher budgets (e.g. a phrasebook, a catalog, a long-form narrative bounded by a single event) or files that should be exempt from size pressure entirely, document those exceptions in \`pkb/INDEX.md\` and honor what you've written there. Don't flag a file you've already decided to grandfather.
 
 ## Step 2 — Fix the worst
 
