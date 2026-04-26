@@ -420,6 +420,32 @@ describe("resolvePricingForUsage", () => {
       10,
     );
   });
+
+  test("uses Gemini 2.5 Flash Standard cache-read rates", () => {
+    const flash = resolvePricingForUsage("gemini", "gemini-2.5-flash", {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: null,
+    });
+    const flashLite = resolvePricingForUsage(
+      "gemini",
+      "gemini-2.5-flash-lite",
+      {
+        directInputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      },
+    );
+
+    expect(flash.pricingStatus).toBe("priced");
+    expect(flash.estimatedCostUsd).toBe(0.03);
+    expect(flashLite.pricingStatus).toBe("priced");
+    expect(flashLite.estimatedCostUsd).toBe(0.01);
+  });
 });
 
 describe("fast mode pricing", () => {

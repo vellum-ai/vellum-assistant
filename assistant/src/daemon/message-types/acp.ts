@@ -14,6 +14,7 @@ export interface AcpSessionUpdate {
   acpSessionId: string;
   updateType:
     | "agent_message_chunk"
+    | "agent_thought_chunk"
     | "user_message_chunk"
     | "tool_call"
     | "tool_call_update"
