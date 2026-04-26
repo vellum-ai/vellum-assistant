@@ -2649,6 +2649,10 @@ public enum ServerMessage: Decodable, Sendable {
     case subagentStatusChanged(SubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
     case subagentDetailResponse(SubagentDetailResponse)
+    case acpSessionSpawned(ACPSessionSpawnedMessage)
+    case acpSessionUpdate(ACPSessionUpdateMessage)
+    case acpSessionCompleted(ACPSessionCompletedMessage)
+    case acpSessionError(ACPSessionErrorMessage)
     case workspaceFilesListResponse(WorkspaceFilesListResponseMessage)
     case workspaceFileReadResponse(WorkspaceFileReadResponseMessage)
     case identityGetResponse(IdentityGetResponseMessage)
@@ -3078,6 +3082,18 @@ public enum ServerMessage: Decodable, Sendable {
         case "subagent_detail_response":
             let message = try SubagentDetailResponse(from: decoder)
             self = .subagentDetailResponse(message)
+        case "acp_session_spawned":
+            let message = try ACPSessionSpawnedMessage(from: decoder)
+            self = .acpSessionSpawned(message)
+        case "acp_session_update":
+            let message = try ACPSessionUpdateMessage(from: decoder)
+            self = .acpSessionUpdate(message)
+        case "acp_session_completed":
+            let message = try ACPSessionCompletedMessage(from: decoder)
+            self = .acpSessionCompleted(message)
+        case "acp_session_error":
+            let message = try ACPSessionErrorMessage(from: decoder)
+            self = .acpSessionError(message)
         case "workspace_files_list_response":
             let message = try WorkspaceFilesListResponseMessage(from: decoder)
             self = .workspaceFilesListResponse(message)
