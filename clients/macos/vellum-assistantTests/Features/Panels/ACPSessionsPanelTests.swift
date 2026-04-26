@@ -246,21 +246,21 @@ final class ACPSessionsPanelTests: XCTestCase {
         let store = ACPSessionStore()
         injectFixture(
             into: store,
-            acpSessionId: "acp-conv-a-old",
+            id: "acp-conv-a-old",
             agentId: "claude-code",
             parentConversationId: "conv-a",
             startedAt: 100
         )
         injectFixture(
             into: store,
-            acpSessionId: "acp-conv-b",
+            id: "acp-conv-b",
             agentId: "codex",
             parentConversationId: "conv-b",
             startedAt: 200
         )
         injectFixture(
             into: store,
-            acpSessionId: "acp-conv-a-new",
+            id: "acp-conv-a-new",
             agentId: "claude-code",
             parentConversationId: "conv-a",
             startedAt: 300
@@ -286,14 +286,14 @@ final class ACPSessionsPanelTests: XCTestCase {
         let store = ACPSessionStore()
         injectFixture(
             into: store,
-            acpSessionId: "acp-other",
+            id: "acp-other",
             agentId: "codex",
             parentConversationId: "conv-other",
             startedAt: 100
         )
         injectFixture(
             into: store,
-            acpSessionId: "acp-active",
+            id: "acp-active",
             agentId: "claude-code",
             parentConversationId: "conv-active",
             startedAt: 200
