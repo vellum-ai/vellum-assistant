@@ -4,6 +4,15 @@ import type { PricingResult, PricingUsage } from "../usage/types.js";
 interface ModelPricing {
   inputPer1M: number; // USD per 1M input tokens
   outputPer1M: number; // USD per 1M output tokens
+  cacheReadPer1M?: number; // USD per 1M cache-read input tokens
+  tiers?: ModelPricingTier[];
+}
+
+interface ModelPricingTier {
+  inputTokenThreshold: number;
+  inputPer1M: number;
+  outputPer1M: number;
+  cacheReadPer1M?: number;
 }
 
 const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
@@ -44,10 +53,31 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   },
   gemini: {
-    "gemini-3.1-pro-preview": { inputPer1M: 2, outputPer1M: 12 },
+    "gemini-3.1-pro-preview": {
+      inputPer1M: 2,
+      outputPer1M: 12,
+      cacheReadPer1M: 0.2,
+      tiers: [
+        {
+          inputTokenThreshold: 200_000,
+          inputPer1M: 4,
+          outputPer1M: 18,
+          cacheReadPer1M: 0.4,
+        },
+      ],
+    },
     "gemini-3.1-pro-preview-customtools": {
       inputPer1M: 2,
       outputPer1M: 12,
+      cacheReadPer1M: 0.2,
+      tiers: [
+        {
+          inputTokenThreshold: 200_000,
+          inputPer1M: 4,
+          outputPer1M: 18,
+          cacheReadPer1M: 0.4,
+        },
+      ],
     },
     "gemini-3-flash-preview": { inputPer1M: 0.5, outputPer1M: 3 },
     "gemini-3.1-flash-lite-preview": {
@@ -193,6 +223,42 @@ function calculateTokenCost(ratePer1M: number, tokens: number): number {
   return (Math.max(tokens, 0) / 1_000_000) * ratePer1M;
 }
 
+function getTotalPromptInputTokens(usage: PricingUsage): number {
+  return (
+    Math.max(usage.directInputTokens, 0) +
+    Math.max(usage.cacheCreationInputTokens, 0) +
+    Math.max(usage.cacheReadInputTokens, 0)
+  );
+}
+
+function selectPricingTier(
+  pricing: ModelPricing,
+  usage: PricingUsage,
+): ModelPricing {
+  if (!pricing.tiers || pricing.tiers.length === 0) return pricing;
+
+  const totalPromptInputTokens = getTotalPromptInputTokens(usage);
+  let selectedTier: ModelPricingTier | undefined;
+  for (const tier of pricing.tiers) {
+    if (
+      totalPromptInputTokens > tier.inputTokenThreshold &&
+      (!selectedTier ||
+        tier.inputTokenThreshold > selectedTier.inputTokenThreshold)
+    ) {
+      selectedTier = tier;
+    }
+  }
+
+  if (!selectedTier) return pricing;
+
+  return {
+    ...pricing,
+    inputPer1M: selectedTier.inputPer1M,
+    outputPer1M: selectedTier.outputPer1M,
+    cacheReadPer1M: selectedTier.cacheReadPer1M ?? pricing.cacheReadPer1M,
+  };
+}
+
 function getAnthropicCacheWriteTokens(usage: PricingUsage): {
   ephemeral5mInputTokens: number;
   ephemeral1hInputTokens: number;
@@ -235,14 +301,19 @@ function calculateUsageCost(
   usage: PricingUsage,
 ): number {
   const useAnthropicRules = usesAnthropicPricingRules(provider, model);
+  const tieredPricing = selectPricingTier(pricing, usage);
   // Anthropic fast mode: 6x multiplier on base rates (cache multipliers stack on top)
   const speedMultiplier =
     useAnthropicRules && usage.speed === "fast"
       ? ANTHROPIC_FAST_MODE_MULTIPLIER
       : 1;
   const effectivePricing: ModelPricing = {
-    inputPer1M: pricing.inputPer1M * speedMultiplier,
-    outputPer1M: pricing.outputPer1M * speedMultiplier,
+    inputPer1M: tieredPricing.inputPer1M * speedMultiplier,
+    outputPer1M: tieredPricing.outputPer1M * speedMultiplier,
+    cacheReadPer1M:
+      tieredPricing.cacheReadPer1M == null
+        ? undefined
+        : tieredPricing.cacheReadPer1M * speedMultiplier,
   };
 
   const directInputCost = calculateTokenCost(
@@ -260,7 +331,11 @@ function calculateUsageCost(
       outputCost +
       calculateTokenCost(
         effectivePricing.inputPer1M,
-        usage.cacheCreationInputTokens + usage.cacheReadInputTokens,
+        usage.cacheCreationInputTokens,
+      ) +
+      calculateTokenCost(
+        effectivePricing.cacheReadPer1M ?? effectivePricing.inputPer1M,
+        usage.cacheReadInputTokens,
       )
     );
   }
