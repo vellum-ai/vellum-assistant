@@ -175,12 +175,30 @@ mock.module("../oauth/oauth-store.js", () => ({
     disconnectOAuthProviderCalls.push(provider);
     return disconnectOAuthProviderResult;
   },
+  // Provide stubs for all named exports so transitive importers don't crash
+  seedProviders: () => {},
+  getProvider: (): undefined => undefined,
+  listProviders: (): never[] => [],
+  registerProvider: () => {},
+  updateProvider: () => {},
+  deleteProvider: (): boolean => false,
+  upsertApp: async () => ({ id: "mock-app-id" }),
+  getApp: (): undefined => undefined,
+  getAppClientSecret: async (): Promise<undefined> => undefined,
+  getAppByProviderAndClientId: (): undefined => undefined,
+  getMostRecentAppByProvider: (): undefined => undefined,
+  listApps: (): never[] => [],
+  deleteApp: async (): Promise<boolean> => false,
+  createConnection: () => ({ id: "mock-conn-id" }),
+  getConnection: (): undefined => undefined,
+  getActiveConnection: (): undefined => undefined,
   getConnectionByProvider: (): undefined => undefined,
+  getConnectionByProviderAndAccount: (): undefined => undefined,
+  listActiveConnectionsByProvider: (): never[] => [],
+  isProviderConnected: async (): Promise<boolean> => false,
+  updateConnection: (): boolean => true,
   listConnections: (): never[] => [],
   deleteConnection: (): boolean => false,
-  upsertApp: async () => ({ id: "mock-app-id" }),
-  createConnection: () => ({ id: "mock-conn-id" }),
-  updateConnection: (): boolean => true,
 }));
 
 // ---------------------------------------------------------------------------

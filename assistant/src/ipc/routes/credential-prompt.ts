@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 
-import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
@@ -42,12 +42,21 @@ const CredentialPromptParams = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Response type (shared with CLI consumer)
+// ---------------------------------------------------------------------------
+
+export type CredentialPromptResult = {
+  ok: boolean;
+  error?: string;
+  service?: string;
+  field?: string;
+};
+
+// ---------------------------------------------------------------------------
 // Dependency injection
 // ---------------------------------------------------------------------------
 
 export interface CredentialPromptDeps {
-  /** Broadcast a message to all connected clients (SSE hub). */
-  broadcast: (msg: ServerMessage) => void;
   /** Request a secret from the user, using the standalone (non-conversation) path. */
   requestSecretStandalone: (params: {
     service: string;
@@ -106,12 +115,13 @@ export const credentialPromptRoute: IpcRoute = {
       return { ok: false, error: "Failed to store credential" };
     }
 
-    // Write metadata
+    // Write metadata and sync provider connection state
     upsertCredentialMetadata(validated.service, validated.field, {
       allowedTools: validated.allowedTools,
       allowedDomains: validated.allowedDomains,
       injectionTemplates: validated.injectionTemplates,
     });
+    await syncManualTokenConnection(validated.service);
 
     return {
       ok: true,

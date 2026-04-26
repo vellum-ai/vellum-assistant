@@ -920,7 +920,6 @@ export class DaemonServer {
         this.refreshConversationsForProviderChange(),
     });
     registerCredentialPromptDeps({
-      broadcast: (msg) => this.broadcast(msg),
       requestSecretStandalone: (params) =>
         requestSecretStandalone(this.handlerContext(), params),
     });

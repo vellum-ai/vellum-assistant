@@ -219,6 +219,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
       "daemon/daemon-skill-host.ts", // SkillHost secureKeys facet adapter (delegates to getProviderKeyAsync)
+      "ipc/routes/credential-prompt.ts", // IPC route for secure credential prompt (stores secret via setSecureKeyAsync)
       "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
       "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key

@@ -5,6 +5,7 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
+import type { CredentialPromptResult } from "../../ipc/routes/credential-prompt.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -822,7 +823,7 @@ web, etc.). The user enters the secret through the UI — it never passes throug
 the conversation or CLI output. On success the credential is stored in the
 encrypted vault with the specified metadata.
 
-Requires the assistant daemon to be running with at least one connected client.
+Requires the assistant to be running with at least one connected client.
 
 Examples:
   $ assistant credentials prompt --service sentry --field auth_token \\
@@ -868,27 +869,27 @@ Examples:
             }
           }
 
-          const ipc = await cliIpcCall<{
-            ok: boolean;
-            error?: string;
-            service?: string;
-            field?: string;
-          }>("credentials/prompt", {
-            service: opts.service,
-            field: opts.field,
-            label: opts.label,
-            description: opts.description,
-            placeholder: opts.placeholder,
-            allowedDomains,
-            allowedTools,
-            injectionTemplates,
-          });
+          // The server-side handler waits up to permissionTimeoutSec (default
+          // 300s) for the user to enter the credential. Give the IPC call a
+          // generous budget so it doesn't time out before the prompt resolves.
+          const PROMPT_TIMEOUT_MS = 310_000; // 5 min + 10s buffer
+          const ipc = await cliIpcCall<CredentialPromptResult>(
+            "credentials/prompt",
+            {
+              service: opts.service,
+              field: opts.field,
+              label: opts.label,
+              description: opts.description,
+              placeholder: opts.placeholder,
+              allowedDomains,
+              allowedTools,
+              injectionTemplates,
+            },
+            { timeoutMs: PROMPT_TIMEOUT_MS },
+          );
 
           if (!ipc.ok) {
-            writeError(
-              cmd,
-              ipc.error ?? "Failed to connect to assistant daemon",
-            );
+            writeError(cmd, ipc.error ?? "Failed to connect to the assistant");
             process.exitCode = 1;
             return;
           }

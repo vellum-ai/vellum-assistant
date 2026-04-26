@@ -24,6 +24,12 @@ Do not coordinate hook behaviour by re-parsing the tool's JSON response to infer
 
 Shared mutable resources written by more than one caller (e.g. `dist/` directories produced by `compileApp()`) must be serialised per-resource so concurrent callers cannot race on `rm -rf` + write sequences.
 
+## IPC route registration
+
+IPC routes belong to the IPC server, not to its consumers. When adding a new route, define it in `src/ipc/routes/` and register it in the route index (`src/ipc/routes/index.ts`). The server's constructor should be the single place that wires routes — callers that instantiate or start the server should not need to call separate `register*Deps()` functions.
+
+Today, some routes (e.g. `secrets`, `credential-prompt`) use a module-level dependency-injection pattern where the daemon server calls `registerFooDeps()` at startup. This is a known antipattern — it forces consumers to know about route internals and creates implicit ordering requirements. New routes should avoid this pattern. Existing dep-injection routes should be migrated to accept deps through the server constructor or a server-level `configure()` call.
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
