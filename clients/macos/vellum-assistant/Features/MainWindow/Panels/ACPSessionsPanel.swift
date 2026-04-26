@@ -12,26 +12,40 @@ import VellumAssistantShared
 /// shape, same panel chrome — so the two coding-agent surfaces feel like a
 /// single family. Each row is intentionally information-dense (badge +
 /// status pill + elapsed + parent conversation) so the panel can act as a
-/// glance dashboard before the list-to-detail nav lands in PR 22.
+/// glance dashboard.
+///
+/// List → detail navigation uses `NavigationStack`: tapping a row pushes
+/// ``ACPSessionDetailView`` with the live ``ACPSessionViewModel`` (not a
+/// snapshot) so streaming updates flow into the open detail view without
+/// the parent having to reach back into the store on every tick.
 struct ACPSessionsPanel: View {
     @Bindable var store: ACPSessionStore
     var onClose: (() -> Void)?
 
     var body: some View {
-        VSidePanel(
-            title: "Coding Agents",
-            titleFont: VFont.titleSmall,
-            onClose: onClose,
-            pinnedContent: { headerBar }
-        ) {
-            if store.sessionOrder.isEmpty {
-                VEmptyState(
-                    title: "No coding agents yet",
-                    subtitle: "Ask the assistant to spawn Claude or Codex.",
-                    icon: "terminal"
-                )
-            } else {
-                sessionList
+        NavigationStack {
+            VSidePanel(
+                title: "Coding Agents",
+                titleFont: VFont.titleSmall,
+                onClose: onClose,
+                pinnedContent: { headerBar }
+            ) {
+                if store.sessionOrder.isEmpty {
+                    VEmptyState(
+                        title: "No coding agents yet",
+                        subtitle: "Ask the assistant to spawn Claude or Codex.",
+                        icon: "terminal"
+                    )
+                } else {
+                    sessionList
+                }
+            }
+            .navigationDestination(for: ACPSessionViewModel.self) { viewModel in
+                // Pass the live view model — `ACPSessionViewModel` is
+                // `@Observable`, so SwiftUI re-renders the detail view as
+                // its `state` / `events` mutate via SSE without forcing a
+                // pop-and-push cycle.
+                ACPSessionDetailView(session: viewModel)
             }
         }
         .onAppear {
@@ -83,7 +97,15 @@ struct ACPSessionsPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(store.sessionOrder, id: \.self) { sessionId in
                 if let viewModel = store.sessions[sessionId] {
-                    ACPSessionsPanelRow(state: viewModel.state)
+                    // `NavigationLink(value:)` defers detail construction
+                    // to the parent's `navigationDestination`, so passing
+                    // the live `ACPSessionViewModel` does not capture a
+                    // stale snapshot — the destination reads observable
+                    // properties off the same instance the store mutates.
+                    NavigationLink(value: viewModel) {
+                        ACPSessionsPanelRow(state: viewModel.state)
+                    }
+                    .buttonStyle(.plain)
                     if sessionId != store.sessionOrder.last {
                         Divider().background(VColor.borderBase)
                     }
@@ -97,8 +119,8 @@ struct ACPSessionsPanel: View {
 
 /// Single row in the Coding Agents list. Renders an agent badge, a status
 /// pill, the elapsed time since `startedAt`, and a truncated parent
-/// conversation id. Disclosure indicator is purely visual until PR 22 wires
-/// the list-to-detail navigation.
+/// conversation id. The trailing chevron previews the list-to-detail push
+/// driven by the parent's `NavigationStack`.
 struct ACPSessionsPanelRow: View {
     let state: ACPSessionState
 

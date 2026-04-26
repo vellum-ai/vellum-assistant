@@ -13,7 +13,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ACPSe
 /// updates to one session's `events` only invalidate views that read that
 /// specific view model.
 @MainActor @Observable
-public final class ACPSessionViewModel: Identifiable {
+public final class ACPSessionViewModel: Identifiable, Hashable {
     /// Snapshot of the session as last reported by the daemon.
     public var state: ACPSessionState
     /// Stream of update messages received for this session, capped at
@@ -34,6 +34,21 @@ public final class ACPSessionViewModel: Identifiable {
         if events.count > ACPSessionStore.eventsCapPerSession {
             events.removeFirst(events.count - ACPSessionStore.eventsCapPerSession)
         }
+    }
+
+    // MARK: - Hashable
+
+    /// Identity-based equality and hashing. The store keeps exactly one
+    /// view-model instance per `acpSessionId` for its lifetime, so the
+    /// instance pointer is the right notion of "same session" for routing
+    /// (`NavigationStack` value-typed paths). Equating by `state` would
+    /// break the navigation path the moment the session's status changes.
+    public nonisolated static func == (lhs: ACPSessionViewModel, rhs: ACPSessionViewModel) -> Bool {
+        lhs === rhs
+    }
+
+    public nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(self))
     }
 }
 
