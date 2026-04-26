@@ -28,6 +28,15 @@ describe("model intents", () => {
     expect(resolveModelIntent("openai", "latency-optimized")).toBe(
       "gpt-5.4-nano",
     );
+    expect(resolveModelIntent("gemini", "latency-optimized")).toBe(
+      "gemini-3.1-flash-lite-preview",
+    );
+    expect(resolveModelIntent("gemini", "quality-optimized")).toBe(
+      "gemini-3.1-pro-preview",
+    );
+    expect(resolveModelIntent("gemini", "vision-optimized")).toBe(
+      "gemini-3-flash-preview",
+    );
   });
 
   test("uses GPT-5.5 as the OpenAI provider default", () => {

@@ -44,8 +44,18 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   },
   gemini: {
-    "gemini-2.5-flash": { inputPer1M: 0.15, outputPer1M: 0.6 },
-    "gemini-2.5-flash-lite": { inputPer1M: 0.02, outputPer1M: 0.1 },
+    "gemini-3.1-pro-preview": { inputPer1M: 2, outputPer1M: 12 },
+    "gemini-3.1-pro-preview-customtools": {
+      inputPer1M: 2,
+      outputPer1M: 12,
+    },
+    "gemini-3-flash-preview": { inputPer1M: 0.5, outputPer1M: 3 },
+    "gemini-3.1-flash-lite-preview": {
+      inputPer1M: 0.25,
+      outputPer1M: 1.5,
+    },
+    "gemini-2.5-flash": { inputPer1M: 0.3, outputPer1M: 2.5 },
+    "gemini-2.5-flash-lite": { inputPer1M: 0.1, outputPer1M: 0.4 },
     "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },

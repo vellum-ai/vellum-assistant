@@ -5,10 +5,9 @@ import type { ModelIntent } from "./types.js";
  * Derived from PROVIDER_CATALOG — single source of truth for default models.
  * Each provider's `defaultModel` in the catalog populates this map.
  */
-const PROVIDER_DEFAULT_MODELS: Record<string, string> =
-  Object.fromEntries(
-    PROVIDER_CATALOG.map((entry) => [entry.id, entry.defaultModel]),
-  );
+const PROVIDER_DEFAULT_MODELS: Record<string, string> = Object.fromEntries(
+  PROVIDER_CATALOG.map((entry) => [entry.id, entry.defaultModel]),
+);
 
 const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
@@ -22,9 +21,9 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "gpt-5.4",
   },
   gemini: {
-    "latency-optimized": "gemini-2.5-flash-lite",
-    "quality-optimized": "gemini-2.5-flash",
-    "vision-optimized": "gemini-2.5-flash",
+    "latency-optimized": "gemini-3.1-flash-lite-preview",
+    "quality-optimized": "gemini-3.1-pro-preview",
+    "vision-optimized": "gemini-3-flash-preview",
   },
   ollama: {
     "latency-optimized": "llama3.2",

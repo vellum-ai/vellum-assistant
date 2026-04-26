@@ -94,6 +94,50 @@ describe("resolvePricing", () => {
   });
 
   describe("Gemini models", () => {
+    test("returns priced for gemini-3.1-pro-preview", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-pro-preview",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(2 + 12);
+    });
+
+    test("returns priced for gemini-3.1-pro-preview-customtools", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-pro-preview-customtools",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(2 + 12);
+    });
+
+    test("returns priced for gemini-3-flash-preview", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3-flash-preview",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.5 + 3);
+    });
+
+    test("returns priced for gemini-3.1-flash-lite-preview", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-flash-lite-preview",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.25 + 1.5);
+    });
+
     test("returns priced for gemini-2.5-pro", () => {
       const result = resolvePricing(
         "gemini",
@@ -113,7 +157,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(0.15 + 0.6);
+      expect(result.estimatedCostUsd).toBe(0.3 + 2.5);
     });
 
     test("returns priced for gemini-2.5-flash-lite", () => {
@@ -124,7 +168,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(0.02 + 0.1);
+      expect(result.estimatedCostUsd).toBe(0.1 + 0.4);
     });
   });
 
