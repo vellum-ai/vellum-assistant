@@ -35,6 +35,7 @@ private final class MockSpeechRecognizerAdapter: SpeechRecognizerAdapter {
 @Observable
 private final class FakeLiveVoiceChannelManager: LiveVoiceChannelManaging {
     var state: LiveVoiceChannelManager.State = .idle
+    var inputAmplitude: Float = 0
     var partialTranscript: String = ""
     var finalTranscript: String = ""
     var errorMessage: String = ""
@@ -899,6 +900,27 @@ final class VoiceModeManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .listening)
         XCTAssertFalse(mockVoiceService.stopSpeakingCalled)
         XCTAssertFalse(mockVoiceService.startRecordingCalled)
+    }
+
+    func testLiveChannelAmplitudeIsExposedForComposerWaveform() async {
+        let liveManager = FakeLiveVoiceChannelManager()
+        chatViewModel.conversationId = "conv-123"
+        manager = VoiceModeManager(
+            voiceService: mockVoiceService,
+            liveVoiceChannelManager: liveManager,
+            liveVoiceAvailability: { true }
+        )
+        forceActivate()
+
+        manager.startListening()
+        await flushAsyncTasks()
+        liveManager.becomeReady()
+        await flushAsyncTasks()
+
+        liveManager.inputAmplitude = 0.42
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.inputAmplitude, 0.42)
     }
 
     func testLiveChannelBargeInInterruptsAndRestartsLiveListening() async {

@@ -55,6 +55,7 @@ final class LiveVoiceChannelManager {
     private(set) var partialTranscript: String = ""
     private(set) var finalTranscript: String = ""
     private(set) var assistantTranscript: String = ""
+    private(set) var inputAmplitude: Float = 0
     private(set) var errorMessage: String = ""
 
     var isActive: Bool {
@@ -70,6 +71,9 @@ final class LiveVoiceChannelManager {
     @ObservationIgnored private let capture: any LiveVoiceAudioCapturing
     @ObservationIgnored private let playback: any LiveVoiceAudioPlaying
     @ObservationIgnored private let bargeInAmplitudeThreshold: Float
+    @ObservationIgnored private let speechAmplitudeThreshold: Float
+    @ObservationIgnored private let silenceDurationBeforeRelease: TimeInterval
+    @ObservationIgnored private let minimumSpeechDurationBeforeRelease: TimeInterval
 
     @ObservationIgnored private var client: (any LiveVoiceChannelClientProtocol)?
     @ObservationIgnored private var captureStartTask: Task<Void, Never>?
@@ -78,17 +82,26 @@ final class LiveVoiceChannelManager {
     @ObservationIgnored private var captureStartInFlight = false
     @ObservationIgnored private var responseAudioStarted = false
     @ObservationIgnored private var interruptSentForCurrentResponse = false
+    @ObservationIgnored private var speechDurationInCurrentUtterance: TimeInterval = 0
+    @ObservationIgnored private var silenceDurationAfterSpeech: TimeInterval = 0
+    @ObservationIgnored private var automaticReleaseInFlight = false
 
     init(
         clientFactory: @escaping @MainActor () -> any LiveVoiceChannelClientProtocol = { LiveVoiceChannelClient() },
         capture: any LiveVoiceAudioCapturing = LiveVoiceAudioCapture(),
         playback: (any LiveVoiceAudioPlaying)? = nil,
-        bargeInAmplitudeThreshold: Float = 0.05
+        bargeInAmplitudeThreshold: Float = 0.05,
+        speechAmplitudeThreshold: Float = 0.03,
+        silenceDurationBeforeRelease: TimeInterval = 1.0,
+        minimumSpeechDurationBeforeRelease: TimeInterval = 0.12
     ) {
         self.clientFactory = clientFactory
         self.capture = capture
         self.playback = playback ?? LiveVoiceAudioPlayer()
         self.bargeInAmplitudeThreshold = bargeInAmplitudeThreshold
+        self.speechAmplitudeThreshold = speechAmplitudeThreshold
+        self.silenceDurationBeforeRelease = silenceDurationBeforeRelease
+        self.minimumSpeechDurationBeforeRelease = minimumSpeechDurationBeforeRelease
     }
 
     func start(conversationId: String) async {
@@ -180,13 +193,22 @@ final class LiveVoiceChannelManager {
         partialTranscript = ""
         finalTranscript = ""
         assistantTranscript = ""
+        inputAmplitude = 0
         errorMessage = ""
+        resetVoiceActivityTracking()
     }
 
     private func resetIgnoredSessionState() {
         client = nil
         responseAudioStarted = false
         interruptSentForCurrentResponse = false
+        automaticReleaseInFlight = false
+    }
+
+    private func resetVoiceActivityTracking() {
+        speechDurationInCurrentUtterance = 0
+        silenceDurationAfterSpeech = 0
+        automaticReleaseInFlight = false
     }
 
     private func handle(_ event: LiveVoiceChannelEvent, generation: UInt64) {
@@ -312,6 +334,8 @@ final class LiveVoiceChannelManager {
     private func handleCapturedAudioChunk(_ chunk: LiveVoiceAudioCaptureChunk, generation: UInt64) {
         guard generation == sessionGeneration, captureRunning else { return }
 
+        update(&inputAmplitude, to: chunk.amplitude)
+
         let audioData = chunk.pcm16LittleEndian
         if !audioData.isEmpty, let client {
             Task {
@@ -319,8 +343,48 @@ final class LiveVoiceChannelManager {
             }
         }
 
+        updateAutomaticPushToTalkRelease(with: chunk, generation: generation)
+
         guard chunk.amplitude >= bargeInAmplitudeThreshold else { return }
         interruptIfAssistantAudioIsPlaying(generation: generation)
+    }
+
+    private func updateAutomaticPushToTalkRelease(
+        with chunk: LiveVoiceAudioCaptureChunk,
+        generation: UInt64
+    ) {
+        guard state == .listening, captureRunning, client != nil else { return }
+
+        let chunkDuration: TimeInterval
+        if chunk.sampleRate > 0, chunk.frameCount > 0 {
+            chunkDuration = TimeInterval(chunk.frameCount) / TimeInterval(chunk.sampleRate)
+        } else {
+            chunkDuration = 0
+        }
+
+        guard chunkDuration > 0 else { return }
+
+        if chunk.amplitude >= speechAmplitudeThreshold {
+            speechDurationInCurrentUtterance += chunkDuration
+            silenceDurationAfterSpeech = 0
+            return
+        }
+
+        guard speechDurationInCurrentUtterance >= minimumSpeechDurationBeforeRelease else { return }
+        silenceDurationAfterSpeech += chunkDuration
+
+        guard silenceDurationAfterSpeech >= silenceDurationBeforeRelease else { return }
+        automaticallyReleasePushToTalk(generation: generation)
+    }
+
+    private func automaticallyReleasePushToTalk(generation: UInt64) {
+        guard !automaticReleaseInFlight else { return }
+        automaticReleaseInFlight = true
+
+        Task { @MainActor [weak self] in
+            guard let self, generation == self.sessionGeneration else { return }
+            await self.stopListening()
+        }
     }
 
     private func interruptIfAssistantAudioIsPlaying(generation: UInt64) {
@@ -377,6 +441,8 @@ final class LiveVoiceChannelManager {
         }
         captureRunning = false
         captureStartInFlight = false
+        inputAmplitude = 0
+        resetVoiceActivityTracking()
     }
 
     private func update<T: Equatable>(_ value: inout T, to newValue: T) {

@@ -217,6 +217,47 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .listening)
     }
 
+    func testInputAmplitudeTracksCaptureAndResetsWhenStopped() async {
+        await startReadySession()
+
+        capture.emitChunk(data: Data([1, 2]), frameCount: 1_600, amplitude: 0.4)
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.inputAmplitude, 0.4)
+
+        await manager.stopListening()
+
+        XCTAssertEqual(manager.inputAmplitude, 0)
+    }
+
+    func testInitialSilenceDoesNotAutomaticallyReleasePushToTalk() async {
+        await startReadySession()
+
+        for _ in 0..<20 {
+            capture.emitChunk(frameCount: 1_600, amplitude: 0.0)
+        }
+        await flushAsyncTasks()
+
+        XCTAssertEqual(client.releasePushToTalkCallCount, 0)
+        XCTAssertEqual(capture.stopCallCount, 0)
+        XCTAssertEqual(manager.state, .listening)
+    }
+
+    func testSpeechThenSilenceAutomaticallyReleasesPushToTalk() async {
+        await startReadySession()
+
+        capture.emitChunk(frameCount: 1_600, amplitude: 0.05)
+        capture.emitChunk(frameCount: 1_600, amplitude: 0.05)
+        for _ in 0..<10 {
+            capture.emitChunk(frameCount: 1_600, amplitude: 0.0)
+        }
+        await flushAsyncTasks()
+
+        XCTAssertEqual(client.releasePushToTalkCallCount, 1)
+        XCTAssertEqual(capture.stopCallCount, 1)
+        XCTAssertEqual(manager.state, .transcribing)
+    }
+
     func testStopListeningSendsPushToTalkRelease() async {
         await startReadySession()
 
