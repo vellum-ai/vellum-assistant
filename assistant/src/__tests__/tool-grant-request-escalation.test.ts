@@ -107,7 +107,6 @@ import {
 import { getDb, initializeDb } from "../memory/db.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
-import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import {
   ToolApprovalHandler,
   waitForInlineGrant,

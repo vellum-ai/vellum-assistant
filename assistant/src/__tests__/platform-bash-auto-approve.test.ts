@@ -132,8 +132,8 @@ mock.module("../tools/terminal/sandbox.js", () => ({
   wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
-import { PermissionPrompter } from "../permissions/prompter.js";
 import { initializeDb } from "../memory/db-init.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
 import { clearAll as clearAllOverrides } from "../runtime/conversation-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolContext as TC } from "../tools/types.js";
@@ -256,7 +256,7 @@ describe("platform-hosted bash auto-approval", () => {
   test("bash NOT auto-approved for non-guardian actors via platform path (sandbox bash is allowed)", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
 
-    let platformAutoApproveCalled = false;
+    const platformAutoApproveCalled = false;
     const trackingPrompter = {
       prompt: async () => {
         // If this is called, we know the platform auto-approve did NOT fire

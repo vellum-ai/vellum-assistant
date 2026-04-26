@@ -754,7 +754,7 @@ describe("(e) guardian-only prompt delivery invariant", () => {
 // ===========================================================================
 
 describe("(f) timeout/stale flow: stale guardian decision after inline wait timeout", () => {
-  const handler = new ToolApprovalHandler({
+  const _handler = new ToolApprovalHandler({
     inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
   });
 
