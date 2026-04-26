@@ -159,6 +159,14 @@ public func loadTTSProviderRegistry() -> TTSProviderRegistry {
     return _cachedTTSProviderRegistry
 }
 
+/// Replaces the cached TTS provider registry. **Test-only** — call this
+/// in `setUp()` to provide a known registry without hitting the network.
+public func _seedTTSProviderRegistryForTesting(_ registry: TTSProviderRegistry) {
+    _registryLock.lock()
+    _cachedTTSProviderRegistry = registry
+    _registryLock.unlock()
+}
+
 /// Fetches the TTS provider catalog from the assistant API and caches it.
 ///
 /// Called lazily when the TTS settings panel first appears. Failures are

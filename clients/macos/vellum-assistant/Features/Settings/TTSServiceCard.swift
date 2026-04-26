@@ -148,6 +148,12 @@ struct TTSServiceCard: View {
             ttsVoiceIdText = voiceId
             initialVoiceId = voiceId
         }
+        .onChange(of: ttsRegistry.providers.count) { _, _ in
+            // Re-evaluate credential state after the async registry fetch
+            // completes — .onAppear runs before .task finishes, so the
+            // initial check may have hit an empty registry.
+            ttsProviderHasKey = SettingsStore.ttsCredentialExists(for: draftTTSProvider)
+        }
         .onChange(of: draftTTSProvider) { _, _ in
             ttsApiKeyText = ""
             ttsSaveError = nil

@@ -16,11 +16,68 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         mockSettingsClient = MockSettingsClient()
         mockSettingsClient.patchConfigResponse = true
         store = SettingsStore(settingsClient: mockSettingsClient)
+
+        // Seed provider registries so tests that depend on credential mode
+        // metadata (exclusive/shared classification, credential existence)
+        // see the real catalog entries instead of an empty registry.
+        _seedSTTProviderRegistryForTesting(Self.buildSTTTestRegistry())
+        _seedTTSProviderRegistryForTesting(TTSProviderRegistry(providers: [
+            TTSProviderCatalogEntry(
+                id: "elevenlabs",
+                displayName: "ElevenLabs",
+                subtitle: "High-quality voice synthesis.",
+                setupMode: .cli,
+                setupHint: "Run setup.",
+                credentialMode: .credential,
+                credentialNamespace: "elevenlabs",
+                apiKeyProviderName: nil,
+                supportsVoiceSelection: true,
+                credentialsGuide: nil
+            ),
+            TTSProviderCatalogEntry(
+                id: "fish-audio",
+                displayName: "Fish Audio",
+                subtitle: "Fast voice cloning.",
+                setupMode: .cli,
+                setupHint: "Run setup.",
+                credentialMode: .credential,
+                credentialNamespace: "fish-audio",
+                apiKeyProviderName: nil,
+                supportsVoiceSelection: true,
+                credentialsGuide: nil
+            ),
+            TTSProviderCatalogEntry(
+                id: "deepgram",
+                displayName: "Deepgram",
+                subtitle: "Fast TTS synthesis.",
+                setupMode: .cli,
+                setupHint: "Run setup.",
+                credentialMode: .apiKey,
+                credentialNamespace: nil,
+                apiKeyProviderName: "deepgram",
+                supportsVoiceSelection: false,
+                credentialsGuide: nil
+            ),
+            TTSProviderCatalogEntry(
+                id: "xai",
+                displayName: "xAI",
+                subtitle: "Grok-powered speech synthesis.",
+                setupMode: .cli,
+                setupHint: "Run setup.",
+                credentialMode: .credential,
+                credentialNamespace: "xai",
+                apiKeyProviderName: nil,
+                supportsVoiceSelection: false,
+                credentialsGuide: nil
+            ),
+        ]))
     }
 
     override func tearDown() {
         store = nil
         mockSettingsClient = nil
+        _seedSTTProviderRegistryForTesting(STTProviderRegistry(providers: []))
+        _seedTTSProviderRegistryForTesting(TTSProviderRegistry(providers: []))
         super.tearDown()
     }
 
@@ -58,6 +115,54 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: timeout)
+    }
+
+    /// Builds a test STT provider registry matching the real catalog entries.
+    /// Uses JSON decoding because STTProviderCatalogEntry has no memberwise init.
+    private static func buildSTTTestRegistry() -> STTProviderRegistry {
+        let json = """
+        {
+            "providers": [
+                {
+                    "id": "deepgram",
+                    "displayName": "Deepgram",
+                    "subtitle": "Fast, real-time speech-to-text.",
+                    "setupMode": "api-key",
+                    "setupHint": "Enter your Deepgram API key.",
+                    "apiKeyProviderName": "deepgram",
+                    "conversationStreamingMode": "realtime-ws"
+                },
+                {
+                    "id": "google-gemini",
+                    "displayName": "Google Gemini",
+                    "subtitle": "Multimodal speech-to-text.",
+                    "setupMode": "api-key",
+                    "setupHint": "Enter your Gemini API key.",
+                    "apiKeyProviderName": "gemini",
+                    "conversationStreamingMode": "incremental-batch"
+                },
+                {
+                    "id": "openai-whisper",
+                    "displayName": "OpenAI Whisper",
+                    "subtitle": "High-accuracy speech-to-text.",
+                    "setupMode": "api-key",
+                    "setupHint": "Enter your OpenAI API key.",
+                    "apiKeyProviderName": "openai",
+                    "conversationStreamingMode": "none"
+                },
+                {
+                    "id": "xai",
+                    "displayName": "xAI",
+                    "subtitle": "Real-time speech-to-text.",
+                    "setupMode": "api-key",
+                    "setupHint": "Enter your xAI API key.",
+                    "apiKeyProviderName": "xai",
+                    "conversationStreamingMode": "realtime-ws"
+                }
+            ]
+        }
+        """
+        return try! JSONDecoder().decode(STTProviderRegistry.self, from: json.data(using: .utf8)!)
     }
 
     // MARK: - setSTTProvider

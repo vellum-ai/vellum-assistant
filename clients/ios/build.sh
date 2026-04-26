@@ -65,7 +65,6 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$DIST_DIR" "$CLIENTS_DIR/.build"
-        rm -f "$SCRIPT_DIR/Resources/tts-provider-catalog.json"
         rm -f "$SCRIPT_DIR/Resources/llm-provider-catalog.json"
         echo "Done."
         exit 0
@@ -80,14 +79,8 @@ esac
 
 # ── Bundle metadata into Resources/ ──────────────────────────────────
 # Copy build-time artifacts from meta/ into the Resources directory so
-# XcodeGen includes them in the app bundle.  The macOS build performs
-# the equivalent copy into Contents/Resources/ after compilation; iOS
-# needs the files present *before* xcodegen so they are listed as
-# bundle resources in the generated xcodeproj.
-TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
-if [ -f "$TTS_PROVIDER_CATALOG" ]; then
-    cp "$TTS_PROVIDER_CATALOG" "$SCRIPT_DIR/Resources/tts-provider-catalog.json"
-fi
+# XcodeGen includes them in the app bundle.  STT and TTS catalogs are
+# now served by the assistant API; only the LLM catalog is still bundled.
 LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
 if [ -f "$LLM_PROVIDER_CATALOG" ]; then
     cp "$LLM_PROVIDER_CATALOG" "$SCRIPT_DIR/Resources/llm-provider-catalog.json"
