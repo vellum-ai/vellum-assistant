@@ -157,7 +157,7 @@ describe("sleep command", () => {
     expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(2);
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       1,
-      join(assistantRootDir, "vellum.pid"),
+      join(assistantRootDir, "workspace", "vellum.pid"),
       "assistant",
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
