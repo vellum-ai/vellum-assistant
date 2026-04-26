@@ -482,7 +482,7 @@ export class PermissionChecker {
             effectiveDenyScope
           );
           if (ruleSaved) {
-            addRule(
+            await addRule(
               name,
               response.selectedPattern!,
               effectiveDenyScope!,
@@ -540,7 +540,7 @@ export class PermissionChecker {
               ? (response.selectedScope ?? "everywhere")
               : response.selectedScope;
           if (effectiveScope) {
-            addRule(
+            await addRule(
               name,
               response.selectedPattern,
               effectiveScope,

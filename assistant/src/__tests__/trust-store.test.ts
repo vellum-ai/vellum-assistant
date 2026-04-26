@@ -68,8 +68,8 @@ describe("Trust Store", () => {
   // ── addRule ─────────────────────────────────────────────────────
 
   describe("addRule", () => {
-    test("adds a rule and returns it", () => {
-      const rule = addRule("bash", "git *", "/home/user/project");
+    test("adds a rule and returns it", async () => {
+      const rule = await addRule("bash", "git *", "/home/user/project");
       expect(rule.id).toBeDefined();
       expect(rule.tool).toBe("bash");
       expect(rule.pattern).toBe("git *");
@@ -79,14 +79,14 @@ describe("Trust Store", () => {
       expect(rule.createdAt).toBeGreaterThan(0);
     });
 
-    test("assigns unique IDs to each rule", () => {
-      const rule1 = addRule("bash", "npm *", "/tmp");
-      const rule2 = addRule("bash", "bun *", "/tmp");
+    test("assigns unique IDs to each rule", async () => {
+      const rule1 = await addRule("bash", "npm *", "/tmp");
+      const rule2 = await addRule("bash", "bun *", "/tmp");
       expect(rule1.id).not.toBe(rule2.id);
     });
 
-    test("persists rule to disk", () => {
-      addRule("bash", "git push", "/home/user");
+    test("persists rule to disk", async () => {
+      await addRule("bash", "git push", "/home/user");
       const raw = readFileSync(trustPath, "utf-8");
       const data = JSON.parse(raw);
       expect(data.version).toBe(3);
@@ -98,28 +98,28 @@ describe("Trust Store", () => {
       expect(userRule.priority).toBe(100);
     });
 
-    test("multiple rules accumulate", () => {
-      addRule("bash", "git *", "/tmp");
-      addRule("file_write", "/tmp/*", "/tmp");
-      addRule("bash", "npm *", "/tmp");
-      expect(getAllRules()).toHaveLength(3 + NUM_DEFAULTS);
+    test("multiple rules accumulate", async () => {
+      await addRule("bash", "git *", "/tmp");
+      await addRule("file_write", "/tmp/*", "/tmp");
+      await addRule("bash", "npm *", "/tmp");
+      expect(await getAllRules()).toHaveLength(3 + NUM_DEFAULTS);
     });
 
-    test("default priority is 100", () => {
-      const rule = addRule("bash", "git *", "/tmp");
+    test("default priority is 100", async () => {
+      const rule = await addRule("bash", "git *", "/tmp");
       expect(rule.priority).toBe(100);
     });
 
-    test("custom priority is respected", () => {
-      const rule = addRule("bash", "git *", "/tmp", "allow", 5);
+    test("custom priority is respected", async () => {
+      const rule = await addRule("bash", "git *", "/tmp", "allow", 5);
       expect(rule.priority).toBe(5);
     });
 
-    test("rules are sorted by priority descending in getAllRules", () => {
-      addRule("bash", "low *", "/tmp", "allow", 0);
-      addRule("bash", "high *", "/tmp", "allow", 2);
-      addRule("bash", "med *", "/tmp", "allow", 1);
-      const rules = getAllRules();
+    test("rules are sorted by priority descending in getAllRules", async () => {
+      await addRule("bash", "low *", "/tmp", "allow", 0);
+      await addRule("bash", "high *", "/tmp", "allow", 2);
+      await addRule("bash", "med *", "/tmp", "allow", 1);
+      const rules = await getAllRules();
       // Default ask rules have higher priority than user rules
       const maxDefaultPriority = Math.max(
         ...DEFAULT_TEMPLATES.map((t) => t.priority),
@@ -131,41 +131,48 @@ describe("Trust Store", () => {
       expect(userRules[2].priority).toBe(0);
     });
 
-    test("allowHighRisk option is stripped during normalization", () => {
+    test("allowHighRisk option is stripped during normalization", async () => {
       // allowHighRisk is no longer persisted — the parser strips it.
-      const rule = addRule("bash", "sudo *", "everywhere", "allow", 100);
+      const rule = await addRule("bash", "sudo *", "everywhere", "allow", 100);
       // Verify the field is not on the rule
       expect(
         (rule as unknown as Record<string, unknown>).allowHighRisk,
       ).toBeUndefined();
     });
 
-    test("at same priority deny rules sort before allow rules", () => {
-      addRule("bash", "allow *", "/tmp", "allow", 100);
-      addRule("bash", "deny *", "/tmp", "deny", 100);
-      const userRules = getAllRules().filter(
+    test("at same priority deny rules sort before allow rules", async () => {
+      await addRule("bash", "allow *", "/tmp", "allow", 100);
+      await addRule("bash", "deny *", "/tmp", "deny", 100);
+      const userRules = (await getAllRules()).filter(
         (r) => !r.id.startsWith("default:"),
       );
       expect(userRules[0].decision).toBe("deny");
       expect(userRules[1].decision).toBe("allow");
     });
 
-    test("accepts executionTarget option and persists it", () => {
-      const rule = addRule("skill_tool", "skill_tool:*", "/tmp", "allow", 100, {
-        executionTarget: "sandbox",
-      });
+    test("accepts executionTarget option and persists it", async () => {
+      const rule = await addRule(
+        "skill_tool",
+        "skill_tool:*",
+        "/tmp",
+        "allow",
+        100,
+        {
+          executionTarget: "sandbox",
+        },
+      );
       expect(rule.executionTarget).toBe("sandbox");
 
       // Verify persistence to disk
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const found = rules.find((r) => r.id === rule.id);
       expect(found).toBeDefined();
       expect(found!.executionTarget).toBe("sandbox");
     });
 
-    test("accepts executionTarget option (allowHighRisk no longer supported)", () => {
-      const rule = addRule(
+    test("accepts executionTarget option (allowHighRisk no longer supported)", async () => {
+      const rule = await addRule(
         "risky_tool",
         "risky_tool:*",
         "everywhere",
@@ -185,8 +192,8 @@ describe("Trust Store", () => {
       expect(diskRule.executionTarget).toBe("host");
     });
 
-    test("addRule without options does not set optional fields", () => {
-      const rule = addRule("bash", "echo *", "/tmp");
+    test("addRule without options does not set optional fields", async () => {
+      const rule = await addRule("bash", "echo *", "/tmp");
       expect(rule.executionTarget).toBeUndefined();
 
       // Verify on disk
@@ -200,29 +207,29 @@ describe("Trust Store", () => {
   // ── removeRule ──────────────────────────────────────────────────
 
   describe("removeRule", () => {
-    test("removes an existing rule", () => {
-      const rule = addRule("bash", "git *", "/tmp");
-      expect(removeRule(rule.id)).toBe(true);
-      expect(getAllRules()).toHaveLength(NUM_DEFAULTS);
+    test("removes an existing rule", async () => {
+      const rule = await addRule("bash", "git *", "/tmp");
+      expect(await removeRule(rule.id)).toBe(true);
+      expect(await getAllRules()).toHaveLength(NUM_DEFAULTS);
     });
 
-    test("returns false for non-existent ID", () => {
-      expect(removeRule("non-existent-id")).toBe(false);
+    test("returns false for non-existent ID", async () => {
+      expect(await removeRule("non-existent-id")).toBe(false);
     });
 
-    test("persists removal to disk", () => {
-      const rule = addRule("bash", "npm *", "/tmp");
-      removeRule(rule.id);
+    test("persists removal to disk", async () => {
+      const rule = await addRule("bash", "npm *", "/tmp");
+      await removeRule(rule.id);
       // Reload from disk to verify
       clearCache();
-      expect(getAllRules()).toHaveLength(NUM_DEFAULTS);
+      expect(await getAllRules()).toHaveLength(NUM_DEFAULTS);
     });
 
-    test("only removes the targeted rule", () => {
-      const rule1 = addRule("bash", "git *", "/tmp");
-      const rule2 = addRule("bash", "npm *", "/tmp");
-      removeRule(rule1.id);
-      const remaining = getAllRules();
+    test("only removes the targeted rule", async () => {
+      const rule1 = await addRule("bash", "git *", "/tmp");
+      const rule2 = await addRule("bash", "npm *", "/tmp");
+      await removeRule(rule1.id);
+      const remaining = await getAllRules();
       expect(remaining).toHaveLength(1 + NUM_DEFAULTS);
       expect(remaining.find((r) => r.id === rule2.id)).toBeDefined();
     });
@@ -231,17 +238,17 @@ describe("Trust Store", () => {
   // ── updateRule ─────────────────────────────────────────────────
 
   describe("updateRule", () => {
-    test("updates pattern on an existing rule", () => {
-      const rule = addRule("bash", "git *", "/tmp");
-      const updated = updateRule(rule.id, { pattern: "git push *" });
+    test("updates pattern on an existing rule", async () => {
+      const rule = await addRule("bash", "git *", "/tmp");
+      const updated = await updateRule(rule.id, { pattern: "git push *" });
       expect(updated.pattern).toBe("git push *");
       expect(updated.id).toBe(rule.id);
       expect(updated.tool).toBe("bash");
     });
 
-    test("updates multiple fields at once", () => {
-      const rule = addRule("bash", "npm *", "/tmp");
-      const updated = updateRule(rule.id, {
+    test("updates multiple fields at once", async () => {
+      const rule = await addRule("bash", "npm *", "/tmp");
+      const updated = await updateRule(rule.id, {
         tool: "file_write",
         scope: "/home",
         decision: "deny",
@@ -253,38 +260,42 @@ describe("Trust Store", () => {
       expect(updated.priority).toBe(50);
     });
 
-    test("throws for non-existent rule ID", () => {
-      expect(() => updateRule("non-existent-id", { pattern: "test" })).toThrow(
-        "Trust rule not found: non-existent-id",
-      );
+    test("throws for non-existent rule ID", async () => {
+      await expect(
+        updateRule("non-existent-id", { pattern: "test" }),
+      ).rejects.toThrow("Trust rule not found: non-existent-id");
     });
 
-    test("persists update to disk", () => {
-      const rule = addRule("bash", "git *", "/tmp");
-      updateRule(rule.id, { pattern: "git status" });
+    test("persists update to disk", async () => {
+      const rule = await addRule("bash", "git *", "/tmp");
+      await updateRule(rule.id, { pattern: "git status" });
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const found = rules.find((r) => r.id === rule.id);
       expect(found).toBeDefined();
       expect(found!.pattern).toBe("git status");
     });
 
-    test("re-sorts rules after priority change", () => {
-      const rule1 = addRule("bash", "low *", "/tmp", "allow", 10);
-      const rule2 = addRule("bash", "high *", "/tmp", "allow", 200);
+    test("re-sorts rules after priority change", async () => {
+      const rule1 = await addRule("bash", "low *", "/tmp", "allow", 10);
+      const rule2 = await addRule("bash", "high *", "/tmp", "allow", 200);
       // rule2 should be first (higher priority)
-      let userRules = getAllRules().filter((r) => !r.id.startsWith("default:"));
+      let userRules = (await getAllRules()).filter(
+        (r) => !r.id.startsWith("default:"),
+      );
       expect(userRules[0].id).toBe(rule2.id);
       // Update rule1 to have higher priority
-      updateRule(rule1.id, { priority: 300 });
-      userRules = getAllRules().filter((r) => !r.id.startsWith("default:"));
+      await updateRule(rule1.id, { priority: 300 });
+      userRules = (await getAllRules()).filter(
+        (r) => !r.id.startsWith("default:"),
+      );
       expect(userRules[0].id).toBe(rule1.id);
     });
 
-    test("leaves unchanged fields intact", () => {
-      const rule = addRule("bash", "git *", "/home/user", "allow", 100);
-      updateRule(rule.id, { pattern: "git push *" });
-      const updated = getAllRules().find((r) => r.id === rule.id)!;
+    test("leaves unchanged fields intact", async () => {
+      const rule = await addRule("bash", "git *", "/home/user", "allow", 100);
+      await updateRule(rule.id, { pattern: "git push *" });
+      const updated = (await getAllRules()).find((r) => r.id === rule.id)!;
       expect(updated.tool).toBe("bash");
       expect(updated.scope).toBe("/home/user");
       expect(updated.decision).toBe("allow");
@@ -292,50 +303,50 @@ describe("Trust Store", () => {
       expect(updated.createdAt).toBe(rule.createdAt);
     });
 
-    test("does not set userModifiedAt on non-default rules", () => {
-      const rule = addRule("bash", "git *", "/tmp");
-      const updated = updateRule(rule.id, { decision: "deny" });
+    test("does not set userModifiedAt on non-default rules", async () => {
+      const rule = await addRule("bash", "git *", "/tmp");
+      const updated = await updateRule(rule.id, { decision: "deny" });
       expect(updated.userModifiedAt).toBeUndefined();
     });
 
-    test("sets userModifiedAt when updating a default rule", () => {
+    test("sets userModifiedAt when updating a default rule", async () => {
       const before = Date.now();
-      const updated = updateRule("default:ask-host_bash-global", {
+      const updated = await updateRule("default:ask-host_bash-global", {
         decision: "allow",
       });
       expect(updated.userModifiedAt).toBeGreaterThanOrEqual(before);
       expect(updated.userModifiedAt).toBeLessThanOrEqual(Date.now());
     });
 
-    test("persists userModifiedAt to disk for default rules", () => {
-      updateRule("default:ask-host_bash-global", { decision: "allow" });
+    test("persists userModifiedAt to disk for default rules", async () => {
+      await updateRule("default:ask-host_bash-global", { decision: "allow" });
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const found = rules.find((r) => r.id === "default:ask-host_bash-global");
       expect(found).toBeDefined();
       expect(found!.userModifiedAt).toBeGreaterThan(0);
     });
 
-    test("does not set userModifiedAt on no-op default rule update", () => {
+    test("does not set userModifiedAt on no-op default rule update", async () => {
       // Updating a default rule with values identical to the template
       // should NOT set userModifiedAt — the rule hasn't actually diverged.
-      const updated = updateRule("default:ask-host_bash-global", {
+      const updated = await updateRule("default:ask-host_bash-global", {
         decision: "ask",
       });
       expect(updated.userModifiedAt).toBeUndefined();
     });
 
-    test("clears userModifiedAt when default rule is reset to template values", () => {
+    test("clears userModifiedAt when default rule is reset to template values", async () => {
       // First, modify the rule to diverge from the template
-      updateRule("default:ask-host_bash-global", { decision: "allow" });
-      let found = getAllRules().find(
+      await updateRule("default:ask-host_bash-global", { decision: "allow" });
+      let found = (await getAllRules()).find(
         (r) => r.id === "default:ask-host_bash-global",
       )!;
       expect(found.userModifiedAt).toBeGreaterThan(0);
 
       // Now reset it back to the template value
-      updateRule("default:ask-host_bash-global", { decision: "ask" });
-      found = getAllRules().find(
+      await updateRule("default:ask-host_bash-global", { decision: "ask" });
+      found = (await getAllRules()).find(
         (r) => r.id === "default:ask-host_bash-global",
       )!;
       // userModifiedAt should be cleared since rule matches template again
@@ -346,21 +357,21 @@ describe("Trust Store", () => {
   // ── findMatchingRule ────────────────────────────────────────────
 
   describe("findMatchingRule", () => {
-    test("finds exact match", () => {
-      addRule("bash", "git push", "/tmp");
+    test("finds exact match", async () => {
+      await addRule("bash", "git push", "/tmp");
       const match = findMatchingRule("bash", "git push", "/tmp");
       expect(match).not.toBeNull();
       expect(match!.pattern).toBe("git push");
     });
 
-    test("finds glob wildcard match", () => {
-      addRule("bash", "git *", "/tmp");
+    test("finds glob wildcard match", async () => {
+      await addRule("bash", "git *", "/tmp");
       const match = findMatchingRule("bash", "git push origin main", "/tmp");
       expect(match).not.toBeNull();
     });
 
-    test("returns null when tool does not match", () => {
-      addRule("file_write", "file_write:/tmp/*", "/tmp");
+    test("returns null when tool does not match", async () => {
+      await addRule("file_write", "file_write:/tmp/*", "/tmp");
       // host_file_read default is 'ask' so findMatchingRule (allow-only) won't find it
       const match = findMatchingRule(
         "host_file_read",
@@ -370,8 +381,8 @@ describe("Trust Store", () => {
       expect(match).toBeNull();
     });
 
-    test("returns null when pattern does not match", () => {
-      addRule("host_file_read", "host_file_read:/etc/hosts", "/tmp");
+    test("returns null when pattern does not match", async () => {
+      await addRule("host_file_read", "host_file_read:/etc/hosts", "/tmp");
       const match = findMatchingRule(
         "host_file_read",
         "host_file_read:/var/log/syslog",
@@ -382,8 +393,8 @@ describe("Trust Store", () => {
 
     // Scope matching
     describe("scope matching", () => {
-      test("matches when scope equals rule scope", () => {
-        addRule("bash", "npm *", "/home/user/project");
+      test("matches when scope equals rule scope", async () => {
+        await addRule("bash", "npm *", "/home/user/project");
         const match = findMatchingRule(
           "bash",
           "npm install",
@@ -392,8 +403,8 @@ describe("Trust Store", () => {
         expect(match).not.toBeNull();
       });
 
-      test("matches when scope is under rule scope (prefix)", () => {
-        addRule("bash", "npm *", "/home/user");
+      test("matches when scope is under rule scope (prefix)", async () => {
+        await addRule("bash", "npm *", "/home/user");
         const match = findMatchingRule(
           "bash",
           "npm install",
@@ -402,8 +413,8 @@ describe("Trust Store", () => {
         expect(match).not.toBeNull();
       });
 
-      test("does not match when scope is outside rule scope", () => {
-        addRule(
+      test("does not match when scope is outside rule scope", async () => {
+        await addRule(
           "host_file_read",
           "host_file_read:/home/user/project/*",
           "/home/user/project",
@@ -416,8 +427,8 @@ describe("Trust Store", () => {
         expect(match).toBeNull();
       });
 
-      test("everywhere scope matches any directory", () => {
-        addRule("bash", "git *", "everywhere");
+      test("everywhere scope matches any directory", async () => {
+        await addRule("bash", "git *", "everywhere");
         const match = findMatchingRule(
           "bash",
           "git status",
@@ -426,14 +437,14 @@ describe("Trust Store", () => {
         expect(match).not.toBeNull();
       });
 
-      test("everywhere scope matches root", () => {
-        addRule("bash", "ls", "everywhere");
+      test("everywhere scope matches root", async () => {
+        await addRule("bash", "ls", "everywhere");
         const match = findMatchingRule("bash", "ls", "/");
         expect(match).not.toBeNull();
       });
 
-      test("does not match sibling path with shared prefix", () => {
-        addRule(
+      test("does not match sibling path with shared prefix", async () => {
+        await addRule(
           "host_file_read",
           "host_file_read:/home/user/project/*",
           "/home/user/project",
@@ -446,8 +457,8 @@ describe("Trust Store", () => {
         expect(match).toBeNull();
       });
 
-      test("matches exact scope with trailing slash on working dir", () => {
-        addRule("bash", "npm *", "/home/user/project");
+      test("matches exact scope with trailing slash on working dir", async () => {
+        await addRule("bash", "npm *", "/home/user/project");
         const match = findMatchingRule(
           "bash",
           "npm install",
@@ -456,8 +467,8 @@ describe("Trust Store", () => {
         expect(match).not.toBeNull();
       });
 
-      test("matches when rule scope has trailing slash", () => {
-        addRule("bash", "npm *", "/home/user/project/");
+      test("matches when rule scope has trailing slash", async () => {
+        await addRule("bash", "npm *", "/home/user/project/");
         const match = findMatchingRule(
           "bash",
           "npm install",
@@ -466,8 +477,8 @@ describe("Trust Store", () => {
         expect(match).not.toBeNull();
       });
 
-      test("does not match sibling with glob-suffixed scope", () => {
-        addRule(
+      test("does not match sibling with glob-suffixed scope", async () => {
+        await addRule(
           "host_file_read",
           "host_file_read:/home/user/project/*",
           "/home/user/project*",
@@ -483,14 +494,14 @@ describe("Trust Store", () => {
 
     // Pattern matching with minimatch
     describe("pattern matching", () => {
-      test("matches * wildcard", () => {
-        addRule("bash", "npm *", "/tmp");
+      test("matches * wildcard", async () => {
+        await addRule("bash", "npm *", "/tmp");
         expect(findMatchingRule("bash", "npm install", "/tmp")).not.toBeNull();
         expect(findMatchingRule("bash", "npm test", "/tmp")).not.toBeNull();
       });
 
-      test("matches exact string", () => {
-        addRule("host_file_read", "host_file_read:/etc/hosts", "/tmp");
+      test("matches exact string", async () => {
+        await addRule("host_file_read", "host_file_read:/etc/hosts", "/tmp");
         expect(
           findMatchingRule(
             "host_file_read",
@@ -507,23 +518,23 @@ describe("Trust Store", () => {
         ).toBeNull();
       });
 
-      test("matches file path pattern", () => {
-        addRule("file_write", "/tmp/*", "/tmp");
+      test("matches file path pattern", async () => {
+        await addRule("file_write", "/tmp/*", "/tmp");
         expect(
           findMatchingRule("file_write", "/tmp/file.txt", "/tmp"),
         ).not.toBeNull();
       });
 
-      test("star pattern matches single-segment strings", () => {
-        addRule("file_write", "*", "/tmp");
+      test("star pattern matches single-segment strings", async () => {
+        await addRule("file_write", "*", "/tmp");
         // minimatch '*' matches strings without path separators
         expect(
           findMatchingRule("file_write", "file.txt", "/tmp"),
         ).not.toBeNull();
       });
 
-      test("star pattern does not match paths with slashes", () => {
-        addRule("file_write", "*", "/tmp");
+      test("star pattern does not match paths with slashes", async () => {
+        await addRule("file_write", "*", "/tmp");
         // minimatch '*' does not cross '/' boundaries
         expect(
           findMatchingRule("file_write", "/any/path/file.txt", "/tmp"),
@@ -533,8 +544,8 @@ describe("Trust Store", () => {
 
     // resolvedPaths — path-aware scope matching
     describe("resolvedPaths scope matching", () => {
-      test("matches when all resolvedPaths are covered by rule scope", () => {
-        addRule("file_write", "**", "/ws/scratch/*", "allow", 100);
+      test("matches when all resolvedPaths are covered by rule scope", async () => {
+        await addRule("file_write", "**", "/ws/scratch/*", "allow", 100);
         const match = findMatchingRule(
           "file_write",
           "/ws/scratch/a",
@@ -544,8 +555,8 @@ describe("Trust Store", () => {
         expect(match).not.toBeNull();
       });
 
-      test("does not match when a resolvedPath is outside rule scope", () => {
-        addRule("file_write", "**", "/ws/scratch/*", "allow", 100);
+      test("does not match when a resolvedPath is outside rule scope", async () => {
+        await addRule("file_write", "**", "/ws/scratch/*", "allow", 100);
         const match = findMatchingRule(
           "file_write",
           "/ws/scratch/a",
@@ -555,16 +566,11 @@ describe("Trust Store", () => {
         expect(match).toBeNull();
       });
 
-      test("empty resolvedPaths falls back to cwd check", () => {
-        addRule("file_write", "**", "/ws/scratch", "allow", 100);
+      test("empty resolvedPaths falls back to cwd check", async () => {
+        await addRule("file_write", "**", "/ws/scratch", "allow", 100);
         // With empty array, fall back to scope (cwd) — covered
         expect(
-          findMatchingRule(
-            "file_write",
-            "/ws/scratch/a",
-            "/ws/scratch",
-            [],
-          ),
+          findMatchingRule("file_write", "/ws/scratch/a", "/ws/scratch", []),
         ).not.toBeNull();
         // Undefined also falls back to cwd (not covered → null)
         expect(
@@ -572,8 +578,8 @@ describe("Trust Store", () => {
         ).toBeNull();
       });
 
-      test('"everywhere" scope always matches regardless of paths', () => {
-        addRule("file_write", "**", "everywhere", "allow", 100);
+      test('"everywhere" scope always matches regardless of paths', async () => {
+        await addRule("file_write", "**", "everywhere", "allow", 100);
         const match = findMatchingRule("file_write", "/x", "/any/cwd", [
           "/a",
           "/b",
@@ -587,33 +593,38 @@ describe("Trust Store", () => {
   // ── findHighestPriorityRule ──────────────────────────────────────
 
   describe("findHighestPriorityRule", () => {
-    test("returns highest priority matching rule", () => {
-      addRule("bash", "rm *", "/tmp", "allow", 0);
-      addRule("bash", "rm *", "/tmp", "deny", 100);
+    test("returns highest priority matching rule", async () => {
+      await addRule("bash", "rm *", "/tmp", "allow", 0);
+      await addRule("bash", "rm *", "/tmp", "deny", 100);
       const match = findHighestPriorityRule("bash", ["rm file.txt"], "/tmp");
       expect(match).not.toBeNull();
       expect(match!.decision).toBe("deny");
       expect(match!.priority).toBe(100);
     });
 
-    test("higher priority allow beats lower priority deny", () => {
-      addRule("bash", "rm *", "/tmp", "deny", 0);
-      addRule("bash", "rm *", "/tmp", "allow", 100);
+    test("higher priority allow beats lower priority deny", async () => {
+      await addRule("bash", "rm *", "/tmp", "deny", 0);
+      await addRule("bash", "rm *", "/tmp", "allow", 100);
       const match = findHighestPriorityRule("bash", ["rm file.txt"], "/tmp");
       expect(match).not.toBeNull();
       expect(match!.decision).toBe("allow");
     });
 
-    test("same priority: deny beats allow", () => {
-      addRule("bash", "rm *", "/tmp", "allow", 100);
-      addRule("bash", "rm *", "/tmp", "deny", 100);
+    test("same priority: deny beats allow", async () => {
+      await addRule("bash", "rm *", "/tmp", "allow", 100);
+      await addRule("bash", "rm *", "/tmp", "deny", 100);
       const match = findHighestPriorityRule("bash", ["rm file.txt"], "/tmp");
       expect(match).not.toBeNull();
       expect(match!.decision).toBe("deny");
     });
 
-    test("checks multiple command candidates", () => {
-      addRule("web_fetch", "web_fetch:https://example.com/*", "/tmp", "allow");
+    test("checks multiple command candidates", async () => {
+      await addRule(
+        "web_fetch",
+        "web_fetch:https://example.com/*",
+        "/tmp",
+        "allow",
+      );
       const match = findHighestPriorityRule(
         "web_fetch",
         [
@@ -625,10 +636,10 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
     });
 
-    test("returns null when no rule matches", () => {
+    test("returns null when no rule matches", async () => {
       // Use file_read with a non-workspace path — file_read defaults only
       // cover specific workspace files, so /tmp paths won't match any default.
-      addRule("file_read", "file_read:/specific/*", "/tmp", "allow");
+      await addRule("file_read", "file_read:/specific/*", "/tmp", "allow");
       const match = findHighestPriorityRule(
         "file_read",
         ["file_read:/other/path"],
@@ -637,9 +648,9 @@ describe("Trust Store", () => {
       expect(match).toBeNull();
     });
 
-    test("respects scope matching", () => {
+    test("respects scope matching", async () => {
       // Use file_read — bash has a global default allow rule that matches everywhere.
-      addRule(
+      await addRule(
         "file_read",
         "file_read:/home/user/project/*",
         "/home/user/project",
@@ -661,8 +672,8 @@ describe("Trust Store", () => {
       ).toBeNull();
     });
 
-    test("everywhere scope matches any directory", () => {
-      addRule("bash", "git *", "everywhere", "allow");
+    test("everywhere scope matches any directory", async () => {
+      await addRule("bash", "git *", "everywhere", "allow");
       const match = findHighestPriorityRule(
         "bash",
         ["git status"],
@@ -675,16 +686,16 @@ describe("Trust Store", () => {
   // ── getAllRules ─────────────────────────────────────────────────
 
   describe("getAllRules", () => {
-    test("returns default rules when no user rules exist", () => {
-      const rules = getAllRules();
+    test("returns default rules when no user rules exist", async () => {
+      const rules = await getAllRules();
       expect(rules).toHaveLength(NUM_DEFAULTS);
       expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
     });
 
-    test("returns a copy (not the internal array)", () => {
-      addRule("bash", "git *", "/tmp");
-      const rules1 = getAllRules();
-      const rules2 = getAllRules();
+    test("returns a copy (not the internal array)", async () => {
+      await addRule("bash", "git *", "/tmp");
+      const rules1 = await getAllRules();
+      const rules2 = await getAllRules();
       expect(rules1).toEqual(rules2);
       expect(rules1).not.toBe(rules2); // different references
     });
@@ -693,28 +704,28 @@ describe("Trust Store", () => {
   // ── clearCache ─────────────────────────────────────────────────
 
   describe("clearCache", () => {
-    test("forces reload from disk on next access", () => {
-      addRule("bash", "git *", "/tmp");
-      expect(getAllRules()).toHaveLength(1 + NUM_DEFAULTS);
+    test("forces reload from disk on next access", async () => {
+      await addRule("bash", "git *", "/tmp");
+      expect(await getAllRules()).toHaveLength(1 + NUM_DEFAULTS);
       clearCache();
       // After clearing cache, rules are reloaded from disk
-      expect(getAllRules()).toHaveLength(1 + NUM_DEFAULTS);
+      expect(await getAllRules()).toHaveLength(1 + NUM_DEFAULTS);
     });
   });
 
   // ── persistence ─────────────────────────────────────────────────
 
   describe("persistence", () => {
-    test("rules survive cache clear (loaded from disk)", () => {
-      const rule = addRule("bash", "npm *", "/tmp");
+    test("rules survive cache clear (loaded from disk)", async () => {
+      const rule = await addRule("bash", "npm *", "/tmp");
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       expect(rules).toHaveLength(1 + NUM_DEFAULTS);
       expect(rules.find((r) => r.id === rule.id)).toBeDefined();
     });
 
-    test("trust file has correct structure", () => {
-      addRule("bash", "git *", "/tmp");
+    test("trust file has correct structure", async () => {
+      await addRule("bash", "git *", "/tmp");
       const data = JSON.parse(readFileSync(trustPath, "utf-8"));
       expect(data).toHaveProperty("version", 3);
       expect(data).toHaveProperty("rules");
@@ -729,39 +740,39 @@ describe("Trust Store", () => {
   // ── deny rules ─────────────────────────────────────────────────
 
   describe("deny rules", () => {
-    test("addRule with deny decision creates a deny rule", () => {
-      const rule = addRule("bash", "rm -rf *", "/tmp", "deny");
+    test("addRule with deny decision creates a deny rule", async () => {
+      const rule = await addRule("bash", "rm -rf *", "/tmp", "deny");
       expect(rule.decision).toBe("deny");
       expect(rule.tool).toBe("bash");
       expect(rule.pattern).toBe("rm -rf *");
     });
 
-    test("deny rule persists to disk", () => {
-      addRule("bash", "rm *", "/tmp", "deny");
+    test("deny rule persists to disk", async () => {
+      await addRule("bash", "rm *", "/tmp", "deny");
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       expect(rules).toHaveLength(1 + NUM_DEFAULTS);
       const userRule = rules.find((r) => r.pattern === "rm *");
       expect(userRule).toBeDefined();
       expect(userRule!.decision).toBe("deny");
     });
 
-    test("findDenyRule finds deny rules", () => {
-      addRule("bash", "rm *", "/tmp", "deny");
+    test("findDenyRule finds deny rules", async () => {
+      await addRule("bash", "rm *", "/tmp", "deny");
       const match = findDenyRule("bash", "rm file.txt", "/tmp");
       expect(match).not.toBeNull();
       expect(match!.decision).toBe("deny");
     });
 
-    test("findDenyRule ignores allow rules", () => {
-      addRule("bash", "rm *", "/tmp", "allow");
+    test("findDenyRule ignores allow rules", async () => {
+      await addRule("bash", "rm *", "/tmp", "allow");
       const match = findDenyRule("bash", "rm file.txt", "/tmp");
       expect(match).toBeNull();
     });
 
-    test("findMatchingRule ignores deny rules", () => {
+    test("findMatchingRule ignores deny rules", async () => {
       // Use host_file_read — it has an 'ask' default so findMatchingRule (allow-only) won't find it.
-      addRule("host_file_read", "host_file_read:/etc/*", "/tmp", "deny");
+      await addRule("host_file_read", "host_file_read:/etc/*", "/tmp", "deny");
       const match = findMatchingRule(
         "host_file_read",
         "host_file_read:/etc/hosts",
@@ -770,31 +781,31 @@ describe("Trust Store", () => {
       expect(match).toBeNull();
     });
 
-    test("deny and allow rules coexist", () => {
-      addRule("bash", "git *", "/tmp", "allow");
-      addRule("bash", "git push --force *", "/tmp", "deny");
+    test("deny and allow rules coexist", async () => {
+      await addRule("bash", "git *", "/tmp", "allow");
+      await addRule("bash", "git push --force *", "/tmp", "deny");
       expect(findMatchingRule("bash", "git status", "/tmp")).not.toBeNull();
       expect(
         findDenyRule("bash", "git push --force origin", "/tmp"),
       ).not.toBeNull();
     });
 
-    test("deny rule with scope matching", () => {
-      addRule("bash", "rm *", "/home/user/project", "deny");
+    test("deny rule with scope matching", async () => {
+      await addRule("bash", "rm *", "/home/user/project", "deny");
       expect(
         findDenyRule("bash", "rm file.txt", "/home/user/project/sub"),
       ).not.toBeNull();
       expect(findDenyRule("bash", "rm file.txt", "/home/other")).toBeNull();
     });
 
-    test("deny rule with everywhere scope", () => {
-      addRule("bash", "rm -rf *", "everywhere", "deny");
+    test("deny rule with everywhere scope", async () => {
+      await addRule("bash", "rm -rf *", "everywhere", "deny");
       expect(findDenyRule("bash", "rm -rf /", "/any/path")).not.toBeNull();
     });
 
-    test("removeRule works for deny rules", () => {
-      const rule = addRule("bash", "rm *", "/tmp", "deny");
-      expect(removeRule(rule.id)).toBe(true);
+    test("removeRule works for deny rules", async () => {
+      const rule = await addRule("bash", "rm *", "/tmp", "deny");
+      expect(await removeRule(rule.id)).toBe(true);
       expect(findDenyRule("bash", "rm file.txt", "/tmp")).toBeNull();
     });
   });
@@ -802,8 +813,8 @@ describe("Trust Store", () => {
   // ── default rules ─────────────────────────────────────────────
 
   describe("default rules", () => {
-    test("backfills default rules on first load", () => {
-      const rules = getAllRules();
+    test("backfills default rules on first load", async () => {
+      const rules = await getAllRules();
       const defaults = rules.filter((r) => r.id.startsWith("default:"));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
       for (const rule of defaults) {
@@ -822,8 +833,8 @@ describe("Trust Store", () => {
       }
     });
 
-    test("default rules cover file, host file, host shell, and workspace prompt tools", () => {
-      const rules = getAllRules();
+    test("default rules cover file, host file, host shell, and workspace prompt tools", async () => {
+      const rules = await getAllRules();
       const defaultTools = [
         ...new Set(
           rules.filter((r) => r.id.startsWith("default:")).map((r) => r.tool),
@@ -859,16 +870,16 @@ describe("Trust Store", () => {
       ]);
     });
 
-    test("default rules are not duplicated on reload", () => {
-      getAllRules(); // first load
+    test("default rules are not duplicated on reload", async () => {
+      await getAllRules(); // first load
       clearCache();
-      const rules = getAllRules(); // second load
+      const rules = await getAllRules(); // second load
       const defaults = rules.filter((r) => r.id.startsWith("default:"));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
 
-    test("default rules persist to disk", () => {
-      getAllRules(); // triggers backfill + save
+    test("default rules persist to disk", async () => {
+      await getAllRules(); // triggers backfill + save
       const data = JSON.parse(readFileSync(trustPath, "utf-8"));
       const defaults = data.rules.filter((r: { id: string }) =>
         r.id.startsWith("default:"),
@@ -876,9 +887,9 @@ describe("Trust Store", () => {
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
 
-    test("removed default rule is re-backfilled on next load", () => {
+    test("removed default rule is re-backfilled on next load", async () => {
       // First load backfills defaults
-      getAllRules();
+      await getAllRules();
       // Remove one default rule by editing trust.json directly on disk
       // (removeRule() throws for default rules, so we simulate external editing)
       const raw = JSON.parse(readFileSync(trustPath, "utf-8"));
@@ -888,13 +899,13 @@ describe("Trust Store", () => {
       writeFileSync(trustPath, JSON.stringify(raw, null, 2));
       // After reload, the rule is re-backfilled (defaults are always present)
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       expect(
         rules.find((r) => r.id === "default:ask-host_file_read-global"),
       ).toBeDefined();
     });
 
-    test("findHighestPriorityRule matches default ask for host_file_read", () => {
+    test("findHighestPriorityRule matches default ask for host_file_read", async () => {
       const match = findHighestPriorityRule(
         "host_file_read",
         ["host_file_read:/etc/hosts"],
@@ -908,7 +919,7 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for host_file_write", () => {
+    test("findHighestPriorityRule matches default ask for host_file_write", async () => {
       const match = findHighestPriorityRule(
         "host_file_write",
         ["host_file_write:/etc/hosts"],
@@ -922,7 +933,7 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for host_file_edit", () => {
+    test("findHighestPriorityRule matches default ask for host_file_edit", async () => {
       const match = findHighestPriorityRule(
         "host_file_edit",
         ["host_file_edit:/etc/hosts"],
@@ -936,7 +947,7 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for host_bash", () => {
+    test("findHighestPriorityRule matches default ask for host_bash", async () => {
       const match = findHighestPriorityRule("host_bash", ["ls"], "/tmp");
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:ask-host_bash-global");
@@ -946,7 +957,7 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for computer_use_click", () => {
+    test("findHighestPriorityRule matches default ask for computer_use_click", async () => {
       const match = findHighestPriorityRule(
         "computer_use_click",
         ["computer_use_click:"],
@@ -960,7 +971,7 @@ describe("Trust Store", () => {
       );
     });
 
-    test("findHighestPriorityRule matches default ask for computer_use_observe", () => {
+    test("findHighestPriorityRule matches default ask for computer_use_observe", async () => {
       const match = findHighestPriorityRule(
         "computer_use_observe",
         ["computer_use_observe:"],
@@ -974,7 +985,7 @@ describe("Trust Store", () => {
       );
     });
 
-    test("bootstrap delete rule matches only when workingDir is the workspace dir", () => {
+    test("bootstrap delete rule matches only when workingDir is the workspace dir", async () => {
       const workspaceDir = testDir;
       // Should match when workingDir is the workspace directory — the bootstrap
       // rule (priority 100) outranks the global default allow (priority 50).
@@ -996,7 +1007,7 @@ describe("Trust Store", () => {
       expect(other).toBeNull();
     });
 
-    test("updates delete rule matches only when workingDir is the workspace dir", () => {
+    test("updates delete rule matches only when workingDir is the workspace dir", async () => {
       const workspaceDir = testDir;
       const match = findHighestPriorityRule(
         "bash",
@@ -1016,7 +1027,7 @@ describe("Trust Store", () => {
       expect(other).toBeNull();
     });
 
-    test("default ask does not affect files outside protected directory", () => {
+    test("default ask does not affect files outside protected directory", async () => {
       const safePath = join(testDir, "data", "assistant.db");
       const match = findHighestPriorityRule(
         "file_read",
@@ -1027,16 +1038,16 @@ describe("Trust Store", () => {
       expect(match == null || !match.id.startsWith("default:")).toBe(true);
     });
 
-    test("default rules are backfilled after malformed JSON in trust file", () => {
+    test("default rules are backfilled after malformed JSON in trust file", async () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, "NOT VALID JSON {{{");
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const defaults = rules.filter((r) => r.id.startsWith("default:"));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
     });
 
-    test("default rules are backfilled in-memory after unknown file version without overwriting disk", () => {
+    test("default rules are backfilled in-memory after unknown file version without overwriting disk", async () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       const originalContent = JSON.stringify({
         version: 9999,
@@ -1054,7 +1065,7 @@ describe("Trust Store", () => {
       });
       writeFileSync(trustPath, originalContent);
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       // Defaults should be present in-memory
       const defaults = rules.filter((r) => r.id.startsWith("default:"));
       expect(defaults).toHaveLength(NUM_DEFAULTS);
@@ -1063,10 +1074,10 @@ describe("Trust Store", () => {
       expect(diskContent).toBe(originalContent);
     });
 
-    test("clearAllRules preserves default rules", () => {
-      addRule("bash", "git *", "/tmp");
-      clearAllRules();
-      const rules = getAllRules();
+    test("clearAllRules preserves default rules", async () => {
+      await addRule("bash", "git *", "/tmp");
+      await clearAllRules();
+      const rules = await getAllRules();
       // User rules should be gone, but defaults should remain
       expect(rules.filter((r) => !r.id.startsWith("default:"))).toHaveLength(0);
       const defaults = rules.filter((r) => r.id.startsWith("default:"));
@@ -1075,8 +1086,8 @@ describe("Trust Store", () => {
 
     // ── skill source mutation rules ────────────────────────────────
 
-    test("default rules include ask rules for file_write on skill source paths", () => {
-      const rules = getAllRules();
+    test("default rules include ask rules for file_write on skill source paths", async () => {
+      const rules = await getAllRules();
       const managed = rules.find(
         (r) => r.id === "default:ask-file_write-managed-skills",
       );
@@ -1095,8 +1106,8 @@ describe("Trust Store", () => {
       expect(bundled!.priority).toBe(50);
     });
 
-    test("default rules include ask rules for file_edit on skill source paths", () => {
-      const rules = getAllRules();
+    test("default rules include ask rules for file_edit on skill source paths", async () => {
+      const rules = await getAllRules();
       const managed = rules.find(
         (r) => r.id === "default:ask-file_edit-managed-skills",
       );
@@ -1117,7 +1128,7 @@ describe("Trust Store", () => {
 
     // ── default allow: skill_load ────────────────────────────────
 
-    test("skill_load default allow rule exists in templates", () => {
+    test("skill_load default allow rule exists in templates", async () => {
       const templates = getDefaultRuleTemplates();
       const skillLoadRule = templates.find(
         (t) => t.id === "default:allow-skill_load-global",
@@ -1130,7 +1141,7 @@ describe("Trust Store", () => {
       expect(skillLoadRule!.scope).toBeUndefined();
     });
 
-    test("findHighestPriorityRule matches default allow for skill_load", () => {
+    test("findHighestPriorityRule matches default allow for skill_load", async () => {
       const match = findHighestPriorityRule(
         "skill_load",
         ["skill_load:browser"],
@@ -1142,7 +1153,7 @@ describe("Trust Store", () => {
       expect(match!.priority).toBe(100);
     });
 
-    test("findHighestPriorityRule matches default allow for skill_load with any skill name", () => {
+    test("findHighestPriorityRule matches default allow for skill_load with any skill name", async () => {
       const match = findHighestPriorityRule(
         "skill_load",
         ["skill_load:some-random-skill"],
@@ -1153,8 +1164,8 @@ describe("Trust Store", () => {
       expect(match!.decision).toBe("allow");
     });
 
-    test("no default ask rules exist for file_read on skill source paths", () => {
-      const rules = getAllRules();
+    test("no default ask rules exist for file_read on skill source paths", async () => {
+      const rules = await getAllRules();
       // There should be no default rules with IDs matching file_read for skill sources
       const readManagedSkill = rules.find(
         (r) => r.id === "default:ask-file_read-managed-skills",
@@ -1166,7 +1177,7 @@ describe("Trust Store", () => {
       expect(readBundledSkill).toBeUndefined();
     });
 
-    test("findHighestPriorityRule matches default ask for file_write on managed skill path", () => {
+    test("findHighestPriorityRule matches default ask for file_write on managed skill path", async () => {
       const skillFile = join(testDir, "skills", "my-skill", "SKILL.md");
       const match = findHighestPriorityRule(
         "file_write",
@@ -1178,7 +1189,7 @@ describe("Trust Store", () => {
       expect(match!.decision).toBe("ask");
     });
 
-    test("findHighestPriorityRule matches default ask for file_edit on managed skill path", () => {
+    test("findHighestPriorityRule matches default ask for file_edit on managed skill path", async () => {
       const skillFile = join(testDir, "skills", "my-skill", "tools.ts");
       const match = findHighestPriorityRule(
         "file_edit",
@@ -1192,9 +1203,9 @@ describe("Trust Store", () => {
 
     // ── userModifiedAt and backfill migration ──────────────────────
 
-    test("default rules without userModifiedAt are migrated when template changes", () => {
+    test("default rules without userModifiedAt are migrated when template changes", async () => {
       // First load backfills defaults
-      getAllRules();
+      await getAllRules();
       // Manually alter a default rule on disk to simulate a template change
       // (the rule on disk has old values, template has new ones)
       const raw = JSON.parse(readFileSync(trustPath, "utf-8"));
@@ -1206,20 +1217,20 @@ describe("Trust Store", () => {
       raw.rules[idx].priority = 9999;
       writeFileSync(trustPath, JSON.stringify(raw, null, 2));
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const found = rules.find((r) => r.id === "default:ask-host_bash-global");
       expect(found).toBeDefined();
       // Should be migrated back to the template priority (50)
       expect(found!.priority).toBe(50);
     });
 
-    test("default rules with userModifiedAt are preserved during backfill migration", () => {
+    test("default rules with userModifiedAt are preserved during backfill migration", async () => {
       // First load backfills defaults
-      getAllRules();
+      await getAllRules();
       // Modify the rule via updateRule to set userModifiedAt
-      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      await updateRule("default:ask-host_bash-global", { decision: "allow" });
       // Verify userModifiedAt is set
-      let rules = getAllRules();
+      let rules = await getAllRules();
       let found = rules.find((r) => r.id === "default:ask-host_bash-global");
       expect(found).toBeDefined();
       expect(found!.userModifiedAt).toBeGreaterThan(0);
@@ -1230,7 +1241,7 @@ describe("Trust Store", () => {
       // would try to migrate it back to decision=ask. Since userModifiedAt is
       // set, backfillDefaults should skip it.
       clearCache();
-      rules = getAllRules();
+      rules = await getAllRules();
       found = rules.find((r) => r.id === "default:ask-host_bash-global");
       expect(found).toBeDefined();
       // The user's override should be preserved
@@ -1238,17 +1249,17 @@ describe("Trust Store", () => {
       expect(found!.userModifiedAt).toBeGreaterThan(0);
     });
 
-    test("userModifiedAt survives round-trip through disk", () => {
-      getAllRules(); // backfill
-      updateRule("default:ask-host_bash-global", { priority: 999 });
-      const before = getAllRules().find(
+    test("userModifiedAt survives round-trip through disk", async () => {
+      await getAllRules(); // backfill
+      await updateRule("default:ask-host_bash-global", { priority: 999 });
+      const before = (await getAllRules()).find(
         (r) => r.id === "default:ask-host_bash-global",
       )!;
       expect(before.userModifiedAt).toBeGreaterThan(0);
 
       // Round-trip through disk
       clearCache();
-      const after = getAllRules().find(
+      const after = (await getAllRules()).find(
         (r) => r.id === "default:ask-host_bash-global",
       )!;
       expect(after.userModifiedAt).toBe(before.userModifiedAt);
@@ -1259,24 +1270,26 @@ describe("Trust Store", () => {
   // ── trust rule schema v3 (PR 14) ──────────────────────────────
 
   describe("trust rule schema v3 (PR 14)", () => {
-    test("new rules can include v3 optional fields (executionTarget)", () => {
-      const rule = addRule("bash", "git *", "/tmp");
+    test("new rules can include v3 optional fields (executionTarget)", async () => {
+      const rule = await addRule("bash", "git *", "/tmp");
       // Manually set v3 optional field on the rule and persist
       rule.executionTarget = "/usr/local/bin/node";
       // Re-persist the updated rules
-      const rules = getAllRules().map((r) => (r.id === rule.id ? rule : r));
+      const rules = (await getAllRules()).map((r) =>
+        r.id === rule.id ? rule : r,
+      );
       // Write directly to verify round-trip
       const trustData = { version: 3, rules };
       writeFileSync(trustPath, JSON.stringify(trustData, null, 2));
       clearCache();
-      const reloaded = getAllRules();
+      const reloaded = await getAllRules();
       const found = reloaded.find((r) => r.id === rule.id);
       expect(found).toBeDefined();
       expect(found!.executionTarget).toBe("/usr/local/bin/node");
     });
 
-    test("trust file persists with version 3", () => {
-      addRule("bash", "echo *", "/tmp");
+    test("trust file persists with version 3", async () => {
+      await addRule("bash", "echo *", "/tmp");
       const data = JSON.parse(readFileSync(trustPath, "utf-8"));
       expect(data.version).toBe(3);
     });
@@ -1285,17 +1298,17 @@ describe("Trust Store", () => {
   // ── loadFromDisk resilience (misc) ──────────────────────────────
 
   describe("loadFromDisk resilience (misc)", () => {
-    test("malformed file (valid JSON but null) is handled gracefully", () => {
+    test("malformed file (valid JSON but null) is handled gracefully", async () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, "null");
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       // Accessing null.version throws TypeError, caught by try/catch,
       // falls through to backfill defaults
       expect(rules).toHaveLength(NUM_DEFAULTS);
     });
 
-    test("v3 file with optional fields is loaded correctly without re-migration", () => {
+    test("v3 file with optional fields is loaded correctly without re-migration", async () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       const v3Rules = [
         {
@@ -1320,7 +1333,7 @@ describe("Trust Store", () => {
       ];
       writeFileSync(trustPath, JSON.stringify({ version: 3, rules: v3Rules }));
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
 
       // Rule with optional fields should have them preserved
       const withOptions = rules.find((r) => r.id === "v3-with-options");
@@ -1333,7 +1346,7 @@ describe("Trust Store", () => {
       expect(withoutOptions).not.toHaveProperty("executionTarget");
     });
 
-    test("legacy v2 version migrates rules and persists as v3", () => {
+    test("legacy v2 version migrates rules and persists as v3", async () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(
         trustPath,
@@ -1353,7 +1366,7 @@ describe("Trust Store", () => {
         }),
       );
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const migratedRule = rules.find((r) => r.id === "old-version-rule");
       expect(migratedRule).toBeDefined();
       expect(migratedRule!.decision).toBe("allow");
@@ -1367,7 +1380,7 @@ describe("Trust Store", () => {
       ).toBe(true);
     });
 
-    test("legacy v1 version migrates rules and persists as v3", () => {
+    test("legacy v1 version migrates rules and persists as v3", async () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(
         trustPath,
@@ -1388,7 +1401,7 @@ describe("Trust Store", () => {
       );
 
       clearCache();
-      const rules = getAllRules();
+      const rules = await getAllRules();
       const migratedRule = rules.find((r) => r.id === "v1-rule");
       expect(migratedRule).toBeDefined();
       expect(migratedRule!.decision).toBe("deny");
@@ -1417,15 +1430,15 @@ describe("Trust Store", () => {
     // ── wildcard semantics (no executionTarget on rule) ──────────
 
     describe("wildcard semantics — rules without executionTarget", () => {
-      test("rule with no executionTarget matches when no context is provided", () => {
-        addRule("bash", "git *", "/tmp", "allow", 200);
+      test("rule with no executionTarget matches when no context is provided", async () => {
+        await addRule("bash", "git *", "/tmp", "allow", 200);
         const match = findHighestPriorityRule("bash", ["git status"], "/tmp");
         expect(match).not.toBeNull();
         expect(match!.decision).toBe("allow");
       });
 
-      test("rule with no executionTarget matches any execution target", () => {
-        addRule("bash", "git *", "/tmp", "allow", 200);
+      test("rule with no executionTarget matches any execution target", async () => {
+        await addRule("bash", "git *", "/tmp", "allow", 200);
         const match = findHighestPriorityRule("bash", ["git status"], "/tmp", {
           executionTarget: "/usr/bin/node",
         });
@@ -1437,7 +1450,7 @@ describe("Trust Store", () => {
     // ── executionTarget matching ──────────────────────────────────
 
     describe("executionTarget matching", () => {
-      test("rule with executionTarget matches exact target", () => {
+      test("rule with executionTarget matches exact target", async () => {
         seedRules([
           {
             id: "et-exact",
@@ -1462,7 +1475,7 @@ describe("Trust Store", () => {
         expect(match!.id).toBe("et-exact");
       });
 
-      test("rule with executionTarget does NOT match different target", () => {
+      test("rule with executionTarget does NOT match different target", async () => {
         seedRules([
           {
             id: "et-diff",
@@ -1486,7 +1499,7 @@ describe("Trust Store", () => {
         expect(match == null || match.id !== "et-diff").toBe(true);
       });
 
-      test("rule with executionTarget does NOT match when no target in context", () => {
+      test("rule with executionTarget does NOT match when no target in context", async () => {
         seedRules([
           {
             id: "et-no-ctx",
@@ -1508,8 +1521,8 @@ describe("Trust Store", () => {
         expect(match == null || match.id !== "et-no-ctx").toBe(true);
       });
 
-      test("rule WITHOUT executionTarget matches any target (wildcard)", () => {
-        addRule("bash", "run *", "/tmp", "allow", 200);
+      test("rule WITHOUT executionTarget matches any target (wildcard)", async () => {
+        await addRule("bash", "run *", "/tmp", "allow", 200);
         const match = findHighestPriorityRule(
           "bash",
           ["run script.js"],
@@ -1526,16 +1539,16 @@ describe("Trust Store", () => {
     // ── optional ctx parameter ────────────────────────────────────
 
     describe("optional ctx parameter", () => {
-      test("callers without ctx parameter still work", () => {
-        addRule("bash", "git *", "/tmp", "allow", 200);
+      test("callers without ctx parameter still work", async () => {
+        await addRule("bash", "git *", "/tmp", "allow", 200);
         // Calling without the 4th argument — must still match
         const match = findHighestPriorityRule("bash", ["git status"], "/tmp");
         expect(match).not.toBeNull();
         expect(match!.pattern).toBe("git *");
       });
 
-      test("empty PolicyContext object behaves the same as no context", () => {
-        addRule("bash", "ls *", "/tmp", "allow", 200);
+      test("empty PolicyContext object behaves the same as no context", async () => {
+        await addRule("bash", "ls *", "/tmp", "allow", 200);
         const matchNoCtx = findHighestPriorityRule("bash", ["ls -la"], "/tmp");
         const matchEmptyCtx = findHighestPriorityRule(
           "bash",
@@ -1553,8 +1566,8 @@ describe("Trust Store", () => {
   // ── network_request trust rule matching ────────────────────────
 
   describe("network_request trust rules", () => {
-    test("exact origin rule matches network_request candidates", () => {
-      addRule(
+    test("exact origin rule matches network_request candidates", async () => {
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "everywhere",
@@ -1571,8 +1584,8 @@ describe("Trust Store", () => {
       expect(rule!.decision).toBe("allow");
     });
 
-    test("exact url rule matches only that url candidate", () => {
-      addRule(
+    test("exact url rule matches only that url candidate", async () => {
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/v1/data",
         "everywhere",
@@ -1595,12 +1608,12 @@ describe("Trust Store", () => {
       expect(noMatch).toBeNull();
     });
 
-    test("globstar rule matches any network_request candidate", () => {
+    test("globstar rule matches any network_request candidate", async () => {
       // minimatch treats standalone "**" as globstar (matching "/"), but
       // "network_request:*" uses single "*" which doesn't cross slashes.
       // The tool field is already filtered by findHighestPriorityRule, so
       // "**" is the correct catch-all pattern.
-      addRule("network_request", "**", "everywhere");
+      await addRule("network_request", "**", "everywhere");
       const rule = findHighestPriorityRule(
         "network_request",
         ["network_request:https://any-host.example.org/path"],
@@ -1609,10 +1622,10 @@ describe("Trust Store", () => {
       expect(rule).not.toBeNull();
     });
 
-    test("single-star wildcard matches flat candidates only", () => {
+    test("single-star wildcard matches flat candidates only", async () => {
       // "network_request:*" won't match URLs with slashes — consistent
       // with the behavior of web_fetch:* patterns.
-      addRule("network_request", "network_request:*", "everywhere");
+      await addRule("network_request", "network_request:*", "everywhere");
       const noSlashMatch = findHighestPriorityRule(
         "network_request",
         ["network_request:flat-target"],
@@ -1629,8 +1642,8 @@ describe("Trust Store", () => {
       expect(slashNoMatch).toBeNull();
     });
 
-    test("network_request rule does not match web_fetch tool", () => {
-      addRule(
+    test("network_request rule does not match web_fetch tool", async () => {
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "everywhere",
@@ -1646,8 +1659,12 @@ describe("Trust Store", () => {
       expect(rule).toBeNull();
     });
 
-    test("web_fetch rule does not match network_request tool", () => {
-      addRule("web_fetch", "web_fetch:https://api.example.com/*", "everywhere");
+    test("web_fetch rule does not match network_request tool", async () => {
+      await addRule(
+        "web_fetch",
+        "web_fetch:https://api.example.com/*",
+        "everywhere",
+      );
       const rule = findHighestPriorityRule(
         "network_request",
         [
@@ -1659,15 +1676,15 @@ describe("Trust Store", () => {
       expect(rule).toBeNull();
     });
 
-    test("deny rule takes precedence over allow at same priority", () => {
-      addRule(
+    test("deny rule takes precedence over allow at same priority", async () => {
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "everywhere",
         "allow",
         100,
       );
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "everywhere",
@@ -1686,15 +1703,15 @@ describe("Trust Store", () => {
       expect(rule!.decision).toBe("deny");
     });
 
-    test("higher-priority allow overrides lower-priority deny", () => {
-      addRule(
+    test("higher-priority allow overrides lower-priority deny", async () => {
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "everywhere",
         "deny",
         50,
       );
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "everywhere",
@@ -1713,8 +1730,8 @@ describe("Trust Store", () => {
       expect(rule!.decision).toBe("allow");
     });
 
-    test("network_request rules match regardless of working directory (URL tools ignore scope)", () => {
-      addRule(
+    test("network_request rules match regardless of working directory (URL tools ignore scope)", async () => {
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "/home/user/project",
@@ -1740,7 +1757,7 @@ describe("Trust Store", () => {
 });
 
 describe("computer-use tool trust rule matching", () => {
-  test("actionable CU tools have default ask trust rules", () => {
+  test("actionable CU tools have default ask trust rules", async () => {
     // Actionable CU tools (those that perform screen interactions) should
     // have default "ask" rules so strict mode prompts before use.
     const actionableCuTools = ["computer_use_click", "computer_use_type_text"];
@@ -1752,7 +1769,7 @@ describe("computer-use tool trust rule matching", () => {
     }
   });
 
-  test("terminal CU tools (done/respond) have no default trust rules", () => {
+  test("terminal CU tools (done/respond) have no default trust rules", async () => {
     // computer_use_done and computer_use_respond are terminal signal tools
     // with RiskLevel.Low — they should not have ask rules since they don't
     // perform any screen action.
@@ -1777,7 +1794,7 @@ describe("canonical parser normalization-on-load", () => {
     }
   });
 
-  test("URL rule with executionTarget is stripped on load and re-saved", () => {
+  test("URL rule with executionTarget is stripped on load and re-saved", async () => {
     // A URL rule (web_fetch) should not carry executionTarget — the canonical
     // parser strips it and marks the file for re-save.
     mkdirSync(dirname(trustPath), { recursive: true });
@@ -1800,7 +1817,7 @@ describe("canonical parser normalization-on-load", () => {
       }),
     );
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     const found = rules.find((r) => r.id === "url-rule-with-et");
     expect(found).toBeDefined();
     // executionTarget should have been stripped by the canonical parser
@@ -1815,7 +1832,7 @@ describe("canonical parser normalization-on-load", () => {
     expect(diskRule).not.toHaveProperty("executionTarget");
   });
 
-  test("URL rule with allowHighRisk is stripped on load (normalized)", () => {
+  test("URL rule with allowHighRisk is stripped on load (normalized)", async () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1836,7 +1853,7 @@ describe("canonical parser normalization-on-load", () => {
       }),
     );
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     const found = rules.find((r) => r.id === "url-rule-with-ahr");
     expect(found).toBeDefined();
     // allowHighRisk is stripped during normalization
@@ -1845,7 +1862,7 @@ describe("canonical parser normalization-on-load", () => {
     ).toBeUndefined();
   });
 
-  test("scoped rule preserves executionTarget but strips allowHighRisk on load", () => {
+  test("scoped rule preserves executionTarget but strips allowHighRisk on load", async () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1867,7 +1884,7 @@ describe("canonical parser normalization-on-load", () => {
       }),
     );
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     const found = rules.find((r) => r.id === "scoped-rule-with-opts");
     expect(found).toBeDefined();
     expect((found as { executionTarget?: string }).executionTarget).toBe(
@@ -1879,7 +1896,7 @@ describe("canonical parser normalization-on-load", () => {
     ).toBeUndefined();
   });
 
-  test("normalization on v2 file triggers re-save as v3", () => {
+  test("normalization on v2 file triggers re-save as v3", async () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1900,7 +1917,7 @@ describe("canonical parser normalization-on-load", () => {
       }),
     );
     clearCache();
-    getAllRules();
+    await getAllRules();
 
     // File should be re-saved as v3 with normalized rules
     const disk = JSON.parse(readFileSync(trustPath, "utf-8"));
@@ -1925,7 +1942,7 @@ describe("optional-scope matching fallback", () => {
     }
   });
 
-  test("rule with missing scope is normalized to everywhere and matches any dir", () => {
+  test("rule with missing scope is normalized to everywhere and matches any dir", async () => {
     // Simulate a persisted rule that somehow lacks a scope field —
     // the canonical parser normalizes it to "everywhere".
     mkdirSync(dirname(trustPath), { recursive: true });
@@ -1946,7 +1963,7 @@ describe("optional-scope matching fallback", () => {
       }),
     );
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     const found = rules.find((r) => r.id === "no-scope-rule");
     expect(found).toBeDefined();
     expect(found!.scope).toBe("everywhere");
@@ -1961,7 +1978,7 @@ describe("optional-scope matching fallback", () => {
     expect(match!.id).toBe("no-scope-rule");
   });
 
-  test("rule with empty-string scope is normalized to everywhere", () => {
+  test("rule with empty-string scope is normalized to everywhere", async () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1981,7 +1998,7 @@ describe("optional-scope matching fallback", () => {
       }),
     );
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     const found = rules.find((r) => r.id === "empty-scope-rule");
     expect(found).toBeDefined();
     // The ruleScope helper treats "" as "everywhere"
@@ -2007,7 +2024,7 @@ describe("unknown-version no-overwrite semantics", () => {
     }
   });
 
-  test("unknown version file is never overwritten even if normalization would apply", () => {
+  test("unknown version file is never overwritten even if normalization would apply", async () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     // A future version file with rules that would normally be normalized —
     // the unknown-version guard must prevent any disk writes.
@@ -2028,7 +2045,7 @@ describe("unknown-version no-overwrite semantics", () => {
     });
     writeFileSync(trustPath, originalContent);
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     // Defaults should be present in-memory
     const defaults = rules.filter((r) => r.id.startsWith("default:"));
     expect(defaults).toHaveLength(NUM_DEFAULTS);
@@ -2037,7 +2054,7 @@ describe("unknown-version no-overwrite semantics", () => {
     expect(diskContent).toBe(originalContent);
   });
 
-  test("unknown version returns only in-memory defaults, not file rules", () => {
+  test("unknown version returns only in-memory defaults, not file rules", async () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -2057,7 +2074,7 @@ describe("unknown-version no-overwrite semantics", () => {
       }),
     );
     clearCache();
-    const rules = getAllRules();
+    const rules = await getAllRules();
     // The file's rules should NOT appear in the loaded set
     expect(rules.find((r) => r.id === "v42-rule")).toBeUndefined();
     // Only defaults should be present

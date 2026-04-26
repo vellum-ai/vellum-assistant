@@ -206,9 +206,9 @@ export interface ApplyGuardianDecisionParams {
  *
  * Returns a structured result so callers can handle stale/race outcomes.
  */
-export function applyGuardianDecision(
+export async function applyGuardianDecision(
   params: ApplyGuardianDecisionParams,
-): ApplyGuardianDecisionResult {
+): Promise<ApplyGuardianDecisionResult> {
   const {
     approval,
     decision,
@@ -234,7 +234,7 @@ export function applyGuardianDecision(
     : approvalInfo[0];
 
   // Apply the decision to the underlying session
-  const result = handleChannelDecision(
+  const result = await handleChannelDecision(
     approval.conversationId,
     effectiveDecision,
     decisionContext,

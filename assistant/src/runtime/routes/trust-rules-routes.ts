@@ -31,8 +31,8 @@ const log = getLogger("trust-rules-routes");
 /**
  * GET /v1/trust-rules/manage — list all trust rules.
  */
-function handleListTrustRules(): Response {
-  const rules = getAllRules();
+async function handleListTrustRules(): Promise<Response> {
+  const rules = await getAllRules();
   return Response.json({ type: "trust_rules_list_response", rules });
 }
 
@@ -92,7 +92,7 @@ export async function handleAddTrustRuleManage(
     // Canonicalization is handled inside addRule — no need to pre-parse here.
     // Legacy callers that send e.g. executionTarget on a URL-tool rule won't
     // get a 4xx — the field is simply dropped during normalization in addRule.
-    addRule(
+    await addRule(
       toolName,
       pattern,
       isScoped ? scope! : "everywhere",
@@ -119,9 +119,11 @@ export async function handleAddTrustRuleManage(
 /**
  * DELETE /v1/trust-rules/manage/:id — remove a trust rule by ID.
  */
-export function handleRemoveTrustRuleManage(id: string): Response {
+export async function handleRemoveTrustRuleManage(
+  id: string,
+): Promise<Response> {
   try {
-    const removed = removeRule(id);
+    const removed = await removeRule(id);
     if (!removed) {
       return httpError("NOT_FOUND", "Trust rule not found", 404);
     }
@@ -171,7 +173,7 @@ export async function handleUpdateTrustRuleManage(
   }
 
   try {
-    updateRule(id, {
+    await updateRule(id, {
       tool: body.tool,
       pattern: body.pattern,
       scope: body.scope,

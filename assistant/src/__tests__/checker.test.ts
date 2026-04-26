@@ -299,7 +299,7 @@ describe("Permission Checker", () => {
 
     test("rm is high risk even with matching trust rule → prompt", async () => {
       mockRisk("high");
-      addRule("bash", "rm *", "/tmp");
+      await addRule("bash", "rm *", "/tmp");
       const result = await check("bash", { command: "rm file.txt" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("High risk");
@@ -330,7 +330,7 @@ describe("Permission Checker", () => {
 
     test("file_write with matching rule → allow", async () => {
       // check() builds commandStr as "file_write:/tmp/file.txt" for file tools
-      addRule("file_write", "file_write:/tmp/file.txt", "/tmp");
+      await addRule("file_write", "file_write:/tmp/file.txt", "/tmp");
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
@@ -341,7 +341,7 @@ describe("Permission Checker", () => {
     });
 
     test("host_file_read with higher-priority host rule → allow", async () => {
-      addRule(
+      await addRule(
         "host_file_read",
         "host_file_read:/etc/hosts",
         "everywhere",
@@ -358,7 +358,7 @@ describe("Permission Checker", () => {
     });
 
     test("host_file_write with higher-priority host rule → allow", async () => {
-      addRule(
+      await addRule(
         "host_file_write",
         "host_file_write:/Users/test/project/*",
         "everywhere",
@@ -377,7 +377,7 @@ describe("Permission Checker", () => {
     });
 
     test("host_file_edit with higher-priority host rule → allow", async () => {
-      addRule(
+      await addRule(
         "host_file_edit",
         "host_file_edit:/opt/config/app.yml",
         "everywhere",
@@ -396,7 +396,7 @@ describe("Permission Checker", () => {
     });
 
     test("host_bash reuses bash-style command matching", async () => {
-      addRule("host_bash", "npm *", "everywhere", "allow", 2000);
+      await addRule("host_bash", "npm *", "everywhere", "allow", 2000);
       // npm list is low-risk and matches the npm * allow rule
       const result = await check("host_bash", { command: "npm list" }, "/tmp");
       expect(result.decision).toBe("allow");
@@ -471,7 +471,7 @@ describe("Permission Checker", () => {
 
     test("allow rule for scaffold_managed_skill still prompts (High risk)", async () => {
       mockRisk("high");
-      addRule(
+      await addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
         "everywhere",
@@ -490,7 +490,7 @@ describe("Permission Checker", () => {
 
     test("allow rule for scaffold_managed_skill does not match other skill ids", async () => {
       mockRisk("high");
-      addRule(
+      await addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
         "everywhere",
@@ -507,7 +507,7 @@ describe("Permission Checker", () => {
 
     test("wildcard allow rule for delete_managed_skill still prompts (High risk)", async () => {
       mockRisk("high");
-      addRule(
+      await addRule(
         "delete_managed_skill",
         "delete_managed_skill:*",
         "everywhere",
@@ -551,7 +551,7 @@ describe("Permission Checker", () => {
     });
 
     test("higher-priority allow rule can override default computer-use ask rule", async () => {
-      addRule(
+      await addRule(
         "computer_use_click",
         "computer_use_click:*",
         "everywhere",
@@ -569,7 +569,7 @@ describe("Permission Checker", () => {
     });
 
     test("higher-priority deny rule can override default computer-use ask rule", async () => {
-      addRule(
+      await addRule(
         "computer_use_click",
         "computer_use_click:*",
         "everywhere",
@@ -587,7 +587,12 @@ describe("Permission Checker", () => {
     });
 
     test("deny rule for skill_load matches specific skill selectors", async () => {
-      addRule("skill_load", "skill_load:dangerous-skill", "everywhere", "deny");
+      await addRule(
+        "skill_load",
+        "skill_load:dangerous-skill",
+        "everywhere",
+        "deny",
+      );
       const result = await check(
         "skill_load",
         { skill: "dangerous-skill" },
@@ -598,14 +603,24 @@ describe("Permission Checker", () => {
     });
 
     test("non-matching skill_load deny rule does not block other skills", async () => {
-      addRule("skill_load", "skill_load:dangerous-skill", "everywhere", "deny");
+      await addRule(
+        "skill_load",
+        "skill_load:dangerous-skill",
+        "everywhere",
+        "deny",
+      );
       const result = await check("skill_load", { skill: "safe-skill" }, "/tmp");
       expect(result.decision).toBe("allow");
     });
 
     test("skill_load deny rule matches raw selector only (no bare-id alias resolution)", async () => {
       writeSkill("dangerous-skill", "Dangerous Skill");
-      addRule("skill_load", "skill_load:dangerous-skill", "everywhere", "deny");
+      await addRule(
+        "skill_load",
+        "skill_load:dangerous-skill",
+        "everywhere",
+        "deny",
+      );
 
       // Display name alias no longer resolves to bare ID candidate
       const byName = await check(
@@ -630,7 +645,7 @@ describe("Permission Checker", () => {
 
     test("high risk ignores allow rules", async () => {
       mockRisk("high");
-      addRule("bash", "sudo *", "everywhere");
+      await addRule("bash", "sudo *", "everywhere");
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("High risk");
@@ -638,7 +653,7 @@ describe("Permission Checker", () => {
 
     // Deny rule tests
     test("deny rule blocks high-risk command", async () => {
-      addRule("bash", "rm *", "/tmp", "deny");
+      await addRule("bash", "rm *", "/tmp", "deny");
       const result = await check("bash", { command: "rm file.txt" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
@@ -647,39 +662,39 @@ describe("Permission Checker", () => {
     });
 
     test("deny rule overrides allow rule", async () => {
-      addRule("bash", "rm *", "/tmp", "allow");
-      addRule("bash", "rm *", "/tmp", "deny");
+      await addRule("bash", "rm *", "/tmp", "allow");
+      await addRule("bash", "rm *", "/tmp", "deny");
       const result = await check("bash", { command: "rm file.txt" }, "/tmp");
       expect(result.decision).toBe("deny");
     });
 
     test("deny rule blocks low-risk command", async () => {
-      addRule("bash", "ls", "/tmp", "deny");
+      await addRule("bash", "ls", "/tmp", "deny");
       const result = await check("bash", { command: "ls" }, "/tmp");
       expect(result.decision).toBe("deny");
     });
 
     test("deny rule blocks high-risk command without prompting", async () => {
-      addRule("bash", "sudo *", "everywhere", "deny");
+      await addRule("bash", "sudo *", "everywhere", "deny");
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("deny");
     });
 
     test("deny rule for file tools", async () => {
-      addRule("file_write", "file_write:/etc/*", "everywhere", "deny");
+      await addRule("file_write", "file_write:/etc/*", "everywhere", "deny");
       const result = await check("file_write", { path: "/etc/passwd" }, "/tmp");
       expect(result.decision).toBe("deny");
     });
 
     test("non-matching deny rule does not block", async () => {
-      addRule("bash", "rm *", "/tmp", "deny");
+      await addRule("bash", "rm *", "/tmp", "deny");
       const result = await check("bash", { command: "ls" }, "/tmp");
       expect(result.decision).toBe("allow");
     });
 
     test("web_fetch allow rule does not auto-approve high-risk private-network fetches", async () => {
       mockRisk("high");
-      addRule("web_fetch", "web_fetch:http://localhost:3000/*", "/tmp");
+      await addRule("web_fetch", "web_fetch:http://localhost:3000/*", "/tmp");
       const result = await check(
         "web_fetch",
         { url: "http://localhost:3000/health", allow_private_network: true },
@@ -693,7 +708,7 @@ describe("Permission Checker", () => {
       // High-risk tools with allow rules always prompt. Sandbox
       // auto-approve only covers allowlisted bash commands in
       // containerized environments.
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
         "/tmp",
@@ -712,7 +727,7 @@ describe("Permission Checker", () => {
       const options = await generateAllowlistOptions("web_fetch", {
         url: "https://example.com/search?q=test",
       });
-      addRule("web_fetch", options[0].pattern, "/tmp");
+      await addRule("web_fetch", options[0].pattern, "/tmp");
 
       const allowed = await check(
         "web_fetch",
@@ -734,7 +749,7 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch deny rule blocks matching urls", async () => {
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:https://example.com/private/*",
         "everywhere",
@@ -749,7 +764,7 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch deny rule blocks urls that only differ by fragment", async () => {
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:https://example.com/private/doc",
         "everywhere",
@@ -764,7 +779,7 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch deny rule blocks urls that only differ by trailing-dot hostname", async () => {
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:https://example.com/private/*",
         "everywhere",
@@ -779,7 +794,7 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch deny rule blocks urls after stripping userinfo during normalization", async () => {
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:https://example.com/private/*",
         "everywhere",
@@ -799,7 +814,7 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch deny rule blocks scheme-less host:port inputs after normalization", async () => {
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:https://example.com:8443/*",
         "everywhere",
@@ -814,7 +829,7 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch deny rule blocks percent-encoded path equivalents after normalization", async () => {
-      addRule(
+      await addRule(
         "web_fetch",
         "web_fetch:https://example.com/private/*",
         "everywhere",
@@ -841,7 +856,7 @@ describe("Permission Checker", () => {
     });
 
     test("network_request allow rule auto-approves matching origin", async () => {
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "/tmp",
@@ -856,7 +871,7 @@ describe("Permission Checker", () => {
 
     test("network_request allow rule does not match a different host", async () => {
       mockRisk("medium");
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "/tmp",
@@ -870,7 +885,7 @@ describe("Permission Checker", () => {
     });
 
     test("network_request deny rule blocks matching urls", async () => {
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/secret/*",
         "everywhere",
@@ -885,7 +900,7 @@ describe("Permission Checker", () => {
     });
 
     test("network_request rule ignores scope (URL tools are not scoped)", async () => {
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com/*",
         "/home/user/project",
@@ -909,7 +924,7 @@ describe("Permission Checker", () => {
 
     test("network_request rules do not cross-match web_fetch rules", async () => {
       mockRisk("medium");
-      addRule("web_fetch", "web_fetch:https://api.example.com/*", "/tmp");
+      await addRule("web_fetch", "web_fetch:https://api.example.com/*", "/tmp");
       const result = await check(
         "network_request",
         { url: "https://api.example.com/v1/data" },
@@ -920,7 +935,7 @@ describe("Permission Checker", () => {
 
     test("network_request normalizes scheme-less host:port urls for rule matching", async () => {
       mockRisk("medium");
-      addRule(
+      await addRule(
         "network_request",
         "network_request:https://api.example.com:8443/*",
         "everywhere",
@@ -938,8 +953,8 @@ describe("Permission Checker", () => {
     test("higher-priority allow rule overrides lower-priority deny rule", async () => {
       // Use git push (medium risk) since chmod is now high-risk in the registry
       // and high-risk commands are never auto-allowed by allow rules
-      addRule("bash", "git push *", "/tmp", "deny", 0);
-      addRule("bash", "git push *", "/tmp", "allow", 100);
+      await addRule("bash", "git push *", "/tmp", "deny", 0);
+      await addRule("bash", "git push *", "/tmp", "allow", 100);
       const result = await check(
         "bash",
         { command: "git push origin main" },
@@ -949,8 +964,8 @@ describe("Permission Checker", () => {
     });
 
     test("higher-priority deny rule overrides lower-priority allow rule", async () => {
-      addRule("bash", "chmod *", "/tmp", "allow", 0);
-      addRule("bash", "chmod *", "/tmp", "deny", 100);
+      await addRule("bash", "chmod *", "/tmp", "allow", 0);
+      await addRule("bash", "chmod *", "/tmp", "deny", 100);
       const result = await check(
         "bash",
         { command: "chmod 644 file.txt" },
@@ -961,13 +976,13 @@ describe("Permission Checker", () => {
 
     test("high-risk command still prompts even with high-priority allow rule", async () => {
       mockRisk("high");
-      addRule("bash", "sudo *", "everywhere", "allow", 100);
+      await addRule("bash", "sudo *", "everywhere", "allow", 100);
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("prompt");
     });
 
     test("high-risk command is denied by deny rule without prompting", async () => {
-      addRule("bash", "sudo *", "everywhere", "deny", 100);
+      await addRule("bash", "sudo *", "everywhere", "deny", 100);
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("deny");
     });
@@ -1006,7 +1021,13 @@ describe("Permission Checker", () => {
     });
 
     test("skill tool with matching allow rule → auto-allowed", async () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+      );
       const result = await check("skill_test_tool", {}, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("Matched trust rule");
@@ -1023,7 +1044,13 @@ describe("Permission Checker", () => {
 
     // Regression: trust rules properly override the default-ask policy
     test("skill tool with allow rule → auto-allowed (non-high-risk)", async () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+      );
       const result = await check("skill_test_tool", {}, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1031,7 +1058,13 @@ describe("Permission Checker", () => {
     });
 
     test("skill tool with deny rule → blocked", async () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "deny", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "deny",
+        2000,
+      );
       const result = await check("skill_test_tool", {}, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
@@ -1040,7 +1073,13 @@ describe("Permission Checker", () => {
     });
 
     test("skill tool with ask rule → prompts", async () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "ask", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "ask",
+        2000,
+      );
       const result = await check("skill_test_tool", {}, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("ask rule");
@@ -1066,7 +1105,7 @@ describe("Permission Checker", () => {
         execute: async () => ({ content: "ok", isError: false }),
       };
       registerTool(highRiskSkillTool);
-      addRule(
+      await addRule(
         "skill_high_risk_tool",
         "skill_high_risk_tool:*",
         "/tmp",
@@ -1182,7 +1221,7 @@ describe("Permission Checker", () => {
       );
     });
 
-    test("getDefaultRuleTemplates emits guardian persona rules when guardian is resolved", () => {
+    test("getDefaultRuleTemplates emits guardian persona rules when guardian is resolved", async () => {
       const guardianPath = join(checkerTestDir, "users", "alice.md");
       mockGuardianPersonaPath = guardianPath;
       const templates = getDefaultRuleTemplates();
@@ -1199,7 +1238,7 @@ describe("Permission Checker", () => {
       }
     });
 
-    test("getDefaultRuleTemplates emits no guardian persona rules when unresolved", () => {
+    test("getDefaultRuleTemplates emits no guardian persona rules when unresolved", async () => {
       mockGuardianPersonaPath = null;
       const templates = getDefaultRuleTemplates();
       const guardianRules = templates.filter((t) =>
@@ -1510,7 +1549,7 @@ describe("Permission Checker", () => {
   // ── generateScopeOptions ───────────────────────────────────────
 
   describe("generateScopeOptions", () => {
-    test("generates project dir, parent dir, and everywhere", () => {
+    test("generates project dir, parent dir, and everywhere", async () => {
       const options = generateScopeOptions("/home/user/project");
       expect(options).toHaveLength(3);
       expect(options[0].scope).toBe("/home/user/project");
@@ -1518,34 +1557,34 @@ describe("Permission Checker", () => {
       expect(options[2]).toEqual({ label: "everywhere", scope: "everywhere" });
     });
 
-    test("uses ~ for home directory in labels", () => {
+    test("uses ~ for home directory in labels", async () => {
       const home = homedir();
       const options = generateScopeOptions(`${home}/projects/myapp`);
       expect(options[0].label).toBe("~/projects/myapp");
       expect(options[1].label).toBe("~/projects/*");
     });
 
-    test("root directory has no parent option", () => {
+    test("root directory has no parent option", async () => {
       const options = generateScopeOptions("/");
       expect(options).toHaveLength(2);
       expect(options[0].scope).toBe("/");
       expect(options[1]).toEqual({ label: "everywhere", scope: "everywhere" });
     });
 
-    test("non-home path uses absolute path in labels", () => {
+    test("non-home path uses absolute path in labels", async () => {
       const options = generateScopeOptions("/var/data/app");
       expect(options[0].label).toBe("/var/data/app");
       expect(options[1].label).toBe("/var/data/*");
     });
 
-    test("host tools use project → parent → everywhere ordering (same as non-host)", () => {
+    test("host tools use project → parent → everywhere ordering (same as non-host)", async () => {
       const options = generateScopeOptions("/var/data/app", "host_file_read");
       expect(options[0].scope).toBe("/var/data/app");
       expect(options[1].scope).toBe("/var/data");
       expect(options[2]).toEqual({ label: "everywhere", scope: "everywhere" });
     });
 
-    test("scope-aware tools all produce the same directory-based ordering", () => {
+    test("scope-aware tools all produce the same directory-based ordering", async () => {
       const workingDir = join(homedir(), "projects", "myapp");
 
       const bashOpts = generateScopeOptions(workingDir, "bash");
@@ -1563,7 +1602,7 @@ describe("Permission Checker", () => {
       );
     });
 
-    test("returns empty for non-scoped tools", () => {
+    test("returns empty for non-scoped tools", async () => {
       const workingDir = join(homedir(), "projects", "myapp");
       expect(generateScopeOptions(workingDir, "web_fetch")).toHaveLength(0);
       expect(generateScopeOptions(workingDir, "skill_load")).toHaveLength(0);
@@ -1578,13 +1617,13 @@ describe("Permission Checker", () => {
       ).toHaveLength(0);
     });
 
-    test("returns directory options when toolName is omitted", () => {
+    test("returns directory options when toolName is omitted", async () => {
       const options = generateScopeOptions("/home/user/project");
       expect(options).toHaveLength(3);
       expect(options[0].scope).toBe("/home/user/project");
     });
 
-    test("SCOPE_AWARE_TOOLS contains only filesystem and shell tools", () => {
+    test("SCOPE_AWARE_TOOLS contains only filesystem and shell tools", async () => {
       expect(SCOPE_AWARE_TOOLS).toEqual(
         new Set([
           "bash",
@@ -1641,7 +1680,11 @@ describe("Permission Checker", () => {
         "my-skill",
         "executor.ts",
       );
-      addRule("file_write", `file_write:${checkerTestDir}/skills/**`, "/tmp");
+      await addRule(
+        "file_write",
+        `file_write:${checkerTestDir}/skills/**`,
+        "/tmp",
+      );
       const result = await check("file_write", { path: skillPath }, "/tmp");
       // High risk with allow rule prompts — sandbox auto-approve only covers allowlisted bash commands in containerized environments.
       expect(result.decision).toBe("prompt");
@@ -1656,7 +1699,7 @@ describe("Permission Checker", () => {
         "my-skill",
         "executor.ts",
       );
-      addRule(
+      await addRule(
         "file_write",
         `file_write:${checkerTestDir}/skills/**`,
         "/tmp",
@@ -1705,15 +1748,21 @@ describe("Permission Checker", () => {
 
   describe("addRule basics", () => {
     test("rule matches by tool/pattern/scope", async () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+      );
       const result = await check("skill_test_tool", {}, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
       expect(result.matchedRule!.tool).toBe("skill_test_tool");
     });
 
-    test("addRule creates rule with base fields only", () => {
-      const rule = addRule(
+    test("addRule creates rule with base fields only", async () => {
+      const rule = await addRule(
         "skill_test_tool",
         "skill_test_tool:*",
         "/tmp",
@@ -1731,7 +1780,13 @@ describe("Permission Checker", () => {
     });
 
     test("wildcard rule matches regardless of caller version (no version binding)", async () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+      );
 
       // "v1" call
       const v1Result = await check(
@@ -1751,10 +1806,16 @@ describe("Permission Checker", () => {
       expect(v2Result.matchedRule?.id).toBe(v1Result.matchedRule?.id);
     });
 
-    test("findHighestPriorityRule works without policy context", () => {
+    test("findHighestPriorityRule works without policy context", async () => {
       // Calling findHighestPriorityRule without the optional 4th ctx
       // parameter still works — wildcard rules match any caller.
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+      );
       const match = findHighestPriorityRule(
         "skill_test_tool",
         ["skill_test_tool:test"],
@@ -1778,8 +1839,8 @@ describe("Permission Checker", () => {
   // family-aware union type changes are wire-compatible with the platform.
 
   describe("family-aware rule shape regression", () => {
-    test("scoped tool (bash) preserves executionTarget through disk round-trip (allowHighRisk stripped)", () => {
-      const rule = addRule("bash", "kill *", "everywhere", "allow", 100, {
+    test("scoped tool (bash) preserves executionTarget through disk round-trip (allowHighRisk stripped)", async () => {
+      const rule = await addRule("bash", "kill *", "everywhere", "allow", 100, {
         executionTarget: "/usr/local/bin/node",
       });
       expect(rule.executionTarget).toBe("/usr/local/bin/node");
@@ -1796,8 +1857,8 @@ describe("Permission Checker", () => {
       expect(reloaded!.executionTarget).toBe("/usr/local/bin/node");
     });
 
-    test("URL tool (web_fetch) round-trips without allowHighRisk", () => {
-      addRule(
+    test("URL tool (web_fetch) round-trips without allowHighRisk", async () => {
+      await addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
         "/tmp",
@@ -1816,8 +1877,14 @@ describe("Permission Checker", () => {
       expect(reloaded!.pattern).toBe("web_fetch:http://localhost:3000/*");
     });
 
-    test("generic tool (skill_test_tool) preserves executionTarget through round-trip", () => {
-      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
+    test("generic tool (skill_test_tool) preserves executionTarget through round-trip", async () => {
+      await addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+      );
 
       clearCache();
       const reloaded = findHighestPriorityRule(
@@ -1829,7 +1896,7 @@ describe("Permission Checker", () => {
       expect(reloaded!.pattern).toBe("skill_test_tool:*");
     });
 
-    test("rule without scope defaults to 'everywhere' after parsing", () => {
+    test("rule without scope defaults to 'everywhere' after parsing", async () => {
       // Write a rule directly with no scope field to simulate legacy data
       const trustPath = join(checkerTestDir, "protected", "trust.json");
       const trustDir = join(checkerTestDir, "protected");
@@ -1869,7 +1936,7 @@ describe("Permission Checker", () => {
   // ── PolicyContext type (PR 3) ──────────────────────────────────
 
   describe("PolicyContext type (PR 3)", () => {
-    test("PolicyContext carries executionTarget", () => {
+    test("PolicyContext carries executionTarget", async () => {
       const ctx: import("../permissions/types.js").PolicyContext = {
         executionTarget: "sandbox",
       };
@@ -1881,7 +1948,7 @@ describe("Permission Checker", () => {
 
   describe("optional policyContext parameter", () => {
     test("check() without policyContext still works", async () => {
-      addRule("bash", "echo test-optional-ctx", "/tmp", "allow", 2000);
+      await addRule("bash", "echo test-optional-ctx", "/tmp", "allow", 2000);
       const result = await check(
         "bash",
         { command: "echo test-optional-ctx" },
@@ -1934,7 +2001,7 @@ describe("Permission Checker", () => {
 
     test("explicit allow rule still returns allow in strict mode", async () => {
       testConfig.permissions.mode = "strict";
-      addRule("bash", "ls", "/tmp", "allow");
+      await addRule("bash", "ls", "/tmp", "allow");
       const result = await check("bash", { command: "ls" }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("Matched trust rule");
@@ -1942,7 +2009,7 @@ describe("Permission Checker", () => {
 
     test("deny rules still take precedence in strict mode", async () => {
       testConfig.permissions.mode = "strict";
-      addRule("bash", "ls", "/tmp", "deny");
+      await addRule("bash", "ls", "/tmp", "deny");
       const result = await check("bash", { command: "ls" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
@@ -1968,7 +2035,7 @@ describe("Permission Checker", () => {
 
     test("ask rules still prompt in strict mode", async () => {
       testConfig.permissions.mode = "strict";
-      addRule("bash", "echo *", "/tmp", "ask");
+      await addRule("bash", "echo *", "/tmp", "ask");
       const result = await check("bash", { command: "echo hello" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("ask rule");
@@ -1977,7 +2044,7 @@ describe("Permission Checker", () => {
     test("high-risk with allow rule still prompts in strict mode (allow cannot override high risk)", async () => {
       mockRisk("high");
       testConfig.permissions.mode = "strict";
-      addRule("bash", "sudo *", "everywhere", "allow");
+      await addRule("bash", "sudo *", "everywhere", "allow");
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("High risk");
@@ -1989,7 +2056,7 @@ describe("Permission Checker", () => {
   describe("sandbox auto-approve", () => {
     test("high-risk bash with allow rule in non-containerized environment prompts", async () => {
       mockRisk("high");
-      addRule("bash", "kill *", "everywhere", "allow", 2000);
+      await addRule("bash", "kill *", "everywhere", "allow", 2000);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("High risk");
@@ -1999,7 +2066,7 @@ describe("Permission Checker", () => {
       mockRisk("high");
       // `kill` is not on the sandboxAutoApprove allowlist, so even in a
       // containerized environment with an allow rule, it should prompt.
-      addRule("bash", "**", "everywhere", "allow", 2000);
+      await addRule("bash", "**", "everywhere", "allow", 2000);
 
       // Capture the file-backend result so we can return it from the spy.
       // We need this because setting getIsContainerized=true would route
@@ -2054,7 +2121,7 @@ describe("Permission Checker", () => {
       // `curl` is NOT tagged with sandboxAutoApprove in the command registry.
       // Use a high-risk curl variant (data upload) to confirm sandbox auto-approve
       // does not fire for non-allowlisted commands even with a matching allow rule.
-      addRule("bash", "**", "everywhere", "allow", 2000);
+      await addRule("bash", "**", "everywhere", "allow", 2000);
 
       const fileRule = findHighestPriorityRule(
         "bash",
@@ -2146,7 +2213,7 @@ describe("Permission Checker", () => {
 
     test("medium-risk tool with allow rule auto-allows normally", async () => {
       // Use git push (medium risk) since chmod is now high-risk in the registry
-      addRule("bash", "git push *", "/tmp", "allow", 100);
+      await addRule("bash", "git push *", "/tmp", "allow", 100);
       const result = await check(
         "bash",
         { command: "git push origin main" },
@@ -2158,7 +2225,7 @@ describe("Permission Checker", () => {
 
     test("high-risk scaffold_managed_skill with allow rule prompts (non-bash, no sandbox auto-approve)", async () => {
       mockRisk("high");
-      addRule(
+      await addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
         "everywhere",
@@ -2175,7 +2242,7 @@ describe("Permission Checker", () => {
 
     test("high-risk delete_managed_skill with allow rule prompts (non-bash, no sandbox auto-approve)", async () => {
       mockRisk("high");
-      addRule(
+      await addRule(
         "delete_managed_skill",
         "delete_managed_skill:*",
         "everywhere",
@@ -2191,8 +2258,8 @@ describe("Permission Checker", () => {
     });
 
     test("deny rule still takes precedence over allow rule for high-risk", async () => {
-      addRule("bash", "kill *", "everywhere", "allow", 100);
-      addRule("bash", "kill *", "everywhere", "deny", 200);
+      await addRule("bash", "kill *", "everywhere", "allow", 100);
+      await addRule("bash", "kill *", "everywhere", "deny", 200);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
@@ -2380,7 +2447,7 @@ describe("Permission Checker", () => {
     test("strict mode: high-risk bash with allow rule prompts in non-containerized env", async () => {
       mockRisk("high");
       testConfig.permissions.mode = "strict";
-      addRule("bash", "kill *", "everywhere", "allow", 2000);
+      await addRule("bash", "kill *", "everywhere", "allow", 2000);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("High risk");
@@ -2389,7 +2456,7 @@ describe("Permission Checker", () => {
     test("strict mode: medium-risk with matching allow rule auto-allows", async () => {
       testConfig.permissions.mode = "strict";
       // Use git push (medium risk) since chmod is now high-risk in the registry
-      addRule("bash", "git push *", "/tmp", "allow");
+      await addRule("bash", "git push *", "/tmp", "allow");
       const result = await check(
         "bash",
         { command: "git push origin main" },
@@ -2401,8 +2468,8 @@ describe("Permission Checker", () => {
 
     test("strict mode: deny rule overrides allow rule for high-risk", async () => {
       testConfig.permissions.mode = "strict";
-      addRule("bash", "kill *", "everywhere", "allow", 100);
-      addRule("bash", "kill *", "everywhere", "deny", 200);
+      await addRule("bash", "kill *", "everywhere", "allow", 100);
+      await addRule("bash", "kill *", "everywhere", "deny", 200);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
@@ -2411,7 +2478,7 @@ describe("Permission Checker", () => {
     test("strict mode: scaffold_managed_skill with allow rule still prompts (non-bash)", async () => {
       mockRisk("high");
       testConfig.permissions.mode = "strict";
-      addRule(
+      await addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
         "everywhere",
@@ -2537,7 +2604,7 @@ describe("Permission Checker", () => {
           "my-skill",
           "executor.ts",
         );
-        addRule(
+        await addRule(
           "file_write",
           `file_write:${checkerTestDir}/skills/**`,
           "/tmp",
@@ -2557,7 +2624,7 @@ describe("Permission Checker", () => {
           "my-skill",
           "SKILL.md",
         );
-        addRule(
+        await addRule(
           "file_edit",
           `file_edit:${checkerTestDir}/skills/**`,
           "/tmp",
@@ -2576,14 +2643,14 @@ describe("Permission Checker", () => {
           "my-skill",
           "executor.ts",
         );
-        addRule(
+        await addRule(
           "file_write",
           `file_write:${checkerTestDir}/skills/**`,
           "/tmp",
           "allow",
           100,
         );
-        addRule(
+        await addRule(
           "file_write",
           `file_write:${checkerTestDir}/skills/**`,
           "/tmp",
@@ -2619,7 +2686,7 @@ describe("Permission Checker", () => {
       mockRisk("high");
       ensureSkillsDir();
       const skillPath = join(wsSkillsDir, "my-skill", "executor.ts");
-      addRule(
+      await addRule(
         "file_write",
         `file_write:${wsSkillsDir}/**`,
         "everywhere",
@@ -2682,7 +2749,7 @@ describe("Permission Checker", () => {
       const relPath = "../real-dir/config.json";
       const canonical = resolve(workingDir, relPath);
 
-      addRule("file_write", `file_write:${canonical}`, "everywhere");
+      await addRule("file_write", `file_write:${canonical}`, "everywhere");
       const result = await check("file_write", { path: relPath }, workingDir);
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -2696,7 +2763,11 @@ describe("Permission Checker", () => {
       const realFileResolved = join(realDirResolved, "config.json");
 
       // file_write is Low risk — but add a rule to verify symlink path matching.
-      addRule("file_write", `file_write:${realFileResolved}`, "everywhere");
+      await addRule(
+        "file_write",
+        `file_write:${realFileResolved}`,
+        "everywhere",
+      );
       const result = await check(
         "file_write",
         { path: symlinkedFile },
@@ -2716,7 +2787,11 @@ describe("Permission Checker", () => {
       // candidate uses resolve(workingDir, path) which on the raw path
       // preserves the sym-dir segment.
       const resolvedSymPath = resolve(symlinkTestDir, symlinkedFile);
-      addRule("file_write", `file_write:${resolvedSymPath}`, "everywhere");
+      await addRule(
+        "file_write",
+        `file_write:${resolvedSymPath}`,
+        "everywhere",
+      );
       const result = await check(
         "file_write",
         { path: symlinkedFile },
@@ -2727,7 +2802,11 @@ describe("Permission Checker", () => {
 
       // And a rule targeting the canonical (realpath) path should also match
       clearCache();
-      addRule("file_write", `file_write:${realFileResolved}`, "everywhere");
+      await addRule(
+        "file_write",
+        `file_write:${realFileResolved}`,
+        "everywhere",
+      );
       const result2 = await check(
         "file_write",
         { path: symlinkedFile },
@@ -2741,7 +2820,7 @@ describe("Permission Checker", () => {
       const symlinkedFile = join(symDir, "config.json");
       const realFileResolved = join(realDirResolved, "config.json");
 
-      addRule(
+      await addRule(
         "host_file_read",
         `host_file_read:${realFileResolved}`,
         "everywhere",
@@ -2761,7 +2840,7 @@ describe("Permission Checker", () => {
       const symlinkedFile = join(symDir, "config.json");
       const realFileResolved = join(realDirResolved, "config.json");
 
-      addRule(
+      await addRule(
         "host_file_edit",
         `host_file_edit:${realFileResolved}`,
         "everywhere",
@@ -2782,7 +2861,7 @@ describe("Permission Checker", () => {
       const relPath = "./../real-dir/./config.json";
       const canonical = resolve(workingDir, relPath);
 
-      addRule("file_edit", `file_edit:${canonical}`, "everywhere");
+      await addRule("file_edit", `file_edit:${canonical}`, "everywhere");
       const result = await check("file_edit", { path: relPath }, workingDir);
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -2796,7 +2875,11 @@ describe("Permission Checker", () => {
       // The canonical form resolves the symlink parent to realDirResolved
       const realNewFileResolved = join(realDirResolved, "new-file.txt");
 
-      addRule("file_write", `file_write:${realNewFileResolved}`, "everywhere");
+      await addRule(
+        "file_write",
+        `file_write:${realNewFileResolved}`,
+        "everywhere",
+      );
       const result = await check(
         "file_write",
         { path: symlinkedNewFile },
@@ -2834,7 +2917,7 @@ describe("Permission Checker", () => {
       const expectedHash = computeHash(skillDir);
 
       // Add a rule matching the hash-qualified candidate
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:test-hash-skill@${expectedHash}`,
         "everywhere",
@@ -2861,7 +2944,7 @@ describe("Permission Checker", () => {
       testConfig.permissions.mode = "strict";
 
       // Rule matches the raw selector (which happens to equal the skill id)
-      addRule(
+      await addRule(
         "skill_load",
         "skill_load:test-anyver-skill",
         "everywhere",
@@ -2885,7 +2968,7 @@ describe("Permission Checker", () => {
       // candidate is generated. Only the raw selector candidate remains.
       testConfig.permissions.mode = "strict";
 
-      addRule(
+      await addRule(
         "skill_load",
         "skill_load:nonexistent-skill",
         "everywhere",
@@ -2913,7 +2996,7 @@ describe("Permission Checker", () => {
       // Add a rule matching the spoofed hash — should NOT match because
       // the permission system must use the disk-computed hash, not the
       // untrusted input.
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:test-explicit-hash@${spoofedHash}`,
         "everywhere",
@@ -3001,7 +3084,7 @@ describe("Permission Checker", () => {
 
       // Attacker-supplied hash that matches a trust rule
       const spoofedHash = "v1:attacker-controlled-hash";
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:test-spoof-target@${spoofedHash}`,
         "everywhere",
@@ -3044,7 +3127,7 @@ describe("Permission Checker", () => {
 
       // Add a rule that would match if the input hash were used
       const fakeHash = "v1:fake-fallback-hash";
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:test-fallback-bare@${fakeHash}`,
         "everywhere",
@@ -3053,7 +3136,7 @@ describe("Permission Checker", () => {
       );
 
       // Also add the disk hash rule to verify disk hash IS used
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:test-fallback-bare@${diskHash}`,
         "everywhere",
@@ -3098,7 +3181,7 @@ describe("Permission Checker", () => {
       const skillDir = join(checkerTestDir, "skills", "pr34-exact-ver");
       const expectedHash = computeHash(skillDir);
 
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:pr34-exact-ver@${expectedHash}`,
         "everywhere",
@@ -3123,7 +3206,7 @@ describe("Permission Checker", () => {
       writeSkill("pr34-wildcard", "PR34 Wildcard");
       testConfig.permissions.mode = "strict";
 
-      addRule("skill_load", "skill_load:*", "everywhere", "allow", 2000);
+      await addRule("skill_load", "skill_load:*", "everywhere", "allow", 2000);
 
       const result = await check(
         "skill_load",
@@ -3140,7 +3223,7 @@ describe("Permission Checker", () => {
       writeSkill("pr34-bare-id", "PR34 Bare ID");
       testConfig.permissions.mode = "strict";
 
-      addRule(
+      await addRule(
         "skill_load",
         "skill_load:pr34-bare-id",
         "everywhere",
@@ -3171,7 +3254,7 @@ describe("Permission Checker", () => {
       writeSkill("pr34-denied", "PR34 Denied");
       testConfig.permissions.mode = "strict";
 
-      addRule(
+      await addRule(
         "skill_load",
         "skill_load:pr34-denied",
         "everywhere",
@@ -3193,7 +3276,13 @@ describe("Permission Checker", () => {
       writeSkill("pr34-ask", "PR34 Ask");
       testConfig.permissions.mode = "strict";
 
-      addRule("skill_load", "skill_load:pr34-ask", "everywhere", "ask", 2000);
+      await addRule(
+        "skill_load",
+        "skill_load:pr34-ask",
+        "everywhere",
+        "ask",
+        2000,
+      );
 
       const result = await check("skill_load", { skill: "pr34-ask" }, "/tmp");
       expect(result.decision).toBe("prompt");
@@ -3206,7 +3295,7 @@ describe("Permission Checker", () => {
       testConfig.permissions.mode = "strict";
 
       // Add a rule with a wrong hash — should not match
-      addRule(
+      await addRule(
         "skill_load",
         "skill_load:pr34-wrong-ver@v1:wronghash",
         "everywhere",
@@ -3248,7 +3337,7 @@ describe("Permission Checker", () => {
       const hashV1 = computeHash(skillDir);
 
       // Add a version-specific rule matching the current hash
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:pr35-hash-skill@${hashV1}`,
         "everywhere",
@@ -3304,7 +3393,7 @@ describe("Permission Checker", () => {
       const fakeHash = "v1:attacker-supplied-hash";
 
       // Add a rule matching the disk hash
-      addRule(
+      await addRule(
         "skill_load",
         `skill_load:pr35-explicit-hash@${diskHash}`,
         "everywhere",
@@ -3473,7 +3562,7 @@ describe("Permission Checker", () => {
 
       test("explicit allow rule allows execution in strict mode", async () => {
         testConfig.permissions.mode = "strict";
-        addRule("bash", "echo *", "/tmp", "allow");
+        await addRule("bash", "echo *", "/tmp", "allow");
         const result = await check("bash", { command: "echo hello" }, "/tmp");
         expect(result.decision).toBe("allow");
       });
@@ -3594,7 +3683,11 @@ describe("Permission Checker", () => {
           "inv5-skill",
           "executor.ts",
         );
-        addRule("file_write", `file_write:${checkerTestDir}/skills/**`, "/tmp");
+        await addRule(
+          "file_write",
+          `file_write:${checkerTestDir}/skills/**`,
+          "/tmp",
+        );
         const result = await check("file_write", { path: skillPath }, "/tmp");
         expect(result.decision).toBe("prompt");
         expect(result.reason).toContain("High risk");
@@ -3609,7 +3702,7 @@ describe("Permission Checker", () => {
           "inv5-skill",
           "executor.ts",
         );
-        addRule(
+        await addRule(
           "file_write",
           `file_write:${checkerTestDir}/skills/**`,
           "/tmp",
@@ -3630,7 +3723,7 @@ describe("Permission Checker", () => {
           commandCandidates: ["curl https://example.com", "action:curl"],
         });
         testConfig.permissions.mode = "workspace";
-        addRule("bash", "*", "everywhere");
+        await addRule("bash", "*", "everywhere");
         // Use curl (medium risk) since chmod is now high-risk and
         // allow rules don't auto-allow high-risk commands
         const result = await check(
@@ -3647,7 +3740,7 @@ describe("Permission Checker", () => {
           commandCandidates: ["curl https://example.com", "action:curl"],
         });
         testConfig.permissions.mode = "strict";
-        addRule("bash", "*", "everywhere");
+        await addRule("bash", "*", "everywhere");
         // Use curl (medium risk) since chmod is now high-risk and
         // allow rules don't auto-allow high-risk commands
         const result = await check(
@@ -3660,7 +3753,7 @@ describe("Permission Checker", () => {
       });
 
       test("global scope (everywhere) rule matches any working directory", async () => {
-        addRule("bash", "npm *", "everywhere");
+        await addRule("bash", "npm *", "everywhere");
         const r1 = await check(
           "bash",
           { command: "npm install" },
@@ -3677,7 +3770,7 @@ describe("Permission Checker", () => {
 
       test("high-risk bash with allow rule prompts in non-containerized environment", async () => {
         mockRisk("high");
-        addRule("bash", "sudo *", "everywhere", "allow", 2000);
+        await addRule("bash", "sudo *", "everywhere", "allow", 2000);
         const result = await check(
           "bash",
           { command: "sudo rm -rf /" },
@@ -3689,7 +3782,13 @@ describe("Permission Checker", () => {
 
       test("broad skill_load wildcard rule allows all skill loads in strict mode", async () => {
         testConfig.permissions.mode = "strict";
-        addRule("skill_load", "skill_load:*", "everywhere", "allow", 2000);
+        await addRule(
+          "skill_load",
+          "skill_load:*",
+          "everywhere",
+          "allow",
+          2000,
+        );
         const result = await check(
           "skill_load",
           { skill: "any-skill-at-all" },
@@ -3721,7 +3820,7 @@ describe("Permission Checker", () => {
 
     test("file_read: path resolves correctly on non-Windows", async () => {
       const filePath = `${resolvedTestDir}/some/file.txt`;
-      addRule(
+      await addRule(
         "file_read",
         `file_read:${filePath}`,
         "everywhere",
@@ -3739,7 +3838,7 @@ describe("Permission Checker", () => {
 
     test("file_write: path resolves correctly on non-Windows", async () => {
       const filePath = `${resolvedTestDir}/some/out.txt`;
-      addRule(
+      await addRule(
         "file_write",
         `file_write:${filePath}`,
         "everywhere",
@@ -3757,7 +3856,7 @@ describe("Permission Checker", () => {
 
     test("file_edit: path resolves correctly on non-Windows", async () => {
       const filePath = `${resolvedTestDir}/some/edit.txt`;
-      addRule(
+      await addRule(
         "file_edit",
         `file_edit:${filePath}`,
         "everywhere",
@@ -3775,7 +3874,7 @@ describe("Permission Checker", () => {
 
     test("host_file_read: path resolves correctly on non-Windows", async () => {
       const filePath = `${resolvedTestDir}/some/host.txt`;
-      addRule(
+      await addRule(
         "host_file_read",
         `host_file_read:${filePath}`,
         "everywhere",
@@ -3789,7 +3888,7 @@ describe("Permission Checker", () => {
 
     test("host_file_write: path resolves correctly on non-Windows", async () => {
       const filePath = `${resolvedTestDir}/some/host-out.txt`;
-      addRule(
+      await addRule(
         "host_file_write",
         `host_file_write:${filePath}`,
         "everywhere",
@@ -3803,7 +3902,7 @@ describe("Permission Checker", () => {
 
     test("host_file_edit: path resolves correctly on non-Windows", async () => {
       const filePath = `${resolvedTestDir}/some/host-edit.txt`;
-      addRule(
+      await addRule(
         "host_file_edit",
         `host_file_edit:${filePath}`,
         "everywhere",
@@ -3875,7 +3974,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 
   test("host_bash with network_mode=proxied follows normal flow", async () => {
-    addRule("host_bash", "**", "everywhere");
+    await addRule("host_bash", "**", "everywhere");
     const result = await check(
       "host_bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
@@ -3892,7 +3991,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   test("non-proxied bash with trust rule follows normal flow", async () => {
     // Use git push (medium risk) since chmod is now high-risk in the registry
     // and high-risk commands are never auto-allowed by allow rules
-    addRule("bash", "git push *", "/tmp");
+    await addRule("bash", "git push *", "/tmp");
     const result = await check(
       "bash",
       { command: "git push origin main" },
@@ -3915,7 +4014,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
       commandCandidates: ["curl https://api.example.com", "action:curl"],
     });
     testConfig.permissions = { mode: "strict" };
-    addRule("bash", "*", "everywhere");
+    await addRule("bash", "*", "everywhere");
     const result = await check(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
@@ -3925,7 +4024,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 
   test("deny rule still blocks proxied bash command", async () => {
-    addRule("bash", "sudo *", "everywhere", "deny");
+    await addRule("bash", "sudo *", "everywhere", "deny");
     const result = await check(
       "bash",
       { command: "sudo rm -rf /", network_mode: "proxied" },
@@ -3936,7 +4035,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 
   test("deny rule still blocks proxied host_bash command", async () => {
-    addRule("host_bash", "curl https://**", "everywhere", "deny");
+    await addRule("host_bash", "curl https://**", "everywhere", "deny");
     const result = await check(
       "host_bash",
       { command: "curl https://evil.com", network_mode: "proxied" },
@@ -3967,7 +4066,11 @@ describe("scope matching behavior", () => {
   test("project-scoped rule matches tool invocations from within that directory", async () => {
     const projectDir = "/home/user/my-project";
     // Use the pattern format that file tools produce: "toolName:path/**"
-    addRule("file_write", "file_write:/home/user/my-project/**", projectDir);
+    await addRule(
+      "file_write",
+      "file_write:/home/user/my-project/**",
+      projectDir,
+    );
 
     // Invocation from within the project directory should match
     const result = await check(
@@ -3982,7 +4085,11 @@ describe("scope matching behavior", () => {
 
   test("project-scoped rule matches tool invocations from subdirectory of project", async () => {
     const projectDir = "/home/user/my-project";
-    addRule("file_write", "file_write:/home/user/my-project/**", projectDir);
+    await addRule(
+      "file_write",
+      "file_write:/home/user/my-project/**",
+      projectDir,
+    );
 
     // Invocation from a subdirectory should also match (scope is a prefix match)
     const result = await check(
@@ -4001,7 +4108,7 @@ describe("scope matching behavior", () => {
     testConfig.permissions.mode = "strict";
     const projectDir = "/home/user/my-project";
     // Use a broad pattern that matches any file, scoped to the project
-    addRule("file_write", "file_write:*", projectDir);
+    await addRule("file_write", "file_write:*", projectDir);
 
     // Invocation from a sibling directory should NOT match the project-scoped rule
     const result = await check(
@@ -4017,7 +4124,7 @@ describe("scope matching behavior", () => {
     // Use strict mode to test rule-matching isolation without workspace auto-allow
     testConfig.permissions.mode = "strict";
     const projectDir = "/home/user/my-project";
-    addRule("file_write", "file_write:*", projectDir);
+    await addRule("file_write", "file_write:*", projectDir);
 
     // Invocation from a parent directory should NOT match
     const result = await check(
@@ -4035,7 +4142,7 @@ describe("scope matching behavior", () => {
     // A rule for /home/user/project should NOT match /home/user/project-evil
     // (directory-boundary enforcement in matchesScope)
     const projectDir = "/home/user/project";
-    addRule("file_write", "file_write:*", projectDir);
+    await addRule("file_write", "file_write:*", projectDir);
 
     const result = await check(
       "file_write",
@@ -4046,7 +4153,7 @@ describe("scope matching behavior", () => {
   });
 
   test("everywhere-scoped rule matches invocations from any directory", async () => {
-    addRule("file_write", "file_write:*", "everywhere");
+    await addRule("file_write", "file_write:*", "everywhere");
 
     // Should match from various directories
     const r1 = await check(
@@ -4069,7 +4176,7 @@ describe("scope matching behavior", () => {
 
   test("bash rule scoped to project matches commands within that project", async () => {
     const projectDir = "/home/user/my-project";
-    addRule("bash", "npm *", projectDir);
+    await addRule("bash", "npm *", projectDir);
 
     const result = await check("bash", { command: "npm install" }, projectDir);
     expect(result.decision).toBe("allow");
@@ -4078,7 +4185,7 @@ describe("scope matching behavior", () => {
 
   test("bash rule scoped to project does NOT match commands from different project", async () => {
     const projectDir = "/home/user/my-project";
-    addRule("bash", "npm *", projectDir);
+    await addRule("bash", "npm *", projectDir);
 
     const result = await check(
       "bash",
@@ -4226,7 +4333,12 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   // ── explicit rules still take precedence in workspace mode ──
 
   test("explicit deny rule still blocks in workspace mode", async () => {
-    addRule("file_read", `file_read:${workspaceDir}/**`, workspaceDir, "deny");
+    await addRule(
+      "file_read",
+      `file_read:${workspaceDir}/**`,
+      workspaceDir,
+      "deny",
+    );
     const result = await check(
       "file_read",
       { file_path: "/home/user/my-project/secret.env" },
@@ -4237,7 +4349,12 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 
   test("explicit ask rule still prompts in workspace mode", async () => {
-    addRule("file_read", `file_read:${workspaceDir}/**`, workspaceDir, "ask");
+    await addRule(
+      "file_read",
+      `file_read:${workspaceDir}/**`,
+      workspaceDir,
+      "ask",
+    );
     const result = await check(
       "file_read",
       { file_path: "/home/user/my-project/src/index.ts" },
@@ -4248,7 +4365,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 
   test("explicit allow rule works in workspace mode", async () => {
-    addRule("file_write", `file_write:/tmp/**`, "everywhere", "allow");
+    await addRule("file_write", `file_write:/tmp/**`, "everywhere", "allow");
     const result = await check(
       "file_write",
       { file_path: "/tmp/output.txt" },
@@ -4290,7 +4407,7 @@ describe("shell command candidates wiring (PR 04)", () => {
 
   test("existing raw shell rule still matches", async () => {
     clearCache();
-    addRule("bash", "git status", "everywhere");
+    await addRule("bash", "git status", "everywhere");
     const result = await check("bash", { command: "git status" }, "/tmp");
     expect(result.decision).toBe("allow");
     expect(result.matchedRule).toBeDefined();
@@ -4301,7 +4418,7 @@ describe("shell command candidates wiring (PR 04)", () => {
       commandCandidates: ["gh pr view 5525 --json title", "action:gh pr view"],
     });
     clearCache();
-    addRule("bash", "action:gh pr view", "everywhere");
+    await addRule("bash", "action:gh pr view", "everywhere");
     const result = await check(
       "bash",
       { command: "gh pr view 5525 --json title" },
@@ -4316,7 +4433,7 @@ describe("shell command candidates wiring (PR 04)", () => {
     // Use host_bash which has no default allow-all rule, so we can verify
     // that the action key candidate isn't generated for complex chains.
     clearCache();
-    addRule("host_bash", "action:gh pr view", "everywhere");
+    await addRule("host_bash", "action:gh pr view", "everywhere");
     const result = await check(
       "host_bash",
       { command: "gh pr view 123 && rm -rf /" },
@@ -4352,7 +4469,7 @@ describe("integration regressions (PR 11)", () => {
 
   test("saved action key rule auto-allows on repeat execution", async () => {
     // Simulate a user who saved an action:npm rule
-    addRule("bash", "action:npm", "everywhere");
+    await addRule("bash", "action:npm", "everywhere");
 
     // npm list is low-risk and should be auto-allowed via the action key
     const r1 = await check("bash", { command: "npm list" }, "/tmp");
@@ -4373,7 +4490,7 @@ describe("integration regressions (PR 11)", () => {
     // Use host_bash which has no default allow-all rule, so we can verify
     // that the action key alone doesn't auto-allow complex chains.
     clearCache();
-    addRule("host_bash", "action:npm", "everywhere");
+    await addRule("host_bash", "action:npm", "everywhere");
 
     // Complex chain should NOT be auto-allowed by action key alone
     const result = await check(
@@ -4393,7 +4510,7 @@ describe("integration regressions (PR 11)", () => {
       /* may not exist */
     }
     clearCache();
-    addRule("host_bash", "curl https://example.com", "everywhere");
+    await addRule("host_bash", "curl https://example.com", "everywhere");
 
     // Exact match still works
     const r1 = await check(
@@ -4412,7 +4529,7 @@ describe("integration regressions (PR 11)", () => {
     expect(r2.decision).not.toBe("allow");
   });
 
-  test("scope ordering is consistent across tool types", () => {
+  test("scope ordering is consistent across tool types", async () => {
     const workingDir = "/Users/test/project";
 
     const bashScopes = generateScopeOptions(workingDir, "bash");
@@ -4435,7 +4552,7 @@ describe("integration regressions (PR 11)", () => {
     );
   });
 
-  test("scope options are always least-privilege-first in prompt payload", () => {
+  test("scope options are always least-privilege-first in prompt payload", async () => {
     const scopes = generateScopeOptions("/Users/test/project", "host_bash");
     expect(scopes[0].scope).toBe("/Users/test/project");
     expect(scopes[scopes.length - 1].scope).toBe("everywhere");

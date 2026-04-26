@@ -491,7 +491,7 @@ describe("ToolExecutor contextual rule creation", () => {
         priority = 100,
         options?: { executionTarget?: string },
       ) => {
-        return {
+        return Promise.resolve({
           id: "spy-rule-id",
           tool,
           pattern,
@@ -500,7 +500,7 @@ describe("ToolExecutor contextual rule creation", () => {
           priority,
           createdAt: Date.now(),
           ...options,
-        } as TrustRule;
+        } as TrustRule);
       },
     );
     return addRuleSpy;
@@ -780,7 +780,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
         priority = 100,
         options?: { executionTarget?: string },
       ) => {
-        return {
+        return Promise.resolve({
           id: "spy-rule-id",
           tool,
           pattern,
@@ -789,7 +789,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
           priority,
           createdAt: Date.now(),
           ...options,
-        } as TrustRule;
+        } as TrustRule);
       },
     );
     return addRuleSpy;
@@ -1715,7 +1715,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
         priority = 100,
         options?: { executionTarget?: string },
       ) => {
-        return {
+        return Promise.resolve({
           id: "spy-rule-id",
           tool,
           pattern,
@@ -1724,7 +1724,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
           priority,
           createdAt: Date.now(),
           ...options,
-        } as TrustRule;
+        } as TrustRule);
       },
     );
     return addRuleSpy;
@@ -2056,7 +2056,7 @@ describe("ToolExecutor persistent-allow lifecycle", () => {
         priority = 100,
         options?: { executionTarget?: string },
       ) => {
-        return {
+        return Promise.resolve({
           id: "spy-rule-id",
           tool,
           pattern,
@@ -2065,7 +2065,7 @@ describe("ToolExecutor persistent-allow lifecycle", () => {
           priority,
           createdAt: Date.now(),
           ...options,
-        } as TrustRule;
+        } as TrustRule);
       },
     );
     return addRuleSpy;
