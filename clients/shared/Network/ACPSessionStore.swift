@@ -71,8 +71,13 @@ public final class ACPSessionViewModel: Identifiable, Hashable {
 /// snapshot with whatever has already been observed via SSE — in-memory
 /// entries win on id collisions so we never overwrite live state with a
 /// stale snapshot.
+///
+/// Not `final` so detail/list view tests can subclass and spy on
+/// ``cancel(id:)`` / ``steer(id:instruction:)`` without spinning up a full
+/// `URLProtocol` mock — the only public mutating entry points are explicitly
+/// `open` for that reason. Production callers should never subclass.
 @MainActor @Observable
-public final class ACPSessionStore {
+open class ACPSessionStore {
 
     /// Maximum number of events retained per session before older events
     /// are dropped. Prevents unbounded memory growth on long-running
@@ -241,8 +246,11 @@ public final class ACPSessionStore {
     /// Cancel an active session. Optimistically marks the session as
     /// cancelled on success so the UI updates without waiting for the
     /// daemon's `acp_session_completed` SSE round-trip.
+    ///
+    /// `open` so detail-view tests can subclass and observe invocation
+    /// without an HTTP round-trip — see ``ACPSessionStore`` doc.
     @discardableResult
-    public func cancel(id: String) async -> Result<Bool, ACPClientError> {
+    open func cancel(id: String) async -> Result<Bool, ACPClientError> {
         let result = await ACPClient.cancelSession(id: id)
         if case .success(true) = result, let viewModel = sessions[id] {
             // Reuse existing `completedAt` if the daemon already reported it;

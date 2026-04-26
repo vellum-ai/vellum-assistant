@@ -15,15 +15,23 @@ import VellumAssistantShared
 /// pauses auto-scroll once the user scrolls up so they can read past content
 /// without being yanked back. Resumes when the user returns to the bottom.
 ///
-/// Cancel, steer, and delete affordances arrive in later PRs (24, 25, 26);
-/// this view is intentionally read-only.
+/// A Cancel button surfaces while the session is `running`/`initializing`
+/// (PR 24); steer and delete affordances arrive in later PRs (25, 26).
 struct ACPSessionDetailView: View {
     let session: ACPSessionViewModel
+    /// Store used to drive optimistic mutations from this view (cancel today;
+    /// steer in PR 25). Held by reference so the view always invokes the
+    /// caller-owned instance — there's only one ``ACPSessionStore`` per app.
+    let store: ACPSessionStore
     /// Tap on the parent-conversation link. Wired by PR 22; nil hides the link.
     var onSelectParentConversation: ((String) -> Void)? = nil
     /// Optional close action — surfaces the design-system close button when
     /// this view is hosted inside a panel container that can dismiss itself.
     var onClose: (() -> Void)? = nil
+
+    /// True while a cancel HTTP request is in flight. Disables the button and
+    /// shows an inline spinner so the user can't double-tap.
+    @State private var cancelInFlight = false
 
     /// Sentinel ID anchored at the bottom of the LazyVStack so the
     /// `ScrollViewReader` can scroll to "the latest" without depending on
@@ -74,6 +82,9 @@ struct ACPSessionDetailView: View {
                     .lineLimit(1)
                 statusPill
                 Spacer()
+                if isCancelable {
+                    cancelControl
+                }
                 if let onClose {
                     VButton(label: "Close", iconOnly: "xmark", style: .ghost, action: onClose)
                 }
@@ -105,6 +116,55 @@ struct ACPSessionDetailView: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityHidden(true)
             VToggle(isOn: $showThoughts, label: "Show thoughts")
+        }
+    }
+
+    /// Cancel is only meaningful while the session is still running — terminal
+    /// statuses already reached an end state and re-cancelling is a no-op at
+    /// the daemon. We treat `.initializing` as cancelable too so the user can
+    /// abort a stuck-starting session.
+    ///
+    /// `internal` rather than `private` so unit tests in `VellumAssistantLib`
+    /// can verify the gating without rendering the view.
+    var isCancelable: Bool {
+        switch session.state.status {
+        case .running, .initializing: return true
+        case .completed, .failed, .cancelled, .unknown: return false
+        }
+    }
+
+    @ViewBuilder
+    private var cancelControl: some View {
+        HStack(spacing: VSpacing.xs) {
+            if cancelInFlight {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Cancelling session")
+            }
+            VButton(
+                label: "Cancel",
+                style: .dangerGhost,
+                size: .compact,
+                isDisabled: cancelInFlight
+            ) {
+                handleCancelTap()
+            }
+            .accessibilityLabel("Cancel session")
+        }
+    }
+
+    /// `internal` rather than `private` so unit tests in `VellumAssistantLib`
+    /// can drive the cancel flow without reaching into SwiftUI's view tree.
+    func handleCancelTap() {
+        guard !cancelInFlight else { return }
+        cancelInFlight = true
+        let id = session.state.acpSessionId
+        Task { @MainActor in
+            // The store flips `state.status` optimistically on success, which
+            // hides this control via `isCancelable`. On failure we reset the
+            // in-flight flag so the user can retry.
+            _ = await store.cancel(id: id)
+            cancelInFlight = false
         }
     }
 

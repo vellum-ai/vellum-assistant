@@ -33,6 +33,36 @@ final class ACPSessionDetailViewTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Mock store
+
+    /// Records invocations of ``ACPSessionStore/cancel(id:)`` so detail-view
+    /// tests can assert taps reach the store without spinning up the full
+    /// `URLProtocol` mocking apparatus that the network-layer tests use.
+    private final class SpyACPSessionStore: ACPSessionStore {
+        var cancelInvocations: [String] = []
+
+        override func cancel(id: String) async -> Result<Bool, ACPClientError> {
+            cancelInvocations.append(id)
+            // Mirror the real store's optimistic update so views reading
+            // `session.state.status` after the call see a terminal state —
+            // no different from the production path on a successful HTTP 200.
+            if let viewModel = sessions[id] {
+                viewModel.state = ACPSessionState(
+                    id: viewModel.state.id,
+                    agentId: viewModel.state.agentId,
+                    acpSessionId: viewModel.state.acpSessionId,
+                    parentConversationId: viewModel.state.parentConversationId,
+                    status: .cancelled,
+                    startedAt: viewModel.state.startedAt,
+                    completedAt: viewModel.state.completedAt,
+                    error: viewModel.state.error,
+                    stopReason: .cancelled
+                )
+            }
+            return .success(true)
+        }
+    }
+
     // MARK: - Fixtures
 
     private func makeSession(
@@ -306,13 +336,13 @@ final class ACPSessionDetailViewTests: XCTestCase {
             update(.unknown, content: "ignored"),
         ])
 
-        let view = ACPSessionDetailView(session: session)
+        let view = ACPSessionDetailView(session: session, store: ACPSessionStore())
         _ = view.body
     }
 
     func test_body_buildsWithoutCrash_emptyEventStream() {
         let session = makeSession(events: [])
-        let view = ACPSessionDetailView(session: session)
+        let view = ACPSessionDetailView(session: session, store: ACPSessionStore())
         _ = view.body
     }
 
@@ -323,13 +353,13 @@ final class ACPSessionDetailViewTests: XCTestCase {
             completedAtMillis: 1_700_000_005_000,
             events: [update(.agentMessageChunk, content: "done")]
         )
-        let view = ACPSessionDetailView(session: session)
+        let view = ACPSessionDetailView(session: session, store: ACPSessionStore())
         _ = view.body
     }
 
     func test_body_buildsWithoutCrash_noParentConversation() {
         let session = makeSession(parentConversationId: nil, events: [])
-        let view = ACPSessionDetailView(session: session)
+        let view = ACPSessionDetailView(session: session, store: ACPSessionStore())
         _ = view.body
     }
 
@@ -337,6 +367,7 @@ final class ACPSessionDetailViewTests: XCTestCase {
         let session = makeSession(events: [])
         let view = ACPSessionDetailView(
             session: session,
+            store: ACPSessionStore(),
             onSelectParentConversation: { _ in },
             onClose: {}
         )
@@ -386,7 +417,7 @@ final class ACPSessionDetailViewTests: XCTestCase {
             update(.agentThoughtChunk, content: "(thinking)"),
             update(.agentMessageChunk, content: " on it."),
         ])
-        let view = ACPSessionDetailView(session: session)
+        let view = ACPSessionDetailView(session: session, store: ACPSessionStore())
         _ = view.body
     }
 
@@ -397,12 +428,13 @@ final class ACPSessionDetailViewTests: XCTestCase {
     func test_showThoughtsToggle_persistsAcrossViewInstances() {
         UserDefaults.standard.set(false, forKey: Self.showThoughtsKey)
 
+        let store = ACPSessionStore()
         let session = makeSession(events: [update(.agentThoughtChunk, content: "hmm")])
         // First instance — building the body forces SwiftUI to wire up the
         // @AppStorage binding to UserDefaults.
-        _ = ACPSessionDetailView(session: session).body
+        _ = ACPSessionDetailView(session: session, store: store).body
         // Second instance — must read back the persisted value.
-        _ = ACPSessionDetailView(session: session).body
+        _ = ACPSessionDetailView(session: session, store: store).body
 
         XCTAssertEqual(
             UserDefaults.standard.bool(forKey: Self.showThoughtsKey),
@@ -412,7 +444,7 @@ final class ACPSessionDetailViewTests: XCTestCase {
 
         // Flip and confirm the new value persists too.
         UserDefaults.standard.set(true, forKey: Self.showThoughtsKey)
-        _ = ACPSessionDetailView(session: session).body
+        _ = ACPSessionDetailView(session: session, store: store).body
         XCTAssertEqual(
             UserDefaults.standard.bool(forKey: Self.showThoughtsKey),
             true
@@ -428,10 +460,56 @@ final class ACPSessionDetailViewTests: XCTestCase {
     func test_showThoughtsToggle_defaultDoesNotPersistUntilToggled() {
         UserDefaults.standard.removeObject(forKey: Self.showThoughtsKey)
         let session = makeSession(events: [update(.agentThoughtChunk, content: "hi")])
-        _ = ACPSessionDetailView(session: session).body
+        _ = ACPSessionDetailView(session: session, store: ACPSessionStore()).body
         XCTAssertNil(
             UserDefaults.standard.object(forKey: Self.showThoughtsKey),
             "@AppStorage default value should not be written to the store at view build time"
         )
+    }
+
+    // MARK: - Cancel button
+
+    func test_handleCancelTap_invokesStoreCancelExactlyOnce() async {
+        let store = SpyACPSessionStore()
+        let session = makeSession(status: .running)
+        // Register the session with the store so the optimistic mutation in
+        // the spy override has a view model to update — mirrors how the
+        // production store is populated via `seed()` / SSE before the user
+        // can interact with the detail view.
+        store.sessions[session.state.acpSessionId] = session
+
+        let view = ACPSessionDetailView(session: session, store: store)
+        view.handleCancelTap()
+
+        // The Task spawned inside `handleCancelTap` runs on the main actor;
+        // yield until it completes so the assertion sees the recorded call.
+        await waitForCancelInvocation(store: store)
+
+        XCTAssertEqual(store.cancelInvocations, [session.state.acpSessionId])
+    }
+
+    func test_isCancelable_runningAndInitializing() {
+        let store = ACPSessionStore()
+        let running = ACPSessionDetailView(session: makeSession(status: .running), store: store)
+        let initializing = ACPSessionDetailView(session: makeSession(status: .initializing), store: store)
+        let completed = ACPSessionDetailView(session: makeSession(status: .completed), store: store)
+        let failed = ACPSessionDetailView(session: makeSession(status: .failed), store: store)
+        let cancelled = ACPSessionDetailView(session: makeSession(status: .cancelled), store: store)
+
+        XCTAssertTrue(running.isCancelable)
+        XCTAssertTrue(initializing.isCancelable)
+        XCTAssertFalse(completed.isCancelable)
+        XCTAssertFalse(failed.isCancelable)
+        XCTAssertFalse(cancelled.isCancelable)
+    }
+
+    /// Spin briefly on the main actor until the spy records the awaited
+    /// cancel invocation. Bounded so a regression that drops the call still
+    /// fails the test rather than hanging forever.
+    private func waitForCancelInvocation(store: SpyACPSessionStore) async {
+        for _ in 0..<50 {
+            if !store.cancelInvocations.isEmpty { return }
+            await Task.yield()
+        }
     }
 }
