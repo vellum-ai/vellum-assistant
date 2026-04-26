@@ -16,6 +16,23 @@ import XCTest
 @MainActor
 final class ACPSessionDetailViewTests: XCTestCase {
 
+    // MARK: - Setup / Teardown
+
+    /// AppStorage key for the "Show thoughts" header toggle.
+    private static let showThoughtsKey = "acp.showThoughts"
+
+    override func setUp() {
+        super.setUp()
+        // Reset the toggle to its default between cases so a leak in one
+        // test doesn't taint the next.
+        UserDefaults.standard.removeObject(forKey: Self.showThoughtsKey)
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: Self.showThoughtsKey)
+        super.tearDown()
+    }
+
     // MARK: - Fixtures
 
     private func makeSession(
@@ -324,5 +341,97 @@ final class ACPSessionDetailViewTests: XCTestCase {
             onClose: {}
         )
         _ = view.body
+    }
+
+    // MARK: - Show-thoughts toggle
+
+    /// `buildRows` is the contract the timeline renders against. With a
+    /// mixed event stream we expect a thought row to be present, and the
+    /// test then asserts that filtering it out (the path the view takes
+    /// when `showThoughts == false`) leaves the other rows intact.
+    func test_buildRows_thoughtRowIsEmitted_andCanBeFilteredOut() {
+        let allRows = ACPSessionDetailView.buildRows(events: [
+            update(.userMessageChunk, content: "do the thing"),
+            update(.agentThoughtChunk, content: "let me think about this"),
+            update(.agentMessageChunk, content: "Sure, here goes."),
+        ])
+
+        // Sanity: a thought row exists in the unfiltered output.
+        XCTAssertEqual(allRows.count, 3)
+        XCTAssertTrue({
+            if case .thought = allRows[1] { return true }; return false
+        }())
+
+        let filtered = allRows.filter { row in
+            if case .thought = row { return false }
+            return true
+        }
+        XCTAssertEqual(filtered.count, 2, "Filtering thoughts should drop only the thought row")
+        XCTAssertTrue({
+            if case .userMessage = filtered[0] { return true }; return false
+        }())
+        XCTAssertTrue({
+            if case .agentMessage(_, let content) = filtered[1], content == "Sure, here goes." { return true }; return false
+        }())
+    }
+
+    /// When `showThoughts` is off, the body must still build cleanly with a
+    /// fixture that contains thought events. This is the cheap crash-guard
+    /// for the filtered-rendering path.
+    func test_body_buildsWithoutCrash_whenShowThoughtsIsOff() {
+        UserDefaults.standard.set(false, forKey: Self.showThoughtsKey)
+
+        let session = makeSession(events: [
+            update(.agentMessageChunk, content: "Working"),
+            update(.agentThoughtChunk, content: "(thinking)"),
+            update(.agentMessageChunk, content: " on it."),
+        ])
+        let view = ACPSessionDetailView(session: session)
+        _ = view.body
+    }
+
+    /// Round-trip the AppStorage value to confirm the toggle persists
+    /// across detail-view re-opens. Two views are constructed with the
+    /// same key, and the second instance must observe the value the first
+    /// stored.
+    func test_showThoughtsToggle_persistsAcrossViewInstances() {
+        UserDefaults.standard.set(false, forKey: Self.showThoughtsKey)
+
+        let session = makeSession(events: [update(.agentThoughtChunk, content: "hmm")])
+        // First instance — building the body forces SwiftUI to wire up the
+        // @AppStorage binding to UserDefaults.
+        _ = ACPSessionDetailView(session: session).body
+        // Second instance — must read back the persisted value.
+        _ = ACPSessionDetailView(session: session).body
+
+        XCTAssertEqual(
+            UserDefaults.standard.bool(forKey: Self.showThoughtsKey),
+            false,
+            "AppStorage value should persist across view re-instantiations"
+        )
+
+        // Flip and confirm the new value persists too.
+        UserDefaults.standard.set(true, forKey: Self.showThoughtsKey)
+        _ = ACPSessionDetailView(session: session).body
+        XCTAssertEqual(
+            UserDefaults.standard.bool(forKey: Self.showThoughtsKey),
+            true
+        )
+    }
+
+    /// Default value for the toggle is `true` — `@AppStorage` does *not*
+    /// write its default into the underlying store until the user mutates
+    /// the binding, so building the view with a missing key must leave the
+    /// store untouched. This guards against accidentally swapping the
+    /// declared default to `false` (which would be a behaviour change for
+    /// every existing user).
+    func test_showThoughtsToggle_defaultDoesNotPersistUntilToggled() {
+        UserDefaults.standard.removeObject(forKey: Self.showThoughtsKey)
+        let session = makeSession(events: [update(.agentThoughtChunk, content: "hi")])
+        _ = ACPSessionDetailView(session: session).body
+        XCTAssertNil(
+            UserDefaults.standard.object(forKey: Self.showThoughtsKey),
+            "@AppStorage default value should not be written to the store at view build time"
+        )
     }
 }

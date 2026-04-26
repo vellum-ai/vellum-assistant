@@ -45,6 +45,12 @@ struct ACPSessionDetailView: View {
     /// non-terminal so terminal sessions don't wake the timer.
     @State private var nowTick: Date = Date()
 
+    /// Persisted preference for whether agent-thought bubbles render in the
+    /// timeline. Defaults to `true` so first-time users see the assistant's
+    /// reasoning surface without hunting for a toggle. Persists across
+    /// detail-view re-opens via `@AppStorage`.
+    @AppStorage("acp.showThoughts") private var showThoughts: Bool = true
+
     private static let elapsedTickInterval: TimeInterval = 1
     private static let scrollAtBottomTolerance: CGFloat = 4
 
@@ -80,9 +86,26 @@ struct ACPSessionDetailView: View {
                     parentConversationLink(id: parent, onTap: onSelectParentConversation)
                 }
                 Spacer()
+                showThoughtsToggle
             }
         }
         .padding(EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.md, trailing: VSpacing.lg))
+    }
+
+    /// Header-strip toggle that hides agent-thought bubbles from the
+    /// timeline. The lightbulb icon doubles as a glance-affordance so the
+    /// row reads as "thoughts on/off" without a separate help string.
+    /// Accessibility is delegated to `VToggle`, which already publishes
+    /// the on/off value and a tap trait — wrapping it again would produce
+    /// duplicate VoiceOver announcements.
+    @ViewBuilder
+    private var showThoughtsToggle: some View {
+        HStack(spacing: VSpacing.xs) {
+            VIconView(.lightbulb, size: 12)
+                .foregroundStyle(VColor.contentSecondary)
+                .accessibilityHidden(true)
+            VToggle(isOn: $showThoughts, label: "Show thoughts")
+        }
     }
 
     @ViewBuilder
@@ -175,7 +198,11 @@ struct ACPSessionDetailView: View {
 
     @ViewBuilder
     private var timeline: some View {
-        let rows = Self.buildRows(events: session.events)
+        let allRows = Self.buildRows(events: session.events)
+        let rows = showThoughts ? allRows : allRows.filter { row in
+            if case .thought = row { return false }
+            return true
+        }
         if rows.isEmpty {
             VEmptyState(
                 title: "No events yet",
@@ -401,15 +428,27 @@ struct ACPSessionDetailView: View {
 
     @ViewBuilder
     private func thoughtRow(content: String) -> some View {
-        // TODO(PR 23 — acp-sessions-ui): replace this stub with the proper
-        // collapsible "thinking" rendering. Kept minimal here so the view
-        // doesn't crash when an `agent_thought_chunk` arrives, and so the
-        // user still sees *something* until PR 23 lands.
+        // Italicised + secondary-tone bubble distinguishes the agent's
+        // internal reasoning from spoken output. The lightbulb icon doubles
+        // as an affordance — a glance tells the user "this is a thought,
+        // not a message" before they read the text.
         HStack(spacing: 0) {
-            Text(content)
-                .font(VFont.bodyMediumDefault.italic())
-                .foregroundStyle(VColor.contentTertiary)
-                .textSelection(.enabled)
+            HStack(alignment: .top, spacing: VSpacing.xs) {
+                VIconView(.lightbulb, size: 12)
+                    .foregroundStyle(Color.secondary)
+                    .padding(.top, 2)
+                Text(content)
+                    .font(VFont.bodyMediumDefault.italic())
+                    .foregroundStyle(Color.secondary)
+                    .textSelection(.enabled)
+            }
+            .padding(VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceOverlay.opacity(0.4))
+            )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Agent thought: \(content)")
             Spacer(minLength: 0)
         }
     }
