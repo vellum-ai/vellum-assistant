@@ -55,6 +55,7 @@ import {
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
+import { createInboundRegisterHandler } from "./http/routes/inbound-register.js";
 import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
 
@@ -350,6 +351,10 @@ async function main() {
       configFile: configFileCache,
     },
   );
+  const handleInboundRegister = createInboundRegisterHandler(
+    config,
+    credentialCache,
+  );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingStore = new PairingStore();
   pairingStore.start();
@@ -476,6 +481,14 @@ async function main() {
     {
       path: "/webhooks/mailgun",
       handler: (req) => handleMailgunWebhook(req),
+    },
+
+    // ── BYO provider registration (auto-verify guardian email) ──
+    {
+      path: "/inbound/register",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleInboundRegister(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
