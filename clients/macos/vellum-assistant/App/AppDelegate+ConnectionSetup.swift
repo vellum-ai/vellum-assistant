@@ -702,13 +702,15 @@ extension AppDelegate {
     // MARK: - CLI Symlink
 
     /// Installs a `/usr/local/bin/vellum` symlink pointing to the bundled
-    /// CLI binary so users can run `vellum` from their terminal.
+    /// CLI binary so users can run `vellum` from their terminal, plus a
+    /// `vel` wrapper that sets `VELLUM_ENVIRONMENT=local` and forwards
+    /// to `vellum` — a shorthand for local-environment operations.
     ///
     /// Skipped when dev mode is active (developers manage their own PATH)
     /// or when `vellum` already resolves to a different executable
     /// (avoids overwriting a developer's locally-built binary).
-    /// Installs CLI symlinks if needed. Designed to run off the main thread
-    /// (Process.waitUntilExit internally blocks on a DispatchSemaphore).
+    /// Designed to run off the main thread (Process.waitUntilExit
+    /// internally blocks on a DispatchSemaphore).
     nonisolated static func installCLISymlinkIfNeeded(isDevMode: Bool) {
         guard !isDevMode else { return }
 
@@ -718,6 +720,7 @@ extension AppDelegate {
         let cliBinary = macosDir.appendingPathComponent("vellum-cli")
         if FileManager.default.fileExists(atPath: cliBinary.path) {
             installSymlink(commandName: "vellum", target: cliBinary.path)
+            installWrapperScript(commandName: "vel", wrappedBinary: cliBinary.path)
         }
 
     }
@@ -797,5 +800,87 @@ extension AppDelegate {
         }
 
         log.warning("Could not install CLI symlink for \(commandName) in any candidate directory")
+    }
+
+    /// Installs a wrapper shell script at `/usr/local/bin/<commandName>` (or
+    /// `~/.local/bin`) that sets `VELLUM_ENVIRONMENT=local` and execs the
+    /// wrapped binary. This gives users a short `vel` command that targets
+    /// their local-environment assistants by default.
+    ///
+    /// Uses the same candidate-directory and PATH-conflict-avoidance logic
+    /// as `installSymlink`.
+    private nonisolated static func installWrapperScript(commandName: String, wrappedBinary: String) {
+        let fm = FileManager.default
+
+        let localBin = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/bin").path
+        let candidateDirs = ["/usr/local/bin", localBin]
+
+        let candidatePaths = Set(candidateDirs.map { "\($0)/\(commandName)" })
+        let whichProc = Process()
+        whichProc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        whichProc.arguments = [commandName]
+        let pipe = Pipe()
+        whichProc.standardOutput = pipe
+        whichProc.standardError = FileHandle.nullDevice
+        do {
+            try whichProc.run()
+            whichProc.waitUntilExit()
+            if whichProc.terminationStatus == 0 {
+                let resolved = String(
+                    data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !resolved.isEmpty && !candidatePaths.contains(resolved) {
+                    return
+                }
+            }
+        } catch {}
+
+        let scriptContent = [
+            "#!/bin/sh",
+            "export VELLUM_ENVIRONMENT=local",
+            "exec \"\(wrappedBinary)\" \"$@\"",
+            "",
+        ].joined(separator: "\n")
+
+        for dir in candidateDirs {
+            let scriptPath = "\(dir)/\(commandName)"
+
+            if fm.fileExists(atPath: scriptPath) {
+                if let existing = try? String(contentsOfFile: scriptPath, encoding: .utf8),
+                   existing == scriptContent {
+                    return
+                }
+                if let attrs = try? fm.attributesOfItem(atPath: scriptPath),
+                   let type = attrs[.type] as? FileAttributeType,
+                   type != .typeSymbolicLink {
+                    let isOurs = (try? String(contentsOfFile: scriptPath, encoding: .utf8))?.contains("VELLUM_ENVIRONMENT=local") == true
+                    if !isOurs {
+                        continue
+                    }
+                }
+            }
+
+            do {
+                if !fm.fileExists(atPath: dir) {
+                    try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                }
+                if fm.fileExists(atPath: scriptPath) {
+                    try fm.removeItem(atPath: scriptPath)
+                }
+                try scriptContent.write(toFile: scriptPath, atomically: true, encoding: .utf8)
+                try fm.setAttributes(
+                    [.posixPermissions: 0o755],
+                    ofItemAtPath: scriptPath
+                )
+                log.info("Installed CLI wrapper script: \(scriptPath)")
+                return
+            } catch {
+                log.info("Could not install CLI wrapper at \(scriptPath): \(error.localizedDescription) — trying next candidate")
+            }
+        }
+
+        log.warning("Could not install CLI wrapper script for \(commandName) in any candidate directory")
     }
 }
