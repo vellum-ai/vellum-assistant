@@ -179,10 +179,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.effort).toBe("high");
     expect(config.speed).toBe("fast");
     expect(config.temperature).toBe(0.7);
-    // Disabled thinking is omitted entirely so providers fall back to their
-    // default behavior — matches the legacy non-callSite path which only sets
-    // `providerConfig.thinking` when `enabled === true`.
-    expect(config.thinking).toBeUndefined();
+    expect(config.thinking).toEqual({ type: "disabled" });
     // `contextWindow` and `provider` are server-side concerns and must NOT
     // leak into the per-call provider config — Anthropic rejects unknown
     // fields with `{type:"invalid_request_error", message:"contextWindow:
@@ -225,7 +222,7 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.thinking).toEqual({ type: "adaptive" });
   });
 
-  test("omits thinking when resolved config has thinking.enabled: false", async () => {
+  test("converts disabled thinking to Anthropic wire-format `{ type: 'disabled' }`", async () => {
     setLlmConfig({
       default: {
         provider: "anthropic",
@@ -249,7 +246,7 @@ describe("RetryProvider — callSite resolution", () => {
     });
 
     const config = seen?.config as Record<string, unknown>;
-    expect(config.thinking).toBeUndefined();
+    expect(config.thinking).toEqual({ type: "disabled" });
   });
 
   test("does NOT propagate temperature when resolved value is null (schema default)", async () => {

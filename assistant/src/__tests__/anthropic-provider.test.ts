@@ -196,6 +196,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastStreamParams!.system).toBeUndefined();
   });
 
+  test("sends disabled thinking config natively", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      config: { thinking: { type: "disabled" } },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "disabled" });
+  });
+
   test("splits system prompt into two cache blocks on boundary marker", async () => {
     const staticBlock = "You are a helpful assistant.";
     const dynamicBlock = "User workspace files here.";
@@ -2187,6 +2195,21 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
     expect(lastStreamParams!.thinking).toEqual({ type: "adaptive" });
     // The OpenAI-compat `reasoning` parameter must NOT be sent on the
     // native Messages API path.
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+  });
+
+  test("disabled thinking config flows through to Anthropic Messages API natively", async () => {
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "disabled" } },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "disabled" });
     expect(lastStreamParams!.reasoning).toBeUndefined();
   });
 
