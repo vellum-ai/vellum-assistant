@@ -141,7 +141,7 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     /// push.
     func test_acpSessionsView_consumesSelectedSessionIdAndPushesDetail_compact() {
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-deep-link", agentId: "claude-code")
+        injectFixture(into: store, id: "acp-deep-link", agentId: "claude-code")
 
         var path: [String] = []
         var selected: String?
@@ -166,7 +166,7 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     /// `List(selection:)` binding the regular-size-class layout uses.
     func test_acpSessionsView_consumesSelectedSessionIdAndSelectsDetail_regular() {
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-deep-link", agentId: "codex")
+        injectFixture(into: store, id: "acp-deep-link", agentId: "codex")
 
         var path: [String] = []
         var selected: String?
@@ -215,7 +215,7 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     /// detail views on top of each other.
     func test_acpSessionsView_consumeIsIdempotentForSameTopOfStack_compact() {
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-same", agentId: "codex")
+        injectFixture(into: store, id: "acp-same", agentId: "codex")
 
         var path: [String] = []
         var selected: String?
@@ -248,7 +248,7 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     /// already-selected detail must not flicker the selection binding.
     func test_acpSessionsView_consumeIsIdempotentForSameSelection_regular() {
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-same", agentId: "claude-code")
+        injectFixture(into: store, id: "acp-same", agentId: "claude-code")
 
         var path: [String] = []
         var selected: String? = "acp-same"
@@ -450,19 +450,33 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     }
 
     /// Inserts a synthetic ACP session into the store via the same
-    /// ``ServerMessage`` path the SSE pipeline uses. Matches the helper
-    /// used in ``ACPSessionsViewIOSTests`` so fixtures behave the same
-    /// across the two suites.
+    /// ``ServerMessage`` path the SSE pipeline uses. Sets
+    /// `state.acpSessionId` to a value distinct from `state.id` —
+    /// matching what the daemon emits after `createSession` resolves on the
+    /// agent process. This ensures the deep-link consume helper exercises
+    /// the store-keyed-by-`state.id` contract: a regression that re-keyed
+    /// by `state.acpSessionId` would break consume on these fixtures
+    /// rather than silently pass.
     private func injectFixture(
         into store: ACPSessionStore,
-        acpSessionId: String,
+        id: String,
         agentId: String
     ) {
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
-            acpSessionId: acpSessionId,
+            acpSessionId: id,
             agent: agentId,
-            parentConversationId: "conv-\(acpSessionId)"
+            parentConversationId: "conv-\(id)"
         )))
+        if let viewModel = store.sessions[id] {
+            viewModel.state = ACPSessionState(
+                id: id,
+                agentId: agentId,
+                acpSessionId: "protocol-\(id)",
+                parentConversationId: "conv-\(id)",
+                status: .running,
+                startedAt: viewModel.state.startedAt
+            )
+        }
     }
 }
 #endif

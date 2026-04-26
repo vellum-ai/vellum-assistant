@@ -218,11 +218,26 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     /// repeated set-with-same-id still triggers a fresh push.
     func test_acpSessionsPanel_consumesSelectedSessionIdAndPushesDetail() {
         let store = ACPSessionStore()
+        // Spawn synthesizes state.id == state.acpSessionId. Diverge them
+        // afterward so the assertion below pins the
+        // store-keyed-by-`state.id` contract — a regression that re-keyed
+        // by `state.acpSessionId` would fail this test instead of silently
+        // passing.
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
             acpSessionId: "acp-deep-link",
             agent: "claude-code",
             parentConversationId: "conv-deep"
         )))
+        if let viewModel = store.sessions["acp-deep-link"] {
+            viewModel.state = ACPSessionState(
+                id: "acp-deep-link",
+                agentId: "claude-code",
+                acpSessionId: "protocol-acp-deep-link",
+                parentConversationId: "conv-deep",
+                status: .running,
+                startedAt: viewModel.state.startedAt
+            )
+        }
 
         var path: [ACPSessionViewModel] = []
         store.selectedSessionId = "acp-deep-link"
@@ -230,9 +245,9 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
 
         XCTAssertEqual(path.count, 1, "Detail view must be pushed onto the panel's NavigationStack")
         XCTAssertEqual(
-            path.last?.state.acpSessionId,
+            path.last?.state.id,
             "acp-deep-link",
-            "Pushed view model must match the requested session"
+            "Pushed view model must match the requested session by daemon UUID (state.id)"
         )
         XCTAssertNil(
             store.selectedSessionId,
@@ -264,11 +279,23 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
     /// duplicate detail views on top of each other.
     func test_acpSessionsPanel_consumeIsIdempotentForSameTopOfStack() {
         let store = ACPSessionStore()
+        // Diverge state.id and state.acpSessionId so the consume path is
+        // exercised under the realistic post-`createSession` shape.
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
             acpSessionId: "acp-same",
             agent: "codex",
             parentConversationId: "conv-x"
         )))
+        if let viewModel = store.sessions["acp-same"] {
+            viewModel.state = ACPSessionState(
+                id: "acp-same",
+                agentId: "codex",
+                acpSessionId: "protocol-acp-same",
+                parentConversationId: "conv-x",
+                status: .running,
+                startedAt: viewModel.state.startedAt
+            )
+        }
 
         var path: [ACPSessionViewModel] = []
 
