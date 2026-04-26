@@ -281,4 +281,137 @@ final class ChatBubbleACPSpawnTests: XCTestCase {
             "Re-tapping the same session must not stack duplicate detail views"
         )
     }
+
+    // MARK: - ACPSpawnStatusIndicator
+
+    /// `.running` and `.initializing` are both "still working" from the
+    /// user's perspective — neither is a terminal state they can act on,
+    /// so the inline block must show the same pulsing dot for both. If
+    /// `.initializing` ever rendered as a static glyph the user would
+    /// misread a session that just started as already done.
+    func test_acpSpawnStatusIndicator_pulsesWhileRunningOrInitializing() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .running),
+            .pulsing
+        )
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .initializing),
+            .pulsing
+        )
+    }
+
+    /// Successful terminal — green check. This is the dominant path for
+    /// the inline block (most sessions complete normally) so the visual
+    /// must read as a positive confirmation, not a generic neutral icon.
+    func test_acpSpawnStatusIndicator_completedRendersPositiveCheck() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .completed),
+            .icon(glyph: .check, role: .positive)
+        )
+    }
+
+    /// Errored terminal — red x. The inline block normally falls back to
+    /// the regular collapsible row when the spawn tool itself errored,
+    /// but a session can still flip to `.failed` *after* the spawn
+    /// returned successfully (daemon-side process crash, agent error)
+    /// so the live indicator must surface that as a clear negative.
+    func test_acpSpawnStatusIndicator_failedRendersNegativeXmark() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .failed),
+            .icon(glyph: .xmark, role: .negative)
+        )
+    }
+
+    /// Cancelled terminal — muted dash. Cancellation is user-initiated
+    /// (or a parent shutdown) and isn't an error, so it gets the gray
+    /// muted role rather than the red one used for `.failed`.
+    func test_acpSpawnStatusIndicator_cancelledRendersMutedDash() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .cancelled),
+            .icon(glyph: .dash, role: .muted)
+        )
+    }
+
+    /// `.unknown` arrives only via daemon version skew. We treat it as a
+    /// successful completion because the inline block only renders for
+    /// `acp_spawn` results that already returned a session id, so the
+    /// row's mere existence is evidence the spawn worked. Pulsing
+    /// indefinitely on a status the client doesn't recognize would
+    /// strand the user on a stuck-looking row.
+    func test_acpSpawnStatusIndicator_unknownStatusFallsBackToCompleted() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .unknown),
+            .icon(glyph: .check, role: .positive)
+        )
+    }
+
+    /// Nil (no entry in the store — history was cleared, daemon
+    /// restarted) falls back to the static "completed" indicator. Same
+    /// reasoning as `.unknown`: the row only renders when the tool call
+    /// itself succeeded.
+    func test_acpSpawnStatusIndicator_missingStoreEntryFallsBackToCompleted() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: nil),
+            .icon(glyph: .check, role: .positive)
+        )
+    }
+
+    /// End-to-end scenario the PR is meant to enable: a running session
+    /// flips to completed and the indicator switches from pulsing to
+    /// the positive check without any view-side input. Drives through
+    /// the same `ACPSessionStore.handle` pipeline production code uses
+    /// so the test catches regressions in either the resolver or the
+    /// store's status-transition logic.
+    func test_acpSpawnStatusIndicator_transitionsFromRunningToCompletedViaStore() {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-live",
+            agent: "claude-code",
+            parentConversationId: "conv-live"
+        )))
+
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(
+                forStatus: store.sessions["acp-live"]?.state.status
+            ),
+            .pulsing,
+            "Newly spawned session must render pulsing while running"
+        )
+
+        store.handle(.acpSessionCompleted(ACPSessionCompletedMessage(
+            acpSessionId: "acp-live",
+            stopReason: .endTurn
+        )))
+
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(
+                forStatus: store.sessions["acp-live"]?.state.status
+            ),
+            .icon(glyph: .check, role: .positive),
+            "Completed session must render the positive check"
+        )
+    }
+
+    /// Mirror of the above for the failure path — `.failed` flowing
+    /// through `acpSessionError` must surface as the negative red x.
+    func test_acpSpawnStatusIndicator_transitionsFromRunningToFailedViaStore() {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-fail",
+            agent: "codex",
+            parentConversationId: "conv-fail"
+        )))
+
+        store.handle(.acpSessionError(ACPSessionErrorMessage(
+            acpSessionId: "acp-fail",
+            error: "agent crashed"
+        )))
+
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(
+                forStatus: store.sessions["acp-fail"]?.state.status
+            ),
+            .icon(glyph: .xmark, role: .negative)
+        )
+    }
 }
