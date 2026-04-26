@@ -40,7 +40,7 @@ const mockConfig = {
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
 let checkerReason = "allowed";
 let checkerRisk = "low";
-let promptDecision: "allow" | "always_allow" | "deny" | "always_deny" = "allow";
+let promptDecision: "allow" | "deny" = "allow";
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
 let toolThrow: Error | null = null;
 
@@ -182,7 +182,7 @@ function makeContext(events: ToolLifecycleEvent[], extra: Record<string, unknown
 
 function makePrompter(
   promptImpl?: () => Promise<{
-    decision: "allow" | "always_allow" | "deny" | "always_deny";
+    decision: "allow" | "deny";
     decisionContext?: string;
   }>,
 ) {

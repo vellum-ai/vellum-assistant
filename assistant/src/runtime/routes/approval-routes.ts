@@ -56,10 +56,7 @@ export async function handleConfirm(
   };
 
   const { requestId, selectedPattern, selectedScope } = body;
-  // Normalize legacy decision: older clients may still send
-  // "always_allow_high_risk" for high-risk prompts.
-  const decision =
-    body.decision === "always_allow_high_risk" ? "always_allow" : body.decision;
+  const decision = body.decision;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);
@@ -267,8 +264,6 @@ export function handleListPendingInteractions(
           scopeOptions: confirmation.confirmationDetails?.scopeOptions,
           persistentDecisionsAllowed:
             confirmation.confirmationDetails?.persistentDecisionsAllowed,
-          temporaryOptionsAvailable:
-            confirmation.confirmationDetails?.temporaryOptionsAvailable,
           acpToolKind: confirmation.confirmationDetails?.acpToolKind,
           acpOptions: confirmation.confirmationDetails?.acpOptions,
         }
@@ -297,9 +292,7 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
         requestId: z.string().describe("Pending interaction request ID"),
         decision: z
           .string()
-          .describe(
-            "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny",
-          ),
+          .describe("One of: allow, deny"),
         selectedPattern: z
           .string()
           .describe("Allowlist pattern for persistent decisions")

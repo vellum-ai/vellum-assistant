@@ -63,7 +63,6 @@ import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
-import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
@@ -820,7 +819,6 @@ export class Conversation {
   }
 
   dispose(): void {
-    approvalOverrides.clearMode(this.conversationId);
     // Cancel all pending standalone surfaces so callers get a clean
     // cancellation instead of hanging forever. Emit dismiss notifications
     // to the client so surfaces don't remain visually active if the client
@@ -991,15 +989,11 @@ export class Conversation {
       decisionContext,
     );
 
-    // Mode activation (setTimedMode / setConversationMode) is intentionally NOT
-    // done here. It is handled in permission-checker.ts where the
-    // guardian trust-class and conversation context are available.
-
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      effectiveDecision === "deny" || effectiveDecision === "always_deny"
+      effectiveDecision === "deny"
         ? ("denied" as const)
         : ("approved" as const);
     this.emitConfirmationStateChanged({
@@ -1055,10 +1049,9 @@ export class Conversation {
    * After resolving one confirmation, auto-resolve other pending
    * confirmations in the same conversation that match the decision.
    *
-   * - allow_10m / allow_conversation → approve ALL pending in conversation
-   * - always_allow → approve pattern-matching pending
-   * - always_deny → deny pattern-matching pending
-   * - allow / deny (one-time) → no cascading
+   * Currently only host-access enable prompts cascade: when the first
+   * host-access enable is approved, sibling host prompts resolve immediately.
+   * Simple allow / deny decisions do not cascade.
    */
   private cascadePendingApprovals(
     primaryRequestId: string,
@@ -1106,50 +1099,7 @@ export class Conversation {
         continue;
       }
 
-      const cascadeResult = this.shouldCascade(
-        decision,
-        selectedPattern,
-        interaction.confirmationDetails,
-      );
-      if (!cascadeResult) continue;
-
-      // Consume from pending-interactions tracker
-      pendingInteractions.resolve(candidateId);
-
-      // Resolve via handleConfirmationResponse which emits events and
-      // syncs canonical status. Use simple "allow"/"deny" so the
-      // permission-checker won't save duplicate rules or re-activate
-      // temporary modes. Recursion terminates because allow/deny exit
-      // cascadePendingApprovals early.
-      this.handleConfirmationResponse(
-        candidateId,
-        cascadeResult.allow ? "allow" : "deny",
-        undefined,
-        undefined,
-        undefined,
-        {
-          source: "system",
-          causedByRequestId: primaryRequestId,
-        },
-      );
     }
-  }
-
-  /**
-   * Determine whether a pending confirmation should be auto-resolved
-   * based on the cascading decision and pattern.
-   */
-  private shouldCascade(
-    decision: UserDecision,
-    _selectedPattern: string | undefined,
-    _details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
-  ): { allow: boolean } | null {
-    // Temporary overrides apply to the entire conversation
-    if (decision === "allow_10m" || decision === "allow_conversation") {
-      return { allow: true };
-    }
-
-    return null;
   }
 
   handleSecretResponse(

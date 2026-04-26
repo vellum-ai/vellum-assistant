@@ -134,7 +134,6 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 
 import { initializeDb } from "../memory/db-init.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { clearAll as clearAllOverrides } from "../runtime/conversation-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolContext as TC } from "../tools/types.js";
 
@@ -173,11 +172,9 @@ describe("platform-hosted bash auto-approval", () => {
     checkResultOverride = undefined;
     scopeOptionsOverride = undefined;
     riskOverride = "medium";
-    clearAllOverrides();
   });
 
   afterEach(() => {
-    clearAllOverrides();
   });
 
   test("bash auto-approved in platform-hosted mode", async () => {

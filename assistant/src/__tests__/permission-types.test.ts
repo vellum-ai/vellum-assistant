@@ -8,25 +8,11 @@ import { isAllowDecision } from "../permissions/types.js";
 // ---------------------------------------------------------------------------
 
 describe("isAllowDecision", () => {
-  const allowDecisions: UserDecision[] = [
-    "allow",
-    "allow_10m",
-    "allow_conversation",
-    "always_allow",
-    "temporary_override",
-  ];
-
-  for (const decision of allowDecisions) {
-    test(`returns true for '${decision}'`, () => {
-      expect(isAllowDecision(decision)).toBe(true);
-    });
-  }
+  test("returns true for 'allow'", () => {
+    expect(isAllowDecision("allow")).toBe(true);
+  });
 
   test("returns false for 'deny'", () => {
     expect(isAllowDecision("deny")).toBe(false);
-  });
-
-  test("returns false for 'always_deny'", () => {
-    expect(isAllowDecision("always_deny")).toBe(false);
   });
 });

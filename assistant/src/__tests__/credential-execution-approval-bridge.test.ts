@@ -94,7 +94,6 @@ function makePrompter(
       executionTarget: unknown,
       persistentDecisionsAllowed: unknown,
       signal: AbortSignal | undefined,
-      temporaryOptionsAvailable: unknown,
     ) => {
       promptCalls.push({
         toolName,
@@ -106,7 +105,6 @@ function makePrompter(
         sessionId,
         executionTarget,
         persistentDecisionsAllowed,
-        temporaryOptionsAvailable,
       });
       return { decision, decisionContext };
     },

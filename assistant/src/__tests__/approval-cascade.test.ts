@@ -463,7 +463,7 @@ describe("approval cascading", () => {
 
     // This should not throw — cascade should skip req-stale gracefully
     expect(() => {
-      conversationObj.handleConfirmationResponse("req-primary", "allow_10m");
+      conversationObj.handleConfirmationResponse("req-primary", "allow");
     }).not.toThrow();
 
     // Only the primary should be resolved

@@ -17,24 +17,10 @@ export interface TrustRule {
   userModifiedAt?: number;
 }
 
-export type UserDecision =
-  | "allow"
-  | "allow_10m"
-  | "allow_conversation"
-  | "always_allow"
-  | "deny"
-  | "always_deny"
-  | "temporary_override";
+export type UserDecision = "allow" | "deny";
 
-/** Returns true for any allow-variant decision. Centralizes the check to prevent omissions when new allow variants are added. */
 export function isAllowDecision(decision: UserDecision): boolean {
-  return (
-    decision === "allow" ||
-    decision === "allow_10m" ||
-    decision === "allow_conversation" ||
-    decision === "always_allow" ||
-    decision === "temporary_override"
-  );
+  return decision === "allow";
 }
 
 export interface PermissionCheckResult {

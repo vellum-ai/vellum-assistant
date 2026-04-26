@@ -90,8 +90,7 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 // NOTE: fuzzy-match.js and trust-store.js are intentionally NOT mocked here.
 // fuzzy-match.js is a pure-function module (no side effects) that doesn't
 // need mocking, and mocking it would leak stubs into fuzzy-match.test.ts.
-// trust-store.js is only called in always_allow / always_deny code paths
-// which these tests never exercise (the mock checker always returns 'allow').
+// trust-store.js is not exercised here (the mock checker always returns 'allow').
 // Mocking either here would break their respective test files via Bun's
 // process-global mock.module.
 

@@ -250,7 +250,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
     const msg: ConfirmationResponse = {
       type: "confirmation_response",
       requestId: "req-confirm-allow",
-      decision: "always_allow",
+      decision: "allow",
     };
 
     handleConfirmationResponse(msg, ctx);
@@ -262,7 +262,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
       (conversationObj.handleConfirmationResponse as any).mock.calls[0],
     ).toEqual([
       "req-confirm-allow",
-      "always_allow",
+      "allow",
       undefined,
       undefined,
       undefined,

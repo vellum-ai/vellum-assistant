@@ -16,11 +16,6 @@ import {
   evaluateV2ConsentDisposition,
   isConversationHostAccessDecision,
 } from "../permissions/v2-consent-policy.js";
-import {
-  getEffectiveMode,
-  setConversationMode,
-  setTimedMode,
-} from "../runtime/conversation-approval-overrides.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -334,35 +329,6 @@ export class PermissionChecker {
           };
         }
 
-        // Temporary approval override: if the guardian has enabled a
-        // conversation-scoped "allow all" mode (allow_10m or allow_conversation),
-        // skip the interactive prompt and auto-approve. Only applies to
-        // guardian actors - untrusted actors cannot leverage this to bypass
-        // guardian-required gates (those are enforced in pre-execution gates).
-        // Exception: requireFreshApproval tools must always show the prompt -
-        // cached temporary overrides cannot substitute for per-invocation
-        // human review.
-        if (
-          context.trustClass === "guardian" &&
-          getEffectiveMode(context.conversationId) !== undefined &&
-          !context.requireFreshApproval
-        ) {
-          log.info(
-            {
-              toolName: name,
-              riskLevel,
-              conversationId: context.conversationId,
-            },
-            "Temporary approval override active - auto-approving without prompt",
-          );
-          return {
-            allowed: true,
-            decision: "temporary_override",
-            riskLevel,
-            riskMeta,
-          };
-        }
-
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
         const promptOptions = v2ForcePrompt
           ? CONVERSATION_HOST_ACCESS_PROMPT
@@ -374,13 +340,6 @@ export class PermissionChecker {
               ),
               scopeOptions: generateScopeOptions(context.workingDir, name),
               persistentDecisionsAllowed: !context.requireFreshApproval,
-              temporaryOptionsAvailable:
-                context.trustClass === "guardian" &&
-                !context.requireFreshApproval
-                  ? (["allow_10m", "allow_conversation"] as Array<
-                      "allow_10m" | "allow_conversation"
-                    >)
-                  : undefined,
             };
 
         emitLifecycleEvent({
@@ -411,7 +370,6 @@ export class PermissionChecker {
           executionTarget,
           promptOptions.persistentDecisionsAllowed,
           context.signal,
-          promptOptions.temporaryOptionsAvailable,
           context.toolUseId,
           v2ForcePrompt,
           riskReason,
@@ -459,51 +417,6 @@ export class PermissionChecker {
             content: denialMessage,
             riskMeta,
           };
-        }
-
-        if (decision === "always_deny") {
-          const denialReason = "Permission denied by user";
-          const denialMessage = `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent({
-            type: "permission_denied",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            riskReason,
-            decision: "always_deny",
-            reason: denialReason,
-            durationMs,
-          });
-          return {
-            allowed: false,
-            decision,
-            riskLevel,
-            content: denialMessage,
-            riskMeta,
-          };
-        }
-
-        // Activate temporary approval mode when the user chooses a
-        // time-limited or conversation-scoped override. Subsequent tool
-        // invocations in this conversation will auto-approve without
-        // prompting (checked above in the temporary override block).
-        if (decision === "allow_10m") {
-          setTimedMode(context.conversationId);
-          log.info(
-            { toolName: name, conversationId: context.conversationId },
-            "Activated timed (10m) temporary approval mode",
-          );
-        } else if (decision === "allow_conversation") {
-          setConversationMode(context.conversationId);
-          log.info(
-            { toolName: name, conversationId: context.conversationId },
-            "Activated conversation-scoped temporary approval mode",
-          );
         }
 
         return {

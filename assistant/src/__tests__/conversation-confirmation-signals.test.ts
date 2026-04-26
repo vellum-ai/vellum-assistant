@@ -409,43 +409,6 @@ describe("centralized confirmation emissions", () => {
     });
   });
 
-  test("always_deny produces denied state", () => {
-    const emitted: ServerMessage[] = [];
-    const conversation = makeConversation((msg) => emitted.push(msg));
-
-    seedPendingConfirmation(conversation, "req-always-deny");
-    conversation.handleConfirmationResponse("req-always-deny", "always_deny");
-
-    const confirmMsg = emitted.find(
-      (m) =>
-        m.type === "confirmation_state_changed" &&
-        "requestId" in m &&
-        (m as { requestId: string }).requestId === "req-always-deny",
-    );
-    expect(confirmMsg).toBeDefined();
-    expect(confirmMsg).toMatchObject({
-      state: "denied",
-    });
-  });
-
-  test("always_allow produces approved state", () => {
-    const emitted: ServerMessage[] = [];
-    const conversation = makeConversation((msg) => emitted.push(msg));
-
-    seedPendingConfirmation(conversation, "req-always-allow");
-    conversation.handleConfirmationResponse("req-always-allow", "always_allow");
-
-    const confirmMsg = emitted.find(
-      (m) =>
-        m.type === "confirmation_state_changed" &&
-        "requestId" in m &&
-        (m as { requestId: string }).requestId === "req-always-allow",
-    );
-    expect(confirmMsg).toBeDefined();
-    expect(confirmMsg).toMatchObject({
-      state: "approved",
-    });
-  });
 });
 
 describe("activity version ordering", () => {

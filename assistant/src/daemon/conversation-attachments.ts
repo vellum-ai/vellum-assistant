@@ -67,7 +67,6 @@ export async function approveHostAttachmentRead(
     "host",
     CONVERSATION_HOST_ACCESS_PROMPT.persistentDecisionsAllowed,
     undefined,
-    CONVERSATION_HOST_ACCESS_PROMPT.temporaryOptionsAvailable,
     undefined,
     true,
   );

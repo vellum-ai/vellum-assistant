@@ -14,16 +14,12 @@ type PromptLike = {
   allowlistOptions?: readonly AllowlistOption[];
   scopeOptions?: readonly ScopeOption[];
   persistentDecisionsAllowed?: boolean;
-  temporaryOptionsAvailable?: readonly ("allow_10m" | "allow_conversation")[];
 };
 
 export const CONVERSATION_HOST_ACCESS_PROMPT = Object.freeze({
   allowlistOptions: [] as AllowlistOption[],
   scopeOptions: [] as ScopeOption[],
   persistentDecisionsAllowed: false as const,
-  temporaryOptionsAvailable: undefined as
-    | Array<"allow_10m" | "allow_conversation">
-    | undefined,
 });
 
 export function isConversationHostAccessEnabled(
@@ -65,8 +61,7 @@ export function isConversationHostAccessEnablePrompt(
     isHostTool(details.toolName) &&
     (details.allowlistOptions?.length ?? 0) === 0 &&
     (details.scopeOptions?.length ?? 0) === 0 &&
-    details.persistentDecisionsAllowed === false &&
-    (details.temporaryOptionsAvailable?.length ?? 0) === 0
+    details.persistentDecisionsAllowed === false
   );
 }
 

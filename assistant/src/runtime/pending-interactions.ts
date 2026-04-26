@@ -28,7 +28,6 @@ export interface ConfirmationDetails {
   }>;
   scopeOptions: Array<{ label: string; scope: string }>;
   persistentDecisionsAllowed?: boolean;
-  temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">;
   /** ACP tool kind from the agent (e.g. "read", "edit", "execute"). */
   acpToolKind?: string;
   /** ACP permission options from the agent. */
