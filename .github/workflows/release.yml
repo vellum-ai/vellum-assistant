@@ -129,7 +129,9 @@ jobs:
               echo "Major/minor version changed ($PREV_MAJOR_MINOR -> $CURR_MAJOR_MINOR) — forcing extension build"
               exit 0
             fi
-            CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- clients/chrome-extension/ | wc -l | tr -d ' ')
+            CHANGED=$(git diff --name-only "$PREV_TAG"..HEAD -- clients/chrome-extension/ \
+              ':!clients/chrome-extension/manifest.json' \
+              ':!clients/chrome-extension/package.json' | wc -l | tr -d ' ')
           else
             CHANGED=1
           fi
