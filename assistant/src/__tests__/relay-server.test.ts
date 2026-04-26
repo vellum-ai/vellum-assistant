@@ -2288,6 +2288,10 @@ describe("relay-server", () => {
   test("inbound voice: unknown caller name capture uses fallback when assistant name is unavailable", async () => {
     const prevName = mockAssistantName;
     mockAssistantName = null;
+    // Clear guardian binding so resolveGuardianLabel falls back to DEFAULT_USER_REFERENCE
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
     try {
       ensureConversation("conv-invite-no-name");
       const session = createCallSession({
@@ -4262,7 +4266,10 @@ describe("relay-server", () => {
   test("guardian label: DEFAULT_USER_REFERENCE used when both guardian persona name and Contact.displayName are empty", async () => {
     mockUserReference = "my human";
 
-    // No guardian binding — no Contact.displayName available
+    // Clear guardian binding so resolveGuardianLabel falls back to DEFAULT_USER_REFERENCE
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
 
     ensureConversation("conv-label-default");
     const session = createCallSession({
