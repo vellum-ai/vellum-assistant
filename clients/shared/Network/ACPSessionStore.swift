@@ -20,7 +20,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ACPSe
 /// session: streaming updates to one session's `events` only invalidate
 /// views that read that specific view model.
 @MainActor @Observable
-public final class ACPSessionViewModel: Identifiable, Hashable {
+public final class ACPSessionViewModel: @MainActor Identifiable, Hashable {
     /// Snapshot of the session as last reported by the daemon.
     public var state: ACPSessionState
     /// Stream of update messages received for this session, capped at
