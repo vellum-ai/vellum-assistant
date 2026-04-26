@@ -348,7 +348,6 @@ struct ACPSessionsPanelRow: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
