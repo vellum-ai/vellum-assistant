@@ -186,6 +186,8 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 <instance-name>-gateway-sec     →  /gateway-security    (gateway only)
 <instance-name>-ces-sec         →  /ces-security        (CES only)
 <instance-name>-socket          →  /run/ces-bootstrap   (assistant + CES)
+<instance-name>-gateway-ipc     →  /run/gateway-ipc     (assistant + gateway)
+<instance-name>-assistant-ipc   →  /run/assistant-ipc   (assistant + gateway)
 <instance-name>-dockerd-data    →  /var/lib/docker      (assistant only — inner dockerd state)
 ```
 
@@ -193,6 +195,8 @@ Docker instances use dedicated volumes with per-service access boundaries instea
 - **Gateway security volume** (`/gateway-security`): Files private to the gateway container. Only the gateway container mounts this volume. Set via `GATEWAY_SECURITY_DIR=/gateway-security`.
 - **CES security volume** (`/ces-security`): Credential encryption keys (`keys.enc`, `store.key`). Only the CES container mounts this volume. Set via `CREDENTIAL_SECURITY_DIR=/ces-security`.
 - **Socket volume** (`/run/ces-bootstrap`): CES bootstrap socket for initial service handshake between the assistant and CES containers.
+- **Gateway IPC volume** (`/run/gateway-ipc`): Contains `gateway.sock` — the Unix domain socket used for assistant→gateway IPC calls (feature flags, trust rules, credentials). Set via `GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc`.
+- **Assistant IPC volume** (`/run/assistant-ipc`): Contains `assistant.sock` — the Unix domain socket used for gateway→assistant reverse IPC calls. Set via `ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc`.
 - **Inner dockerd data volume** (`/var/lib/docker`): Persistent storage for the `dockerd` that runs *inside* the assistant container. Holds the pulled meet-bot image and any in-flight bot container state so image pulls don't repeat on every assistant restart. Only the assistant container mounts this volume.
 
 ### Meet Docker-in-Docker Model

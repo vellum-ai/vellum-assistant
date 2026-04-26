@@ -113,9 +113,11 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         // 3. Create host-side shared directories.
         let workspaceDir = config.instanceDir.appendingPathComponent("workspace", isDirectory: true)
         let cesBootstrapDir = config.instanceDir.appendingPathComponent("ces-bootstrap", isDirectory: true)
+        let gatewayIpcDir = config.instanceDir.appendingPathComponent("gateway-ipc", isDirectory: true)
+        let assistantIpcDir = config.instanceDir.appendingPathComponent("assistant-ipc", isDirectory: true)
         let gatewaySecurityDir = config.instanceDir.appendingPathComponent("gateway-security", isDirectory: true)
         let cesSecurityDir = config.instanceDir.appendingPathComponent("ces-security", isDirectory: true)
-        for dir in [workspaceDir, cesBootstrapDir, gatewaySecurityDir, cesSecurityDir] {
+        for dir in [workspaceDir, cesBootstrapDir, gatewayIpcDir, assistantIpcDir, gatewaySecurityDir, cesSecurityDir] {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
 
@@ -141,6 +143,8 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         let sharedMounts: [Containerization.Mount] = [
             .share(source: workspaceDir.path, destination: VellumMountPaths.workspace),
             .share(source: cesBootstrapDir.path, destination: VellumMountPaths.cesBootstrap),
+            .share(source: gatewayIpcDir.path, destination: VellumMountPaths.gatewayIpcSocketDir),
+            .share(source: assistantIpcDir.path, destination: VellumMountPaths.assistantIpcSocketDir),
         ]
 
         // 5. Register containers.

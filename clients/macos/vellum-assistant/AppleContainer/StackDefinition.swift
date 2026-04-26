@@ -63,6 +63,10 @@ enum VellumMountPaths {
     static let workspace = "/workspace"
     /// CES bootstrap unix-socket directory.
     static let cesBootstrap = "/run/ces-bootstrap"
+    /// Gateway IPC socket directory (gateway↔daemon communication).
+    static let gatewayIpcSocketDir = "/run/gateway-ipc"
+    /// Assistant IPC socket directory (daemon↔gateway reverse communication).
+    static let assistantIpcSocketDir = "/run/assistant-ipc"
     /// Gateway security directory (gateway-private).
     static let gatewaySecurityDir = "/gateway-security"
     /// CES credential security directory (CES-private).
@@ -88,6 +92,8 @@ enum VellumContainerEnv {
             "VELLUM_WORKSPACE_DIR": VellumMountPaths.workspace,
             "CES_CREDENTIAL_URL": "http://localhost:\(VellumContainerPorts.cesHTTP)",
             "GATEWAY_INTERNAL_URL": "http://localhost:\(VellumContainerPorts.gatewayHTTP)",
+            "GATEWAY_IPC_SOCKET_DIR": VellumMountPaths.gatewayIpcSocketDir,
+            "ASSISTANT_IPC_SOCKET_DIR": VellumMountPaths.assistantIpcSocketDir,
         ]
         if let signingKey {
             env["ACTOR_TOKEN_SIGNING_KEY"] = signingKey
@@ -117,6 +123,8 @@ enum VellumContainerEnv {
             "RUNTIME_HTTP_PORT": String(VellumContainerPorts.assistantHTTP),
             "RUNTIME_PROXY_ENABLED": "true",
             "CES_CREDENTIAL_URL": "http://localhost:\(VellumContainerPorts.cesHTTP)",
+            "GATEWAY_IPC_SOCKET_DIR": VellumMountPaths.gatewayIpcSocketDir,
+            "ASSISTANT_IPC_SOCKET_DIR": VellumMountPaths.assistantIpcSocketDir,
         ]
         if let signingKey {
             env["ACTOR_TOKEN_SIGNING_KEY"] = signingKey
