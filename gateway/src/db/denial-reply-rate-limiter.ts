@@ -11,7 +11,7 @@
  * Periodically prunes expired rows to keep the table small.
  */
 
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, count, eq, gte } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getLogger } from "../logger.js";
 import { getGatewayDb } from "./connection.js";
@@ -111,15 +111,14 @@ function maybePrune(now: number): void {
 
   const windowStart = now - DENIAL_REPLY_WINDOW_MS;
   try {
-    const result = getGatewayDb()
-      .delete(channelDenialReplyLog)
-      .where(sql`${channelDenialReplyLog.sentAt} < ${windowStart}`)
-      .run();
-    if (result.changes > 0) {
-      log.info(
-        { pruned: result.changes },
-        "Pruned expired denial reply log entries",
-      );
+    const db = getGatewayDb();
+    const raw = (db as unknown as { $client: import("bun:sqlite").Database })
+      .$client;
+    const { changes } = raw
+      .prepare(`DELETE FROM channel_denial_reply_log WHERE sent_at < ?`)
+      .run(windowStart);
+    if (changes > 0) {
+      log.info({ pruned: changes }, "Pruned expired denial reply log entries");
     }
   } catch (err) {
     log.warn({ err }, "Failed to prune denial reply log");
