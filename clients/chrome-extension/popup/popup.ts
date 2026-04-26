@@ -185,10 +185,12 @@ function updateHealthDisplay(
   health: ConnectionHealthState,
   detail: ConnectionHealthDetail,
 ): void {
-  // If the assistant was retired/deleted, re-trigger the cloud-login
-  // flow so the user can pick a new one (or auto-select if only 1).
+  // If the assistant was retired/deleted, show the picker screen so
+  // the user can select a new one. The worker already stopped the SSE
+  // loop — the popup just needs to navigate.
   if (health === 'assistant_gone' && _currentHealthState !== 'assistant_gone') {
-    triggerAssistantRecovery();
+    showScreen('picker');
+    refreshAssistantPicker();
   }
 
   _currentHealthState = health;
@@ -404,29 +406,33 @@ pickerBack?.addEventListener('click', () => {
 });
 
 /**
- * Re-trigger the cloud-login flow to refresh the assistants list after
- * the worker reports that the selected assistant is gone (404).
+ * Non-interactively refresh the assistants list and render the picker.
+ * Used when the worker reports assistant_gone — avoids the interactive
+ * OAuth flow that cloud-login would trigger.
  */
-function triggerAssistantRecovery(): void {
+function refreshAssistantPicker(): void {
+  pickerLoading.style.display = 'block';
+  pickerError.style.display = 'none';
+  assistantList.innerHTML = '';
+
   sendMessage<{
     ok: boolean;
-    session?: { email: string };
     assistants?: Array<{ id: string; name: string }>;
-    assistantsError?: string;
     error?: string;
-  }>({ type: 'cloud-login' }, (response) => {
-    if (!response?.ok || response.assistantsError) {
-      // Already showing assistant_gone state — nothing more to do.
+  }>({ type: 'list-assistants' }, (response) => {
+    pickerLoading.style.display = 'none';
+    if (!response?.ok || !response.assistants) {
+      pickerError.textContent = response?.error ?? 'Could not load assistants.';
+      pickerError.style.display = 'block';
       return;
     }
-    const assistants = response.assistants ?? [];
-    if (assistants.length === 1) {
-      selectAssistant(assistants[0].id, assistants[0].name, response.session?.email);
-    } else if (assistants.length > 1) {
-      renderAssistantList(assistants, response.session?.email);
-      showScreen('picker');
+    const assistants = response.assistants;
+    if (assistants.length === 0) {
+      pickerError.textContent = 'No assistants found.';
+      pickerError.style.display = 'block';
+      return;
     }
-    // 0 assistants: stay on main screen showing the gone state.
+    renderAssistantList(assistants, currentAuthProfile === 'vellum-cloud' ? assistantAccountEl.textContent ?? undefined : undefined);
   });
 }
 

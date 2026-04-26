@@ -696,15 +696,17 @@ async function handleAssistantGone(): Promise<void> {
     return;
   }
 
-  if (assistants.length === 1) {
-    // Single assistant available — auto-switch and reconnect.
+  const current = await getSelectedAssistant();
+
+  if (assistants.length === 1 && assistants[0]!.id !== current?.id) {
+    // A different sole assistant is available — auto-switch and reconnect.
     const only = assistants[0]!;
     console.log(`[vellum-sse] Auto-switching to sole assistant: ${only.name} (${only.id})`);
     await storeSelectedAssistant({ id: only.id, name: only.name });
     shouldConnect = true;
-    await doConnect({ interactive: false });
+    await connect({ interactive: false });
   } else {
-    // 0 or 2+ assistants — the user needs to pick.
+    // Same assistant still 404ing, 0 assistants, or 2+ — user must pick.
     setConnectionHealth('assistant_gone', {
       lastErrorMessage: 'The selected assistant no longer exists.',
     });
@@ -1288,6 +1290,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       await clearStoredUserMode();
       sendResponseFn({ ok: true });
     })().catch(() => sendResponseFn({ ok: true }));
+    return true; // async
+  }
+
+  if (message.type === 'list-assistants') {
+    (async () => {
+      const env = await getEffectiveEnvironment();
+      const assistants = await fetchAssistants(env);
+      sendResponseFn({ ok: true, assistants });
+    })().catch((err) =>
+      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
     return true; // async
   }
 
