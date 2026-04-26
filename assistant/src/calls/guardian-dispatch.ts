@@ -17,7 +17,6 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
-import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { getLogger } from "../util/logger.js";
 import { getUserConsultationTimeoutMs } from "./call-constants.js";
 import type { CallPendingQuestion } from "./types.js";
@@ -106,28 +105,10 @@ async function dispatchGuardianQuestionInner(
       guardianPrincipalId = guardianResult.contact.principalId;
     }
 
-    // Self-heal: if contacts don't have a principalId, bootstrap via
-    // ensureVellumGuardianBinding so the pending_question request can
-    // be attributed.
-    if (!guardianPrincipalId) {
-      log.info(
-        { callSessionId, assistantId },
-        "No guardian principal from contacts — self-healing for voice dispatch",
-      );
-      try {
-        guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
-      } catch (err) {
-        log.warn(
-          { err, callSessionId, assistantId },
-          "ensureVellumGuardianBinding failed during voice dispatch self-heal",
-        );
-      }
-    }
-
     if (!guardianPrincipalId) {
       log.error(
         { callSessionId, assistantId },
-        "Voice guardian dispatch: no guardianPrincipalId after contacts + self-heal — cannot create pending_question",
+        "Voice guardian dispatch: no guardianPrincipalId — gateway may not have started yet; cannot create pending_question",
       );
       return;
     }

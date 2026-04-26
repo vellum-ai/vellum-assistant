@@ -38,7 +38,6 @@ import {
   resolveBootstrapToken,
 } from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import { ensureVellumGuardianBinding } from "../../guardian-vellum-migration.js";
 import {
   redeemInvite,
   redeemInviteByCode,
@@ -56,9 +55,14 @@ const log = getLogger("runtime-http");
  */
 function resolveGuardianLabel(
   sourceChannel: ChannelId,
-  canonicalAssistantId: string,
+  _canonicalAssistantId: string,
 ): string {
-  const anchoredPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
+  const vellumGuardian = findGuardianForChannel("vellum");
+  const anchoredPrincipalId = vellumGuardian?.contact.principalId;
+
+  if (!anchoredPrincipalId) {
+    return resolveGuardianName(undefined);
+  }
 
   // Try source-channel guardian, but only accept it when the principal
   // matches the assistant's anchor.
@@ -70,17 +74,7 @@ function resolveGuardianLabel(
     return resolveGuardianName(sourceGuardian.contact.displayName);
   }
 
-  // Fall back to the vellum-channel guardian with the same anchor check.
-  const vellumGuardian = findGuardianForChannel("vellum");
-  if (
-    vellumGuardian &&
-    vellumGuardian.contact.principalId === anchoredPrincipalId
-  ) {
-    return resolveGuardianName(vellumGuardian.contact.displayName);
-  }
-
-  // No anchored guardian found — use generic fallback.
-  return resolveGuardianName(undefined);
+  return resolveGuardianName(vellumGuardian.contact.displayName);
 }
 
 // ---------------------------------------------------------------------------

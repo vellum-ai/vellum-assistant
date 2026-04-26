@@ -27,7 +27,6 @@ import type {
 } from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
-import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -108,13 +107,14 @@ export function notifyGuardianOfAccessRequest(
   let guardianBindingChannel: string | null = null;
   let guardianResolutionSource: GuardianResolutionSource = "none";
 
-  const assistantGuardianPrincipalId =
-    ensureVellumGuardianBinding(canonicalAssistantId);
+  const vellumGuardian = findGuardianForChannel("vellum");
+  const assistantGuardianPrincipalId = vellumGuardian?.contact.principalId;
 
   // Try source-channel guardian, but only if it maps to the assistant's
   // anchored principal. This blocks cross-assistant/stale contact selection.
   const sourceGuardian = findGuardianForChannel(sourceChannel);
   if (
+    assistantGuardianPrincipalId &&
     sourceGuardian &&
     sourceGuardian.contact.principalId === assistantGuardianPrincipalId
   ) {
@@ -126,23 +126,12 @@ export function notifyGuardianOfAccessRequest(
 
   // Access requests always require a principal. If source-channel resolution
   // did not match the assistant anchor, use the anchored vellum identity.
-  if (!guardianPrincipalId) {
-    const vellumGuardian = findGuardianForChannel("vellum");
-    if (
-      vellumGuardian &&
-      vellumGuardian.contact.principalId === assistantGuardianPrincipalId
-    ) {
-      guardianExternalUserId =
-        vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
-      guardianPrincipalId =
-        vellumGuardian.contact.principalId ?? assistantGuardianPrincipalId;
-      guardianBindingChannel = guardianBindingChannel ?? "vellum";
-      guardianResolutionSource = "vellum-anchor";
-    } else {
-      guardianPrincipalId = assistantGuardianPrincipalId;
-      guardianBindingChannel = guardianBindingChannel ?? "vellum";
-      guardianResolutionSource = "vellum-anchor";
-    }
+  if (!guardianPrincipalId && vellumGuardian) {
+    guardianExternalUserId =
+      vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
+    guardianPrincipalId = assistantGuardianPrincipalId;
+    guardianBindingChannel = guardianBindingChannel ?? "vellum";
+    guardianResolutionSource = "vellum-anchor";
   }
 
   log.debug(

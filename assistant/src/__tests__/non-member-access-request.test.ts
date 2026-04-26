@@ -62,13 +62,13 @@ mock.module("../runtime/gateway-client.js", () => ({
 }));
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
-import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -103,8 +103,16 @@ function resetState(): string {
     reason: "mock",
     deliveryResults: [],
   };
-  // Ensure the vellum anchor binding exists and return its principal
-  return ensureVellumGuardianBinding("self");
+  // Seed the vellum anchor binding (gateway does this at startup in production)
+  const principalId = `vellum-principal-${crypto.randomUUID()}`;
+  createGuardianBinding({
+    channel: "vellum",
+    guardianExternalUserId: principalId,
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId: principalId,
+    verifiedVia: "bootstrap",
+  });
+  return principalId;
 }
 
 async function flushAsyncAccessRequestBookkeeping(): Promise<void> {
