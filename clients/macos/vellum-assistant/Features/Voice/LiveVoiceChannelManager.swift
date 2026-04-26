@@ -132,6 +132,31 @@ final class LiveVoiceChannelManager {
         startCapture(generation: sessionGeneration)
     }
 
+    func interruptSpeakingAndStartListening(conversationId: String) async {
+        let trimmedConversationId = conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedConversationId.isEmpty else {
+            failWithoutActiveClient(message: "A conversation is required to start live voice.")
+            return
+        }
+        guard state == .speaking, client != nil else {
+            await start(conversationId: trimmedConversationId)
+            return
+        }
+
+        sessionGeneration &+= 1
+        let interruptedClient = client
+
+        stopCapture()
+        playback.handleInterrupt()
+        resetIgnoredSessionState()
+        resetObservedSessionState(conversationId: nil)
+        state = .idle
+
+        await interruptedClient?.interrupt()
+        await interruptedClient?.close()
+        await start(conversationId: trimmedConversationId)
+    }
+
     func stopListening() async {
         guard state != .idle, state != .failed, state != .ending else { return }
         guard captureRunning || captureStartInFlight else { return }

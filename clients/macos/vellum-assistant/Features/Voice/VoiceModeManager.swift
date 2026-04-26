@@ -15,6 +15,7 @@ protocol LiveVoiceChannelManaging: AnyObject {
 
     func start(conversationId: String) async
     func startListening() async
+    func interruptSpeakingAndStartListening(conversationId: String) async
     func stopListening() async
     func end() async
 }
@@ -96,6 +97,7 @@ final class VoiceModeManager {
     @ObservationIgnored private var liveVoiceObservationGeneration: Int = 0
     @ObservationIgnored private var liveVoiceStartTask: Task<Void, Never>?
     @ObservationIgnored private var liveFallbackAttemptedForSession = false
+    @ObservationIgnored private var liveVoicePausedForPermission = false
 
     init(
         voiceService: any VoiceServiceProtocol = OpenAIVoiceService(),
@@ -168,6 +170,7 @@ final class VoiceModeManager {
         self.settingsStore = settingsStore
         activeVoicePath = .turnBased
         liveFallbackAttemptedForSession = false
+        liveVoicePausedForPermission = false
 
         // Provide the conversation ID to the voice service so the gateway TTS
         // endpoint can resolve the correct provider context.
@@ -248,6 +251,7 @@ final class VoiceModeManager {
         }
         activeVoicePath = .turnBased
         liveFallbackAttemptedForSession = false
+        liveVoicePausedForPermission = false
 
         // Fully shut down audio engine to release the microphone
         voiceService.shutdown()
@@ -287,7 +291,7 @@ final class VoiceModeManager {
             stopListening()
         case .speaking:
             if activeVoicePath == .liveChannel {
-                startListening()
+                handleLiveBargeIn()
             } else {
                 handleBargeIn()
             }
@@ -394,6 +398,7 @@ final class VoiceModeManager {
 
         activeVoicePath = .liveChannel
         liveFallbackAttemptedForSession = false
+        liveVoicePausedForPermission = false
         partialTranscription = ""
         liveTranscription = ""
         errorMessage = ""
@@ -470,6 +475,7 @@ final class VoiceModeManager {
     private func handleLiveVoiceFailure(message: String) {
         guard activeVoicePath == .liveChannel else { return }
         stopLiveVoiceObservation()
+        liveVoicePausedForPermission = false
 
         let fallbackMessage = message.isEmpty ? "Live voice is unavailable." : message
         guard !liveFallbackAttemptedForSession else {
@@ -486,18 +492,24 @@ final class VoiceModeManager {
         startTurnBasedListeningWithAuthorization()
     }
 
-    private func leaveLiveVoiceChannelForTurnBasedVoice() {
+    private func pauseLiveVoiceForTurnBasedPermission() {
         guard activeVoicePath == .liveChannel else { return }
 
         stopLiveVoiceObservation()
         liveVoiceStartTask?.cancel()
         liveVoiceStartTask = nil
         activeVoicePath = .turnBased
+        liveVoicePausedForPermission = true
+    }
 
-        let liveVoiceChannelManager = liveVoiceChannelManager
-        Task { @MainActor in
-            await liveVoiceChannelManager?.end()
-        }
+    private func resumeLiveVoiceAfterPermissionIfNeeded() {
+        guard liveVoicePausedForPermission else { return }
+        liveVoicePausedForPermission = false
+        guard let liveVoiceChannelManager else { return }
+
+        activeVoicePath = .liveChannel
+        startLiveVoiceObservation()
+        syncLiveVoiceState(from: liveVoiceChannelManager)
     }
 
     // MARK: - Silence Detection → Transcription
@@ -610,7 +622,7 @@ final class VoiceModeManager {
 
         let wasUsingLiveVoice = activeVoicePath == .liveChannel
         if wasUsingLiveVoice {
-            leaveLiveVoiceChannelForTurnBasedVoice()
+            pauseLiveVoiceForTurnBasedPermission()
         }
 
         // Stop any current activity before speaking the permission prompt
@@ -813,6 +825,7 @@ final class VoiceModeManager {
             }
             pendingPermissionIds = []
             partialTranscription = ""
+            resumeLiveVoiceAfterPermissionIfNeeded()
             state = .processing
         case .denied:
             log.info("Voice mode: permissions denied via voice")
@@ -821,6 +834,7 @@ final class VoiceModeManager {
             }
             pendingPermissionIds = []
             partialTranscription = ""
+            resumeLiveVoiceAfterPermissionIfNeeded()
             state = .processing
         case .ambiguous:
             log.info("Voice mode: unclear permission response — \(text, privacy: .public)")
@@ -1034,6 +1048,31 @@ final class VoiceModeManager {
     }
 
     // MARK: - Barge-in (interrupt TTS)
+
+    private func handleLiveBargeIn() {
+        guard state == .speaking,
+              let liveVoiceChannelManager,
+              let conversationId = liveVoiceConversationId(for: chatViewModel) else { return }
+
+        log.info("Voice mode: live barge-in — interrupting TTS")
+
+        ttsTimeoutTask?.cancel()
+        ttsTimeoutTask = nil
+        liveVoiceStartTask?.cancel()
+        partialTranscription = ""
+        liveTranscription = ""
+        errorMessage = ""
+        activeVoicePath = .liveChannel
+        state = .listening
+        startLiveVoiceObservation()
+
+        liveVoiceStartTask = Task { @MainActor [weak self, weak liveVoiceChannelManager] in
+            guard let self, let liveVoiceChannelManager else { return }
+            await liveVoiceChannelManager.interruptSpeakingAndStartListening(conversationId: conversationId)
+            guard !Task.isCancelled, self.activeVoicePath == .liveChannel else { return }
+            self.syncLiveVoiceState(from: liveVoiceChannelManager)
+        }
+    }
 
     private func handleBargeIn() {
         guard state == .speaking else { return }

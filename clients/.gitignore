@@ -7,6 +7,8 @@ dist/
 xcuserdata/
 DerivedData/
 *.d
+*.swiftdeps
+*.swiftdeps~
 *.dia
 .dev/
 .DS_Store

@@ -285,6 +285,44 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .listening)
     }
 
+    func testManualBargeInInterruptsAndStartsFreshSession() async {
+        let firstClient = FakeLiveVoiceChannelClient()
+        let secondClient = FakeLiveVoiceChannelClient()
+        var factoryCalls = 0
+        manager = LiveVoiceChannelManager(
+            clientFactory: {
+                factoryCalls += 1
+                return factoryCalls == 1 ? firstClient : secondClient
+            },
+            capture: capture,
+            playback: playback,
+            bargeInAmplitudeThreshold: 0.2
+        )
+
+        await manager.start(conversationId: "conv-123")
+        firstClient.emit(.ready(sessionId: "session-1", conversationId: "conv-123"))
+        await flushAsyncTasks()
+        await manager.stopListening()
+        firstClient.emit(.ttsAudio(data: Data([9, 8]), mimeType: "audio/pcm", sampleRate: 16_000, seq: 4))
+
+        XCTAssertEqual(manager.state, .speaking)
+
+        await manager.interruptSpeakingAndStartListening(conversationId: "conv-123")
+
+        XCTAssertEqual(firstClient.interruptCallCount, 1)
+        XCTAssertEqual(firstClient.closeCallCount, 1)
+        XCTAssertEqual(playback.interruptCallCount, 1)
+        XCTAssertEqual(secondClient.startCalls.count, 1)
+        XCTAssertEqual(secondClient.startCalls[0].conversationId, "conv-123")
+        XCTAssertEqual(manager.state, .connecting)
+
+        secondClient.emit(.ready(sessionId: "session-2", conversationId: "conv-123"))
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.state, .listening)
+        XCTAssertEqual(capture.startCallCount, 2)
+    }
+
     func testEndCleansUpResourcesAndReturnsToIdle() async {
         await startReadySession()
         client.emit(.ttsAudio(data: Data([9, 8]), mimeType: "audio/pcm", sampleRate: 16_000, seq: 4))
