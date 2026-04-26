@@ -192,7 +192,19 @@ export class GeminiProvider implements Provider {
         id: string;
         name: string;
         args: Record<string, unknown>;
+        thoughtSignature?: string;
       }> = [];
+      const appendFunctionCall = (
+        fc: genai.FunctionCall,
+        thoughtSignature?: string,
+      ) => {
+        functionCalls.push({
+          id: fc.id ?? `call_${crypto.randomUUID()}`,
+          name: fc.name ?? "",
+          args: fc.args ?? {},
+          thoughtSignature,
+        });
+      };
       let finishReason = "unknown";
       let promptTokens = 0;
       let outputTokens = 0;
@@ -213,15 +225,24 @@ export class GeminiProvider implements Provider {
             onEvent?.({ type: "text_delta", text: chunkText });
           }
 
-          // Extract function calls
-          const calls = chunk.functionCalls;
-          if (calls) {
-            for (const fc of calls) {
-              functionCalls.push({
-                id: fc.id ?? `call_${crypto.randomUUID()}`,
-                name: fc.name ?? "",
-                args: fc.args ?? {},
-              });
+          // Extract function calls. Candidate parts carry provider metadata
+          // that the SDK's convenience getter omits, so prefer them when present.
+          const functionCallParts =
+            chunk.candidates?.[0]?.content?.parts?.filter(
+              (part) => part.functionCall,
+            ) ?? [];
+          if (functionCallParts.length > 0) {
+            for (const part of functionCallParts) {
+              const fc = part.functionCall;
+              if (!fc) continue;
+              appendFunctionCall(fc, part.thoughtSignature);
+            }
+          } else {
+            const calls = chunk.functionCalls;
+            if (calls) {
+              for (const fc of calls) {
+                appendFunctionCall(fc);
+              }
             }
           }
 
@@ -250,12 +271,18 @@ export class GeminiProvider implements Provider {
         content.push({ type: "text", text: fullText });
       }
       for (const fc of functionCalls) {
-        content.push({
+        const block: ContentBlock = {
           type: "tool_use",
           id: fc.id,
           name: fc.name,
           input: fc.args,
-        });
+        };
+        if (fc.thoughtSignature) {
+          block.providerMetadata = {
+            gemini: { thoughtSignature: fc.thoughtSignature },
+          };
+        }
+        content.push(block);
       }
 
       const rawRequest = {

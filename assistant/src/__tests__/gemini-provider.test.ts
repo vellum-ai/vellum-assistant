@@ -22,6 +22,16 @@ interface FakeChunk {
   }>;
   candidates?: Array<{
     finishReason?: string;
+    content?: {
+      parts?: Array<{
+        functionCall?: {
+          id?: string;
+          name?: string;
+          args?: Record<string, unknown>;
+        };
+        thoughtSignature?: string;
+      }>;
+    };
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
@@ -95,6 +105,42 @@ function functionCallChunk(
 ): FakeChunk {
   return {
     functionCalls: calls.map((c) => ({
+      id: c.id,
+      name: c.name,
+      args: c.args,
+    })),
+  };
+}
+
+function candidateFunctionCallChunk(
+  calls: Array<{
+    id?: string;
+    name: string;
+    args: Record<string, unknown>;
+    thoughtSignature?: string;
+  }>,
+  fallbackCalls?: Array<{
+    id?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }>,
+): FakeChunk {
+  return {
+    candidates: [
+      {
+        content: {
+          parts: calls.map((c) => ({
+            functionCall: {
+              id: c.id,
+              name: c.name,
+              args: c.args,
+            },
+            thoughtSignature: c.thoughtSignature,
+          })),
+        },
+      },
+    ],
+    functionCalls: fallbackCalls?.map((c) => ({
       id: c.id,
       name: c.name,
       args: c.args,
@@ -241,6 +287,44 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("captures thought signature from streamed candidate function call parts", async () => {
+    fakeChunks = [
+      candidateFunctionCallChunk(
+        [
+          {
+            id: "call_signed",
+            name: "file_read",
+            args: { path: "/tmp/test" },
+            thoughtSignature: "signed-thought-1",
+          },
+        ],
+        [
+          {
+            id: "call_duplicate",
+            name: "file_read",
+            args: { path: "/tmp/dup" },
+          },
+        ],
+      ),
+      finishChunk("STOP", 10, 15),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+    ]);
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toEqual({
+      type: "tool_use",
+      id: "call_signed",
+      name: "file_read",
+      input: { path: "/tmp/test" },
+      providerMetadata: {
+        gemini: { thoughtSignature: "signed-thought-1" },
+      },
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Function call without id — fallback to call_N
   // -----------------------------------------------------------------------
@@ -314,6 +398,42 @@ describe("GeminiProvider", () => {
       id: "call_1",
       name: "file_read",
       input: { path: "/a" },
+    });
+    expect(result.content[1]).toEqual({
+      type: "tool_use",
+      id: "call_2",
+      name: "file_read",
+      input: { path: "/b" },
+    });
+  });
+
+  test("preserves parallel candidate function call order and only captured signatures", async () => {
+    fakeChunks = [
+      candidateFunctionCallChunk([
+        {
+          id: "call_1",
+          name: "file_read",
+          args: { path: "/a" },
+          thoughtSignature: "signed-thought-1",
+        },
+        { id: "call_2", name: "file_read", args: { path: "/b" } },
+      ]),
+      finishChunk("STOP", 10, 30),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /a and /b" }] },
+    ]);
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: "file_read",
+      input: { path: "/a" },
+      providerMetadata: {
+        gemini: { thoughtSignature: "signed-thought-1" },
+      },
     });
     expect(result.content[1]).toEqual({
       type: "tool_use",
