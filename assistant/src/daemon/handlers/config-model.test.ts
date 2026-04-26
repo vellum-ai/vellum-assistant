@@ -59,6 +59,23 @@ describe("projectProviderForWire", () => {
     expect(wire.models.length).toBe(anthropic!.models.length);
   });
 
+  test("projects Gemini 3 text models onto the wire catalog", () => {
+    const gemini = PROVIDER_CATALOG.find((p) => p.id === "gemini");
+    expect(gemini).toBeDefined();
+    const wire = projectProviderForWire(gemini!);
+    const modelIds = wire.models.map((model) => model.id);
+
+    for (const modelId of [
+      "gemini-3.1-pro-preview",
+      "gemini-3.1-pro-preview-customtools",
+      "gemini-3-flash-preview",
+      "gemini-3.1-flash-lite-preview",
+    ]) {
+      expect(modelIds).toContain(modelId);
+    }
+    expect(modelIds).not.toContain("gemini-3-pro-preview");
+  });
+
   test("omits apiKeyUrl/apiKeyPlaceholder when source entry has none (keyless providers)", () => {
     const ollama = PROVIDER_CATALOG.find((p) => p.id === "ollama");
     expect(ollama).toBeDefined();

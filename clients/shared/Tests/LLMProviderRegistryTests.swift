@@ -35,6 +35,7 @@ final class LLMProviderRegistryTests: XCTestCase {
         }
 
         XCTAssertEqual(gemini.defaultModel, "gemini-2.5-flash")
+        XCTAssertFalse(gemini.models.map(\.id).contains("gemini-3-pro-preview"))
         XCTAssertEqual(
             Array(gemini.models.prefix(7).map(\.id)),
             [
