@@ -206,7 +206,7 @@ Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant po
 
 ## Docker Volume Architecture
 
-Docker instances use five dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
+Docker instances use seven dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
 
 | Volume | Mount path | Access | Contents |
 |---|---|---|---|
@@ -214,6 +214,8 @@ Docker instances use five dedicated volumes with strict per-service access bound
 | **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
 | **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
 | **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
+| **Gateway IPC** (`<name>-gateway-ipc`) | `/run/gateway-ipc` | Assistant + Gateway | `gateway.sock` — IPC socket for assistant→gateway calls |
+| **Assistant IPC** (`<name>-assistant-ipc`) | `/run/assistant-ipc` | Assistant + Gateway | `assistant.sock` — IPC socket for gateway→assistant calls |
 | **Inner dockerd data** (`<name>-dockerd-data`) | `/var/lib/docker` | Assistant only | Docker image cache and container state for the inner `dockerd` running inside the assistant container (Docker-in-Docker model for Meet). Persists the pulled meet-bot image across assistant restarts. |
 
 The assistant's container root (`/`) stores per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, and embed-worker PID files. This replaces the former shared data volume which previously held all state.
