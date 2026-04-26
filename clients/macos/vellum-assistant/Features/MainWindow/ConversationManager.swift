@@ -80,6 +80,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationInferenceProfileClient: any ConversationInferenceProfileClientProtocol
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
+    private let acpSessionStore: ACPSessionStore?
 
     // MARK: - Pre-Chat Onboarding
 
@@ -205,6 +206,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationInferenceProfileClient: any ConversationInferenceProfileClientProtocol = ConversationInferenceProfileClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
+        acpSessionStore: ACPSessionStore? = nil,
         isFirstLaunch: Bool = false,
         preChatContext: PreChatOnboardingContext? = nil
     ) {
@@ -217,6 +219,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationHostAccessClient = conversationHostAccessClient
         self.conversationInferenceProfileClient = conversationInferenceProfileClient
         self.conversationAnalysisClient = conversationAnalysisClient
+        self.acpSessionStore = acpSessionStore
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
 
@@ -260,6 +263,8 @@ final class ConversationManager: ConversationRestorerDelegate {
                         serverConversationId: message.conversationId,
                         profile: message.profile
                     )
+                case .acpSessionSpawned, .acpSessionUpdate, .acpSessionCompleted, .acpSessionError:
+                    self.acpSessionStore?.handle(message)
                 default:
                     break
                 }

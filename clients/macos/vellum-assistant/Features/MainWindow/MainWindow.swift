@@ -330,6 +330,7 @@ public final class MainWindow {
         self.conversationManager = ConversationManager(
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
+            acpSessionStore: services.acpSessionStore,
             isFirstLaunch: isFirstLaunch,
             preChatContext: preChatContext
         )
