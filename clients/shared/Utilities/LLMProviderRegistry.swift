@@ -282,6 +282,16 @@ private let fallbackCatalog = LLMProviderCatalog(
             ),
             defaultModel: "gemini-2.5-flash",
             models: [
+                LLMModelEntry(id: "gemini-3.1-pro-preview", displayName: "Gemini 3.1 Pro Preview"),
+                LLMModelEntry(
+                    id: "gemini-3.1-pro-preview-customtools",
+                    displayName: "Gemini 3.1 Pro Preview (Custom Tools)"
+                ),
+                LLMModelEntry(id: "gemini-3-flash-preview", displayName: "Gemini 3 Flash Preview"),
+                LLMModelEntry(
+                    id: "gemini-3.1-flash-lite-preview",
+                    displayName: "Gemini 3.1 Flash-Lite Preview"
+                ),
                 LLMModelEntry(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
                 LLMModelEntry(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
                 LLMModelEntry(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),

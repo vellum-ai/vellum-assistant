@@ -21,7 +21,7 @@ final class InferenceProfileEditorTests: XCTestCase {
         // Tiny deterministic catalog so tests don't depend on the live
         // `LLMProviderRegistry` shape.
         let fixture = SettingsTestFixture.make(
-            providerCatalog: SettingsTestFixture.anthropicAndOpenAICatalog()
+            providerCatalog: Self.editorProviderCatalog()
         )
         store = fixture.store
         mockSettingsClient = fixture.mockClient
@@ -77,6 +77,37 @@ final class InferenceProfileEditorTests: XCTestCase {
             maxOutputTokens: maxOutputTokens,
             supportsThinking: supportsThinking
         )
+    }
+
+    private static func editorProviderCatalog() -> [ProviderCatalogEntry] {
+        SettingsTestFixture.anthropicAndOpenAICatalog() + [
+            ProviderCatalogEntry(
+                id: "gemini",
+                displayName: "Google Gemini",
+                models: [
+                    CatalogModel(
+                        id: "gemini-3.1-pro-preview",
+                        displayName: "Gemini 3.1 Pro Preview"
+                    ),
+                    CatalogModel(
+                        id: "gemini-3.1-pro-preview-customtools",
+                        displayName: "Gemini 3.1 Pro Preview (Custom Tools)"
+                    ),
+                    CatalogModel(
+                        id: "gemini-3-flash-preview",
+                        displayName: "Gemini 3 Flash Preview"
+                    ),
+                    CatalogModel(
+                        id: "gemini-3.1-flash-lite-preview",
+                        displayName: "Gemini 3.1 Flash-Lite Preview"
+                    ),
+                    CatalogModel(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
+                    CatalogModel(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
+                    CatalogModel(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
+                ],
+                defaultModel: "gemini-2.5-flash"
+            ),
+        ]
     }
 
     // MARK: - Form structure
@@ -213,6 +244,32 @@ final class InferenceProfileEditorTests: XCTestCase {
         )
     }
 
+    func testGemini3ShowsOnlyMaxTokensWithCurrentProviderSupport() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gemini-3.1-pro-preview",
+                displayName: "Gemini 3.1 Pro Preview",
+                maxOutputTokens: 65536,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
     func testOpenRouterReasoningModelsShowEffortAndThinking() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "openrouter",
@@ -316,6 +373,34 @@ final class InferenceProfileEditorTests: XCTestCase {
             provider: "anthropic",
             model: "claude-sonnet-4-6"
         ))
+        XCTAssertTrue(editor.canSave)
+    }
+
+    func testCanSelectGemini3ModelFromDynamicCatalog() {
+        let geminiModels = store.dynamicProviderModels("gemini")
+        XCTAssertEqual(
+            geminiModels.prefix(4).map(\.id),
+            [
+                "gemini-3.1-pro-preview",
+                "gemini-3.1-pro-preview-customtools",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+            ]
+        )
+        XCTAssertEqual(
+            geminiModels.first { $0.id == "gemini-3.1-pro-preview" }?.displayName,
+            "Gemini 3.1 Pro Preview"
+        )
+
+        let (editor, box) = makeEditor(profile: InferenceProfile(
+            name: "gemini-3",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview"
+        ))
+
+        XCTAssertEqual(box.profile.model, "gemini-3.1-pro-preview")
+        XCTAssertFalse(editor.isModelMissing)
+        XCTAssertFalse(editor.isModelInvalid)
         XCTAssertTrue(editor.canSave)
     }
 
