@@ -4,6 +4,7 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
 import { normalizeEmailWebhook } from "../../email/normalize.js";
@@ -483,46 +484,53 @@ export function createResendWebhookHandler(
         apiKey
       ) {
         const senderAddress = gatewayEvent.actor.actorExternalId;
-        try {
-          const sendResponse = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: recipientAddress,
-              to: [senderAddress],
-              subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-              text: result.runtimeResponse.replyText,
-              ...(vellumPayload.messageId
-                ? {
-                    headers: {
-                      "In-Reply-To": vellumPayload.messageId,
-                    },
-                  }
-                : {}),
-            }),
-          });
-          if (sendResponse.ok) {
-            tlog.info(
-              { from: recipientAddress, to: senderAddress },
-              "Sent denial reply via Resend",
-            );
-          } else {
-            tlog.warn(
-              {
-                status: sendResponse.status,
-                from: recipientAddress,
-                to: senderAddress,
+        if (recordDenialReplyIfAllowed("email", senderAddress)) {
+          try {
+            const sendResponse = await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
               },
-              "Failed to send denial reply via Resend",
+              body: JSON.stringify({
+                from: recipientAddress,
+                to: [senderAddress],
+                subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
+                text: result.runtimeResponse.replyText,
+                ...(vellumPayload.messageId
+                  ? {
+                      headers: {
+                        "In-Reply-To": vellumPayload.messageId,
+                      },
+                    }
+                  : {}),
+              }),
+            });
+            if (sendResponse.ok) {
+              tlog.info(
+                { from: recipientAddress, to: senderAddress },
+                "Sent denial reply via Resend",
+              );
+            } else {
+              tlog.warn(
+                {
+                  status: sendResponse.status,
+                  from: recipientAddress,
+                  to: senderAddress,
+                },
+                "Failed to send denial reply via Resend",
+              );
+            }
+          } catch (err) {
+            tlog.error(
+              { err, from: recipientAddress, to: senderAddress },
+              "Error sending denial reply via Resend",
             );
           }
-        } catch (err) {
-          tlog.error(
-            { err, from: recipientAddress, to: senderAddress },
-            "Error sending denial reply via Resend",
+        } else {
+          tlog.info(
+            { from: recipientAddress, to: senderAddress },
+            "Denial reply rate-limited, skipping Resend send",
           );
         }
       }

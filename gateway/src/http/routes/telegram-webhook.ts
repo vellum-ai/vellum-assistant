@@ -3,6 +3,7 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { ContentMismatchError } from "../../download-validation.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -442,21 +443,31 @@ export function createTelegramWebhookHandler(
           // deliver the rejection reply via callback, send it directly.
           const startRuntimeResp = result.runtimeResponse;
           if (startRuntimeResp?.denied && startRuntimeResp.replyText) {
-            sendTelegramReply(
-              config,
-              normalized.message.conversationExternalId,
-              startRuntimeResp.replyText,
-              undefined,
-              {
-                credentials: caches?.credentials,
-                configFile: caches?.configFile,
-              },
-            ).catch((err) => {
-              tlog.error(
-                { err, chatId: normalized.message.conversationExternalId },
-                "Failed to send ACL denial fallback reply",
+            const startSender =
+              normalized.actor.actorExternalId ??
+              normalized.message.conversationExternalId;
+            if (recordDenialReplyIfAllowed("telegram", startSender)) {
+              sendTelegramReply(
+                config,
+                normalized.message.conversationExternalId,
+                startRuntimeResp.replyText,
+                undefined,
+                {
+                  credentials: caches?.credentials,
+                  configFile: caches?.configFile,
+                },
+              ).catch((err) => {
+                tlog.error(
+                  { err, chatId: normalized.message.conversationExternalId },
+                  "Failed to send ACL denial fallback reply",
+                );
+              });
+            } else {
+              tlog.info(
+                { chatId: normalized.message.conversationExternalId },
+                "Denial reply rate-limited, skipping Telegram send",
               );
-            });
+            }
           }
         }
       } catch (err) {
@@ -748,15 +759,23 @@ export function createTelegramWebhookHandler(
       // deliver the rejection reply via callback, send it directly.
       const runtimeResp = result.runtimeResponse;
       if (runtimeResp?.denied && runtimeResp.replyText) {
-        sendTelegramReply(config, chatId, runtimeResp.replyText, undefined, {
-          credentials: caches?.credentials,
-          configFile: caches?.configFile,
-        }).catch((err) => {
-          tlog.error(
-            { err, chatId },
-            "Failed to send ACL denial fallback reply",
+        const msgSender = normalized.actor.actorExternalId ?? chatId;
+        if (recordDenialReplyIfAllowed("telegram", msgSender)) {
+          sendTelegramReply(config, chatId, runtimeResp.replyText, undefined, {
+            credentials: caches?.credentials,
+            configFile: caches?.configFile,
+          }).catch((err) => {
+            tlog.error(
+              { err, chatId },
+              "Failed to send ACL denial fallback reply",
+            );
+          });
+        } else {
+          tlog.info(
+            { chatId },
+            "Denial reply rate-limited, skipping Telegram send",
           );
-        });
+        }
       }
 
       // Acknowledge the callback query to clear the button spinner in the
