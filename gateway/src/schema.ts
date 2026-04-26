@@ -1083,6 +1083,56 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/live-voice": {
+        get: {
+          summary: "Live voice WebSocket",
+          description:
+            "Accepts a WebSocket upgrade for the live voice channel. Authenticates the client using an edge JWT (actor principal), opens an upstream assistant WebSocket at /v1/live-voice using a gateway service token, and proxies text and binary audio frames opaquely in both directions.",
+          operationId: "liveVoiceWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful; bidirectional live voice frame proxying begins.",
+            },
+            "401": {
+              description: "Unauthorized - missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required - request is not a WebSocket upgrade",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/webhooks/oauth/callback": {
         get: {
           summary: "OAuth2 callback",

@@ -405,4 +405,50 @@ describe("live voice gateway boundary", () => {
     expect(source).not.toMatch(/from\s+["'](?:\.\.\/)+assistant\//);
     expect(source).not.toContain('from "assistant/');
   });
+
+  test("gateway index routes live voice websocket upgrades before the runtime proxy", () => {
+    const source = readFileSync(
+      new URL("../index.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("createLiveVoiceWebsocketHandler");
+    expect(source).toContain("getLiveVoiceWebsocketHandlers");
+    expect(source).toContain("type LiveVoiceSocketData");
+    expect(source).toContain("function isLiveVoiceSocketData");
+    expect(source).toContain("const handleLiveVoiceWs");
+    expect(source).toContain("const liveVoiceWebsocketHandlers");
+
+    const liveVoiceRouteIndex = source.indexOf(
+      'url.pathname === "/v1/live-voice"',
+    );
+    const runtimeProxyDispatchIndex = source.indexOf(
+      "const response = router(req, url, resolveClientIp, svr);",
+    );
+
+    expect(liveVoiceRouteIndex).toBeGreaterThan(-1);
+    expect(runtimeProxyDispatchIndex).toBeGreaterThan(-1);
+    expect(liveVoiceRouteIndex).toBeLessThan(runtimeProxyDispatchIndex);
+
+    expect(source).toContain("handleLiveVoiceWs(req, server)");
+    expect(source).toContain('url.pathname === "/v1/stt/stream"');
+    expect(source).toContain("handleSttStreamWs(req, server)");
+  });
+
+  test("gateway websocket lifecycle dispatches live voice socket data", () => {
+    const source = readFileSync(
+      new URL("../index.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /if \(isLiveVoiceSocketData\(ws\.data\)\) \{\s+liveVoiceWebsocketHandlers\.open\(ws as never\);\s+return;\s+\}/,
+    );
+    expect(source).toMatch(
+      /if \(isLiveVoiceSocketData\(ws\.data\)\) \{\s+liveVoiceWebsocketHandlers\.message\(ws as never, message\);\s+return;\s+\}/,
+    );
+    expect(source).toMatch(
+      /if \(isLiveVoiceSocketData\(ws\.data\)\) \{\s+liveVoiceWebsocketHandlers\.close\(ws as never, code, reason\);\s+return;\s+\}/,
+    );
+  });
 });
