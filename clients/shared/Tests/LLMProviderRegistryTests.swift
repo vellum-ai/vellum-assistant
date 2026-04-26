@@ -29,6 +29,26 @@ final class LLMProviderRegistryTests: XCTestCase {
         }
     }
 
+    func testGeminiFallbackModelsIncludeGemini3BeforeGemini25() {
+        guard let gemini = LLMProviderRegistry.provider(id: "gemini") else {
+            return XCTFail("Expected Gemini provider in fallback catalog")
+        }
+
+        XCTAssertEqual(gemini.defaultModel, "gemini-2.5-flash")
+        XCTAssertEqual(
+            Array(gemini.models.prefix(7).map(\.id)),
+            [
+                "gemini-3.1-pro-preview",
+                "gemini-3.1-pro-preview-customtools",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-pro",
+            ]
+        )
+    }
+
     func testProviderLookupReturnsExpectedEntry() {
         let openai = LLMProviderRegistry.provider(id: "openai")
         XCTAssertNotNil(openai)
