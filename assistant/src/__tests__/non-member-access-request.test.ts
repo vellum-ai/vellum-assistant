@@ -62,7 +62,6 @@ mock.module("../runtime/gateway-client.js", () => ({
 }));
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,

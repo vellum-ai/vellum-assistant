@@ -129,7 +129,7 @@ export function notifyGuardianOfAccessRequest(
   if (!guardianPrincipalId && vellumGuardian) {
     guardianExternalUserId =
       vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
-    guardianPrincipalId = assistantGuardianPrincipalId;
+    guardianPrincipalId = assistantGuardianPrincipalId ?? null;
     guardianBindingChannel = guardianBindingChannel ?? "vellum";
     guardianResolutionSource = "vellum-anchor";
   }
