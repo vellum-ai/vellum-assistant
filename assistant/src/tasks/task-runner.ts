@@ -1,13 +1,7 @@
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
 import { getLogger } from "../util/logger.js";
-import {
-  buildTaskRules,
-  clearTaskRunRules,
-  setTaskRunRules,
-} from "./ephemeral-permissions.js";
 import { createTaskRun, getTask, updateTaskRun } from "./task-store.js";
-import { sanitizeToolList } from "./tool-sanitizer.js";
 
 const log = getLogger("task-runner");
 
@@ -15,7 +9,7 @@ export interface TaskRunOptions {
   taskId: string;
   inputs?: Record<string, string>;
   workingDir: string;
-  /** Pre-approved tools from the permission preflight flow. When set, only these tools get ephemeral allow rules. */
+  /** Pre-approved tools from the permission preflight flow (stored for audit purposes). */
   approvedTools?: string[];
   /** Conversation source to propagate to the created conversation (e.g. 'schedule' when triggered by a schedule). */
   source?: string;
@@ -42,8 +36,7 @@ export function renderTemplate(
 }
 
 /**
- * Execute a task: create a run, set up ephemeral permissions,
- * render the template, and process it as a message.
+ * Execute a task: create a run, render the template, and process it as a message.
  */
 export async function runTask(
   opts: TaskRunOptions,
@@ -76,17 +69,6 @@ export async function runTask(
     conversationId: conversation.id,
     memoryScopeId: `task:${task.id}`,
   });
-
-  // Build and register ephemeral permission rules. If the user pre-approved
-  // specific tools via the preflight flow, use those instead of all requiredTools.
-  const requiredTools = sanitizeToolList(
-    task.requiredTools ? JSON.parse(task.requiredTools) : [],
-  );
-  const toolsForRules = opts.approvedTools
-    ? sanitizeToolList(opts.approvedTools)
-    : requiredTools;
-  const rules = buildTaskRules(run.id, toolsForRules, opts.workingDir);
-  setTaskRunRules(run.id, rules);
 
   try {
     const renderedTemplate = renderTemplate(task.template, opts.inputs ?? {});
@@ -134,7 +116,5 @@ export async function runTask(
       status: "failed",
       error: errorMessage,
     };
-  } finally {
-    clearTaskRunRules(run.id);
   }
 }

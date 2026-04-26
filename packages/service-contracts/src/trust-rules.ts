@@ -76,115 +76,26 @@ const MANAGED_SKILL_TOOLS_SET: ReadonlySet<string> = new Set(
 );
 
 // ---------------------------------------------------------------------------
-// Trust rule — base and family-specific variants
-// ---------------------------------------------------------------------------
-
-/** Fields shared by all trust rule variants. */
-export interface TrustRuleBase {
-  id: string;
-  tool: string;
-  pattern: string;
-  decision: TrustDecision;
-  priority: number;
-  createdAt: number;
-  /**
-   * Set when a user explicitly modifies a default trust rule.
-   * When present, `backfillDefaults()` will not overwrite the rule
-   * with updated template values on upgrade — preserving the user's
-   * customization.
-   */
-  userModifiedAt?: number;
-}
-
-/**
- * A trust rule for a scoped tool (filesystem-path-based candidates).
- *
- * Scoped rules may carry `executionTarget` to constrain matching to a
- * specific execution environment.
- */
-export interface ScopedTrustRule extends TrustRuleBase {
-  tool: (typeof SCOPED_TOOLS)[number];
-  scope: string;
-  executionTarget?: string;
-}
-
-/**
- * A trust rule for a URL-based tool.
- *
- * URL rules do not use `executionTarget`.
- */
-export interface UrlTrustRule extends TrustRuleBase {
-  tool: (typeof URL_TOOLS)[number];
-}
-
-/**
- * A trust rule for a managed-skill tool (scaffold/delete).
- */
-export interface ManagedSkillTrustRule extends TrustRuleBase {
-  tool: (typeof MANAGED_SKILL_TOOLS)[number];
-}
-
-/**
- * A trust rule for the `skill_load` tool.
- */
-export interface SkillLoadTrustRule extends TrustRuleBase {
-  tool: typeof SKILL_LOAD_TOOL;
-}
-
-/**
- * A trust rule for any tool that doesn't belong to a known family.
- *
- * Generic rules preserve `executionTarget` for backward compatibility —
- * existing rules for unknown/new tools may carry this field.
- * Scope is intentionally absent: new tools that need scope must be explicitly
- * added to `SCOPED_TOOLS` and use `ScopedTrustRule`.
- */
-export interface GenericTrustRule extends TrustRuleBase {
-  tool: string;
-  executionTarget?: string;
-}
-
-/**
- * Discriminated union of all trust rule families.
- *
- * The union is discriminated on the `tool` field: known tool names narrow to
- * the corresponding family variant, while unknown tool names fall through to
- * `GenericTrustRule`.
- *
- * For backward compatibility, `TrustRule` remains the single type that all
- * existing code uses. The family-specific interfaces exist so that new code
- * can narrow the type when it knows the tool family.
- */
-export type TrustRule =
-  | ScopedTrustRule
-  | UrlTrustRule
-  | ManagedSkillTrustRule
-  | SkillLoadTrustRule
-  | GenericTrustRule;
-
-// ---------------------------------------------------------------------------
 // Type guards
 // ---------------------------------------------------------------------------
 
-/** Narrow a TrustRule to a ScopedTrustRule. */
-export function isScopedRule(rule: TrustRule): rule is ScopedTrustRule {
+/** Returns true when the rule's tool belongs to the scoped-tool family. */
+export function isScopedRule(rule: { tool: string }): boolean {
   return SCOPED_TOOLS_SET.has(rule.tool);
 }
 
-/** Narrow a TrustRule to a UrlTrustRule. */
-export function isUrlRule(rule: TrustRule): rule is UrlTrustRule {
+/** Returns true when the rule's tool belongs to the URL-tool family. */
+export function isUrlRule(rule: { tool: string }): boolean {
   return URL_TOOLS_SET.has(rule.tool);
 }
 
-/** Narrow a TrustRule to a ManagedSkillTrustRule. */
-export function isManagedSkillRule(
-  rule: TrustRule,
-): rule is ManagedSkillTrustRule {
+/** Returns true when the rule's tool belongs to the managed-skill-tool family. */
+export function isManagedSkillRule(rule: { tool: string }): boolean {
   return MANAGED_SKILL_TOOLS_SET.has(rule.tool);
 }
 
-/** Narrow a TrustRule to a SkillLoadTrustRule. */
-export function isSkillLoadRule(rule: TrustRule): rule is SkillLoadTrustRule {
+/** Returns true when the rule's tool is the skill_load tool. */
+export function isSkillLoadRule(rule: { tool: string }): boolean {
   return rule.tool === SKILL_LOAD_TOOL;
 }
 
@@ -196,242 +107,10 @@ export function isSkillLoadRule(rule: TrustRule): rule is SkillLoadTrustRule {
  * Return the effective scope for any trust rule. Only scoped rules carry a
  * `scope` field; all other rule families return `"everywhere"`.
  */
-export function ruleScope(rule: TrustRule): string {
+export function ruleScope(rule: { tool: string; scope?: string }): string {
   if (isScopedRule(rule)) {
-    return rule.scope;
+    return rule.scope ?? "everywhere";
   }
   return "everywhere";
 }
 
-// ---------------------------------------------------------------------------
-// Canonical parse / normalize
-// ---------------------------------------------------------------------------
-
-/**
- * Result of parsing a raw trust rule object. Includes the normalized rule
- * and a flag indicating whether any normalization occurred (so callers can
- * trigger a re-save of the trust file).
- */
-export interface ParsedTrustRule {
-  rule: TrustRule;
-  /** True if any fields were stripped or modified during normalization. */
-  normalized: boolean;
-}
-
-/**
- * Parse and normalize a raw trust rule object into a canonical `TrustRule`.
- *
- * Normalization strips fields that are invalid for the rule's tool family:
- * - URL rules: `executionTarget` and `scope` are stripped.
- * - Managed skill rules: `executionTarget` and `scope` are stripped.
- * - Skill load rules: `executionTarget` and `scope` are stripped.
- * - Scoped rules: `scope` is preserved (defaulting to `"everywhere"`),
- *   `executionTarget` is preserved when valid.
- * - Generic (unknown) rules: `scope` is stripped (new tools that need scope
- *   must be added to `SCOPED_TOOLS`); `executionTarget` is preserved for
- *   forward compatibility.
- * - All families: `allowHighRisk` is stripped (replaced by runtime
- *   determination in checker.ts). Old trust.json files with `allowHighRisk`
- *   are normalized on load.
- */
-export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
-  let normalized = false;
-
-  // Extract base fields with coercion for safety — mark normalized whenever
-  // a field is coerced to its default so callers know to re-save.
-  const id = typeof raw.id === "string" ? raw.id : ((normalized = true), "");
-  const tool =
-    typeof raw.tool === "string" ? raw.tool : ((normalized = true), "");
-  const pattern =
-    typeof raw.pattern === "string" ? raw.pattern : ((normalized = true), "");
-  const decision = isValidDecision(raw.decision)
-    ? raw.decision
-    : ((normalized = true), "ask" as const);
-  const priority =
-    typeof raw.priority === "number" ? raw.priority : ((normalized = true), 100);
-  const createdAt =
-    typeof raw.createdAt === "number"
-      ? raw.createdAt
-      : ((normalized = true), 0);
-  const userModifiedAt =
-    typeof raw.userModifiedAt === "number" ? raw.userModifiedAt : undefined;
-
-  // Build the base rule — scope is NOT included here; it is added only by
-  // the scoped and generic branches below.
-  const base: TrustRuleBase = {
-    id,
-    tool,
-    pattern,
-    decision,
-    priority,
-    createdAt,
-    ...(userModifiedAt != null ? { userModifiedAt } : {}),
-  };
-
-  // Determine the family and strip invalid fields
-  if (URL_TOOLS_SET.has(tool)) {
-    // URL rules must not carry executionTarget or scope.
-    if (raw.executionTarget !== undefined) {
-      normalized = true;
-    }
-    if (typeof raw.scope === "string" && raw.scope !== "everywhere") {
-      normalized = true;
-    }
-    // allowHighRisk is stripped (replaced by runtime determination).
-    if (raw.allowHighRisk !== undefined) {
-      normalized = true;
-    }
-    const rule: UrlTrustRule = { ...base, tool: tool as UrlTrustRule["tool"] };
-    return { rule, normalized };
-  }
-
-  if (MANAGED_SKILL_TOOLS_SET.has(tool)) {
-    // Managed skill rules must not carry executionTarget or scope.
-    if (raw.executionTarget !== undefined) {
-      normalized = true;
-    }
-    if (typeof raw.scope === "string" && raw.scope !== "everywhere") {
-      normalized = true;
-    }
-    // allowHighRisk is stripped (replaced by runtime determination).
-    if (raw.allowHighRisk !== undefined) {
-      normalized = true;
-    }
-    const rule: ManagedSkillTrustRule = {
-      ...base,
-      tool: tool as ManagedSkillTrustRule["tool"],
-    };
-    return { rule, normalized };
-  }
-
-  if (tool === SKILL_LOAD_TOOL) {
-    // Skill-load rules must not carry executionTarget or scope.
-    if (raw.executionTarget !== undefined) {
-      normalized = true;
-    }
-    if (typeof raw.scope === "string" && raw.scope !== "everywhere") {
-      normalized = true;
-    }
-    // allowHighRisk is stripped (replaced by runtime determination).
-    if (raw.allowHighRisk !== undefined) {
-      normalized = true;
-    }
-    const rule: SkillLoadTrustRule = { ...base, tool: SKILL_LOAD_TOOL };
-    return { rule, normalized };
-  }
-
-  if (SCOPED_TOOLS_SET.has(tool)) {
-    // Scoped rules include scope (defaulting to "everywhere") and preserve
-    // executionTarget.
-    const scope =
-      typeof raw.scope === "string"
-        ? raw.scope
-        : ((normalized = true), "everywhere");
-    const rule: ScopedTrustRule = {
-      ...base,
-      tool: tool as ScopedTrustRule["tool"],
-      scope,
-    };
-    if (
-      typeof raw.executionTarget === "string" &&
-      raw.executionTarget.length > 0
-    ) {
-      rule.executionTarget = raw.executionTarget;
-    } else if (raw.executionTarget !== undefined && raw.executionTarget !== "") {
-      normalized = true;
-    }
-    // allowHighRisk is stripped (replaced by runtime determination).
-    if (raw.allowHighRisk !== undefined) {
-      normalized = true;
-    }
-    return { rule, normalized };
-  }
-
-  // Generic (unknown) tool — strip scope (new tools that need scope must be
-  // added to SCOPED_TOOLS explicitly), preserve executionTarget for forward compat.
-  const rule: GenericTrustRule = { ...base };
-  if (
-    typeof raw.scope === "string" &&
-    raw.scope !== "" &&
-    raw.scope !== "everywhere"
-  ) {
-    normalized = true;
-  }
-  if (
-    typeof raw.executionTarget === "string" &&
-    raw.executionTarget.length > 0
-  ) {
-    rule.executionTarget = raw.executionTarget;
-  } else if (raw.executionTarget !== undefined && raw.executionTarget !== "") {
-    normalized = true;
-  }
-  // allowHighRisk is stripped (replaced by runtime determination).
-  if (raw.allowHighRisk !== undefined) {
-    normalized = true;
-  }
-  return { rule, normalized };
-}
-
-function isValidDecision(value: unknown): value is TrustDecision {
-  return value === "allow" || value === "deny" || value === "ask";
-}
-
-// ---------------------------------------------------------------------------
-// Trust file (on-disk shape)
-// ---------------------------------------------------------------------------
-
-/** Shape of the `trust.json` file persisted to disk. */
-export interface TrustFileData {
-  version: number;
-  rules: TrustRule[];
-  /** Set to true when the user explicitly accepts the starter approval bundle. */
-  starterBundleAccepted?: boolean;
-}
-
-/**
- * Result of parsing a raw trust file. Includes the parsed data and a flag
- * indicating whether any rules were normalized.
- */
-export interface ParsedTrustFileData {
-  data: TrustFileData;
-  /** True if any rules were normalized during parsing. */
-  normalized: boolean;
-}
-
-/**
- * Parse and normalize a raw trust file object.
- *
- * Each rule in the `rules` array is run through `parseTrustRule` for
- * family-aware normalization. The `normalized` flag in the result is true
- * if *any* rule was modified, signaling the caller that a re-save is warranted.
- */
-export function parseTrustFileData(
-  raw: Record<string, unknown>,
-): ParsedTrustFileData {
-  const version = typeof raw.version === "number" ? raw.version : 0;
-  const starterBundleAccepted =
-    raw.starterBundleAccepted === true ? true : undefined;
-  const rawRules = Array.isArray(raw.rules) ? raw.rules : [];
-
-  let anyNormalized = false;
-  const rules: TrustRule[] = [];
-
-  for (const rawRule of rawRules) {
-    if (rawRule == null || typeof rawRule !== "object" || Array.isArray(rawRule)) {
-      anyNormalized = true;
-      continue;
-    }
-    const { rule, normalized } = parseTrustRule(
-      rawRule as Record<string, unknown>,
-    );
-    if (normalized) anyNormalized = true;
-    rules.push(rule);
-  }
-
-  const data: TrustFileData = { version, rules };
-  if (starterBundleAccepted) {
-    data.starterBundleAccepted = true;
-  }
-
-  return { data, normalized: anyNormalized };
-}

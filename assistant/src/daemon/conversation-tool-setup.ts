@@ -19,7 +19,6 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -210,17 +209,7 @@ export function createToolExecutor(
       triggeredBySurfaceAction:
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
       approvedViaPrompt: ctx.approvedViaPromptThisTurn || undefined,
-      // A task without required_tools entries (e.g. ad-hoc tasks created with
-      // omitted/empty required_tools, or legacy rows where it was never
-      // populated) correctly gets no batch authorization — that's the
-      // intended stricter contract this check enforces, not a regression to
-      // paper over. Batch tools gate themselves via this flag; callers that
-      // never declared the tool shouldn't get blanket authorization.
-      batchAuthorizedByTask:
-        ctx.taskRunId != null &&
-        getTaskRunRules(ctx.taskRunId).some(
-          (r) => r.tool === effectiveToolName,
-        ),
+      batchAuthorizedByTask: false,
       requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
       requesterChatId: ctx.trustContext?.requesterChatId,
       requesterIdentifier: ctx.trustContext?.requesterIdentifier,

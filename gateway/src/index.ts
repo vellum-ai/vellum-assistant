@@ -96,15 +96,6 @@ import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commi
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import {
-  createTrustRulesListHandler,
-  createTrustRulesAddHandler,
-  createTrustRulesUpdateHandler,
-  createTrustRulesDeleteHandler,
-  createTrustRulesClearHandler,
-  createTrustRulesMatchHandler,
-  createTrustRulesStarterBundleHandler,
-} from "./http/routes/trust-rules.js";
-import {
   createTrustRuleV3sListHandler,
   createTrustRuleV3sCreateHandler,
   createTrustRuleV3sUpdateHandler,
@@ -153,7 +144,6 @@ import {
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
-import { trustRuleRoutes } from "./ipc/trust-rule-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
@@ -377,13 +367,6 @@ async function main() {
     createConversationThresholdPutHandler();
   const handleConversationThresholdDelete =
     createConversationThresholdDeleteHandler();
-  const handleTrustRulesList = createTrustRulesListHandler();
-  const handleTrustRulesAdd = createTrustRulesAddHandler();
-  const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
-  const handleTrustRulesDelete = createTrustRulesDeleteHandler();
-  const handleTrustRulesClear = createTrustRulesClearHandler();
-  const handleTrustRulesMatch = createTrustRulesMatchHandler();
-  const handleTrustRulesStarterBundle = createTrustRulesStarterBundleHandler();
   const handleTrustRuleV3sList = createTrustRuleV3sListHandler();
   const handleTrustRuleV3sCreate = createTrustRuleV3sCreateHandler();
   const handleTrustRuleV3sUpdate = createTrustRuleV3sUpdateHandler();
@@ -1227,49 +1210,6 @@ async function main() {
       handler: (req, params) => handleTrustRuleV3sDelete(req, params[0]),
     },
 
-    // ── Trust rules ──
-    {
-      path: "/v1/trust-rules/clear",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRulesClear(req),
-    },
-    {
-      path: "/v1/trust-rules/match",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => handleTrustRulesMatch(req),
-    },
-    {
-      path: "/v1/trust-rules/starter-bundle",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRulesStarterBundle(req),
-    },
-    {
-      path: "/v1/trust-rules",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => handleTrustRulesList(req),
-    },
-    {
-      path: "/v1/trust-rules",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRulesAdd(req),
-    },
-    {
-      path: /^\/v1\/trust-rules\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
-    },
-    {
-      path: /^\/v1\/trust-rules\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (req, params) => handleTrustRulesDelete(req, params[0]),
-    },
   ];
 
   // The runtime proxy catch-all is only added when the proxy is enabled.
@@ -1980,7 +1920,6 @@ async function main() {
     ...featureFlagRoutes,
     ...contactRoutes,
     ...thresholdRoutes,
-    ...trustRuleRoutes,
     ...riskClassificationRoutes,
     ...capabilityTokenRoutes,
   ]);

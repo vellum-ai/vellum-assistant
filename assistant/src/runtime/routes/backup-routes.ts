@@ -44,7 +44,6 @@ import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
 import { getConfig, invalidateConfigCache } from "../../config/loader.js";
 import type { BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
-import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -326,9 +325,9 @@ interface RestoreRequestBody {
  *      `assistant.db` is overwritten. Without this, the daemon would keep a
  *      reference to the old inode and subsequent writes could silently
  *      corrupt the restored state.
- *   2. `invalidateConfigCache()` and `clearTrustCache()` are called AFTER a
- *      successful restore so the daemon re-reads the restored `config.json`
- *      and `trust.json` from disk instead of serving stale in-process caches.
+ *   2. `invalidateConfigCache()` is called AFTER a successful restore so the
+ *      daemon re-reads the restored `config.json` from disk instead of
+ *      serving a stale in-process cache.
  *
  * Credentials are intentionally excluded from backups — they live in the OS
  * keychain / CES and are not restored by this path. Users re-authenticate
@@ -370,10 +369,9 @@ export async function handleBackupRestore(req: Request): Promise<Response> {
       workspaceDir: getWorkspaceDir(),
     });
 
-    // Invalidate in-process caches so the restored settings.json and trust.json
-    // take effect without requiring a daemon restart.
+    // Invalidate the in-process config cache so the restored settings.json
+    // takes effect without requiring a daemon restart.
     invalidateConfigCache();
-    clearTrustCache();
 
     return Response.json({
       manifest: result.manifest,

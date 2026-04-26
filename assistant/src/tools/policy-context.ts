@@ -1,6 +1,5 @@
 import type { ExecutionContext } from "../permissions/approval-policy.js";
 import type { PolicyContext } from "../permissions/types.js";
-import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import type { Tool, ToolContext } from "./types.js";
 
 /**
@@ -28,10 +27,6 @@ export function buildPolicyContext(
   tool: Tool,
   context?: ToolContext,
 ): PolicyContext {
-  const ephemeralRules = context?.taskRunId
-    ? getTaskRunRules(context.taskRunId)
-    : undefined;
-
   const executionContext = deriveExecutionContext(context);
 
   const conversationId = context?.conversationId;
@@ -39,14 +34,12 @@ export function buildPolicyContext(
   if (tool.origin === "skill" || tool.origin === "plugin") {
     return {
       executionTarget: tool.executionTarget,
-      ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
       executionContext,
       conversationId,
     };
   }
 
   return {
-    ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
     executionContext,
     conversationId,
   };

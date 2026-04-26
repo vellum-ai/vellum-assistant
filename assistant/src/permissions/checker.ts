@@ -31,7 +31,6 @@ import {
 import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
 import type { ClassificationResult } from "./ipc-risk-types.js";
 import type { RiskAssessment } from "./risk-types.js";
-import { findHighestPriorityRule, onRulesChanged } from "./trust-store.js";
 import {
   type AllowlistOption,
   type PermissionCheckResult,
@@ -60,9 +59,9 @@ export interface RiskClassification {
  * used by check() for command candidate building and sandbox auto-approve.
  */
 interface RiskClassificationWithMeta extends RiskClassification {
-  /** Command candidates from the gateway for v1 trust rule matching (bash tools). */
+  /** Command candidates from the gateway for trust rule matching (bash tools). */
   commandCandidates?: string[];
-  /** Action keys from the gateway for v1 trust rule matching (bash tools). */
+  /** Action keys from the gateway for trust rule matching (bash tools). */
   actionKeys?: string[];
   /** Whether the command qualifies for sandbox auto-approve (bash tools). */
   sandboxAutoApprove?: boolean;
@@ -74,7 +73,6 @@ interface RiskClassificationWithMeta extends RiskClassification {
 
 const RISK_CACHE_MAX = 256;
 const riskCache = new Map<string, RiskClassificationWithMeta>();
-let riskCacheInvalidationHookRegistered = false;
 
 // ── Assessment cache ─────────────────────────────────────────────────────────
 // Stores the full ClassificationResult from the gateway so that
@@ -119,14 +117,6 @@ function riskCacheKey(
 export function clearRiskCache(): void {
   riskCache.clear();
   assessmentCache.clear();
-}
-
-function ensureRiskCacheInvalidationHook(): void {
-  if (riskCacheInvalidationHookRegistered) return;
-  // Register lazily to avoid an ESM initialization cycle between checker and
-  // trust-store when a higher-level module imports both during startup.
-  riskCacheInvalidationHookRegistered = true;
-  onRulesChanged(clearRiskCache);
 }
 
 // ── Approval policy singleton ────────────────────────────────────────────────
@@ -590,7 +580,6 @@ export async function classifyRisk(
   signal?: AbortSignal,
 ): Promise<RiskClassificationWithMeta> {
   signal?.throwIfAborted();
-  ensureRiskCacheInvalidationHook();
 
   // Check cache first.
   const cacheKey = riskCacheKey(toolName, input, workingDir, manifestOverride);
@@ -693,17 +682,6 @@ export async function check(
       : undefined,
   );
 
-  // Find the highest-priority matching rule across all candidates.
-  // Pass resolvedPaths so directory-scoped rules match against actual
-  // target paths (e.g. /tmp/foo) rather than just the working directory.
-  const matchedRule = findHighestPriorityRule(
-    toolName,
-    commandCandidates,
-    workingDir,
-    policyContext,
-    classification.resolvedPaths,
-  );
-
   // Use gateway-provided sandboxAutoApprove instead of evaluating locally.
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
 
@@ -723,7 +701,6 @@ export async function check(
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
-    matchedRule: matchedRule ?? undefined,
     permissionsMode: config.permissions.mode,
     isContainerized: getIsContainerized(),
     isWorkspaceScoped:

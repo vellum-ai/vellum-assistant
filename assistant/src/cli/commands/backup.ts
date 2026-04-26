@@ -35,7 +35,6 @@ import type { BackupDestination } from "../../config/schema.js";
 import { isDaemonRunning } from "../../daemon/daemon-control.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { resetDb } from "../../memory/db-connection.js";
-import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { DefaultPathResolver } from "../../runtime/migrations/vbundle-import-analyzer.js";
 import {
   getWorkspaceDir,
@@ -619,11 +618,9 @@ export async function handleRestore(opts: RestoreOptions): Promise<void> {
       workspaceDir,
     });
 
-    // Invalidate in-process caches so the restored settings.json and
-    // trust.json take effect (matches the HTTP handler's recovery sequence
-    // and the migration importer).
+    // Invalidate the in-process config cache so the restored settings.json
+    // takes effect without requiring a daemon restart.
     invalidateConfigCache();
-    clearTrustCache();
 
     log.info(`Restored from ${snapshotPath}`);
     log.info(`  source: ${result.manifest.source ?? "unknown"}`);

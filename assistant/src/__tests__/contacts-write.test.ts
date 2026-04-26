@@ -12,16 +12,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Route trust-store file writes at the test workspace's protected dir
-// instead of the real ~/.vellum/protected/trust.json. Must be set before
-// importing ../permissions/trust-store.js so getGatewaySecurityDir() picks
-// up the override at module load time. Matches the pattern in
-// checker.test.ts, trust-store.test.ts, etc.
-process.env.GATEWAY_SECURITY_DIR = join(
-  process.env.VELLUM_WORKSPACE_DIR!,
-  "protected",
-);
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -34,11 +24,6 @@ import {
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb } from "../memory/db.js";
-import {
-  clearAllRules,
-  clearCache as clearTrustCache,
-  getAllRules,
-} from "../permissions/trust-store.js";
 
 initializeDb();
 
@@ -121,23 +106,13 @@ describe("createGuardianBinding seeds users/<slug>.md", () => {
   });
 });
 
-// Invariants:
-//
-//  1. `upsertContactChannel` must not seed `users/<slug>.md`. Seeding
-//     there fires the users/ directory watcher on every inbound message
-//     from a new contact and evicts live conversations. Seeding is
-//     restricted to the guardian-creation path.
-//
-//  2. `createGuardianBinding` must invalidate the trust cache so the
-//     dynamic `default:allow-file_*-guardian-persona` rules from
-//     `permissions/defaults.ts` are backfilled for guardians created
-//     at runtime. Otherwise the model prompts on its first
-//     `file_edit users/<slug>.md`.
+// Invariant: `upsertContactChannel` must not seed `users/<slug>.md`. Seeding
+// there fires the users/ directory watcher on every inbound message
+// from a new contact and evicts live conversations. Seeding is
+// restricted to the guardian-creation path.
 describe("guardian persona seeding and trust-cache invariants", () => {
   beforeEach(() => {
     resetContactTables();
-    clearAllRules();
-    clearTrustCache();
   });
 
   test("upsertContactChannel does NOT seed users/<slug>.md for non-guardian contacts", () => {
@@ -164,34 +139,4 @@ describe("guardian persona seeding and trust-cache invariants", () => {
     expect(existsSync(personaPath)).toBe(false);
   });
 
-  test("createGuardianBinding backfills the guardian-persona auto-allow rule via clearTrustCache", () => {
-    // Warm the trust cache BEFORE a guardian exists so the initial
-    // loadFromDisk → backfillDefaults → getDefaultRuleTemplates round
-    // sees no guardian and emits no guardian-persona rule.
-    const beforeRules = getAllRules();
-    const guardianRuleBefore = beforeRules.find(
-      (r) => r.id === "default:allow-file_edit-guardian-persona",
-    );
-    expect(guardianRuleBefore).toBeUndefined();
-
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "Carol",
-      guardianDeliveryChatId: "chat-carol",
-      guardianPrincipalId: "principal-carol",
-      verifiedVia: "challenge",
-    });
-
-    // After createGuardianBinding, clearTrustCache() should have been
-    // invoked, so the next getAllRules() call re-runs loadFromDisk and
-    // backfills the dynamic guardian-persona rule pointing at the
-    // newly-resolved users/<slug>.md.
-    const afterRules = getAllRules();
-    const guardianRuleAfter = afterRules.find(
-      (r) => r.id === "default:allow-file_edit-guardian-persona",
-    );
-    expect(guardianRuleAfter).toBeDefined();
-    expect(guardianRuleAfter?.decision).toBe("allow");
-    expect(guardianRuleAfter?.pattern).toContain("users/carol.md");
-  });
 });
