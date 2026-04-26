@@ -110,6 +110,15 @@ open class ACPSessionStore {
     /// placeholder while `.loading`, an error banner on `.error`, etc.
     public var seedState: SeedState = .idle
 
+    /// Programmatic deep-link target. When set to a non-nil
+    /// `acpSessionId`, ``ACPSessionsPanel`` reacts by pushing the
+    /// matching ``ACPSessionViewModel`` onto its `NavigationStack`. The
+    /// panel clears this back to `nil` after consuming the value so a
+    /// later set with the same id still triggers a fresh push. Used by
+    /// the inline `acp_spawn` tool block to jump straight from a chat
+    /// bubble into the corresponding session detail view.
+    public var selectedSessionId: String?
+
     /// Update messages received before their parent `spawned` event,
     /// keyed by `acpSessionId`. Reapplied during ``seed()`` once the
     /// parent appears in the polled snapshot.

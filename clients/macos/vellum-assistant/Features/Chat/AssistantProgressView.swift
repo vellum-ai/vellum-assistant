@@ -815,7 +815,12 @@ private final class StepDetailAttributedStringCacheEntry: NSObject {
 /// chrome; this wrapper builds the title string, resolves the visual state,
 /// and renders the expanded "Technical details / Output" body specific to
 /// `ToolCallData`.
-private struct ToolCallStepDetailRow: View {
+///
+/// `internal` rather than `private` so unit tests can reach the static
+/// `acp_spawn` deep-link helpers (`extractAcpSessionId`,
+/// `applyACPSessionDeepLink`) without standing up the full SwiftUI view
+/// tree. Production callers stay scoped to this file.
+struct ToolCallStepDetailRow: View {
     @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
     let toolCall: ToolCallData
@@ -909,19 +914,65 @@ private struct ToolCallStepDetailRow: View {
         return .running
     }
 
+    /// Returns the `acpSessionId` payload field when this row should render
+    /// as a tap-to-open `acp_spawn` shortcut. Nil for any other tool, for
+    /// errored / still-running spawns, or when the result JSON is missing
+    /// or unparseable. Restricting to successful, complete spawns keeps the
+    /// chat-side behaviour unsurprising — a still-running or failed spawn
+    /// has no detail view to jump to, so the row falls back to the regular
+    /// expandable shape so the user can read the live output / error.
+    var acpSessionIdToOpen: String? {
+        guard toolCall.toolName == "acp_spawn",
+              toolCall.isComplete,
+              !toolCall.isError,
+              let result = toolCall.result,
+              !result.isEmpty else {
+            return nil
+        }
+        return ToolCallStepDetailRow.extractAcpSessionId(from: result)
+    }
+
+    /// Best-effort JSON probe for the `acpSessionId` field in
+    /// `acp_spawn`'s result payload. The tool returns a JSON object on
+    /// the first line and may append a free-form outdated-adapter
+    /// warning after a blank line (see `assistant/src/tools/acp/spawn.ts`),
+    /// so we parse the leading line rather than the full string —
+    /// otherwise the appended diagnostic invalidates the JSON and the
+    /// deep link would silently disappear in that case. On failure or
+    /// any non-JSON shape we return nil so the caller falls back to the
+    /// regular collapsible row. Static so unit tests can exercise the
+    /// parser without standing up the full view.
+    static func extractAcpSessionId(from result: String) -> String? {
+        let leading = result.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            .first.map(String.init) ?? ""
+        guard let data = leading.data(using: .utf8) else { return nil }
+        let parsed = try? JSONSerialization.jsonObject(with: data)
+        guard let dict = parsed as? [String: Any] else { return nil }
+        guard let id = dict["acpSessionId"] as? String, !id.isEmpty else {
+            return nil
+        }
+        return id
+    }
+
     var body: some View {
-        VCollapsibleStepRow(
-            title: ToolCallData.displaySafe(stepTitle),
-            state: rowState,
-            startedAt: toolCall.startedAt,
-            completedAt: toolCall.isComplete ? toolCall.completedAt : nil,
-            hasDetails: hasDetails,
-            isExpanded: $isDetailExpanded,
-            onExpand: { onRehydrate?() },
-            leadingAccessory: { leadingAccessory },
-            trailingAccessory: { trailingAccessory },
-            detailContent: { stepDetailContent }
-        )
+        Group {
+            if let acpSessionId = acpSessionIdToOpen {
+                acpSpawnDeepLinkRow(acpSessionId: acpSessionId)
+            } else {
+                VCollapsibleStepRow(
+                    title: ToolCallData.displaySafe(stepTitle),
+                    state: rowState,
+                    startedAt: toolCall.startedAt,
+                    completedAt: toolCall.isComplete ? toolCall.completedAt : nil,
+                    hasDetails: hasDetails,
+                    isExpanded: $isDetailExpanded,
+                    onExpand: { onRehydrate?() },
+                    leadingAccessory: { leadingAccessory },
+                    trailingAccessory: { trailingAccessory },
+                    detailContent: { stepDetailContent }
+                )
+            }
+        }
         .sheet(item: $ruleEditorToolCall) { tc in
             if assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
                 V3RuleEditorModal(
@@ -977,6 +1028,89 @@ private struct ToolCallStepDetailRow: View {
                 )
             }
         }
+    }
+
+    // MARK: - acp_spawn Deep Link
+
+    /// Compact tap-to-open card replacing the standard `VCollapsibleStepRow`
+    /// for completed `acp_spawn` tool calls. Visually mirrors the regular
+    /// row's collapsed header so the chat transcript stays consistent, but
+    /// substitutes the chevron-down with a chevron-right glyph to hint at
+    /// "tap to navigate" rather than "tap to expand". The whole row is a
+    /// `Button` so the tap target spans the full row width.
+    @ViewBuilder
+    private func acpSpawnDeepLinkRow(acpSessionId: String) -> some View {
+        Button {
+            Self.openACPSession(id: acpSessionId)
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                // Always succeeded — `acpSessionIdToOpen` is gated on
+                // `isComplete && !isError`, so a failed spawn falls back
+                // to the regular collapsible row instead of this card.
+                VIconView(.circleCheck, size: 12)
+                    .foregroundStyle(VColor.primaryBase)
+                    .frame(width: 16)
+                Text(ToolCallData.displaySafe(stepTitle))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+                if let started = toolCall.startedAt,
+                   let completed = toolCall.completedAt {
+                    Text(VCollapsibleStepRowDurationFormatter.format(completed.timeIntervalSince(started)))
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+                VIconView(.chevronRight, size: 9)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .contentShape(Rectangle())
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm + VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs + VSpacing.xs))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel("\(ToolCallData.displaySafe(stepTitle)). Tap to open coding agent session.")
+    }
+
+    /// Drive the right-slot panel + detail-view deep link. Routes through
+    /// the shared `MainWindowState` and `ACPSessionStore` instances on the
+    /// app delegate — no environment plumbing needed because the action is
+    /// fire-and-forget and only one of each store ever exists per process.
+    /// The panel observes `selectedSessionId` and pushes the matching view
+    /// model onto its `NavigationStack`; the layout-config mutation makes
+    /// the panel itself visible if it isn't already.
+    ///
+    /// `internal` and `static` so unit tests can exercise the side effects
+    /// against an injected `MainWindowState` / `ACPSessionStore` pair.
+    static func openACPSession(id: String) {
+        guard let appDelegate = AppDelegate.shared else { return }
+        applyACPSessionDeepLink(
+            id: id,
+            windowState: appDelegate.mainWindow?.windowState,
+            store: appDelegate.services.acpSessionStore
+        )
+    }
+
+    /// Pure side-effect helper for ``openACPSession(id:)``. Set the right
+    /// slot to `.native(.acpSessions)` and mark it visible, then poke the
+    /// store so the panel pushes the matching detail view. Either argument
+    /// being nil is a no-op — both are required for the deep link to land.
+    @MainActor
+    static func applyACPSessionDeepLink(
+        id: String,
+        windowState: MainWindowState?,
+        store: ACPSessionStore?
+    ) {
+        guard let windowState, let store else { return }
+        windowState.showRightSlot(.native(.acpSessions))
+        // Setting the id triggers ``ACPSessionsPanel/consumeSelectedSessionIdIfPresent``
+        // which pushes the matching view model onto the panel's
+        // `NavigationStack`. If the spawn event hasn't streamed in yet
+        // the panel will land on the list and the user can re-tap once
+        // the row appears — the daemon emits `acp_session_spawned`
+        // synchronously with the tool result so this race is rare.
+        store.selectedSessionId = id
     }
 
     // MARK: - Accessories

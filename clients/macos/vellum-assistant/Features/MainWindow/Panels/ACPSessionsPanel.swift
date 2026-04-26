@@ -36,8 +36,17 @@ struct ACPSessionsPanel: View {
     /// under `acp.filter.<conversationId>`.
     @State private var filterStorage = ACPSessionsPanelFilterStorage()
 
+    /// Mutable navigation path so external triggers (e.g. tapping an
+    /// inline `acp_spawn` tool block in a chat bubble) can push a detail
+    /// view programmatically. The value type stored on the path is
+    /// ``ACPSessionViewModel`` to match the existing
+    /// `navigationDestination(for: ACPSessionViewModel.self)` block —
+    /// reusing the live view model means streaming SSE updates flow into
+    /// the detail view without a pop-and-push cycle.
+    @State private var navigationPath: [ACPSessionViewModel] = []
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             VSidePanel(
                 title: "Coding Agents",
                 titleFont: VFont.titleSmall,
@@ -59,13 +68,21 @@ struct ACPSessionsPanel: View {
                 // `@Observable`, so SwiftUI re-renders the detail view as
                 // its `state` / `events` mutate via SSE without forcing a
                 // pop-and-push cycle.
-                ACPSessionDetailView(session: viewModel)
+                ACPSessionDetailView(session: viewModel, store: store)
             }
         }
         .onAppear {
             if store.seedState == .idle {
                 Task { await store.seed() }
             }
+            // If a deep-link landed before the panel mounted (e.g. tapping
+            // an inline tool block opens the panel and sets the id in the
+            // same tick), consume it now so the user lands directly on the
+            // detail view instead of the list.
+            consumeSelectedSessionIdIfPresent()
+        }
+        .onChange(of: store.selectedSessionId) {
+            consumeSelectedSessionIdIfPresent()
         }
         .alert("Clear completed history?", isPresented: $showClearCompletedConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -75,6 +92,40 @@ struct ACPSessionsPanel: View {
         } message: {
             Text("This removes every completed, failed, and cancelled coding agent from the list. Active agents stay.")
         }
+    }
+
+    /// Consume a pending `store.selectedSessionId`, pushing the matching
+    /// view model onto the navigation path. Defers to the pure helper
+    /// ``consumeSelectedSessionIdIfPresent(store:path:)`` so unit tests
+    /// can exercise the consumption logic without standing up a SwiftUI
+    /// view tree (which strips `@State` mutations on detached struct
+    /// values).
+    ///
+    /// Idempotent on the path: if the requested session is already at the
+    /// top of the stack, we still clear the store field but skip the push
+    /// to avoid stacking duplicate detail views. Resilient to a deep-link
+    /// arriving before its matching SSE `acp_session_spawned` event — the
+    /// field stays set so a subsequent consume (driven by the next
+    /// `onChange` tick or panel mount) can flush once the row appears.
+    func consumeSelectedSessionIdIfPresent() {
+        Self.consumeSelectedSessionIdIfPresent(store: store, path: &navigationPath)
+    }
+
+    /// Pure helper that drives the deep-link consumption against an
+    /// arbitrary store + path pair. `static` so tests can call it
+    /// directly with their own `[ACPSessionViewModel]` storage.
+    static func consumeSelectedSessionIdIfPresent(
+        store: ACPSessionStore,
+        path: inout [ACPSessionViewModel]
+    ) {
+        guard let id = store.selectedSessionId,
+              let viewModel = store.sessions[id] else {
+            return
+        }
+        // Clear first so reentrant `onChange` invocations don't loop.
+        store.selectedSessionId = nil
+        if path.last === viewModel { return }
+        path.append(viewModel)
     }
 
     // MARK: - Header bar (count + refresh + overflow menu)
