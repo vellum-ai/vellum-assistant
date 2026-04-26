@@ -22,6 +22,11 @@ struct ACPSessionsPanel: View {
     @Bindable var store: ACPSessionStore
     var onClose: (() -> Void)?
 
+    /// Drives the destructive-confirmation alert for the overflow menu's
+    /// "Clear completed history" action. Hoisted to view state so the menu
+    /// itself can dismiss while the alert remains presented.
+    @State private var showClearCompletedConfirm: Bool = false
+
     var body: some View {
         NavigationStack {
             VSidePanel(
@@ -53,9 +58,17 @@ struct ACPSessionsPanel: View {
                 Task { await store.seed() }
             }
         }
+        .alert("Clear completed history?", isPresented: $showClearCompletedConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear", role: .destructive) {
+                Task { await store.clearCompleted() }
+            }
+        } message: {
+            Text("This removes every completed, failed, and cancelled coding agent from the list. Active agents stay.")
+        }
     }
 
-    // MARK: - Header bar (count + refresh)
+    // MARK: - Header bar (count + refresh + overflow menu)
 
     @ViewBuilder
     private var headerBar: some View {
@@ -72,11 +85,40 @@ struct ACPSessionsPanel: View {
                 action: { Task { await store.seed() } }
             )
             .accessibilityLabel("Refresh coding agents")
+            overflowMenu
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
 
         Divider().background(VColor.borderBase)
+    }
+
+    /// Header overflow ("…") menu. Currently only houses the destructive
+    /// "Clear completed history" action; future bulk actions (e.g.
+    /// "Cancel all running") slot into the same menu.
+    @ViewBuilder
+    private var overflowMenu: some View {
+        Menu {
+            Button("Clear completed history", role: .destructive) {
+                showClearCompletedConfirm = true
+            }
+            .disabled(!hasTerminalSessions)
+        } label: {
+            VIconView(.ellipsis, size: 14)
+                .foregroundStyle(VColor.contentTertiary)
+                .frame(width: 24, height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel("More coding agent actions")
+    }
+
+    /// Whether any session in the store is in a terminal state. Drives the
+    /// disabled state of "Clear completed history" so the action only lights
+    /// up when there is actually something to clear.
+    private var hasTerminalSessions: Bool {
+        store.sessions.values.contains { ACPSessionStore.isTerminal($0.state.status) }
     }
 
     private var countLabel: String {

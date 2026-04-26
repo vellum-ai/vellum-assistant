@@ -270,7 +270,38 @@ public final class ACPSessionStore {
         return await ACPClient.steerSession(id: id, instruction: instruction)
     }
 
+    /// Bulk-clear every terminal session (`completed`/`failed`/`cancelled`)
+    /// from the store. Wraps ``ACPClient/clearCompleted()`` and, on success,
+    /// optimistically prunes the matching rows from ``sessions`` and
+    /// ``sessionOrder`` so the panel updates without waiting for an SSE
+    /// round-trip. Active sessions (`running`/`initializing`/`unknown`) are
+    /// preserved verbatim — the daemon ignores them server-side too.
+    @discardableResult
+    public func clearCompleted() async -> Result<Int, ACPClientError> {
+        let result = await ACPClient.clearCompleted()
+        if case .success = result {
+            sessions = sessions.filter { _, viewModel in
+                !Self.isTerminal(viewModel.state.status)
+            }
+            sessionOrder.removeAll { sessions[$0] == nil }
+        }
+        return result
+    }
+
     // MARK: - Helpers
+
+    /// Status values that count as terminal for the "clear completed" action.
+    /// `.unknown` is intentionally excluded — when the client falls back to
+    /// `.unknown` due to daemon version skew we have no way to tell whether
+    /// the session is still live, so it stays in the list.
+    public static func isTerminal(_ status: ACPSessionState.Status) -> Bool {
+        switch status {
+        case .completed, .failed, .cancelled:
+            return true
+        case .initializing, .running, .unknown:
+            return false
+        }
+    }
 
     /// Build an `ACPSessionState` for a terminal transition (completed,
     /// cancelled, failed). Stamps `completedAt` with the current wall clock
