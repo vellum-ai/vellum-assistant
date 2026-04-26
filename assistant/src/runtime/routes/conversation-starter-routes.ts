@@ -8,6 +8,10 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  buildConversationStarterValidationContext,
+  isValidConversationStarterText,
+} from "../../memory/conversation-starter-validation.js";
 import { getDb } from "../../memory/db.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
@@ -187,12 +191,17 @@ function handleListConversationStarters(url: URL): Response {
     )
     .all();
 
-  const total = allItems.length;
+  const validationContext = buildConversationStarterValidationContext();
+  const validItems = allItems.filter((item) =>
+    isValidConversationStarterText(item, validationContext),
+  );
+  const invalidItemCount = allItems.length - validItems.length;
+  const total = validItems.length;
 
   // If starters exist, return them immediately. If the batch is stale or
   // the generation checkpoint is ahead of the current active memory count,
   // kick off a background refresh but keep the existing chips visible.
-  if (total > 0) {
+  if (allItems.length > 0) {
     const totalActive =
       rawGet<{ c: number }>(
         `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
@@ -219,14 +228,17 @@ function handleListConversationStarters(url: URL): Response {
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
     let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
-    const shouldRefresh = staleByAge || checkpointAhead;
+    const shouldRefresh =
+      staleByAge ||
+      checkpointAhead ||
+      (invalidItemCount > 0 && totalActive > 0);
 
     if (shouldRefresh && !hasActiveJob) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });
       hasActiveJob = true;
     }
 
-    const ordered = orderStrongestFirst(allItems);
+    const ordered = orderStrongestFirst(validItems);
     const page = ordered.slice(offsetParam, offsetParam + limitParam);
     return Response.json({
       starters: page,

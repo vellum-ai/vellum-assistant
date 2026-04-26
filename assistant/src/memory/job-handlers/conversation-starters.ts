@@ -19,6 +19,10 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import {
+  buildConversationStarterValidationContext,
+  isValidConversationStarterText,
+} from "../conversation-starter-validation.js";
 import { getDb } from "../db.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
@@ -280,10 +284,10 @@ Bad → Good (ticket-speak → natural):
 Bad → Good (assistant voice → user voice):
 - "You've got a busy week ahead" → "Plan my week ahead"
 - "Let me check your calendar" → "Check my Thursday schedule"
-- "Catch up with <user's own name> today" → "Catch up with you today" (only the user's own name becomes "you" — third-party names like a colleague or friend stay as written)
+- "Catch up with <user's own name> today" → "Catch me up today" (the user's own name becomes me/my/I, never "you"; third-party names like a colleague or friend stay as written)
 
 Bad → Good (prompt in assistant's voice → prompt in user's voice):
-- "It's Saturday morning and I haven't connected with <user's own name> yet. Let me see what they've been up to." → "What have you been up to today? Let's catch up." (assistant narrating about the user → user speaking to assistant; only the user's own name becomes "you/I", names of other people are preserved)
+- "It's Saturday morning and I haven't connected with <user's own name> yet. Let me see what they've been up to." → "Let's catch up this morning; can you help me sort through what matters today?" (assistant narrating about the user → user speaking to assistant; only the user's own name becomes me/my/I, names of other people are preserved)
 - "<User's own name> has had a busy week — I should check in on how they're feeling." → "I've had a busy week — can we talk through how it went?"
 
 Bad → Good (incomplete phrase → complete):
@@ -364,14 +368,13 @@ Bad → Good (incomplete phrase → complete):
       return [];
     }
 
+    const validationContext = buildConversationStarterValidationContext();
     return input.starters
       .filter(
         (s) =>
           typeof s.label === "string" &&
-          s.label.length > 0 &&
-          s.label.length <= 40 &&
           typeof s.prompt === "string" &&
-          s.prompt.length > 0,
+          isValidConversationStarterText(s, validationContext),
       )
       .slice(0, 4)
       .map((s) => ({

@@ -9,6 +9,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../prompts/user-reference.js", () => ({
+  DEFAULT_USER_REFERENCE: "my human",
+  resolveUserReference: () => "Alice",
+}));
+
 import { getSqlite, initializeDb } from "../memory/db.js";
 import type { RouteParams } from "../runtime/http-router.js";
 import {
@@ -253,6 +258,74 @@ describe("GET /v1/conversation-starters", () => {
     expect(res.status).toBe(200);
     expect(body.status).toBe("refreshing");
     expect(body.starters).toHaveLength(1);
+    expect(countStarterJobs()).toBe(1);
+  });
+
+  test("filters assistant-voice starters and refreshes the batch", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Let me check calendar",
+      prompt: "Let me check what Alice has today.",
+      category: "productivity",
+      createdAt: now,
+    });
+    insertStarter({
+      label: "Plan my morning",
+      prompt: "Can you help me plan my morning?",
+      category: "productivity",
+      createdAt: now - 1,
+    });
+    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: Array<{ label: string }>;
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.total).toBe(1);
+    expect(body.starters.map((starter) => starter.label)).toEqual([
+      "Plan my morning",
+    ]);
+    expect(countStarterJobs()).toBe(1);
+  });
+
+  test("filters current-user third-person starters", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Catch up with Alice",
+      prompt: "What has Alice been thinking about today?",
+      category: "communication",
+      createdAt: now,
+    });
+    insertStarter({
+      label: "Catch me up",
+      prompt: "Can you catch me up on what you've been thinking about today?",
+      category: "communication",
+      createdAt: now - 1,
+    });
+    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: Array<{ label: string }>;
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.total).toBe(1);
+    expect(body.starters.map((starter) => starter.label)).toEqual([
+      "Catch me up",
+    ]);
     expect(countStarterJobs()).toBe(1);
   });
 
