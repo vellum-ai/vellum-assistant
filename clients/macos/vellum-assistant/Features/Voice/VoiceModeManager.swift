@@ -9,6 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Voice
 @MainActor
 protocol LiveVoiceChannelManaging: AnyObject {
     var state: LiveVoiceChannelManager.State { get }
+    var inputAmplitude: Float { get }
     var partialTranscript: String { get }
     var finalTranscript: String { get }
     var errorMessage: String { get }
@@ -48,6 +49,7 @@ final class VoiceModeManager {
     }
     var partialTranscription: String = ""
     var liveTranscription: String = ""
+    var inputAmplitude: Float = 0
     var errorMessage: String = ""
     /// Set to true when deactivation was triggered by the conversation timeout
     /// (as opposed to manual deactivation).
@@ -290,6 +292,7 @@ final class VoiceModeManager {
         state = .off
         partialTranscription = ""
         liveTranscription = ""
+        inputAmplitude = 0
         log.info("Voice mode deactivated")
     }
 
@@ -416,6 +419,7 @@ final class VoiceModeManager {
         liveVoicePausedForPermission = false
         partialTranscription = ""
         liveTranscription = ""
+        inputAmplitude = 0
         errorMessage = ""
         state = .listening
         startLiveVoiceObservation()
@@ -446,6 +450,7 @@ final class VoiceModeManager {
 
         withObservationTracking {
             _ = liveVoiceChannelManager.state
+            _ = liveVoiceChannelManager.inputAmplitude
             _ = liveVoiceChannelManager.partialTranscript
             _ = liveVoiceChannelManager.finalTranscript
             _ = liveVoiceChannelManager.errorMessage
@@ -471,6 +476,9 @@ final class VoiceModeManager {
         }
         if partialTranscription != liveVoiceChannelManager.finalTranscript {
             partialTranscription = liveVoiceChannelManager.finalTranscript
+        }
+        if inputAmplitude != liveVoiceChannelManager.inputAmplitude {
+            inputAmplitude = liveVoiceChannelManager.inputAmplitude
         }
 
         switch liveVoiceChannelManager.state {

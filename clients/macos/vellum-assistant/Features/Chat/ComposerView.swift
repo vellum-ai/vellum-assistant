@@ -668,7 +668,7 @@ struct ComposerView: View, Equatable {
     private func voiceConversationAmplitude(_ manager: VoiceModeManager) -> Float {
         let raw: Float
         switch manager.state {
-        case .listening: raw = voiceService?.amplitude ?? 0
+        case .listening: raw = max(manager.inputAmplitude, voiceService?.amplitude ?? 0)
         case .speaking: raw = voiceService?.speakingAmplitude ?? 0
         default: raw = 0
         }
