@@ -17,6 +17,7 @@ import cliPkg from "../../package.json";
 
 import {
   allocateLocalResources,
+  findAssistantByName,
   saveAssistantEntry,
   setActiveAssistant,
   syncConfigToLockfile,
@@ -139,11 +140,16 @@ export async function hatchLocal(
     name ?? process.env.VELLUM_ASSISTANT_NAME,
   );
 
-  emitProgress(1, 7, "Preparing workspace...");
+  emitProgress(1, 6, "Allocating resources...");
 
-  emitProgress(2, 7, "Allocating resources...");
+  const existing = findAssistantByName(instanceName);
+  if (existing && (!existing.cloud || existing.cloud === "local")) {
+    throw new Error(
+      `An assistant named "${instanceName}" is already hatched.\n` +
+        `Run \`vellum wake\` to restart it, or \`vellum retire ${instanceName}\` to remove it first.`,
+    );
+  }
 
-  // Always allocate fresh resources — hatch is idempotent and starts fresh.
   const resources = await allocateLocalResources(instanceName);
 
   const logsDir = join(
@@ -164,17 +170,17 @@ export async function hatchLocal(
     process.env.APP_VERSION = cliPkg.version;
   }
 
-  emitProgress(3, 7, "Writing configuration...");
+  emitProgress(2, 6, "Writing configuration...");
   const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
-  emitProgress(4, 7, "Starting assistant...");
+  emitProgress(3, 6, "Starting assistant...");
   const signingKey = generateLocalSigningKey();
   await startLocalDaemon(watch, resources, {
     defaultWorkspaceConfigPath,
     signingKey,
   });
 
-  emitProgress(5, 7, "Starting gateway...");
+  emitProgress(4, 6, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
     runtimeUrl = await startGateway(watch, resources, { signingKey });
@@ -192,7 +198,7 @@ export async function hatchLocal(
   // instead of hitting /v1/guardian/init itself. Use loopback to satisfy
   // the daemon's local-only check — the mDNS runtimeUrl resolves to a LAN
   // IP which the daemon rejects as non-loopback.
-  emitProgress(6, 7, "Securing connection...");
+  emitProgress(5, 6, "Securing connection...");
   const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   const maxLeaseAttempts = 3;
   for (let attempt = 1; attempt <= maxLeaseAttempts; attempt++) {
@@ -239,7 +245,7 @@ export async function hatchLocal(
       writeFileSync(ngrokPidFile, String(ngrokChild.pid));
     }
 
-    emitProgress(7, 7, "Saving configuration...");
+    emitProgress(6, 6, "Saving configuration...");
     saveAssistantEntry(localEntry);
     setActiveAssistant(instanceName);
     syncConfigToLockfile();
