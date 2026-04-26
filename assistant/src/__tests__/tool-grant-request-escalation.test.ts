@@ -20,11 +20,6 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-// Mock guardian control-plane policy — not targeting control-plane by default
-mock.module("../tools/verification-control-plane-policy.js", () => ({
-  enforceVerificationControlPlanePolicy: () => ({ denied: false }),
-}));
-
 // Mock task run rules — no task run rules by default
 mock.module("../tasks/ephemeral-permissions.js", () => ({
   getTaskRunRules: () => [],
@@ -110,8 +105,8 @@ import {
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import { getDb, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
-import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import {
   ToolApprovalHandler,
   waitForInlineGrant,
@@ -128,6 +123,14 @@ function resetTables(): void {
   db.delete(scopedApprovalGrants).run();
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
+  db.run("DELETE FROM conversations");
+  // Insert conv-1 with host_access=0 (disabled) so trusted_contact host tools
+  // hit the "computer access not enabled" gate.
+  const now = Date.now();
+  getSqlite().run(
+    "INSERT INTO conversations (id, created_at, updated_at, host_access) VALUES (?, ?, ?, 0)",
+    ["conv-1", now, now],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +201,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     deliveredReplies.length = 0;
   });
 
-  test("non-guardian + grant miss + host tool creates canonical tool_grant_request", async () => {
+  test("trusted_contact + host tool + no host_access is denied immediately (no escalation)", async () => {
     const toolName = "bash";
     const input = { command: "cat /etc/passwd" };
 
@@ -216,28 +219,27 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
 
-    // A canonical tool_grant_request should have been created
+    // Message should mention computer access, not a grant escalation
+    expect(result.result.content).toContain("computer access is not enabled");
+
+    // No canonical tool_grant_request should have been created — the
+    // conversation-level host_access gate blocks before grant escalation.
     const requests = listCanonicalGuardianRequests({
       kind: "tool_grant_request",
       status: "pending",
     });
-    expect(requests.length).toBe(1);
-    expect(requests[0].toolName).toBe("bash");
-    expect(requests[0].requesterExternalUserId).toBe("requester-1");
-    expect(requests[0].guardianExternalUserId).toBe("guardian-1");
+    expect(requests.length).toBe(0);
 
-    // Notification signal should have been emitted
-    expect(emittedSignals.length).toBe(1);
-    expect(emittedSignals[0].sourceEventName).toBe("guardian.question");
-    const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
-    expect(payload.requestKind).toBe("tool_grant_request");
+    // No notification signal emitted (no escalation created)
+    expect(emittedSignals.length).toBe(0);
   });
 
-  test("non-guardian grant-miss response includes request code after timeout", async () => {
+  test("trusted_contact + host tool + no host_access: denial is immediate (no inline wait)", async () => {
     const toolName = "bash";
     const input = { command: "deploy" };
 
     const context = makeContext({ trustClass: "trusted_contact" });
+    const start = Date.now();
     const result = await handler.checkPreExecutionGates(
       toolName,
       input,
@@ -247,25 +249,38 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       Date.now(),
       emitLifecycleEvent,
     );
+    const elapsed = Date.now() - start;
 
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
-    // After inline wait times out, the message should include the request code
-    // and indicate the guardian did not approve in time.
-    expect(result.result.content).toContain(
-      "guardian approval was not received in time",
-    );
-    expect(result.result.content).toContain("request code:");
+    // Should be denied immediately — no inline wait is performed because the
+    // host_access gate fires before any grant consumption attempt.
+    expect(result.result.content).toContain("computer access is not enabled");
+    expect(elapsed).toBeLessThan(500);
   });
 
-  test("non-guardian duplicate grant-miss deduplicates the request", async () => {
+  test("trusted_contact + host tool + no host_access: repeated calls all get immediate denial", async () => {
     const toolName = "bash";
     const input = { command: "rm -rf /" };
 
     const context = makeContext({ trustClass: "trusted_contact" });
 
-    // First invocation creates the request (and waits, then times out)
-    await handler.checkPreExecutionGates(
+    // First invocation
+    const result1 = await handler.checkPreExecutionGates(
+      toolName,
+      input,
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+    expect(result1.allowed).toBe(false);
+    if (result1.allowed) return;
+    expect(result1.result.content).toContain("computer access is not enabled");
+
+    // Second invocation — same immediate denial, no canonical requests
+    const result2 = await handler.checkPreExecutionGates(
       toolName,
       input,
       context,
@@ -275,42 +290,16 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
       emitLifecycleEvent,
     );
 
-    const firstRequests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-    });
-    expect(firstRequests.length).toBe(1);
+    expect(result2.allowed).toBe(false);
+    if (result2.allowed) return;
+    expect(result2.result.content).toContain("computer access is not enabled");
 
-    // Reset notification tracking
-    emittedSignals.length = 0;
-
-    // Second invocation with same tool+input deduplicates (reuses the request, waits, times out)
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    // Both calls get the timeout message since inline wait now runs for deduped requests too
-    expect(result.result.content).toContain(
-      "guardian approval was not received in time",
-    );
-
-    // Still only one canonical request
+    // No canonical requests created at any point
     const requests = listCanonicalGuardianRequests({
       kind: "tool_grant_request",
       status: "pending",
     });
-    expect(requests.length).toBe(1);
-
-    // No duplicate notification
-    expect(emittedSignals.length).toBe(0);
+    expect(requests.length).toBe(0);
   });
 
   test("unverified_channel does NOT create escalation request", async () => {
@@ -345,7 +334,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     expect(requests.length).toBe(0);
   });
 
-  test("non-guardian without executionChannel falls back to generic denial", async () => {
+  test("trusted_contact without executionChannel gets computer-access denial for host tools", async () => {
     const toolName = "bash";
     const input = { command: "deploy" };
 
@@ -365,9 +354,8 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
 
     expect(result.allowed).toBe(false);
     if (result.allowed) return;
-    // Generic denial, no escalation attempted
-    expect(result.result.content).toContain("guardian approval");
-    expect(result.result.content).not.toContain("request has been sent");
+    // Denied by conversation host_access gate — channel presence is irrelevant
+    expect(result.result.content).toContain("computer access is not enabled");
 
     const requests = listCanonicalGuardianRequests({
       kind: "tool_grant_request",
@@ -496,101 +484,19 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
     emittedSignals.length = 0;
   });
 
-  test("inline wait: guardian approves during wait -> tool proceeds inline", async () => {
+  test("trusted_contact + host tool + host_access enabled -> allowed immediately", async () => {
     const toolName = "bash";
     const input = { command: "echo secret" };
-    const _inputDigest = computeToolApprovalDigest(toolName, input);
+
+    // Enable host_access for conv-1
+    getSqlite().run(
+      "UPDATE conversations SET host_access = 1 WHERE id = ?",
+      ["conv-1"],
+    );
 
     const context = makeContext({ trustClass: "trusted_contact" });
-
-    // Schedule guardian approval after 100ms — within the 2s wait window.
-    // The approval happens asynchronously while checkPreExecutionGates is
-    // polling for the grant.
-    const approvalPromise = (async () => {
-      await new Promise((r) => setTimeout(r, 100));
-      const pendingRequests = listCanonicalGuardianRequests({
-        kind: "tool_grant_request",
-        status: "pending",
-        toolName: "bash",
-      });
-      if (pendingRequests.length === 0) return;
-      await applyCanonicalGuardianDecision({
-        requestId: pendingRequests[0].id,
-        action: "approve_once",
-        actorContext: guardianActor(),
-      });
-    })();
-
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    await approvalPromise;
-
-    // The tool invocation should have succeeded inline
-    expect(result.allowed).toBe(true);
-    if (!result.allowed) return;
-    expect(result.grantConsumed).toBe(true);
-
-    // Replay is denied (one-time grant semantics)
-    const replayResult = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-    expect(replayResult.allowed).toBe(false);
-  });
-
-  test("pre-existing grant from prior approval is consumed immediately (no wait)", async () => {
-    const toolName = "bash";
-    const input = { command: "echo secret" };
-    const _inputDigest = computeToolApprovalDigest(toolName, input);
-
-    const context = makeContext({ trustClass: "trusted_contact" });
-
-    // Step 1: First invocation times out (short wait, no approval)
-    const shortHandler = new ToolApprovalHandler({
-      inlineGrantWait: TEST_INLINE_WAIT_CONFIG,
-    });
-    await shortHandler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    // Verify request was created
-    const pendingRequests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-      toolName: "bash",
-    });
-    expect(pendingRequests.length).toBe(1);
-
-    // Step 2: Guardian approves the request (mints a grant)
-    const approvalResult = await applyCanonicalGuardianDecision({
-      requestId: pendingRequests[0].id,
-      action: "approve_once",
-      actorContext: guardianActor(),
-    });
-    expect(approvalResult.applied).toBe(true);
-
-    // Step 3: Second invocation finds the pre-existing grant immediately
     const start = Date.now();
-    const secondResult = await handler.checkPreExecutionGates(
+    const result = await handler.checkPreExecutionGates(
       toolName,
       input,
       context,
@@ -601,11 +507,60 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
     );
     const elapsed = Date.now() - start;
 
-    expect(secondResult.allowed).toBe(true);
-    if (!secondResult.allowed) return;
-    expect(secondResult.grantConsumed).toBe(true);
-    // Should be nearly instant since the grant already exists
+    // When host_access is enabled, trusted_contact is allowed immediately —
+    // no grant consumption, no inline wait.
+    expect(result.allowed).toBe(true);
+    if (!result.allowed) return;
+    // No grant was consumed (trusted_contact bypasses per-invocation grant check)
+    expect(result.grantConsumed).toBeUndefined();
+    // Should be nearly instant
     expect(elapsed).toBeLessThan(500);
+
+    // No notification signal emitted (no escalation)
+    expect(emittedSignals.length).toBe(0);
+  });
+
+  test("waitForInlineGrant: approve-then-consume round-trip works correctly", async () => {
+    // Test the grant lifecycle directly: create request, approve it, consume grant.
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-1",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      inputDigest: "sha256:roundtrip",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    // Schedule guardian approval after 50ms
+    setTimeout(async () => {
+      await applyCanonicalGuardianDecision({
+        requestId: req.id,
+        action: "approve_once",
+        actorContext: guardianActor(),
+      });
+    }, 50);
+
+    const result = await waitForInlineGrant(
+      req.id,
+      {
+        toolName: "bash",
+        inputDigest: "sha256:roundtrip",
+        consumingRequestId: "consume-roundtrip",
+        conversationId: "conv-1",
+        requesterExternalUserId: "requester-1",
+        executionChannel: "telegram",
+      },
+      { maxWaitMs: 2_000, intervalMs: 20 },
+    );
+
+    expect(result.outcome).toBe("granted");
+    if (result.outcome === "granted") {
+      expect(result.grant.id).toBeDefined();
+    }
   });
 });
 
@@ -775,84 +730,85 @@ describe("inline wait-and-resume", () => {
     expect(elapsed).toBeLessThan(500);
   });
 
-  test("inline wait: guardian rejects -> handler returns explicit denial", async () => {
-    const handler = new ToolApprovalHandler({
-      inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
+  test("waitForInlineGrant: guardian rejects -> outcome is denied", async () => {
+    // Test rejection via the waitForInlineGrant primitive directly.
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-1",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      inputDigest: "sha256:reject-e2e",
+      expiresAt: Date.now() + 60_000,
     });
-
-    const toolName = "bash";
-    const input = { command: "rm -rf /" };
-    const context = makeContext({ trustClass: "trusted_contact" });
 
     // Schedule rejection after 100ms
     const rejectionPromise = (async () => {
       await new Promise((r) => setTimeout(r, 100));
-      const pending = listCanonicalGuardianRequests({
-        kind: "tool_grant_request",
-        status: "pending",
-        toolName: "bash",
-      });
-      if (pending.length === 0) return;
       await applyCanonicalGuardianDecision({
-        requestId: pending[0].id,
+        requestId: req.id,
         action: "reject",
         actorContext: guardianActor(),
       });
     })();
 
     const start = Date.now();
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
+    const result = await waitForInlineGrant(
+      req.id,
+      {
+        toolName: "bash",
+        inputDigest: "sha256:reject-e2e",
+        consumingRequestId: "consume-reject-e2e",
+        conversationId: "conv-1",
+        requesterExternalUserId: "requester-1",
+        executionChannel: "telegram",
+      },
+      { maxWaitMs: 2_000, intervalMs: 20 },
     );
     const elapsed = Date.now() - start;
 
     await rejectionPromise;
 
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    expect(result.result.content).toContain("guardian rejected the request");
+    expect(result.outcome).toBe("denied");
     // Should exit well before the 2s timeout
     expect(elapsed).toBeLessThan(1_000);
   });
 
-  test("inline wait: abort signal cancels cleanly during wait", async () => {
-    const handler = new ToolApprovalHandler({
-      inlineGrantWait: { maxWaitMs: 5_000, intervalMs: 20 },
+  test("waitForInlineGrant: abort signal cancels cleanly during wait", async () => {
+    // Test abort via the waitForInlineGrant primitive directly.
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_grant_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "conv-1",
+      requesterExternalUserId: "requester-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: "test-principal-id",
+      toolName: "bash",
+      inputDigest: "sha256:abort-e2e",
+      expiresAt: Date.now() + 60_000,
     });
 
-    const toolName = "bash";
-    const input = { command: "do something" };
     const controller = new AbortController();
-    const context = makeContext({
-      trustClass: "trusted_contact",
-      signal: controller.signal,
-    });
-
     // Abort after 100ms
     setTimeout(() => controller.abort(), 100);
 
     const start = Date.now();
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
+    const result = await waitForInlineGrant(
+      req.id,
+      {
+        toolName: "bash",
+        inputDigest: "sha256:abort-e2e",
+        consumingRequestId: "consume-abort-e2e",
+      },
+      { maxWaitMs: 5_000, intervalMs: 20, signal: controller.signal },
     );
     const elapsed = Date.now() - start;
 
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    expect(result.result.content).toBe("Cancelled");
-    expect(result.result.isError).toBe(true);
+    expect(result.outcome).toBe("aborted");
     expect(elapsed).toBeLessThan(1_000);
   });
 

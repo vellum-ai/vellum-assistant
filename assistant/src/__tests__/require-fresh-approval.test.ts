@@ -104,6 +104,7 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
+  getCachedAssessment: () => undefined,
 }));
 
 mock.module("../memory/tool-usage-store.js", () => ({
@@ -237,7 +238,7 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     const result = await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isInteractive: false, trustClass: "guardian" }),
+      makeContext({ isInteractive: false, trustClass: "guardian", requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -289,7 +290,7 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     const result = await executor.execute(
       "gmail_send_draft",
       { draft_id: "draft-123", confidence: 0.99 },
-      makeContext({ isInteractive: false, trustClass: "guardian" }),
+      makeContext({ isInteractive: false, trustClass: "guardian", requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -489,40 +490,7 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     expect(promptEvent!.persistentDecisionsAllowed).toBe(false);
   });
 
-  test("regular tools still offer persistent decisions", async () => {
-    checkResultOverride = {
-      decision: "prompt",
-      reason: "Needs approval",
-    };
 
-    let persistentDecisionsPassedToPrompter: boolean | undefined;
-
-    const inspectingPrompter = {
-      prompt: async (
-        _toolName: string,
-        _input: Record<string, unknown>,
-        _riskLevel: string,
-        _allowlistOptions: unknown[],
-        _scopeOptions: unknown[],
-        _previewDiff: unknown,
-        _conversationId: string,
-        _executionTarget: string,
-        persistentDecisionsAllowed: boolean,
-      ) => {
-        persistentDecisionsPassedToPrompter = persistentDecisionsAllowed;
-        return { decision: "allow" as const };
-      },
-      resolveConfirmation: () => {},
-      updateSender: () => {},
-      dispose: () => {},
-    } as unknown as PermissionPrompter;
-
-    const executor = new ToolExecutor(inspectingPrompter);
-    await executor.execute("bash", { command: "echo hello" }, makeContext());
-
-    // Regular tools should have persistentDecisions allowed
-    expect(persistentDecisionsPassedToPrompter).toBe(true);
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -4,10 +4,7 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import {
-  isConversationHostAccessEnabled,
-  isPermissionControlsV2Enabled,
-} from "../permissions/v2-consent-policy.js";
+import { isConversationHostAccessEnabled } from "../permissions/v2-consent-policy.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -224,8 +221,6 @@ export class ToolApprovalHandler {
     startTime: number,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
   ): Promise<PreExecutionGateResult> {
-    const v2Enabled = isPermissionControlsV2Enabled();
-
     // Bail out immediately if the session was aborted before this tool started.
     if (context.signal?.aborted) {
       const durationMs = Date.now() - startTime;
@@ -303,7 +298,6 @@ export class ToolApprovalHandler {
     );
 
     if (
-      v2Enabled &&
       context.trustClass === "trusted_contact" &&
       guardianApprovalRequired &&
       executionTarget === "host" &&
@@ -333,7 +327,7 @@ export class ToolApprovalHandler {
     if (
       isUntrustedTrustClass(context.trustClass) &&
       guardianApprovalRequired &&
-      !(v2Enabled && context.trustClass === "trusted_contact")
+      context.trustClass !== "trusted_contact"
     ) {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;

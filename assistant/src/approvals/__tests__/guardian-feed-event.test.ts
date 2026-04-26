@@ -67,13 +67,7 @@ mock.module("../../notifications/signal.js", () => ({
   isNotificationSourceChannel: () => false,
 }));
 
-mock.module("../../permissions/trust-store.js", () => ({
-  addRule: () => {},
-}));
 
-mock.module("../../permissions/v2-consent-policy.js", () => ({
-  isPermissionControlsV2Enabled: () => false,
-}));
 
 mock.module("../../runtime/assistant-scope.js", () => ({
   DAEMON_INTERNAL_ASSISTANT_ID: "self",

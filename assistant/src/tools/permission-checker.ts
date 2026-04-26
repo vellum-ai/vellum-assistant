@@ -1,4 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { resolveThreshold } from "../permissions/approval-policy.js";
@@ -97,27 +96,30 @@ export class PermissionChecker {
   ): Promise<PermissionDecision> {
     let v2ForcePrompt = false;
     const cfg = getConfig();
-    const v2Enabled = isAssistantFeatureFlagEnabled(
-      "permission-controls-v2",
-      cfg,
-    );
-    if (v2Enabled) {
-      const v2Disposition = evaluateV2ConsentDisposition(name, input, context);
-      if (v2Disposition === "auto_allow") {
+    const v2Disposition = evaluateV2ConsentDisposition(name, input, context);
+    if (v2Disposition === "auto_allow") {
+      // Skill tools that run on the host machine (executionTarget: "host") are
+      // not registered in HOST_TOOLS by name, but they execute with host-level
+      // access. Always route them through the full permission check so that
+      // trust rules and interactive approval remain active for host-execution
+      // skill tools, matching the security model for named host tools.
+      const isHostSkillTool =
+        tool.origin === "skill" && tool.executionTarget === "host";
+      if (!isHostSkillTool) {
         return {
           allowed: true,
           decision: "allow",
           riskLevel: RiskLevel.Low,
         };
       }
-      if (v2Disposition === "prompt_host_access") {
-        // Host tool with hostAccess disabled — fall through to v1 so the
-        // interactive prompter is engaged (returning allowed:false here
-        // would surface an error string instead of a permission dialog).
-        // The v2ForcePrompt flag ensures check()'s allow decision is
-        // promoted to prompt so the user sees a permission dialog.
-        v2ForcePrompt = true;
-      }
+    }
+    if (v2Disposition === "prompt_host_access") {
+      // Host tool with hostAccess disabled — fall through to v1 so the
+      // interactive prompter is engaged (returning allowed:false here
+      // would surface an error string instead of a permission dialog).
+      // The v2ForcePrompt flag ensures check()'s allow decision is
+      // promoted to prompt so the user sees a permission dialog.
+      v2ForcePrompt = true;
     }
 
     const { level: risk, reason: riskReason } = await classifyRisk(
@@ -365,31 +367,22 @@ export class PermissionChecker {
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
         const promptOptions = v2ForcePrompt
           ? CONVERSATION_HOST_ACCESS_PROMPT
-          : v2Enabled
-            ? {
-                allowlistOptions: [] as Awaited<
-                  ReturnType<typeof generateAllowlistOptions>
-                >,
-                scopeOptions: [] as ReturnType<typeof generateScopeOptions>,
-                persistentDecisionsAllowed: false,
-                temporaryOptionsAvailable: undefined,
-              }
-            : {
-                allowlistOptions: await generateAllowlistOptions(
-                  name,
-                  input,
-                  context.signal,
-                ),
-                scopeOptions: generateScopeOptions(context.workingDir, name),
-                persistentDecisionsAllowed: !context.requireFreshApproval,
-                temporaryOptionsAvailable:
-                  context.trustClass === "guardian" &&
-                  !context.requireFreshApproval
-                    ? (["allow_10m", "allow_conversation"] as Array<
-                        "allow_10m" | "allow_conversation"
-                      >)
-                    : undefined,
-              };
+          : {
+              allowlistOptions: await generateAllowlistOptions(
+                name,
+                input,
+                context.signal,
+              ),
+              scopeOptions: generateScopeOptions(context.workingDir, name),
+              persistentDecisionsAllowed: !context.requireFreshApproval,
+              temporaryOptionsAvailable:
+                context.trustClass === "guardian" &&
+                !context.requireFreshApproval
+                  ? (["allow_10m", "allow_conversation"] as Array<
+                      "allow_10m" | "allow_conversation"
+                    >)
+                  : undefined,
+            };
 
         emitLifecycleEvent({
           type: "permission_prompt",

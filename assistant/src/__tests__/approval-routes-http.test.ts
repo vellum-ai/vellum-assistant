@@ -6,7 +6,6 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
@@ -274,7 +273,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
   let eventHub: AssistantEventHub;
 
   beforeEach(() => {
-    _setOverridesForTesting({});
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
@@ -474,9 +472,12 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
       const body = (await res.json()) as { error?: { message?: string } };
 
-      expect(res.status).toBe(403);
+      // In PR3, temporal decisions (allow_10m) are no longer valid — only allow/deny
+      // are accepted. The canonicalizeConfirmDecision function returns null for temporal
+      // decisions, resulting in a 400 before the host-access-specific check.
+      expect(res.status).toBe(400);
       expect(body.error?.message).toContain(
-        "Conversation host-access prompts only accept allow or deny",
+        "resolve to allow or deny",
       );
       expect(confirmedDecision).toBeUndefined();
       expect(pendingInteractions.get("req-host-access")).toBeDefined();
@@ -484,48 +485,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("canonicalizes advertised legacy allow verbs to one-time allow under v2", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-      let handledDecision: string | undefined;
-      const handlingSession = makeIdleSession({
-        onConfirmation: (_requestId, decision) => {
-          handledDecision = decision;
-        },
-      });
-      await startServer(() => handlingSession);
-
-      pendingInteractions.register("req-v2", {
-        conversation: handlingSession,
-        conversationId: "conv-1",
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: "shell_command",
-          input: { command: "ls" },
-          riskLevel: "medium",
-          allowlistOptions: [],
-          scopeOptions: [],
-          temporaryOptionsAvailable: ["allow_10m"],
-        },
-      });
-
-      const res = await fetch(url("confirm"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
-        body: JSON.stringify({
-          requestId: "req-v2",
-          decision: "allow_10m",
-        }),
-      });
-
-      expect(res.status).toBe(200);
-      expect(handledDecision).toBe("allow");
-      expect(pendingInteractions.get("req-v2")).toBeUndefined();
-
-      await stopServer();
-    });
-
-    test("rejects unadvertised legacy approval verbs under v2", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
+    test("rejects legacy approval verbs (only allow/deny are accepted)", async () => {
       const session = makeIdleSession();
       await startServer(() => session);
 
@@ -808,46 +768,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
 
       expect(res.status).toBe(403);
-
-      await stopServer();
-    });
-
-    test("returns 403 for trust rules under v2", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-      const session = makeIdleSession();
-      await startServer(() => session);
-
-      pendingInteractions.register("req-v2-trust", {
-        conversation: session,
-        conversationId: "conv-1",
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: "shell_command",
-          input: { command: "ls" },
-          riskLevel: "medium",
-          allowlistOptions: [
-            { label: "Allow ls", description: "test", pattern: "ls" },
-          ],
-          scopeOptions: [{ label: "Conversation", scope: "session" }],
-          persistentDecisionsAllowed: true,
-        },
-      });
-
-      const res = await fetch(url("trust-rules"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
-        body: JSON.stringify({
-          requestId: "req-v2-trust",
-          pattern: "ls",
-          scope: "session",
-          decision: "allow",
-        }),
-      });
-      const body = (await res.json()) as { error?: { message?: string } };
-
-      expect(res.status).toBe(403);
-      expect(body.error?.message).toContain("permission-controls-v2");
-      expect(pendingInteractions.get("req-v2-trust")).toBeDefined();
 
       await stopServer();
     });

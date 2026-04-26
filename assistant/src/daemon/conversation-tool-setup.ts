@@ -15,19 +15,8 @@ import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
-import {
-  generateAllowlistOptions,
-  generateScopeOptions,
-  normalizeWebFetchUrl,
-} from "../permissions/checker.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import {
-  addRule,
-  findHighestPriorityRule,
-} from "../permissions/trust-store.js";
-import { isAllowDecision } from "../permissions/types.js";
-import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
@@ -377,143 +366,13 @@ export function createToolExecutor(
  * user confirmation before proceeding.
  */
 export function createProxyApprovalCallback(
-  prompter: PermissionPrompter,
-  ctx: ToolSetupContext,
+  _prompter: PermissionPrompter,
+  _ctx: ToolSetupContext,
 ): ProxyApprovalCallback {
-  return async (request: ProxyApprovalRequest): Promise<boolean> => {
-    const { decision } = request;
-    const { hostname, port, path } = decision.target;
-
-    // Use the standard network_request tool name so trust rules align with
-    // the checker's URL-based candidate generation and allowlist options.
-    const toolName = "network_request";
-    const { scheme } = decision.target;
-    const url = `${scheme}://${hostname}${port ? ":" + port : ""}${path}`;
-
-    if (isPermissionControlsV2Enabled()) {
-      // Under v2 we suppress deterministic network approval cards entirely.
-      // Proxied asks should follow the same non-host auto-allow contract as
-      // regular network_request invocations instead of turning into hard blocks.
-      return true;
-    }
-
-    const input: Record<string, unknown> = {
-      url,
-      scheme,
-    };
-    if (request.method) {
-      input.method = request.method;
-    }
-    if (request.requestHeaders && Object.keys(request.requestHeaders).length) {
-      input.request_headers = request.requestHeaders;
-    }
-    input.reason =
-      decision.kind === "ask_missing_credential"
-        ? "A known credential template matches this host, but no credential is bound to this session. Approving will forward the request as-is — the assistant won't inject a credential, but any caller-supplied auth headers will still be sent."
-        : "This host isn't covered by any known credential template. Approving will forward the request as-is, including any caller-supplied auth headers.";
-    if (decision.kind === "ask_missing_credential") {
-      input.known_credential_patterns = decision.matchingPatterns;
-    }
-    if (!request.method) {
-      input.connection_detail_available = "no";
-    }
-
-    const riskLevel: string = "medium";
-
-    // Check trust store before prompting — build candidates that mirror
-    // buildCommandCandidates() in checker.ts for network_request.
-    const candidates: string[] = [`${toolName}:${url}`];
-    const normalized = normalizeWebFetchUrl(url);
-    if (normalized) {
-      candidates.push(`${toolName}:${normalized.href}`);
-      candidates.push(`${toolName}:${normalized.origin}/*`);
-    }
-    candidates.push(`${toolName}:*`);
-    // Deduplicate
-    const uniqueCandidates = [...new Set(candidates)];
-
-    const existingRule = findHighestPriorityRule(
-      toolName,
-      uniqueCandidates,
-      ctx.workingDir,
-    );
-    if (existingRule && existingRule.decision !== "ask") {
-      if (existingRule.decision === "deny") return false;
-      return true;
-    }
-
-    // Use the checker's built-in allowlist generation for network_request
-    const allowlistOptions = await generateAllowlistOptions("network_request", {
-      url,
-    });
-
-    const scopeOptions = generateScopeOptions(ctx.workingDir);
-
-    // Non-interactive conversations have no client to prompt — fast-deny to avoid
-    // blocking for the full permission timeout before auto-denying.
-    if (ctx.hasNoClient) {
-      return false;
-    }
-
-    // Proxied network requests require per-invocation approval and must
-    // not be auto-approved by temporary overrides (allow_10m / allow_conversation).
-    // Unlike regular tool invocations, these represent outbound network
-    // actions that should always receive explicit confirmation.
-
-    const response = await prompter.prompt(
-      toolName,
-      input,
-      riskLevel,
-      allowlistOptions,
-      scopeOptions,
-      undefined,
-      ctx.conversationId,
-    );
-
-    // Persist trust rule if the user chose "always allow" or "always deny"
-    if (
-      response.decision === "always_allow" &&
-      response.selectedPattern &&
-      response.selectedScope
-    ) {
-      log.info(
-        {
-          toolName,
-          pattern: response.selectedPattern,
-          scope: response.selectedScope,
-        },
-        "Persisting always-allow trust rule (proxy)",
-      );
-      addRule(
-        toolName,
-        response.selectedPattern,
-        response.selectedScope,
-        "allow",
-        100,
-      );
-    }
-    if (
-      response.decision === "always_deny" &&
-      response.selectedPattern &&
-      response.selectedScope
-    ) {
-      log.info(
-        {
-          toolName,
-          pattern: response.selectedPattern,
-          scope: response.selectedScope,
-        },
-        "Persisting always-deny trust rule (proxy)",
-      );
-      addRule(
-        toolName,
-        response.selectedPattern,
-        response.selectedScope,
-        "deny",
-      );
-    }
-
-    return isAllowDecision(response.decision);
+  return async (_request: ProxyApprovalRequest): Promise<boolean> => {
+    // Proxied asks follow the same non-host auto-allow contract as regular
+    // network_request invocations — suppress deterministic approval cards.
+    return true;
   };
 }
 

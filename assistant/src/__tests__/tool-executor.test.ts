@@ -312,7 +312,7 @@ describe("ToolExecutor policy context plumbing", () => {
     const result = await executor.execute(
       "skill_tool",
       { action: "run" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -333,7 +333,7 @@ describe("ToolExecutor policy context plumbing", () => {
     const result = await executor.execute(
       "file_read",
       { path: "test.txt" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -367,7 +367,7 @@ describe("ToolExecutor policy context plumbing", () => {
     const result = await executor.execute(
       "file_read",
       { path: "test.txt" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -404,7 +404,7 @@ describe("ToolExecutor policy context plumbing", () => {
     const result = await executor.execute(
       "host_skill_tool",
       { action: "run" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -438,7 +438,7 @@ describe("ToolExecutor policy context plumbing", () => {
     };
 
     const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute("no_target_tool", {}, makeContext());
+    const result = await executor.execute("no_target_tool", {}, makeContext({ requireFreshApproval: true }));
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
@@ -506,7 +506,7 @@ describe("ToolExecutor contextual rule creation", () => {
     return addRuleSpy;
   }
 
-  test("always_allow for a skill tool captures execution target in the rule", async () => {
+  test("always_allow for a skill tool with host executionTarget captures execution target in the rule", async () => {
     checkResultOverride = { decision: "prompt", reason: "test prompt" };
     const spy = setupAddRuleSpy();
 
@@ -514,16 +514,16 @@ describe("ToolExecutor contextual rule creation", () => {
       if (name === "unknown_tool") return undefined;
       return {
         name,
-        description: "skill tool",
+        description: "host skill tool",
         category: "skill",
         defaultRiskLevel: RiskLevel.Low,
         origin: "skill" as const,
         ownerSkillId: "my-skill-42",
         ownerSkillVersionHash: "sha256-deadbeef",
-        executionTarget: "sandbox" as const,
+        executionTarget: "host" as const,
         getDefinition: () => ({
           name,
-          description: "skill tool",
+          description: "host skill tool",
           input_schema: { type: "object" as const, properties: {} },
         }),
         execute: async () => fakeToolResult,
@@ -551,7 +551,7 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(scope).toBe("/tmp/project");
     expect(decision).toBe("allow");
     expect(options).toBeDefined();
-    expect(options.executionTarget).toBe("sandbox");
+    expect(options.executionTarget).toBe("host");
   });
 
   test("always_allow captures execution target without allowHighRisk", async () => {
@@ -614,7 +614,7 @@ describe("ToolExecutor contextual rule creation", () => {
     const result = await executor.execute(
       "bash",
       { command: "git status" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -676,11 +676,11 @@ describe("ToolExecutor contextual rule creation", () => {
 
     const prompter = makePrompterWithDecision(
       "always_allow",
-      "some_tool:*",
+      "bash:*",
       undefined,
     );
     const executor = new ToolExecutor(prompter);
-    const result = await executor.execute("some_tool", {}, makeContext());
+    const result = await executor.execute("bash", { command: "ls" }, makeContext({ forcePromptSideEffects: true }));
 
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
@@ -702,7 +702,7 @@ describe("ToolExecutor contextual rule creation", () => {
     const result = await executor.execute(
       "bash",
       { command: "sudo apt update" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -847,7 +847,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     expect(options.executionTarget).toBe("host");
   });
 
-  test("always_allow creates rule with execution target for skill tool", async () => {
+  test("always_allow creates rule with execution target for host-execution skill tool", async () => {
     checkResultOverride = { decision: "prompt", reason: "test prompt" };
     const spy = setupAddRuleSpy();
 
@@ -855,16 +855,16 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
       if (name === "unknown_tool") return undefined;
       return {
         name,
-        description: "high-risk skill tool",
+        description: "high-risk host skill tool",
         category: "skill",
         defaultRiskLevel: RiskLevel.High,
         origin: "skill" as const,
         ownerSkillId: "risky-skill",
         ownerSkillVersionHash: "sha256-risky",
-        executionTarget: "sandbox" as const,
+        executionTarget: "host" as const,
         getDefinition: () => ({
           name,
-          description: "high-risk skill tool",
+          description: "high-risk host skill tool",
           input_schema: { type: "object" as const, properties: {} },
         }),
         execute: async () => fakeToolResult,
@@ -885,7 +885,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     const [, , , , , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
     // executionTarget should be present
-    expect(options.executionTarget).toBe("sandbox");
+    expect(options.executionTarget).toBe("host");
     // Rule should have execution target
     // allowHighRisk is no longer persisted
   });
@@ -912,7 +912,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     };
 
     const executor = new ToolExecutor(makePrompter());
-    await executor.execute("versioned_tool", { action: "test" }, makeContext());
+    await executor.execute("versioned_tool", { action: "test" }, makeContext({ requireFreshApproval: true }));
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
@@ -961,7 +961,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     const result = await executor.execute(
       "file_write",
       { path: "/tmp/skills/my-skill/executor.ts" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -1012,7 +1012,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     const result = await executor.execute(
       "file_write",
       { path: "/tmp/skills/my-skill/executor.ts" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -1060,7 +1060,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     const result = await executor.execute(
       "file_edit",
       { path: "/tmp/skills/my-skill/SKILL.md" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -1096,7 +1096,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     await executor.execute(
       "file_write",
       { path: "/tmp/skills/my-skill/index.ts" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(lastCheckArgs).toBeDefined();
@@ -1336,7 +1336,7 @@ describe("ToolExecutor baseline: allow rule auto-allows file_edit guardian perso
     const result = await executor.execute(
       "file_edit",
       { path: guardianPersonaPath, content: "hello" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
     expect(result.isError).toBe(false);
     expect(result.content).toBe("ok");
@@ -1363,7 +1363,7 @@ describe("ToolExecutor baseline: allow rule auto-allows file_edit guardian perso
     const result = await executor.execute(
       "file_edit",
       { path: "/tmp/project/other.md", content: "hello" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
     // check() returned 'prompt' (no matching trust rule for other.md),
     // so the executor must have called the prompter.
@@ -1507,15 +1507,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
       { name: "bash", input: { command: "echo hi" } },
       { name: "host_bash", input: { command: "echo hi" } },
       { name: "web_fetch", input: { url: "https://example.com" } },
-      { name: "browser_navigate", input: { url: "https://example.com" } },
-      { name: "browser_click", input: { selector: "#btn" } },
-      { name: "browser_type", input: { selector: "#input", text: "hello" } },
-      { name: "browser_press_key", input: { key: "Enter" } },
-      { name: "browser_close", input: {} },
-      {
-        name: "browser_fill_credential",
-        input: { selector: "#pwd", credential: "test" },
-      },
       { name: "document_create", input: { title: "doc", content: "body" } },
       { name: "document_update", input: { id: "doc-1", content: "updated" } },
       {
@@ -1742,7 +1733,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "curl https://example.com", network_mode: "proxied" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -1761,7 +1752,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "git status" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -1780,7 +1771,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "curl https://evil.com", network_mode: "proxied" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -1795,6 +1786,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
       "bash",
       { command: "curl https://example.com", network_mode: "proxied" },
       makeContext({
+        forcePromptSideEffects: true,
         onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
           if (event.type === "permission_prompt") {
             capturedEvent = event;
@@ -1816,6 +1808,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
       "bash",
       { command: "echo hello" },
       makeContext({
+        forcePromptSideEffects: true,
         onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
           if (event.type === "permission_prompt") {
             capturedEvent = event;
@@ -1855,7 +1848,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "curl https://example.com", network_mode: "proxied" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -1875,7 +1868,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const r1 = await e1.execute(
       "bash",
       { command: "curl https://api.example.com", network_mode: "proxied" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
     expect(r1.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
@@ -1888,7 +1881,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
       "/tmp/project",
     );
     const e2 = new ToolExecutor(p2);
-    const r2 = await e2.execute("bash", { command: "git push" }, makeContext());
+    const r2 = await e2.execute("bash", { command: "git push" }, makeContext({ forcePromptSideEffects: true }));
     expect(r2.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
   });
@@ -1905,7 +1898,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -1927,7 +1920,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "curl https://malicious.com", network_mode: "proxied" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -1947,7 +1940,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -2089,7 +2082,7 @@ describe("ToolExecutor persistent-allow lifecycle", () => {
     const result = await executor.execute(
       "bash",
       { command: "git status" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     // The tool should have been allowed to proceed
@@ -2155,7 +2148,7 @@ describe("ToolExecutor persistent-allow lifecycle", () => {
     const result = await executor.execute(
       "file_write",
       { path: "/tmp/test.txt", content: "hello" },
-      makeContext(),
+      makeContext({ forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -2202,7 +2195,7 @@ describe("integration regressions — prompt payload (PR 11)", () => {
     } as unknown as PermissionPrompter;
 
     const executor = new ToolExecutor(prompter);
-    await executor.execute("bash", { command: "npm install" }, makeContext());
+    await executor.execute("bash", { command: "npm install" }, makeContext({ forcePromptSideEffects: true }));
 
     // Verify that the prompter received allowlist options
     expect(capturedAllowlist).toBeDefined();
@@ -2252,7 +2245,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     const result = await executor.execute(
       "file_read",
       { path: "README.md" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -2295,7 +2288,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -2325,7 +2318,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     const result = await executor.execute(
       "bash",
       { command: "npm install lodash" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -2357,7 +2350,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     const result = await executor.execute(
       "file_read",
       { path: "/workspace/scratch/out.txt" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(false);
@@ -2403,7 +2396,7 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
     const result = await executor.execute(
       "file_read",
       { path: "/tmp/foo.txt" },
-      makeContext(),
+      makeContext({ requireFreshApproval: true }),
     );
 
     expect(result.riskScopeOptions).toEqual([

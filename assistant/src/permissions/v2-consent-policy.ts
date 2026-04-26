@@ -1,5 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { getConversationHostAccess as loadConversationHostAccess } from "../memory/conversation-crud.js";
 import { isSideEffectTool } from "../tools/side-effects.js";
 import type { ToolContext } from "../tools/types.js";
@@ -28,10 +26,6 @@ export const CONVERSATION_HOST_ACCESS_PROMPT = Object.freeze({
     | undefined,
 });
 
-export function isPermissionControlsV2Enabled(): boolean {
-  return isAssistantFeatureFlagEnabled("permission-controls-v2", getConfig());
-}
-
 export function isConversationHostAccessEnabled(
   conversationId: string,
 ): boolean {
@@ -43,10 +37,6 @@ export function evaluateV2ConsentDisposition(
   input: Record<string, unknown>,
   context: ToolContext,
 ): V2ConsentDisposition {
-  if (!isPermissionControlsV2Enabled()) {
-    return "legacy";
-  }
-
   if (context.requireFreshApproval) {
     return "legacy";
   }

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { VellumAcpClientHandler } from "../acp/client-handler.js";
 import { AcpSessionManager } from "../acp/session-manager.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
@@ -16,7 +15,6 @@ describe("VellumAcpClientHandler", () => {
   let handler: VellumAcpClientHandler;
 
   beforeEach(() => {
-    _setOverridesForTesting({});
     sent = [];
     sendToVellum = (msg) => sent.push(msg);
     handler = new VellumAcpClientHandler(
@@ -151,89 +149,7 @@ describe("VellumAcpClientHandler", () => {
   });
 
   describe("requestPermission", () => {
-    test("sends confirmation_request and resolves when permission is granted", async () => {
-      const resultPromise = handler.requestPermission({
-        toolCall: {
-          title: "Run command",
-          kind: "execute",
-          rawInput: "ls -la",
-        },
-        options: [
-          { optionId: "allow", name: "Allow", kind: "allow_once" },
-          { optionId: "deny", name: "Deny", kind: "reject_once" },
-        ],
-      } as any);
-
-      // Should have sent a standard confirmation_request with ACP context
-      expect(sent).toHaveLength(1);
-      const msg = sent[0] as any;
-      expect(msg.type).toBe("confirmation_request");
-      expect(msg.toolName).toBe("ACP Agent: Run command");
-      expect(msg.riskLevel).toBe("medium"); // ACP defaults to medium
-      expect(msg.persistentDecisionsAllowed).toBe(false);
-      expect(msg.allowlistOptions).toEqual([]);
-      // ACP-specific fields passed through for client rendering
-      expect(msg.acpToolKind).toBe("execute");
-      expect(msg.acpOptions).toEqual([
-        { optionId: "allow", name: "Allow", kind: "allow_once" },
-        { optionId: "deny", name: "Deny", kind: "reject_once" },
-      ]);
-
-      const requestId = msg.requestId;
-
-      // Resolve via the pendingInteractions tracker (same as POST /v1/confirm)
-      const interaction = pendingInteractions.resolve(requestId);
-      expect(interaction).toBeDefined();
-      expect(interaction!.kind).toBe("acp_confirmation");
-      interaction!.directResolve!("allow");
-
-      const result = await resultPromise;
-      expect(result).toEqual({
-        outcome: { outcome: "selected", optionId: "allow" },
-      });
-    });
-
-    test("maps deny decision to reject_once option", async () => {
-      const resultPromise = handler.requestPermission({
-        toolCall: {
-          title: "Write file",
-          kind: "edit",
-          rawInput: { path: "/tmp/test.txt" },
-        },
-        options: [
-          { optionId: "opt-allow", name: "Allow", kind: "allow_once" },
-          { optionId: "opt-deny", name: "Deny", kind: "reject_once" },
-        ],
-      } as any);
-
-      const msg = sent[0] as any;
-      expect(msg.riskLevel).toBe("medium"); // ACP defaults to medium
-
-      const interaction = pendingInteractions.resolve(msg.requestId);
-      interaction!.directResolve!("deny");
-
-      const result = await resultPromise;
-      expect(result).toEqual({
-        outcome: { outcome: "selected", optionId: "opt-deny" },
-      });
-    });
-
-    test("defaults riskLevel to medium for all ACP permissions", async () => {
-      handler.requestPermission({
-        toolCall: {
-          title: "Read file",
-          kind: "read",
-        },
-        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
-      } as any);
-
-      const msg = sent[0] as any;
-      expect(msg.riskLevel).toBe("medium");
-    });
-
-    test("suppresses ACP confirmation UI under v2 and chooses the allow option", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-
+    test("suppresses ACP confirmation UI and chooses the allow option (auto-allow)", async () => {
       const result = await handler.requestPermission({
         toolCall: {
           title: "Read file",
@@ -253,9 +169,7 @@ describe("VellumAcpClientHandler", () => {
       expect(handler.pendingRequestIds.size).toBe(0);
     });
 
-    test("suppresses ACP confirmation UI under v2 and cancels when no allow option exists", async () => {
-      _setOverridesForTesting({ "permission-controls-v2": true });
-
+    test("suppresses ACP confirmation UI and cancels when no allow option exists", async () => {
       const result = await handler.requestPermission({
         toolCall: {
           title: "Read file",
@@ -272,68 +186,6 @@ describe("VellumAcpClientHandler", () => {
       expect(handler.pendingRequestIds.size).toBe(0);
     });
 
-    test("ACP registration survives sendToVellum overwrite (makeEventSender race)", async () => {
-      // Simulate makeEventSender: when sendToVellum is called with a
-      // confirmation_request, it overwrites the pendingInteractions entry
-      // with a normal "confirmation" (no directResolve). This is what
-      // happens in production because sendToVellum goes through the
-      // conversation's event sender.
-      const overwritingSend = (msg: ServerMessage) => {
-        sent.push(msg);
-        if ((msg as any).type === "confirmation_request") {
-          pendingInteractions.register((msg as any).requestId, {
-            conversation: {} as any, // fake conversation
-            conversationId: "conv-123",
-            kind: "confirmation",
-            confirmationDetails: {
-              toolName: (msg as any).toolName,
-              input: (msg as any).input,
-              riskLevel: (msg as any).riskLevel,
-              allowlistOptions: [],
-              scopeOptions: [],
-            },
-            // NO directResolve — this is the bug scenario
-          });
-        }
-      };
-
-      // Create handler with the overwriting sender
-      const racyHandler = new VellumAcpClientHandler(
-        "session-racy",
-        overwritingSend,
-        "conv-racy",
-      );
-
-      const resultPromise = racyHandler.requestPermission({
-        toolCall: {
-          title: "Write file",
-          kind: "edit",
-          rawInput: "test",
-        },
-        options: [
-          { optionId: "yes", name: "Allow", kind: "allow_once" },
-          { optionId: "no", name: "Deny", kind: "reject_once" },
-        ],
-      } as any);
-
-      const requestId = (sent[sent.length - 1] as any).requestId;
-
-      // The critical assertion: after requestPermission completes setup,
-      // the pendingInteractions entry must be the ACP one with directResolve,
-      // NOT the overwritten "confirmation" without it.
-      const interaction = pendingInteractions.resolve(requestId);
-      expect(interaction).toBeDefined();
-      expect(interaction!.kind).toBe("acp_confirmation");
-      expect(interaction!.directResolve).toBeDefined();
-
-      // Resolve it — this would fail silently if the overwrite won
-      interaction!.directResolve!("allow");
-
-      const result = await resultPromise;
-      expect(result).toEqual({
-        outcome: { outcome: "selected", optionId: "yes" },
-      });
-    });
   });
 });
 

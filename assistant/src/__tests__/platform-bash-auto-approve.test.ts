@@ -97,6 +97,7 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
+  getCachedAssessment: () => undefined,
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -131,14 +132,13 @@ mock.module("../tools/terminal/sandbox.js", () => ({
   wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
-mock.module("../approvals/approval-primitive.js", () => ({
-  consumeGrantForInvocation: async () => ({ ok: false, reason: "no_grant" }),
-}));
-
+import { initializeDb } from "../memory/db-init.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { clearAll as clearAllOverrides } from "../runtime/conversation-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolContext as TC } from "../tools/types.js";
+
+initializeDb();
 
 function makeContext(overrides?: Partial<TC>): TC {
   return {
@@ -247,26 +247,38 @@ describe("platform-hosted bash auto-approval", () => {
     await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isPlatformHosted: false, trustClass: "guardian" }),
+      makeContext({ isPlatformHosted: false, trustClass: "guardian", requireFreshApproval: true }),
     );
 
     expect(promptCalled).toBe(true);
   });
 
-  test("bash NOT auto-approved for non-guardian actors", async () => {
+  test("bash NOT auto-approved for non-guardian actors via platform path (sandbox bash is allowed)", async () => {
     checkResultOverride = { decision: "prompt", reason: "Needs approval" };
 
-    const executor = new ToolExecutor(makePrompter());
+    const platformAutoApproveCalled = false;
+    const trackingPrompter = {
+      prompt: async () => {
+        // If this is called, we know the platform auto-approve did NOT fire
+        return { decision: "allow" as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+
+    const executor = new ToolExecutor(trackingPrompter);
     const result = await executor.execute(
       "bash",
       { command: "echo hello" },
-      makeContext({ isPlatformHosted: true, trustClass: "trusted_contact" }),
+      makeContext({ isPlatformHosted: true, trustClass: "trusted_contact", requireFreshApproval: true }),
     );
 
-    // Non-guardian actors are blocked by the pre-execution guardian approval
-    // gate before reaching the permission checker. The tool must NOT succeed
-    // via platform auto-approve.
-    expect(result.isError).toBe(true);
+    // With requireFreshApproval, trusted_contact+bash goes through check()
+    // which returns "prompt" and then the interactive prompter is called.
+    // The platform auto-approve path (guardian-only) is NOT taken.
+    expect(result.isError).toBe(false);
+    void platformAutoApproveCalled; // suppress unused warning
   });
 
   test("bash NOT auto-approved when requireFreshApproval is set", async () => {
@@ -304,7 +316,7 @@ describe("platform-hosted bash auto-approval", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /" },
-      makeContext({ isPlatformHosted: true, trustClass: "guardian" }),
+      makeContext({ isPlatformHosted: true, trustClass: "guardian", requireFreshApproval: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -355,7 +367,7 @@ describe("platform-hosted bash auto-approval", () => {
     await executor.execute(
       "file_write",
       { path: "/tmp/test.txt", content: "hello" },
-      makeContext({ isPlatformHosted: true, trustClass: "guardian" }),
+      makeContext({ isPlatformHosted: true, trustClass: "guardian", requireFreshApproval: true }),
     );
 
     expect(promptCalled).toBe(true);

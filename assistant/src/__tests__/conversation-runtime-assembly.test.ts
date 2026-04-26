@@ -16,7 +16,6 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
   },
 }));
 
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type {
   ChannelCapabilities,
   SlackTranscriptInputRow,
@@ -1125,90 +1124,51 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).not.toContain("trust_class:");
   });
 
-  test("non-guardian trusted_contact: all actor fields + behavioral guidance", () => {
-    _setOverridesForTesting({ "permission-controls-v2": false });
-    try {
-      const options: UnifiedTurnContextOptions = {
-        timestamp: "2026-04-02T12:00:00Z",
-        interfaceName: "telegram",
-        channelName: "telegram",
-        actorContext: {
-          sourceChannel: "telegram",
-          canonicalActorIdentity: "trusted-user-1",
-          actorIdentifier: "@jeff_handle",
-          actorDisplayName: "Jeff",
-          actorSenderDisplayName: "Jeffrey",
-          actorMemberDisplayName: "Jeff",
-          trustClass: "trusted_contact",
-          guardianIdentity: "guardian-user-1",
-          memberStatus: "active",
-          memberPolicy: "allow",
-        },
-      };
+  test("non-guardian trusted_contact: all actor fields + conversational guidance", () => {
+    const options: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "telegram",
+      channelName: "telegram",
+      actorContext: {
+        sourceChannel: "telegram",
+        canonicalActorIdentity: "trusted-user-1",
+        actorIdentifier: "@jeff_handle",
+        actorDisplayName: "Jeff",
+        actorSenderDisplayName: "Jeffrey",
+        actorMemberDisplayName: "Jeff",
+        trustClass: "trusted_contact",
+        guardianIdentity: "guardian-user-1",
+        memberStatus: "active",
+        memberPolicy: "allow",
+      },
+    };
 
-      const text = buildUnifiedTurnContextBlock(options);
-      expect(text).toContain("<turn_context>");
-      expect(text).toContain("current_time: 2026-04-02T12:00:00Z");
-      expect(text).toContain("interface: telegram");
-      expect(text).toContain("source_channel: telegram");
-      expect(text).toContain("canonical_actor_identity: trusted-user-1");
-      expect(text).toContain("actor_identifier: @jeff_handle");
-      expect(text).toContain("actor_display_name: Jeff");
-      expect(text).toContain("actor_sender_display_name: Jeffrey");
-      expect(text).toContain("actor_member_display_name: Jeff");
-      expect(text).toContain("trust_class: trusted_contact");
-      expect(text).toContain("guardian_identity: guardian-user-1");
-      expect(text).toContain("member_status: active");
-      expect(text).toContain("member_policy: allow");
-      // Behavioral guidance
-      expect(text).toContain("trusted contact (non-guardian)");
-      expect(text).toContain("attempt to fulfill it normally");
-      expect(text).toContain(
-        "tool execution layer will automatically deny it and escalate",
-      );
-      expect(text).toContain('their name is "Jeff"');
-      expect(text).toContain("</turn_context>");
-    } finally {
-      _setOverridesForTesting({});
-    }
-  });
-
-  test("non-guardian trusted_contact under v2: guidance shifts to conversational guardian confirmation", () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-
-    try {
-      const options: UnifiedTurnContextOptions = {
-        timestamp: "2026-04-02T12:00:00Z",
-        interfaceName: "telegram",
-        channelName: "telegram",
-        actorContext: {
-          sourceChannel: "telegram",
-          canonicalActorIdentity: "trusted-user-1",
-          actorIdentifier: "@jeff_handle",
-          actorDisplayName: "Jeff",
-          actorSenderDisplayName: "Jeffrey",
-          actorMemberDisplayName: "Jeff",
-          trustClass: "trusted_contact",
-          guardianIdentity: "guardian-user-1",
-          memberStatus: "active",
-          memberPolicy: "allow",
-        },
-      };
-
-      const text = buildUnifiedTurnContextBlock(options);
-      expect(text).toContain("trusted contact (non-guardian)");
-      expect(text).toContain(
-        "confirming the guardian's intent conversationally",
-      );
-      expect(text).toContain(
-        "ask the guardian to enable computer access for this conversation",
-      );
-      expect(text).not.toContain(
-        "tool execution layer will automatically deny it and escalate",
-      );
-    } finally {
-      _setOverridesForTesting({});
-    }
+    const text = buildUnifiedTurnContextBlock(options);
+    expect(text).toContain("<turn_context>");
+    expect(text).toContain("current_time: 2026-04-02T12:00:00Z");
+    expect(text).toContain("interface: telegram");
+    expect(text).toContain("source_channel: telegram");
+    expect(text).toContain("canonical_actor_identity: trusted-user-1");
+    expect(text).toContain("actor_identifier: @jeff_handle");
+    expect(text).toContain("actor_display_name: Jeff");
+    expect(text).toContain("actor_sender_display_name: Jeffrey");
+    expect(text).toContain("actor_member_display_name: Jeff");
+    expect(text).toContain("trust_class: trusted_contact");
+    expect(text).toContain("guardian_identity: guardian-user-1");
+    expect(text).toContain("member_status: active");
+    expect(text).toContain("member_policy: allow");
+    // Behavioral guidance: conversational confirmation (one-time decision pattern)
+    expect(text).toContain("trusted contact (non-guardian)");
+    expect(text).toContain(
+      "confirming the guardian's intent conversationally",
+    );
+    expect(text).toContain(
+      "ask the guardian to enable computer access for this conversation",
+    );
+    expect(text).not.toContain(
+      "tool execution layer will automatically deny it and escalate",
+    );
+    expect(text).toContain("</turn_context>");
   });
 
   test("non-guardian unknown: all actor fields + unknown guidance", () => {

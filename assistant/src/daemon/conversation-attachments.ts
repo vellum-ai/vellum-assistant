@@ -4,19 +4,10 @@ import {
   getFilePathForAttachment,
   setAttachmentThumbnail,
 } from "../memory/attachments-store.js";
-import {
-  check,
-  classifyRisk,
-  generateAllowlistOptions,
-  generateScopeOptions,
-} from "../permissions/checker.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
-import { addRule } from "../permissions/trust-store.js";
-import { isAllowDecision } from "../permissions/types.js";
 import {
   CONVERSATION_HOST_ACCESS_PROMPT,
   isConversationHostAccessEnabled,
-  isPermissionControlsV2Enabled,
 } from "../permissions/v2-consent-policy.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -51,47 +42,8 @@ export async function approveHostAttachmentRead(
   const toolName = "host_file_read";
   const input = { path: filePath };
 
-  if (isPermissionControlsV2Enabled()) {
-    if (isConversationHostAccessEnabled(conversationId)) {
-      return true;
-    }
-
-    // HTTP-created sessions use a no-op sendToClient — prompting would
-    // block for the full permission timeout before auto-denying.
-    if (hasNoClient) {
-      log.info(
-        { filePath },
-        "Denying host attachment read: no interactive client connected",
-      );
-      return false;
-    }
-
-    const response = await prompter.prompt(
-      toolName,
-      input,
-      "low",
-      CONVERSATION_HOST_ACCESS_PROMPT.allowlistOptions,
-      CONVERSATION_HOST_ACCESS_PROMPT.scopeOptions,
-      undefined,
-      conversationId,
-      "host",
-      CONVERSATION_HOST_ACCESS_PROMPT.persistentDecisionsAllowed,
-      undefined,
-      CONVERSATION_HOST_ACCESS_PROMPT.temporaryOptionsAvailable,
-      undefined,
-      true,
-    );
-
-    return response.decision === "allow";
-  }
-
-  const decision = await check(toolName, input, workingDir);
-
-  if (decision.decision === "allow") {
+  if (isConversationHostAccessEnabled(conversationId)) {
     return true;
-  }
-  if (decision.decision === "deny") {
-    return false;
   }
 
   // HTTP-created sessions use a no-op sendToClient — prompting would
@@ -107,36 +59,20 @@ export async function approveHostAttachmentRead(
   const response = await prompter.prompt(
     toolName,
     input,
-    (await classifyRisk(toolName, input, workingDir)).level,
-    await generateAllowlistOptions(toolName, input),
-    generateScopeOptions(workingDir, toolName),
+    "low",
+    CONVERSATION_HOST_ACCESS_PROMPT.allowlistOptions,
+    CONVERSATION_HOST_ACCESS_PROMPT.scopeOptions,
     undefined,
     conversationId,
     "host",
+    CONVERSATION_HOST_ACCESS_PROMPT.persistentDecisionsAllowed,
+    undefined,
+    CONVERSATION_HOST_ACCESS_PROMPT.temporaryOptionsAvailable,
+    undefined,
+    true,
   );
 
-  if (
-    response.decision === "always_allow" &&
-    response.selectedPattern &&
-    response.selectedScope
-  ) {
-    addRule(
-      toolName,
-      response.selectedPattern,
-      response.selectedScope,
-      "allow",
-      100,
-    );
-  }
-  if (
-    response.decision === "always_deny" &&
-    response.selectedPattern &&
-    response.selectedScope
-  ) {
-    addRule(toolName, response.selectedPattern, response.selectedScope, "deny");
-  }
-
-  return isAllowDecision(response.decision);
+  return response.decision === "allow";
 }
 
 export interface AttachmentResolutionResult {

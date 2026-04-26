@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -43,12 +43,12 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   createConversation,
   updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { ToolApprovalHandler } from "../tools/tool-approval-handler.js";
@@ -61,6 +61,12 @@ function clearTables(): void {
   db.delete(scopedApprovalGrants).run();
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
+  // Insert "conv-1" with host_access=1 so trusted_contact+host gate passes
+  const now = Date.now();
+  getSqlite().run(
+    "INSERT INTO conversations (id, created_at, updated_at, host_access) VALUES (?, ?, ?, 1)",
+    ["conv-1", now, now],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +109,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
   beforeEach(() => {
     clearTables();
     events.length = 0;
-    _setOverridesForTesting({});
   });
 
   test("untrusted actor + matching tool_signature grant -> allow", async () => {
@@ -142,7 +147,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     const toolName = "bash";
     const input = { command: "rm -rf /" };
 
-    const context = makeContext({ trustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "unknown" });
     const result = await handler.checkPreExecutionGates(
       toolName,
       input,
@@ -223,7 +228,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       }),
     );
 
-    const context = makeContext({ trustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "unknown" });
 
     // First invocation — should consume the grant and allow
     const first = await handler.checkPreExecutionGates(
@@ -264,7 +269,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       }),
     );
 
-    const context = makeContext({ trustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "unknown" });
     const result = await handler.checkPreExecutionGates(
       toolName,
       invokeInput,
@@ -293,7 +298,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
       }),
     );
 
-    const context = makeContext({ trustClass: "trusted_contact" });
+    const context = makeContext({ trustClass: "unknown" });
     const result = await handler.checkPreExecutionGates(
       toolName,
       input,
@@ -389,7 +394,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
 
     // Context conversationId does not match the grant's conversationId
     const context = makeContext({
-      trustClass: "trusted_contact",
+      trustClass: "unknown",
       conversationId: "conv-1",
     });
     const result = await handler.checkPreExecutionGates(
@@ -411,7 +416,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
 
     // executionChannel defaults to undefined (non-voice)
     const context = makeContext({
-      trustClass: "trusted_contact",
+      trustClass: "unknown",
       executionChannel: "telegram",
     });
 
@@ -451,7 +456,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     }, 300);
 
     const context = makeContext({
-      trustClass: "trusted_contact",
+      trustClass: "unknown",
       executionChannel: "phone",
     });
 
@@ -482,7 +487,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     setTimeout(() => controller.abort(), 200);
 
     const context = makeContext({
-      trustClass: "trusted_contact",
+      trustClass: "unknown",
       executionChannel: "phone",
       signal: controller.signal,
     });
@@ -517,9 +522,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     }
   });
 
-  test("v2 trusted contact bypasses tool grants for sandboxed side-effect tools", async () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-
+  test("trusted contact bypasses tool grants for sandboxed side-effect tools", async () => {
     const result = await handler.checkPreExecutionGates(
       "bash",
       { command: "echo hello" },
@@ -536,9 +539,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     );
   });
 
-  test("v2 trusted contact host tools are denied until computer access is enabled for the conversation", async () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-
+  test("trusted contact host tools are denied until computer access is enabled for the conversation", async () => {
     const conv = createConversation("trusted contact host gate");
     const result = await handler.checkPreExecutionGates(
       "bash",
@@ -560,9 +561,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     );
   });
 
-  test("v2 trusted contact host tools run once computer access is enabled for the conversation", async () => {
-    _setOverridesForTesting({ "permission-controls-v2": true });
-
+  test("trusted contact host tools run once computer access is enabled for the conversation", async () => {
     const conv = createConversation("trusted contact host access enabled");
     updateConversationHostAccess(conv.id, true);
 
@@ -581,4 +580,8 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
 
     expect(result.allowed).toBe(true);
   });
+});
+
+afterAll(() => {
+  mock.restore();
 });
