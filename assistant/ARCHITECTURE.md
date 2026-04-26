@@ -2215,7 +2215,7 @@ All text-to-speech functionality (in-app message playback and phone call voice) 
 
 **Canonical provider catalog (`provider-catalog.ts`):** The provider catalog is the **single source of truth** for TTS provider identity and metadata on the assistant side. Every provider the system supports is declared as a `TtsProviderCatalogEntry` in the `CATALOG` array. Each entry captures the provider's unique ID (`TtsProviderId`), display name, telephony call mode (`TtsCallMode`: `"native-twilio"` or `"synthesized-play"`), static capabilities (`supportsStreaming`, `supportedFormats`), and secret requirements (credential store keys, display names, setup commands). Downstream modules query the catalog via `getCatalogProvider()`, `listCatalogProviders()`, or `listCatalogProviderIds()` instead of hardcoding provider IDs.
 
-A parallel **client artifact** (`meta/tts-provider-catalog.json`) captures the subset of provider metadata needed by native clients (macOS, iOS) for display and setup UX. The client artifact must list exactly the same provider IDs as the assistant catalog. A CI consistency guard test (`src/tts/__tests__/provider-catalog-consistency.test.ts`) compares the two sets and fails if they drift.
+Native clients (macOS, iOS) fetch provider metadata dynamically via the `GET /v1/tts/providers` API route, which returns the client-facing subset of each catalog entry (display name, subtitle, setup mode, credential mode, credentials guide, etc.). The provider catalog in `provider-catalog.ts` is the single source of truth — there is no separate client artifact.
 
 **Config schema (`services.tts`):** The canonical config block lives at `services.tts` in the assistant config. The set of valid provider IDs and provider-specific config objects is catalog-driven — the Zod schema reads from the catalog rather than maintaining a separate hardcoded enum. It contains:
 
@@ -2251,12 +2251,11 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 
 **Adding a new TTS provider (catalog-first checklist):**
 
-1. **Catalog entry** — Add a new `TtsProviderCatalogEntry` to the `CATALOG` array in `src/tts/provider-catalog.ts`. Declare the provider's ID, display name, call mode, capabilities, and secret requirements.
-2. **Client artifact** — Add a corresponding entry to `meta/tts-provider-catalog.json` with the same provider ID, display name, and client-facing metadata (subtitle, setup mode, setup hint). The CI consistency guard will fail if this is skipped.
-3. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
-4. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
-5. **Register the adapter** — Add a factory entry for the provider to the `providerFactories` map in `src/tts/providers/index.ts`. The `register-builtins.ts` module iterates the catalog at startup and looks up each ID in this map — a missing entry is a fatal error.
-6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, add a `NativeTwilioVoiceSpec` entry to the `nativeVoiceSpecs` map in `src/tts/providers/register-builtins.ts`. Synthesized-play providers skip this step entirely.
+1. **Catalog entry** — Add a new `TtsProviderCatalogEntry` to the `CATALOG` array in `src/tts/provider-catalog.ts`. Declare the provider's ID, display name, call mode, capabilities, secret requirements, and client-facing display metadata (subtitle, setup mode, credential mode, credentials guide). The `GET /v1/tts/providers` API automatically includes the new entry.
+2. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
+3. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
+4. **Register the adapter** — Add a factory entry for the provider to the `providerFactories` map in `src/tts/providers/index.ts`. The `register-builtins.ts` module iterates the catalog at startup and looks up each ID in this map — a missing entry is a fatal error.
+5. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, add a `NativeTwilioVoiceSpec` entry to the `nativeVoiceSpecs` map in `src/tts/providers/register-builtins.ts`. Synthesized-play providers skip this step entirely.
 
 No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts` uses an open string union (`(string & {})`), the config schema reads valid IDs from the catalog, and the call strategy dispatches based on the catalog's `callMode` field. The registry, resolver, orchestrator, and call strategy all automatically pick up the new provider when selected via `services.tts.provider`.
 
@@ -2275,8 +2274,7 @@ No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts`
 | `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block (catalog-driven valid provider IDs)               |
 | `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog, native voice spec registry          |
 | `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()` uses call strategy                    |
-| `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS/iOS settings UI                                 |
-| `src/tts/__tests__/provider-catalog-consistency.test.ts`   | CI guard: catalog vs client artifact provider ID consistency                                 |
+| `src/runtime/routes/tts-routes.ts`                         | HTTP routes including `GET /v1/tts/providers` (client catalog API)                           |
 | `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                                  |
 
 ### Managed Profiler Runtime

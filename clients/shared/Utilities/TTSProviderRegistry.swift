@@ -79,13 +79,13 @@ public struct TTSProviderCatalogEntry: Decodable {
     /// (e.g. a Voice ID or Reference ID field). Providers that use a
     /// built-in default model and do not expose voice selection should
     /// set this to `false`. Defaults to `false` when omitted from the
-    /// catalog JSON.
+    /// API response.
     public let supportsVoiceSelection: Bool
     /// Guide for obtaining API credentials from this provider.
     public let credentialsGuide: TTSCredentialsGuide?
 
     // Custom decoder so that `supportsVoiceSelection` defaults to `false`
-    // when absent from the catalog JSON (backward compatibility).
+    // when absent from the API response (backward compatibility).
     private enum CodingKeys: String, CodingKey {
         case id, displayName, subtitle, setupMode, setupHint
         case credentialMode, credentialNamespace, apiKeyProviderName
@@ -106,7 +106,7 @@ public struct TTSProviderCatalogEntry: Decodable {
         credentialsGuide = try c.decodeIfPresent(TTSCredentialsGuide.self, forKey: .credentialsGuide)
     }
 
-    /// Memberwise initializer for programmatic construction (e.g. fallback registry).
+    /// Memberwise initializer for programmatic construction (e.g. tests).
     public init(
         id: String,
         displayName: String,
@@ -132,13 +132,8 @@ public struct TTSProviderCatalogEntry: Decodable {
     }
 }
 
-/// Top-level schema for `tts-provider-catalog.json`.
-///
-/// The JSON file lives at `meta/tts-provider-catalog.json` and is copied
-/// into `Contents/Resources` by `build.sh`. It is the single source of
-/// truth for client-facing TTS provider metadata.
+/// TTS provider registry loaded from the assistant API.
 public struct TTSProviderRegistry: Decodable {
-    public let version: Int
     public let providers: [TTSProviderCatalogEntry]
 
     /// Look up a provider entry by its identifier.
@@ -147,118 +142,40 @@ public struct TTSProviderRegistry: Decodable {
     }
 }
 
-// MARK: - Fallback
-
-/// Hard-coded fallback registry used when the bundled JSON is missing or
-/// corrupt. Keeps client startup resilient — the app can always show at
-/// least the current set of providers.
-private let fallbackRegistry = TTSProviderRegistry(
-    version: 0,
-    providers: [
-        TTSProviderCatalogEntry(
-            id: "elevenlabs",
-            displayName: "ElevenLabs",
-            subtitle: "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
-            setupMode: .apiKey,
-            setupHint: "Enter your ElevenLabs API key to get started.",
-            credentialMode: .credential,
-            credentialNamespace: "elevenlabs",
-            apiKeyProviderName: nil,
-            supportsVoiceSelection: true,
-            credentialsGuide: TTSCredentialsGuide(
-                description: "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
-                url: "https://elevenlabs.io/app/settings/api-keys",
-                linkLabel: "Open ElevenLabs API Keys"
-            )
-        ),
-        TTSProviderCatalogEntry(
-            id: "fish-audio",
-            displayName: "Fish Audio",
-            subtitle: "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
-            setupMode: .cli,
-            setupHint: "Run the setup commands in your terminal to configure Fish Audio.",
-            credentialMode: .credential,
-            credentialNamespace: "fish-audio",
-            apiKeyProviderName: nil,
-            supportsVoiceSelection: true,
-            credentialsGuide: TTSCredentialsGuide(
-                description: "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
-                url: "https://fish.audio/app/api-keys/",
-                linkLabel: "Open Fish Audio API Keys"
-            )
-        ),
-        TTSProviderCatalogEntry(
-            id: "deepgram",
-            displayName: "Deepgram",
-            subtitle: "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
-            setupMode: .cli,
-            setupHint: "Run the setup command in your terminal to configure your Deepgram API key.",
-            credentialMode: .apiKey,
-            credentialNamespace: nil,
-            apiKeyProviderName: "deepgram",
-            supportsVoiceSelection: false,
-            credentialsGuide: TTSCredentialsGuide(
-                description: "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
-                url: "https://console.deepgram.com/",
-                linkLabel: "Open Deepgram Console"
-            )
-        ),
-        TTSProviderCatalogEntry(
-            id: "xai",
-            displayName: "xAI",
-            subtitle: "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
-            setupMode: .cli,
-            setupHint: "Run the setup commands in your terminal to configure xAI credentials.",
-            credentialMode: .credential,
-            credentialNamespace: "xai",
-            apiKeyProviderName: nil,
-            supportsVoiceSelection: false,
-            credentialsGuide: TTSCredentialsGuide(
-                description: "Sign in to the xAI console, navigate to API Keys, and create a new key.",
-                url: "https://console.x.ai/",
-                linkLabel: "Open xAI Console"
-            )
-        ),
-    ]
-)
-
 // MARK: - Loader
 
-/// Cached registry loaded once per process lifetime.
-/// The bundled `tts-provider-catalog.json` is immutable at runtime (baked
-/// into the app at build time), so reading it more than once is unnecessary
-/// I/O. Swift guarantees thread-safe lazy initialization of static
-/// properties.
-private let _cachedTTSProviderRegistry: TTSProviderRegistry = {
-    guard let url = Bundle.main.url(forResource: "tts-provider-catalog", withExtension: "json") else {
-        log.warning("tts-provider-catalog.json not found in bundle — using fallback registry")
-        return fallbackRegistry
-    }
-    guard let data = try? Data(contentsOf: url) else {
-        log.error("Failed to read tts-provider-catalog.json from bundle")
-        return fallbackRegistry
-    }
-    do {
-        let registry = try JSONDecoder().decode(TTSProviderRegistry.self, from: data)
-        guard !registry.providers.isEmpty else {
-            log.error("tts-provider-catalog.json decoded but contains no providers — using fallback registry")
-            return fallbackRegistry
-        }
-        return registry
-    } catch {
-        log.error("Failed to decode tts-provider-catalog.json: \(error.localizedDescription, privacy: .public)")
-        return fallbackRegistry
-    }
-}()
+/// Lock-protected cached registry, populated lazily by
+/// `refreshTTSProviderRegistry()`.
+private let _registryLock = NSLock()
+private var _cachedTTSProviderRegistry = TTSProviderRegistry(providers: [])
 
-/// Load the TTS provider registry from the app bundle's Resources.
+/// Returns the cached TTS provider registry.
 ///
-/// Returns a cached result after the first call — the bundled JSON never
-/// changes at runtime so re-reading from disk is unnecessary.
-///
-/// If the JSON file is missing, unreadable, or corrupt the function
-/// returns a hard-coded fallback containing the current provider set so
-/// that client startup is never blocked.
+/// The registry starts empty and is populated on first access to the
+/// TTS settings panel via `refreshTTSProviderRegistry()`.  Thread-safe.
 public func loadTTSProviderRegistry() -> TTSProviderRegistry {
-    _cachedTTSProviderRegistry
+    _registryLock.lock()
+    defer { _registryLock.unlock() }
+    return _cachedTTSProviderRegistry
+}
+
+/// Fetches the TTS provider catalog from the assistant API and caches it.
+///
+/// Called lazily when the TTS settings panel first appears. Failures are
+/// logged but non-fatal — the registry stays empty until a successful fetch.
+public func refreshTTSProviderRegistry() async {
+    do {
+        let (registry, _): (TTSProviderRegistry?, GatewayHTTPClient.Response) =
+            try await GatewayHTTPClient.get(path: "assistants/{assistantId}/tts/providers")
+        if let registry, !registry.providers.isEmpty {
+            _registryLock.lock()
+            _cachedTTSProviderRegistry = registry
+            _registryLock.unlock()
+            log.info("Loaded \(registry.providers.count) TTS providers from API")
+        } else {
+            log.warning("TTS providers API returned empty or nil response")
+        }
+    } catch {
+        log.error("Failed to fetch TTS providers: \(error.localizedDescription, privacy: .public)")
+    }
 }

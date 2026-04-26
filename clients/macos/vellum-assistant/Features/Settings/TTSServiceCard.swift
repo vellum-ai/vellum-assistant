@@ -23,7 +23,7 @@ struct TTSServiceCard: View {
     @State private var ttsSaveError: String? = nil
     @State private var testPlayer = TTSTestPlayer()
 
-    private let ttsRegistry = loadTTSProviderRegistry()
+    @State private var ttsRegistry = loadTTSProviderRegistry()
 
     private var selectedTTSProvider: TTSProviderCatalogEntry? {
         ttsRegistry.provider(withId: draftTTSProvider) ?? ttsRegistry.providers.first
@@ -135,6 +135,10 @@ struct TTSServiceCard: View {
         .vCard(radius: VRadius.xl)
         .onDisappear {
             testPlayer.stop()
+        }
+        .task {
+            await refreshTTSProviderRegistry()
+            ttsRegistry = loadTTSProviderRegistry()
         }
         .onAppear {
             draftTTSProvider = ttsProviderRaw

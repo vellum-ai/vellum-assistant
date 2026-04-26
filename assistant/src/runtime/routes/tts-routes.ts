@@ -1,11 +1,12 @@
 /**
  * HTTP route definitions for text-to-speech synthesis.
  *
+ * GET  /v1/tts/providers                       — list available TTS providers and their metadata
  * POST /v1/messages/:id/tts?conversationId=... — synthesize message text to audio
  * POST /v1/tts/synthesize                      — synthesize arbitrary text to audio
  *
- * Both endpoints use the globally configured TTS provider via the provider
- * abstraction. The message endpoint is gated behind the `message-tts`
+ * Both synthesis endpoints use the globally configured TTS provider via the
+ * provider abstraction. The message endpoint is gated behind the `message-tts`
  * assistant feature flag; the generic endpoint is always available when a
  * TTS provider is configured.
  */
@@ -16,6 +17,7 @@ import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getMessageContent } from "../../daemon/handlers/conversation-history.js";
+import { listCatalogProviders } from "../../tts/provider-catalog.js";
 import { synthesizeText } from "../../tts/synthesize-text.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -31,6 +33,31 @@ const MESSAGE_TTS_FLAG = "message-tts" as const;
 
 export function ttsRouteDefinitions(): RouteDefinition[] {
   return [
+    {
+      endpoint: "tts/providers",
+      method: "GET",
+      policyKey: "tts/providers",
+      summary: "List TTS providers",
+      description:
+        "Return the catalog of available TTS providers with client-facing metadata.",
+      tags: ["tts"],
+      handler: async () => {
+        const entries = listCatalogProviders();
+        const providers = entries.map((e) => ({
+          id: e.id,
+          displayName: e.displayName,
+          subtitle: e.subtitle,
+          setupMode: e.setupMode,
+          setupHint: e.setupHint,
+          credentialMode: e.credentialMode,
+          credentialNamespace: e.credentialNamespace,
+          apiKeyProviderName: e.apiKeyProviderName,
+          supportsVoiceSelection: e.supportsVoiceSelection,
+          credentialsGuide: e.credentialsGuide,
+        }));
+        return Response.json({ providers });
+      },
+    },
     {
       endpoint: "messages/:id/tts",
       method: "POST",

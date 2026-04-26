@@ -9415,6 +9415,16 @@ paths:
                 - decision
                 - priority
               additionalProperties: false
+  /v1/tts/providers:
+    get:
+      operationId: tts_providers_get
+      summary: List TTS providers
+      description: Return the catalog of available TTS providers with client-facing metadata.
+      tags:
+        - tts
+      responses:
+        "200":
+          description: Successful response
   /v1/tts/synthesize:
     post:
       operationId: tts_synthesize_post

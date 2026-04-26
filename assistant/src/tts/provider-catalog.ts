@@ -58,11 +58,24 @@ export interface TtsProviderCatalogCapabilities {
 }
 
 /**
+ * Guide for obtaining API credentials from a provider.
+ */
+export interface TtsCredentialsGuide {
+  /** Brief instructions for obtaining an API key (1-2 sentences). */
+  readonly description: string;
+  /** URL to the provider's API key or console page. */
+  readonly url: string;
+  /** Human-readable label for the link (e.g. "Open ElevenLabs Dashboard"). */
+  readonly linkLabel: string;
+}
+
+/**
  * A single entry in the TTS provider catalog.
  *
  * Captures everything the system needs to know about a provider at a
  * metadata level — identity, display name, telephony call mode,
- * capabilities, and secret requirements.
+ * capabilities, secret requirements, and client-facing display metadata
+ * served via the `GET /v1/tts/providers` API.
  */
 export interface TtsProviderCatalogEntry {
   /** Unique provider identifier matching {@link TtsProviderId}. */
@@ -70,6 +83,30 @@ export interface TtsProviderCatalogEntry {
 
   /** Human-readable name for display in settings UI and logs. */
   readonly displayName: string;
+
+  /** Short description shown below the provider selector. */
+  readonly subtitle: string;
+
+  /** How the provider's credentials are configured (`"api-key"` or `"cli"`). */
+  readonly setupMode: "api-key" | "cli";
+
+  /** Brief help text guiding the user through setup. */
+  readonly setupHint: string;
+
+  /** How the provider's API key is stored (`"credential"` or `"api-key"`). */
+  readonly credentialMode: "credential" | "api-key";
+
+  /** Credential service name (when credentialMode is `"credential"`). */
+  readonly credentialNamespace?: string;
+
+  /** Key provider name (when credentialMode is `"api-key"`). */
+  readonly apiKeyProviderName?: string;
+
+  /** Whether this provider supports user-specified voice selection. */
+  readonly supportsVoiceSelection: boolean;
+
+  /** Guide for obtaining API credentials from this provider. */
+  readonly credentialsGuide: TtsCredentialsGuide;
 
   /** How this provider integrates with the telephony call path. */
   readonly callMode: TtsCallMode;
@@ -108,6 +145,20 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "elevenlabs",
     displayName: "ElevenLabs",
+    subtitle:
+      "High-quality voice synthesis for conversations and read-aloud. Requires an ElevenLabs API key.",
+    setupMode: "cli",
+    setupHint:
+      "Run the setup commands in your terminal to configure ElevenLabs credentials.",
+    credentialMode: "credential",
+    credentialNamespace: "elevenlabs",
+    supportsVoiceSelection: true,
+    credentialsGuide: {
+      description:
+        "Sign in to ElevenLabs, go to your Profile, and copy your API key.",
+      url: "https://elevenlabs.io/app/settings/api-keys",
+      linkLabel: "Open ElevenLabs API Keys",
+    },
     callMode: "native-twilio",
     allowNativeFallback: true,
     capabilities: {
@@ -126,6 +177,20 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "fish-audio",
     displayName: "Fish Audio",
+    subtitle:
+      "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
+    setupMode: "cli",
+    setupHint:
+      "Run the setup commands in your terminal to configure Fish Audio.",
+    credentialMode: "credential",
+    credentialNamespace: "fish-audio",
+    supportsVoiceSelection: true,
+    credentialsGuide: {
+      description:
+        "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
+      url: "https://fish.audio/app/api-keys/",
+      linkLabel: "Open Fish Audio API Keys",
+    },
     callMode: "synthesized-play",
     allowNativeFallback: true,
     capabilities: {
@@ -144,6 +209,20 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "deepgram",
     displayName: "Deepgram",
+    subtitle:
+      "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
+    setupMode: "cli",
+    setupHint:
+      "Run the setup command in your terminal to configure your Deepgram API key.",
+    credentialMode: "api-key",
+    apiKeyProviderName: "deepgram",
+    supportsVoiceSelection: false,
+    credentialsGuide: {
+      description:
+        "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
+      url: "https://console.deepgram.com/",
+      linkLabel: "Open Deepgram Console",
+    },
     callMode: "synthesized-play",
     allowNativeFallback: false,
     capabilities: {
@@ -161,6 +240,20 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
   {
     id: "xai",
     displayName: "xAI",
+    subtitle:
+      "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
+    setupMode: "cli",
+    setupHint:
+      "Run the setup commands in your terminal to configure xAI credentials.",
+    credentialMode: "credential",
+    credentialNamespace: "xai",
+    supportsVoiceSelection: false,
+    credentialsGuide: {
+      description:
+        "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+      url: "https://console.x.ai/",
+      linkLabel: "Open xAI Console",
+    },
     callMode: "synthesized-play",
     allowNativeFallback: false,
     capabilities: {

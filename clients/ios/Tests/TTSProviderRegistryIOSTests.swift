@@ -3,82 +3,122 @@ import XCTest
 
 @testable import VellumAssistantShared
 
-/// Tests verifying that the iOS TTS provider selector works correctly
-/// with the shared ``TTSProviderRegistry``.
+/// Tests verifying that the TTS provider registry types decode correctly
+/// and the lookup/fallback logic works as expected.
 final class TTSProviderRegistryIOSTests: XCTestCase {
 
-    // MARK: - Registry Loading
+    // MARK: - Helpers
 
-    func testRegistryLoadsNonEmptyProviderList() {
-        let registry = loadTTSProviderRegistry()
-        XCTAssertFalse(registry.providers.isEmpty, "Registry should contain at least one provider")
+    private func buildTestRegistry() -> TTSProviderRegistry {
+        let json = """
+        {
+            "providers": [
+                {
+                    "id": "elevenlabs",
+                    "displayName": "ElevenLabs",
+                    "subtitle": "High-quality voice synthesis.",
+                    "setupMode": "cli",
+                    "setupHint": "Run setup commands.",
+                    "credentialMode": "credential",
+                    "credentialNamespace": "elevenlabs",
+                    "supportsVoiceSelection": true,
+                    "credentialsGuide": {
+                        "description": "Sign in to ElevenLabs.",
+                        "url": "https://elevenlabs.io/app/settings/api-keys",
+                        "linkLabel": "Open ElevenLabs API Keys"
+                    }
+                },
+                {
+                    "id": "deepgram",
+                    "displayName": "Deepgram",
+                    "subtitle": "Fast TTS synthesis.",
+                    "setupMode": "cli",
+                    "setupHint": "Run setup command.",
+                    "credentialMode": "api-key",
+                    "apiKeyProviderName": "deepgram",
+                    "supportsVoiceSelection": false,
+                    "credentialsGuide": {
+                        "description": "Sign in to Deepgram.",
+                        "url": "https://console.deepgram.com/",
+                        "linkLabel": "Open Deepgram Console"
+                    }
+                }
+            ]
+        }
+        """
+        return try! JSONDecoder().decode(TTSProviderRegistry.self, from: json.data(using: .utf8)!)
     }
 
-    func testRegistryContainsElevenLabs() {
-        let registry = loadTTSProviderRegistry()
+    // MARK: - Decoding
+
+    func testRegistryDecodesFromJSON() {
+        let registry = buildTestRegistry()
+        XCTAssertEqual(registry.providers.count, 2)
+    }
+
+    func testProviderFieldsDecodeCorrectly() {
+        let registry = buildTestRegistry()
         let entry = registry.provider(withId: "elevenlabs")
-        XCTAssertNotNil(entry, "Registry should contain an 'elevenlabs' provider")
+        XCTAssertNotNil(entry)
         XCTAssertEqual(entry?.displayName, "ElevenLabs")
+        XCTAssertEqual(entry?.setupMode, .cli)
+        XCTAssertEqual(entry?.credentialMode, .credential)
+        XCTAssertEqual(entry?.credentialNamespace, "elevenlabs")
+        XCTAssertTrue(entry?.supportsVoiceSelection == true)
     }
 
-    // MARK: - Provider Lookup and Fallback
+    func testApiKeyProviderDecodes() {
+        let registry = buildTestRegistry()
+        let entry = registry.provider(withId: "deepgram")
+        XCTAssertNotNil(entry)
+        XCTAssertEqual(entry?.credentialMode, .apiKey)
+        XCTAssertEqual(entry?.apiKeyProviderName, "deepgram")
+        XCTAssertFalse(entry?.supportsVoiceSelection == true)
+    }
+
+    // MARK: - Lookup
 
     func testProviderLookupReturnsMatchingEntry() {
-        let registry = loadTTSProviderRegistry()
+        let registry = buildTestRegistry()
         for provider in registry.providers {
             let found = registry.provider(withId: provider.id)
-            XCTAssertNotNil(found, "Lookup should find provider with id '\(provider.id)'")
+            XCTAssertNotNil(found)
             XCTAssertEqual(found?.id, provider.id)
         }
     }
 
     func testProviderLookupReturnsNilForUnknownId() {
-        let registry = loadTTSProviderRegistry()
+        let registry = buildTestRegistry()
         let result = registry.provider(withId: "nonexistent-provider-id")
-        XCTAssertNil(result, "Lookup should return nil for unknown provider IDs")
+        XCTAssertNil(result)
     }
 
     func testFallbackToFirstProviderForUnknownPersistedValue() {
-        let registry = loadTTSProviderRegistry()
-        // Callers resolve a persisted id with `registry.provider(withId:) ?? registry.providers.first`,
-        // so an unknown id must resolve to the first registry entry rather than nil.
+        let registry = buildTestRegistry()
         let unknownRaw = "deleted-provider"
         let resolved = registry.provider(withId: unknownRaw) ?? registry.providers.first
-        XCTAssertNotNil(resolved, "Fallback should resolve to the first registry provider")
+        XCTAssertNotNil(resolved)
         XCTAssertEqual(resolved?.id, registry.providers.first?.id)
     }
 
-    // MARK: - Setup Mode Filtering
+    // MARK: - supportsVoiceSelection default
 
-    func testProvidersFilteredBySetupMode() {
-        let registry = loadTTSProviderRegistry()
-        let cliProviders = registry.providers.filter { $0.setupMode == .cli }
-        XCTAssertTrue(
-            cliProviders.contains { $0.id == "elevenlabs" },
-            "ElevenLabs should have CLI setup mode"
-        )
-    }
-
-    func testCLIProvidersExcludedFromAPIKeyList() {
-        let registry = loadTTSProviderRegistry()
-        let cliProviders = registry.providers.filter { $0.setupMode == .cli }
-        let apiKeyProviders = registry.providers.filter { $0.setupMode == .apiKey }
-        // CLI providers should not appear in the api-key filtered list
-        for cliProvider in cliProviders {
-            XCTAssertFalse(
-                apiKeyProviders.contains { $0.id == cliProvider.id },
-                "CLI provider '\(cliProvider.id)' should not appear in apiKey-filtered list"
-            )
+    func testSupportsVoiceSelectionDefaultsToFalse() {
+        let json = """
+        {
+            "providers": [{
+                "id": "test",
+                "displayName": "Test",
+                "subtitle": "Test provider.",
+                "setupMode": "cli",
+                "setupHint": "Test.",
+                "credentialMode": "credential",
+                "credentialNamespace": "test"
+            }]
         }
-    }
-
-    // MARK: - Default Provider Selection
-
-    func testDefaultProviderIdMatchesRegistryEntry() {
-        let registry = loadTTSProviderRegistry()
-        let defaultId = "elevenlabs"
-        let entry = registry.provider(withId: defaultId)
-        XCTAssertNotNil(entry, "Default provider ID '\(defaultId)' should exist in the registry")
+        """
+        let registry = try! JSONDecoder().decode(TTSProviderRegistry.self, from: json.data(using: .utf8)!)
+        XCTAssertFalse(registry.providers[0].supportsVoiceSelection)
     }
 }
 #endif

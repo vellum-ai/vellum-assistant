@@ -230,6 +230,8 @@ final class VoiceInputManager {
         prewarmEngine()
         setupActivationMonitors()
 
+        Task { await refreshSTTProviderRegistry() }
+
         // Cancel any in-flight hold when the user switches apps, to prevent the
         // microphone from activating accidentally during Cmd+Tab / Ctrl+Space etc.
         // System keyboard shortcuts consume their .keyDown events before global
