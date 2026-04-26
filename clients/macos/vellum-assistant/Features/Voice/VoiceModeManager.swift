@@ -477,7 +477,9 @@ final class VoiceModeManager {
         case .idle:
             let wasListening = state == .listening
             state = .idle
-            if !wasListening, let conversationId = liveVoiceConversationId(for: chatViewModel) {
+            if !wasListening,
+               canStartLiveVoiceSession(for: chatViewModel),
+               let conversationId = liveVoiceConversationId(for: chatViewModel) {
                 startLiveVoiceListening(conversationId: conversationId)
             }
         case .connecting, .listening:
