@@ -15,6 +15,14 @@ import type {
   SttStreamServerEvent,
 } from "../stt/types.js";
 import type {
+  LiveVoiceAudioArchiveResult,
+  LiveVoiceAudioArchiveRole,
+} from "./live-voice-archive.js";
+import {
+  type LiveVoiceMetricsClock,
+  LiveVoiceMetricsCollector,
+} from "./live-voice-metrics.js";
+import type {
   LiveVoiceSession as LiveVoiceSessionContract,
   LiveVoiceSessionCloseReason,
   LiveVoiceSessionFactoryContext,
@@ -54,21 +62,50 @@ export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
 
+export interface LiveVoiceSessionArchiveAudioInput {
+  messageId?: string | null;
+  sessionId: string;
+  turnId: string;
+  role: LiveVoiceAudioArchiveRole;
+  mimeType: string;
+  sampleRate?: number;
+  durationMs?: number;
+  audio: {
+    type: "base64";
+    dataBase64: string;
+  };
+}
+
+export type LiveVoiceSessionAudioArchiver = (
+  input: LiveVoiceSessionArchiveAudioInput,
+) => LiveVoiceAudioArchiveResult | Promise<LiveVoiceAudioArchiveResult>;
+
 export interface LiveVoiceSessionOptions {
   resolveTranscriber?: LiveVoiceStreamingTranscriberResolver;
   startVoiceTurn?: LiveVoiceTurnStarter;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
+  archiveAudio?: LiveVoiceSessionAudioArchiver | null;
+  emitMetrics?: boolean;
+  metricsClock?: LiveVoiceMetricsClock;
   createTurnId?: () => string;
 }
 
 interface ActiveAssistantTurn {
   token: symbol;
+  turnId: string;
   abortController: AbortController;
   handle: VoiceTurnHandle | null;
   assistantCompleted: boolean;
   ttsDone: boolean;
+  finalized: boolean;
   ttsBuffer: string;
   ttsQueue: Promise<void>;
+  userMessageId: string | null;
+  assistantMessageId: string | null;
+  userAudioChunks: Buffer[];
+  assistantAudioChunks: Buffer[];
+  assistantAudioMimeType: string;
+  assistantAudioSampleRate?: number;
 }
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
@@ -76,6 +113,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
+  private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
+  private readonly emitMetrics: boolean;
+  private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
   private state: LiveVoiceSessionState = "initializing";
@@ -85,6 +125,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private pttReleased = false;
   private assistantTurnStarted = false;
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
+  private currentTurnId: string | null = null;
+  private currentUserMessageId: string | null = null;
+  private currentUserAudioChunks: Buffer[] = [];
+  private metricsTurnStarted = false;
+  private metricsTurnFinished = false;
+  private sessionEndMetricsEmitted = false;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -95,9 +141,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
     this.startVoiceTurn = options.startVoiceTurn ?? null;
     this.streamTtsAudio = options.streamTtsAudio ?? null;
+    this.archiveAudio = options.archiveAudio ?? null;
+    this.emitMetrics = options.emitMetrics ?? false;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.metrics = new LiveVoiceMetricsCollector({
+      sessionId: context.sessionId,
+      conversationId: this.conversationId,
+      ...(options.metricsClock ? { clock: options.metricsClock } : {}),
+    });
   }
 
   get finalTranscriptText(): string {
@@ -139,6 +192,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       this.state = "active";
+      this.metrics.markReady();
       await this.sendFrame({
         type: "ready",
         sessionId: this.context.sessionId,
@@ -191,7 +245,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.state = "closed";
     stopTranscriberBestEffort(this.transcriber);
     this.transcriber = null;
-    this.cancelAssistantTurn();
+    await this.cancelAssistantTurn("session_closed");
+    await this.emitSessionEndMetrics();
     await this.drainOutboundFrames();
   }
 
@@ -206,6 +261,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     if (this.state !== "active") return;
 
+    this.collectUserAudio(chunk);
     try {
       this.transcriber?.sendAudio(
         chunk,
@@ -220,6 +276,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           err,
         )}`,
       });
+      await this.finalizePendingTurn("audio_error");
     }
   }
 
@@ -230,6 +287,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     if (this.state === "transcriber_closed") {
       this.pttReleased = true;
+      this.markPushToTalkReleased();
       await this.startAssistantTurnIfReady();
       await this.drainOutboundFrames();
       return;
@@ -238,6 +296,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.state !== "active") return;
 
     this.pttReleased = true;
+    this.markPushToTalkReleased();
     this.state = "utterance_released";
     try {
       this.transcriber?.stop();
@@ -267,6 +326,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     switch (event.type) {
       case "partial":
+        this.markFirstPartial();
         await this.sendFrame({ type: "stt_partial", text: event.text });
         return;
       case "final": {
@@ -274,6 +334,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (transcript.length > 0) {
           this.finalTranscriptSegments.push(transcript);
         }
+        this.markFinalTranscript();
         await this.sendFrame({ type: "stt_final", text: event.text });
         await this.startAssistantTurnIfReady();
         return;
@@ -284,6 +345,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           code: LiveVoiceProtocolErrorCode.InvalidField,
           message: event.message,
         });
+        await this.finalizePendingTurn("stt_error");
         return;
       case "closed":
         if (!this.isClosed) {
@@ -301,7 +363,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.state = "interrupted";
     stopTranscriberBestEffort(this.transcriber);
     this.transcriber = null;
-    this.cancelAssistantTurn();
+    await this.cancelAssistantTurn("interrupt");
     await this.drainOutboundFrames();
   }
 
@@ -323,20 +385,31 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (!this.startVoiceTurn) return;
 
     const content = this.finalTranscriptText.trim();
-    if (content.length === 0) return;
+    if (content.length === 0) {
+      await this.finalizePendingTurn("empty_transcript");
+      return;
+    }
 
     this.assistantTurnStarted = true;
     const token = Symbol("live-voice-assistant-turn");
-    const turnId = this.createTurnId();
+    const turnId = this.ensureTurnId();
+    this.startMetricsTurnIfNeeded(turnId);
     const abortController = new AbortController();
     this.activeAssistantTurn = {
       token,
+      turnId,
       abortController,
       handle: null,
       assistantCompleted: false,
       ttsDone: false,
+      finalized: false,
       ttsBuffer: "",
       ttsQueue: Promise.resolve(),
+      userMessageId: this.currentUserMessageId,
+      assistantMessageId: null,
+      userAudioChunks: this.currentUserAudioChunks,
+      assistantAudioChunks: [],
+      assistantAudioMimeType: "audio/pcm",
     };
 
     await this.sendFrame({ type: "thinking", turnId });
@@ -358,6 +431,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         callbacks: {
           assistant_text_delta: (msg) => {
             if (!this.isForwardingAssistantText(token)) return;
+            this.markFirstAssistantDelta(turnId);
             void this.sendFrame({
               type: "assistant_text_delta",
               text: msg.text,
@@ -373,18 +447,42 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             ) {
               return;
             }
-            if (msg.type !== "message_complete") return;
             activeTurn.assistantCompleted = true;
-            this.completeTtsForTurn(token, turnId);
+            if (msg.type === "generation_cancelled") {
+              void this.finalizeAssistantTurn(
+                activeTurn,
+                "cancelled",
+                "generation_cancelled",
+              );
+              return;
+            }
+            activeTurn.assistantMessageId = msg.messageId ?? null;
+            this.completeTtsForTurn(token);
+          },
+          persisted_user_message_id: (messageId) => {
+            const activeTurn = this.activeAssistantTurn;
+            if (activeTurn?.token !== token) return;
+            activeTurn.userMessageId = messageId;
+            this.currentUserMessageId = messageId;
+          },
+          persisted_assistant_message_id: (messageId) => {
+            const activeTurn = this.activeAssistantTurn;
+            if (activeTurn?.token !== token) return;
+            activeTurn.assistantMessageId = messageId;
           },
         },
         onError: (message) => {
           if (!this.isActiveAssistantTurn(token)) return;
-          void this.sendFrame({
-            type: "error",
-            code: LiveVoiceProtocolErrorCode.InvalidField,
-            message,
-          });
+          void (async () => {
+            await this.sendFrame({
+              type: "error",
+              code: LiveVoiceProtocolErrorCode.InvalidField,
+              message,
+            });
+            const activeTurn = this.activeAssistantTurn;
+            if (activeTurn?.token !== token) return;
+            await this.finalizeAssistantTurn(activeTurn, "cancelled", "error");
+          })();
         },
       });
 
@@ -393,7 +491,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         handle.abort();
         return;
       }
-      if (activeTurn.ttsDone) {
+      if (activeTurn.finalized) {
         this.activeAssistantTurn = null;
         return;
       }
@@ -410,20 +508,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           err,
         )}`,
       });
+      await this.finalizePendingTurn("assistant_start_error");
     }
   }
 
-  private cancelAssistantTurn(): void {
+  private async cancelAssistantTurn(reason: string): Promise<void> {
     const turn = this.activeAssistantTurn;
-    if (!turn) return;
+    if (!turn) {
+      await this.finalizePendingTurn(reason);
+      return;
+    }
 
     this.activeAssistantTurn = null;
     turn.abortController.abort();
     turn.handle?.abort();
+    await this.finalizeAssistantTurn(turn, "cancelled", reason);
   }
 
   private isActiveAssistantTurn(token: symbol): boolean {
-    return this.activeAssistantTurn?.token === token && !this.isClosed;
+    const activeTurn = this.activeAssistantTurn;
+    return (
+      activeTurn?.token === token && !activeTurn.finalized && !this.isClosed
+    );
   }
 
   private isForwardingAssistantText(token: symbol): boolean {
@@ -431,6 +537,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return (
       activeTurn?.token === token &&
       !activeTurn.assistantCompleted &&
+      !activeTurn.finalized &&
       !this.isClosed
     );
   }
@@ -440,6 +547,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return (
       activeTurn?.token === token &&
       !activeTurn.ttsDone &&
+      !activeTurn.finalized &&
       !activeTurn.abortController.signal.aborted &&
       !this.isClosed
     );
@@ -455,7 +563,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.flushTtsBuffer(token, false);
   }
 
-  private completeTtsForTurn(token: symbol, turnId: string): void {
+  private completeTtsForTurn(token: symbol): void {
     const activeTurn = this.activeAssistantTurn;
     if (activeTurn?.token !== token) return;
 
@@ -467,12 +575,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (currentTurn?.token !== token || currentTurn.ttsDone) return;
 
         currentTurn.ttsDone = true;
-        await this.sendFrame({ type: "tts_done", turnId }, () =>
-          this.isActiveAssistantTurn(token),
+        await this.sendFrame(
+          { type: "tts_done", turnId: currentTurn.turnId },
+          () => this.isActiveAssistantTurn(token),
         );
+        await this.finalizeAssistantTurn(currentTurn, "completed");
 
         if (this.activeAssistantTurn?.token === token) {
-          if (currentTurn.handle) {
+          if (currentTurn.handle && currentTurn.finalized) {
             this.activeAssistantTurn = null;
           }
         }
@@ -524,6 +634,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             sampleRate: this.context.startFrame.audio.sampleRate,
             onAudioChunk: (chunk) => {
               if (!this.isForwardingTts(token)) return;
+              const activeTurn = this.activeAssistantTurn;
+              if (activeTurn?.token !== token) return;
+              activeTurn.assistantAudioChunks.push(
+                Buffer.from(chunk.dataBase64, "base64"),
+              );
+              activeTurn.assistantAudioMimeType = chunk.contentType;
+              activeTurn.assistantAudioSampleRate = chunk.sampleRate;
+              this.metrics.markFirstTtsAudio(activeTurn.turnId);
               ttsAudioFrames = ttsAudioFrames.then(() =>
                 this.sendFrame(
                   {
@@ -550,6 +668,241 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
         }
       });
+  }
+
+  private collectUserAudio(chunk: Buffer): void {
+    const turnId = this.ensureTurnId();
+    this.currentUserAudioChunks.push(Buffer.from(chunk));
+    this.startMetricsTurnIfNeeded(turnId);
+    this.metrics.markFirstAudio(turnId);
+  }
+
+  private markPushToTalkReleased(): void {
+    const turnId = this.ensureTurnId();
+    this.startMetricsTurnIfNeeded(turnId);
+    this.metrics.markPushToTalkRelease(turnId);
+  }
+
+  private markFirstPartial(): void {
+    const turnId = this.ensureTurnId();
+    this.startMetricsTurnIfNeeded(turnId);
+    this.metrics.markFirstPartial(turnId);
+  }
+
+  private markFinalTranscript(): void {
+    const turnId = this.ensureTurnId();
+    this.startMetricsTurnIfNeeded(turnId);
+    this.metrics.markFinalTranscript(turnId);
+  }
+
+  private markFirstAssistantDelta(turnId: string): void {
+    this.startMetricsTurnIfNeeded(turnId);
+    this.metrics.markFirstAssistantDelta(turnId);
+  }
+
+  private ensureTurnId(): string {
+    if (!this.currentTurnId) {
+      this.currentTurnId = this.createTurnId();
+    }
+    return this.currentTurnId;
+  }
+
+  private startMetricsTurnIfNeeded(turnId: string): void {
+    if (this.metricsTurnStarted || this.metricsTurnFinished) return;
+    this.metrics.startTurn(turnId);
+    this.metricsTurnStarted = true;
+  }
+
+  private async finalizePendingTurn(reason: string): Promise<void> {
+    const turnId = this.currentTurnId;
+    if (!turnId) return;
+
+    await this.archiveBufferedAudio({
+      turnId,
+      userMessageId: this.currentUserMessageId,
+      assistantMessageId: null,
+      userAudioChunks: this.currentUserAudioChunks,
+      assistantAudioChunks: [],
+      assistantAudioMimeType: "audio/pcm",
+    });
+    await this.finishMetricsTurn("cancelled", reason, turnId);
+  }
+
+  private async finalizeAssistantTurn(
+    turn: ActiveAssistantTurn,
+    status: "completed" | "cancelled",
+    reason = "completed",
+  ): Promise<void> {
+    if (turn.finalized) return;
+
+    turn.finalized = true;
+    await this.archiveBufferedAudio({
+      turnId: turn.turnId,
+      userMessageId: turn.userMessageId,
+      assistantMessageId: turn.assistantMessageId,
+      userAudioChunks: turn.userAudioChunks,
+      assistantAudioChunks: turn.assistantAudioChunks,
+      assistantAudioMimeType: turn.assistantAudioMimeType,
+      ...(turn.assistantAudioSampleRate !== undefined
+        ? { assistantAudioSampleRate: turn.assistantAudioSampleRate }
+        : {}),
+    });
+    await this.finishMetricsTurn(status, reason, turn.turnId);
+
+    if (this.activeAssistantTurn?.token === turn.token && turn.handle) {
+      this.activeAssistantTurn = null;
+    }
+  }
+
+  private async archiveBufferedAudio(input: {
+    turnId: string;
+    userMessageId: string | null;
+    assistantMessageId: string | null;
+    userAudioChunks: Buffer[];
+    assistantAudioChunks: Buffer[];
+    assistantAudioMimeType: string;
+    assistantAudioSampleRate?: number;
+  }): Promise<void> {
+    const userAudio = takeBufferedAudio(input.userAudioChunks);
+    if (userAudio) {
+      await this.archiveBufferedRoleAudio({
+        turnId: input.turnId,
+        role: "user",
+        messageId: input.userMessageId,
+        mimeType: this.context.startFrame.audio.mimeType,
+        sampleRate: this.context.startFrame.audio.sampleRate,
+        audio: userAudio,
+      });
+    }
+
+    const assistantAudio = takeBufferedAudio(input.assistantAudioChunks);
+    if (assistantAudio) {
+      const sampleRate =
+        input.assistantAudioSampleRate ??
+        this.context.startFrame.audio.sampleRate;
+      await this.archiveBufferedRoleAudio({
+        turnId: input.turnId,
+        role: "assistant",
+        messageId: input.assistantMessageId,
+        mimeType: input.assistantAudioMimeType,
+        sampleRate,
+        audio: assistantAudio,
+      });
+    }
+  }
+
+  private async archiveBufferedRoleAudio(input: {
+    turnId: string;
+    role: LiveVoiceAudioArchiveRole;
+    messageId: string | null;
+    mimeType: string;
+    sampleRate: number;
+    audio: Buffer;
+  }): Promise<void> {
+    const archiveAudio = this.archiveAudio;
+    if (!archiveAudio) return;
+
+    const durationMs = estimatePcmDurationMs({
+      byteLength: input.audio.byteLength,
+      mimeType: input.mimeType,
+      sampleRate: input.sampleRate,
+    });
+    let result: LiveVoiceAudioArchiveResult;
+    try {
+      result = await archiveAudio({
+        messageId: input.messageId,
+        sessionId: this.context.sessionId,
+        turnId: input.turnId,
+        role: input.role,
+        mimeType: input.mimeType,
+        sampleRate: input.sampleRate,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        audio: {
+          type: "base64",
+          dataBase64: input.audio.toString("base64"),
+        },
+      });
+    } catch (err) {
+      result = {
+        type: "warning",
+        warning: {
+          code: "archive_failed",
+          message: `Live voice audio archive failed without blocking the turn: ${errorMessage(
+            err,
+          )}`,
+        },
+      };
+    }
+
+    await this.sendArchiveFrame(input.turnId, input.role, result);
+  }
+
+  private async sendArchiveFrame(
+    turnId: string,
+    role: LiveVoiceAudioArchiveRole,
+    result: LiveVoiceAudioArchiveResult,
+  ): Promise<void> {
+    const artifact =
+      result.type === "archived" || result.type === "unlinked"
+        ? result.artifact
+        : undefined;
+    const warning = result.type === "archived" ? undefined : result.warning;
+    await this.sendFrame({
+      type: "archived",
+      conversationId: this.conversationId,
+      sessionId: this.context.sessionId,
+      turnId,
+      role,
+      ...(artifact
+        ? {
+            attachmentId: artifact.attachmentId,
+            attachmentIds: [artifact.attachmentId],
+          }
+        : {}),
+      ...(warning ? { warning } : {}),
+    });
+  }
+
+  private async finishMetricsTurn(
+    status: "completed" | "cancelled",
+    reason: string,
+    turnId: string,
+  ): Promise<void> {
+    if (!this.metricsTurnStarted || this.metricsTurnFinished) return;
+
+    if (status === "completed") {
+      this.metrics.completeTurn(turnId);
+    } else {
+      this.metrics.cancelTurn(reason, turnId);
+    }
+    this.metricsTurnFinished = true;
+
+    if (!this.emitMetrics) return;
+    await this.emitMetricsFrame(
+      status === "completed" ? "turn_completed" : "turn_cancelled",
+      turnId,
+    );
+  }
+
+  private async emitSessionEndMetrics(): Promise<void> {
+    if (!this.emitMetrics || this.sessionEndMetricsEmitted) return;
+
+    this.sessionEndMetricsEmitted = true;
+    await this.emitMetricsFrame("session_ended");
+  }
+
+  private async emitMetricsFrame(
+    event: string,
+    turnId = this.currentTurnId ?? this.context.sessionId,
+  ): Promise<void> {
+    await this.sendFrame({
+      type: "metrics",
+      event,
+      sessionId: this.context.sessionId,
+      conversationId: this.conversationId,
+      turnId,
+      metrics: this.metrics.getSnapshot(),
+    });
   }
 
   private async sendAudioAfterReleaseError(): Promise<void> {
@@ -597,6 +950,11 @@ export function createLiveVoiceSession(
       options.streamTtsAudio === undefined
         ? defaultStreamLiveVoiceTtsAudio
         : options.streamTtsAudio,
+    archiveAudio:
+      options.archiveAudio === undefined
+        ? defaultArchiveLiveVoiceAudio
+        : options.archiveAudio,
+    emitMetrics: options.emitMetrics ?? true,
   });
 }
 
@@ -620,6 +978,18 @@ async function defaultStreamLiveVoiceTtsAudio(
 ): Promise<LiveVoiceTtsResult> {
   const { streamLiveVoiceTtsAudio } = await import("./live-voice-tts.js");
   return streamLiveVoiceTtsAudio(options);
+}
+
+async function defaultArchiveLiveVoiceAudio(
+  input: LiveVoiceSessionArchiveAudioInput,
+): Promise<LiveVoiceAudioArchiveResult> {
+  const {
+    linkLiveVoiceAssistantResponseAudioToMessage,
+    linkLiveVoiceUserUtteranceAudioToMessage,
+  } = await import("./live-voice-archive.js");
+  return input.role === "user"
+    ? linkLiveVoiceUserUtteranceAudioToMessage(input)
+    : linkLiveVoiceAssistantResponseAudioToMessage(input);
 }
 
 function extractSpeakableSegments(
@@ -695,6 +1065,33 @@ function findLastWhitespaceBoundary(
 
 function isWhitespace(value: string): boolean {
   return /\s/.test(value);
+}
+
+function takeBufferedAudio(chunks: Buffer[]): Buffer | null {
+  if (chunks.length === 0) return null;
+
+  const audio = Buffer.concat(chunks);
+  chunks.length = 0;
+  return audio.byteLength > 0 ? audio : null;
+}
+
+function estimatePcmDurationMs(input: {
+  byteLength: number;
+  mimeType: string;
+  sampleRate: number;
+}): number | undefined {
+  if (
+    input.byteLength <= 0 ||
+    input.sampleRate <= 0 ||
+    input.mimeType.toLowerCase().split(";")[0]?.trim() !== "audio/pcm"
+  ) {
+    return undefined;
+  }
+
+  const bytesPerMonoSample = 2;
+  return Math.round(
+    (input.byteLength / (input.sampleRate * bytesPerMonoSample)) * 1000,
+  );
 }
 
 function unavailableTranscriberMessage(): string {
