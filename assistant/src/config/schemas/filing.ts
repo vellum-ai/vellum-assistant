@@ -14,6 +14,18 @@ export const FilingConfigSchema = z
       .positive("filing.intervalMs must be a positive integer")
       .default(4 * 3_600_000)
       .describe("Time between filing runs in milliseconds"),
+    compactionEnabled: z
+      .boolean({ error: "filing.compactionEnabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the daily PKB compaction job is enabled — audits file sizes, splits oversized files, consolidates duplicates, and prunes stale threads",
+      ),
+    compactionIntervalMs: z
+      .number({ error: "filing.compactionIntervalMs must be a number" })
+      .int("filing.compactionIntervalMs must be an integer")
+      .positive("filing.compactionIntervalMs must be a positive integer")
+      .default(24 * 3_600_000)
+      .describe("Time between compaction runs in milliseconds"),
     activeHoursStart: z
       .number({ error: "filing.activeHoursStart must be a number" })
       .int("filing.activeHoursStart must be an integer")
