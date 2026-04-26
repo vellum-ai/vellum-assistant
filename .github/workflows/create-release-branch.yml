@@ -230,6 +230,10 @@ jobs:
           # Bump macOS app version
           sed -i "s/^let appVersion = .*/let appVersion = \"$VERSION\"/" clients/Package.swift
 
+          # Bump Chrome extension version (manifest.json + package.json)
+          jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/manifest.json > tmp && mv tmp clients/chrome-extension/manifest.json
+          jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/package.json > tmp && mv tmp clients/chrome-extension/package.json
+
           # Regenerate OpenAPI spec with the new version
           cd assistant && bun run generate:openapi && cd ..
 
