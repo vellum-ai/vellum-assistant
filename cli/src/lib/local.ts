@@ -1125,17 +1125,23 @@ export async function startGateway(
           VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
         }
       : {}),
-    // Set VELLUM_WORKSPACE_DIR and GATEWAY_SECURITY_DIR so the gateway
-    // loads the correct credentials and workspace config for this instance
-    // (mirrors the daemon env setup).
+    // Set GATEWAY_SECURITY_DIR so the gateway loads credentials for this
+    // instance. VELLUM_WORKSPACE_DIR is inherited from the parent process
+    // (matching the daemon) — overriding it here would desync the gateway
+    // and daemon workspace paths, causing the gateway's direct assistant-DB
+    // access (e.g. bootstrapGuardian) to resolve to the wrong file.
     ...(resources
       ? {
           BASE_DATA_DIR: resources.instanceDir,
-          VELLUM_WORKSPACE_DIR: join(
-            resources.instanceDir,
-            ".vellum",
-            "workspace",
-          ),
+          ...(!process.env.VELLUM_WORKSPACE_DIR
+            ? {
+                VELLUM_WORKSPACE_DIR: join(
+                  resources.instanceDir,
+                  ".vellum",
+                  "workspace",
+                ),
+              }
+            : {}),
           GATEWAY_SECURITY_DIR: join(
             resources.instanceDir,
             ".vellum",
