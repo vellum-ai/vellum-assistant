@@ -79,10 +79,15 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
         },
       ],
     },
-    "gemini-3-flash-preview": { inputPer1M: 0.5, outputPer1M: 3 },
+    "gemini-3-flash-preview": {
+      inputPer1M: 0.5,
+      outputPer1M: 3,
+      cacheReadPer1M: 0.05,
+    },
     "gemini-3.1-flash-lite-preview": {
       inputPer1M: 0.25,
       outputPer1M: 1.5,
+      cacheReadPer1M: 0.025,
     },
     "gemini-2.5-flash": {
       inputPer1M: 0.3,
@@ -94,7 +99,11 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
       outputPer1M: 0.4,
       cacheReadPer1M: 0.01,
     },
-    "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
+    "gemini-2.5-pro": {
+      inputPer1M: 1.25,
+      outputPer1M: 10,
+      cacheReadPer1M: 0.3125,
+    },
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },
   fireworks: {
