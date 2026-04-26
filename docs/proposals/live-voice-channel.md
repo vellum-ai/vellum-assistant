@@ -1,5 +1,9 @@
 # Live Voice Channel Integration Plan
 
+> **Implementation status:** V1 now uses `/v1/live-voice` as a gateway-authenticated WebSocket route. The gateway handler is `gateway/src/http/routes/live-voice-websocket.ts`; the assistant runtime upgrade and protocol shell live in `assistant/src/runtime/http-server.ts`; the assistant-side module boundaries are under `assistant/src/live-voice/`; and macOS voice mode is wired through `clients/shared/Network/LiveVoiceChannelClient.swift`, `clients/macos/vellum-assistant/Features/Voice/LiveVoiceChannelManager.swift`, `LiveVoiceAudioCapture.swift`, `LiveVoiceAudioPlayer.swift`, and `VoiceModeManager.swift`. Treat the proposal below as historical design context; the durable architecture references are `assistant/ARCHITECTURE.md` and `clients/ARCHITECTURE.md`.
+>
+> V1 requires a configured streaming STT provider for live partial/final transcripts and a streaming-capable TTS provider for streamed assistant audio. Managed/cloud WebSocket proxy support, cross-region routing, and hard p50/p95 latency guarantees are explicitly out of scope for this version.
+
 ## 1. Existing Infrastructure Map
 
 This repository already has most of the production primitives needed for a local, push-to-talk live voice channel. The standalone proof of concept should be treated as a behavioral reference, not as code to copy: its FastAPI/WebSocket, prompt loader, direct provider clients, and global lock duplicate in-repo abstractions.

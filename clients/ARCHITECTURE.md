@@ -43,6 +43,46 @@ Low-risk types use Swift's `@Observable` macro (Observation framework) instead o
 
 Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewModel`) remain as `ObservableObject`.
 
+### macOS Voice Mode Live Channel
+
+Voice mode can use a local live channel when the current conversation has an ID, the gateway connection is healthy, and no tool permission prompt is pending. `MainWindow` creates one `LiveVoiceChannelManager` and injects it into `VoiceModeManager` with `liveVoiceAvailability: { connectionManager.isConnected }`. `VoiceModeManager.startListening()` then selects the live channel path before the standard turn-based voice path.
+
+```mermaid
+sequenceDiagram
+    participant VM as VoiceModeManager
+    participant LVM as LiveVoiceChannelManager
+    participant LVC as LiveVoiceChannelClient
+    participant CAP as LiveVoiceAudioCapture
+    participant PLAY as LiveVoiceAudioPlayer
+    participant GW as Gateway /v1/live-voice
+    participant AS as Assistant runtime
+
+    VM->>LVM: start(conversationId)
+    LVM->>LVC: start(conversationId, audioFormat: pcm16kMono)
+    LVC->>GW: WebSocket live-voice + token query param
+    GW->>AS: upstream WebSocket with gateway service token
+    AS-->>LVC: ready(sessionId, conversationId)
+    LVM->>CAP: start mic capture
+    CAP-->>LVC: binary PCM chunks
+    VM->>LVM: stopListening()
+    LVM->>LVC: ptt_release
+    AS-->>LVC: stt_partial / stt_final / thinking / assistant_text_delta
+    AS-->>LVC: tts_audio chunks / tts_done / metrics / archived
+    LVC-->>LVM: LiveVoiceChannelEvent
+    LVM->>PLAY: enqueueTTSAudio(...)
+    LVM-->>VM: state + transcript updates
+```
+
+**Transport:** `clients/shared/Network/LiveVoiceChannelClient.swift` is the shared WebSocket client. It builds the authenticated request with `GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params:)`, sends the initial `start` JSON frame, sends mic audio as binary WebSocket frames, sends `ptt_release`, `interrupt`, and `end` control frames, and decodes `ready`, `busy`, `stt_*`, `assistant_text_delta`, `tts_*`, `metrics`, `archived`, and `error` server frames.
+
+**macOS session state:** `clients/macos/vellum-assistant/Features/Voice/LiveVoiceChannelManager.swift` owns the live session state machine (`idle`, `connecting`, `listening`, `transcribing`, `thinking`, `speaking`, `ending`, `failed`). It wires `LiveVoiceAudioCapture` for push-to-talk PCM capture and `LiveVoiceAudioPlayer` for streamed assistant audio. `VoiceModeManager` observes the manager with `withObservationTracking()` and maps live-channel states onto the existing voice-mode UI states (`listening`, `processing`, `speaking`, `idle`).
+
+**Fallback behavior:** When live voice is unavailable at listen start, `VoiceModeManager` uses the standard turn-based voice path. If a live session fails after selection, `VoiceModeManager` attempts one fallback to turn-based voice for that session and then relies on the existing STT/service and Apple Speech permission checks. Pending tool permissions also move voice mode back to the turn-based path so the existing approval prompt behavior stays unchanged.
+
+**Provider requirements:** The assistant side requires a configured streaming STT provider for live partial/final transcripts and a streaming-capable TTS provider for `tts_audio` frames. Missing or non-streaming providers surface as live-channel failures; the macOS fallback path can still use standard voice mode if its own STT or speech-recognition requirements are satisfied.
+
+**V1 scope:** The live channel is local/gateway-scoped. Managed/cloud WebSocket proxy support and latency guarantees are not part of this version. `metrics` events expose timing data for measurement, but the client must not assume a hard p50/p95 latency SLO.
+
 ---
 
 ## Data Persistence — Where Everything Lives

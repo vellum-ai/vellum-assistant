@@ -589,7 +589,7 @@ All guardian decisions for voice access requests flow through:
 
 ### Speech-to-Text (STT) Boundaries
 
-Audio-to-text conversion occurs in five distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block is the single source of truth for STT provider selection across both daemon and telephony boundaries.
+Audio-to-text conversion occurs in six distinct runtime boundaries, each with its own provider model and adapter layer. The `services.stt` config block is the single source of truth for STT provider selection across assistant, client, live voice, and telephony boundaries.
 
 **Provider catalog model:** The daemon's canonical provider catalog (`src/providers/speech-to-text/provider-catalog.ts`) is the single source of truth for all STT provider metadata — credential mappings, supported boundaries, telephony mode, conversation streaming mode, and client-facing display metadata (names, hints, setup mode, credentials guide). Native clients fetch provider metadata at launch via `GET /v1/stt/providers`. To add a new provider, follow the checklist in `docs/stt-provider-onboarding.md`.
 
@@ -600,6 +600,7 @@ Audio-to-text conversion occurs in five distinct runtime boundaries, each with i
 | **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                                         |
 | **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
 | **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | `LiveVoiceChannelManager` (macOS voice mode) via `/v1/live-voice`                                    |
 | **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
 | **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                                                                                                                                         | Fallback when STT service is unconfigured or fails                                                   |
 
@@ -707,6 +708,29 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 | `clients/shared/Utilities/STTProviderRegistry.swift`        | Client-side provider catalog: `isStreamingAvailable`, `conversationStreamingMode` per provider                                                        |
 | `clients/macos/.../VoiceInputManager.swift`                 | macOS integration: `startStreamingSession()`, streaming/batch priority, fallback on failure                                                           |
 | `clients/ios/Views/InputBarView.swift`                      | iOS integration: `handleStreamingEvent()`, auto-stop coordination, batch fallback                                                                     |
+
+**Live voice channel boundary:**
+
+The local live voice channel uses a single gateway-authenticated WebSocket at `/v1/live-voice`. Native clients connect to the gateway route, the gateway validates an actor token, mints a gateway service token, and opens an upstream WebSocket to the assistant runtime route. Both text control frames and binary audio frames are proxied opaquely by `gateway/src/http/routes/live-voice-websocket.ts`; `gateway/src/index.ts` dispatches `open`, `message`, and `close` callbacks to that handler before the generic runtime proxy fallback.
+
+The assistant runtime route lives in `src/runtime/http-server.ts`. It mirrors the STT streaming security posture: direct access must come from private-network peers/origins, and authenticated deployments require the gateway service token. The runtime parses JSON frames with `parseLiveVoiceClientTextFrame()`, parses binary frames with `parseLiveVoiceBinaryAudioFrame()`, and routes accepted sessions through `LiveVoiceSessionManager`. The V1 manager owns a single-active-session lock and returns a `busy` frame for concurrent sessions.
+
+The assistant-side live voice module is intentionally bounded under `src/live-voice/`:
+
+| File                            | Boundary                                                                                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `protocol.ts`                   | Provider-agnostic client/server frame types, validation, binary audio parsing, and monotonic server-frame sequencing                                        |
+| `live-voice-session-manager.ts` | Single-active-session lock, session factory context, and dispatch/release lifecycle                                                                         |
+| `live-voice-session.ts`         | Session orchestration: streaming STT, push-to-talk release, voice turn bridge callbacks, assistant text deltas, TTS, archive, metrics, interrupt, and close |
+| `live-voice-tts.ts`             | Streaming TTS helper that resolves `services.tts`, requires `TtsProvider.synthesizeStream()`, and forwards audio chunks as `tts_audio` frames               |
+| `live-voice-archive.ts`         | Audio artifact creation/linking for user utterance and assistant response message IDs                                                                       |
+| `live-voice-metrics.ts`         | Per-session and per-turn latency snapshots emitted as `metrics` frames                                                                                      |
+
+Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming. For V1 latency-sensitive behavior, the selected `services.stt.provider` must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
+
+Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Fish Audio is the current catalog provider with streaming synthesis support; non-streaming providers remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
+
+V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope for this version. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
 
 **Client service-first boundary:**
 
