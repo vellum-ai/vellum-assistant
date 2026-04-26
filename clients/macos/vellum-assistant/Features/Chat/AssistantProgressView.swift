@@ -1401,68 +1401,6 @@ struct ToolCallStepDetailRow: View {
 
 // MARK: - ACP Spawn Status Dot
 
-/// Render decision for the leading status indicator on the inline
-/// `acp_spawn` deep-link row. Resolved as a pure function from the live
-/// store status (when present) so unit tests can pin-point each visual
-/// state without standing up the SwiftUI view tree.
-///
-/// `internal` so unit tests can read the resolved value; production
-/// callers go through ``ACPSpawnStatusDot``.
-enum ACPSpawnStatusIndicator: Equatable {
-    /// The session is still working — render a pulsing dot. Both
-    /// `.running` and `.initializing` map to this state since neither is a
-    /// terminal stop condition the user can act on.
-    case pulsing
-    /// The session reached a terminal state — render a static glyph in
-    /// the supplied semantic role. Color is derived from the role at
-    /// render time so the resolver can stay UI-framework-agnostic.
-    case icon(glyph: Glyph, role: Role)
-
-    enum Glyph: Equatable {
-        case check
-        case xmark
-        case dash
-    }
-
-    enum Role: Equatable {
-        /// Successful terminal — green check.
-        case positive
-        /// Errored terminal — red x.
-        case negative
-        /// Cancelled / unknown / muted terminal — gray dash.
-        case muted
-    }
-
-    /// Map a live ``ACPSessionState/Status`` into a render decision.
-    /// Falls back to a static "completed" check when the store has no
-    /// entry for the session id (`status` is nil) — for an `acp_spawn`
-    /// row to render at all the tool call already succeeded, so a
-    /// missing-from-store entry is almost always "history was cleared
-    /// after a successful run" rather than "something unobservable went
-    /// wrong". Treating it as completed keeps the inline block honest
-    /// instead of perpetually pulsing on a stale id.
-    static func resolve(forStatus status: ACPSessionState.Status?) -> ACPSpawnStatusIndicator {
-        guard let status else {
-            return .icon(glyph: .check, role: .positive)
-        }
-        switch status {
-        case .running, .initializing:
-            return .pulsing
-        case .completed:
-            return .icon(glyph: .check, role: .positive)
-        case .failed:
-            return .icon(glyph: .xmark, role: .negative)
-        case .cancelled:
-            return .icon(glyph: .dash, role: .muted)
-        case .unknown:
-            // Daemon version skew — treat as completed so the inline
-            // block matches the spawn tool's own "we got back a session
-            // id" semantics rather than stalling on a ghost pulse.
-            return .icon(glyph: .check, role: .positive)
-        }
-    }
-}
-
 /// Live status indicator for the inline `acp_spawn` deep-link row.
 ///
 /// Reads the matching ``ACPSessionViewModel`` off the supplied store —
@@ -1473,6 +1411,12 @@ enum ACPSpawnStatusIndicator: Equatable {
 /// because the chat transcript renders inside test harnesses and
 /// pre-launch contexts where ``AppDelegate/shared`` is nil; a missing
 /// store falls through to the static-completed indicator.
+///
+/// The render decision is owned by the shared ``ACPSpawnStatusIndicator``
+/// enum in `clients/shared/Features/Chat/ACPSpawnStatusIndicator.swift`;
+/// iOS renders the same enum through `ACPSpawnStatusIndicatorView` in
+/// `ToolCallProgressBar.swift`, so both platforms agree on the lifecycle
+/// they show for any given session status.
 private struct ACPSpawnStatusDot: View {
     let acpSessionId: String
     let store: ACPSessionStore?
@@ -1483,24 +1427,8 @@ private struct ACPSpawnStatusDot: View {
         case .pulsing:
             VBusyIndicator(size: 8)
         case .icon(let glyph, let role):
-            VIconView(Self.icon(for: glyph), size: 12)
-                .foregroundStyle(Self.color(for: role))
-        }
-    }
-
-    private static func icon(for glyph: ACPSpawnStatusIndicator.Glyph) -> VIcon {
-        switch glyph {
-        case .check: return .circleCheck
-        case .xmark: return .circleX
-        case .dash: return .circleDashed
-        }
-    }
-
-    private static func color(for role: ACPSpawnStatusIndicator.Role) -> Color {
-        switch role {
-        case .positive: return VColor.primaryBase
-        case .negative: return VColor.systemNegativeStrong
-        case .muted: return VColor.contentTertiary
+            VIconView(glyph.icon, size: 12)
+                .foregroundStyle(role.color)
         }
     }
 }

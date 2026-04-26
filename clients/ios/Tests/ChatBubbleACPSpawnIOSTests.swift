@@ -285,6 +285,149 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
         XCTAssertEqual(ACPSpawnDeepLinkCard.statusLabel(for: toolCall), "Failed")
     }
 
+    // MARK: - Shared resolver wiring (live store)
+
+    /// `.running` and `.initializing` are both "still working" from the
+    /// user's perspective — neither is a terminal state they can act on,
+    /// so the inline block must show the same pulsing dot for both.
+    /// Mirrors the macOS test of the same name; both platforms now drive
+    /// off the same shared resolver.
+    func test_acpSpawnStatusIndicator_pulsesWhileRunningOrInitializing() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .running),
+            .pulsing
+        )
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .initializing),
+            .pulsing
+        )
+    }
+
+    /// Successful terminal — green check.
+    func test_acpSpawnStatusIndicator_completedRendersPositiveCheck() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .completed),
+            .icon(glyph: .check, role: .positive)
+        )
+    }
+
+    /// Errored terminal — red x.
+    func test_acpSpawnStatusIndicator_failedRendersNegativeXmark() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .failed),
+            .icon(glyph: .xmark, role: .negative)
+        )
+    }
+
+    /// Cancelled terminal — muted dash.
+    func test_acpSpawnStatusIndicator_cancelledRendersMutedDash() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .cancelled),
+            .icon(glyph: .dash, role: .muted)
+        )
+    }
+
+    /// `.unknown` arrives only via daemon version skew — treat as
+    /// completed since the row only renders when the spawn already
+    /// returned a session id.
+    func test_acpSpawnStatusIndicator_unknownStatusFallsBackToCompleted() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: .unknown),
+            .icon(glyph: .check, role: .positive)
+        )
+    }
+
+    /// Nil status (history cleared, daemon restarted) falls through to
+    /// the static "completed" check — same fallback as `.unknown`.
+    func test_acpSpawnStatusIndicator_missingStoreEntryFallsBackToCompleted() {
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forStatus: nil),
+            .icon(glyph: .check, role: .positive)
+        )
+    }
+
+    /// Live transition: a running session flips to completed and the
+    /// indicator switches from pulsing to the positive check without any
+    /// view-side input. This is the gap fix-r1-5 closes — before this
+    /// PR, iOS read `toolCall.isComplete` directly and missed live
+    /// running → completed transitions emitted via `ACPSessionStore`.
+    func test_acpSpawnStatusIndicator_transitionsFromRunningToCompletedViaStore() {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-live",
+            agent: "claude-code",
+            parentConversationId: "conv-live"
+        )))
+
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(
+                forStatus: store.sessions["acp-live"]?.state.status
+            ),
+            .pulsing,
+            "Newly spawned session must render pulsing while running"
+        )
+
+        store.handle(.acpSessionCompleted(ACPSessionCompletedMessage(
+            acpSessionId: "acp-live",
+            stopReason: .endTurn
+        )))
+
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(
+                forStatus: store.sessions["acp-live"]?.state.status
+            ),
+            .icon(glyph: .check, role: .positive),
+            "Completed session must render the positive check"
+        )
+    }
+
+    /// Mirror of the above for the failure path — `.failed` flowing
+    /// through `acpSessionError` must surface as the negative red x.
+    func test_acpSpawnStatusIndicator_transitionsFromRunningToFailedViaStore() {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-fail",
+            agent: "codex",
+            parentConversationId: "conv-fail"
+        )))
+
+        store.handle(.acpSessionError(ACPSessionErrorMessage(
+            acpSessionId: "acp-fail",
+            error: "agent crashed"
+        )))
+
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(
+                forStatus: store.sessions["acp-fail"]?.state.status
+            ),
+            .icon(glyph: .xmark, role: .negative)
+        )
+    }
+
+    /// Tool-call fallback used when the store has no entry for the
+    /// requested session id — kicks in for early launch, test harnesses,
+    /// or when the bridge isn't yet registered. Ensures iOS still
+    /// renders a sensible terminal glyph even without a live store.
+    func test_acpSpawnStatusIndicator_toolCallFallbackMapsToTerminalState() {
+        let running = makeAcpSpawnToolCall(isComplete: false, isError: false)
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forToolCall: running),
+            .pulsing
+        )
+
+        let completed = makeAcpSpawnToolCall(isComplete: true, isError: false)
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forToolCall: completed),
+            .icon(glyph: .check, role: .positive)
+        )
+
+        let failed = makeAcpSpawnToolCall(isComplete: true, isError: true)
+        XCTAssertEqual(
+            ACPSpawnStatusIndicator.resolve(forToolCall: failed),
+            .icon(glyph: .xmark, role: .negative)
+        )
+    }
+
     // MARK: - Helpers
 
     /// Synthetic `acp_spawn` tool call sized for the deep-link helpers.

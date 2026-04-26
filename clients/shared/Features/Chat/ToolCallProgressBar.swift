@@ -390,8 +390,12 @@ public struct ACPSpawnDeepLinkCard: View {
             Self.openACPSession(id: acpSessionId)
         } label: {
             HStack(spacing: VSpacing.sm) {
-                ACPSpawnStatusIndicator(toolCall: toolCall)
-                    .frame(width: 16, height: 16)
+                ACPSpawnStatusIndicatorView(
+                    toolCall: toolCall,
+                    acpSessionId: acpSessionId,
+                    store: ACPSpawnAppDelegateBridge.shared?.acpSessionStore
+                )
+                .frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(ToolCallData.displaySafe(toolCall.friendlyName))
                         .font(VFont.bodyMediumDefault)
@@ -463,40 +467,48 @@ public struct ACPSpawnDeepLinkCard: View {
     }
 }
 
-/// Animated leading glyph for ``ACPSpawnDeepLinkCard``. Pulses while the
-/// underlying spawn is still running, flips to a solid check on success,
-/// and to an alert on error. Driven by `Timer.publish` for the same
-/// reason `ElapsedTimeLabel` in `AssistantProgressView.swift` uses it on
-/// macOS — `TimelineView(.periodic)` can stop firing on long-idle
-/// hierarchies and freeze the dot.
-private struct ACPSpawnStatusIndicator: View {
+/// Live status glyph for ``ACPSpawnDeepLinkCard``. Pulses while the
+/// underlying spawn is still running, flips to a positive check on
+/// success, a negative x on error, or a muted dash on cancellation.
+///
+/// Reads the matching ``ACPSessionViewModel`` off the supplied store —
+/// because `ACPSessionStore` is `@Observable`, simply touching
+/// `store.sessions[id]?.state.status` inside `body` enrolls this view
+/// in SwiftUI's per-property observation graph, so a daemon SSE update
+/// flips the glyph without a manual refresh. Mirrors the macOS
+/// ``ACPSpawnStatusDot`` in `AssistantProgressView.swift` so both
+/// platforms catch running → completed/failed transitions and the
+/// "history cleared while running" edge case.
+///
+/// When the store has no entry for the session id (early launch, test
+/// harness, missing bridge) the view falls through to the tool-call
+/// result via ``ACPSpawnStatusIndicator/resolve(forToolCall:)`` so a
+/// row that lands before the store is wired still renders sensibly.
+private struct ACPSpawnStatusIndicatorView: View {
     let toolCall: ToolCallData
-    @State private var pulsePhase: Double = 0
-
-    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+    let acpSessionId: String
+    let store: ACPSessionStore?
 
     var body: some View {
-        Group {
-            if toolCall.isError {
-                VIconView(.circleAlert, size: 14)
-                    .foregroundStyle(VColor.systemNegativeStrong)
-            } else if toolCall.isComplete {
-                VIconView(.circleCheck, size: 14)
-                    .foregroundStyle(VColor.primaryBase)
-            } else {
-                Circle()
-                    .fill(VColor.primaryBase)
-                    .frame(width: 10, height: 10)
-                    .opacity(0.4 + 0.6 * pulsePhase)
-                    .scaleEffect(0.9 + 0.15 * pulsePhase)
-            }
+        switch resolveIndicator() {
+        case .pulsing:
+            VBusyIndicator(size: 10)
+        case .icon(let glyph, let role):
+            VIconView(glyph.icon, size: 14)
+                .foregroundStyle(role.color)
         }
-        .onReceive(timer) { _ in
-            guard !toolCall.isComplete else { return }
-            withAnimation(.easeInOut(duration: 0.35)) {
-                pulsePhase = pulsePhase < 0.5 ? 1 : 0
-            }
+    }
+
+    /// Prefer the live store status — it picks up running → completed
+    /// and the cleared-history fallback baked into the shared resolver.
+    /// When the store has no entry at all (no `ACPSpawnAppDelegateBridge`
+    /// in tests / preview harnesses), fall back to the tool call so the
+    /// glyph still reflects whatever terminal state the spawn returned.
+    private func resolveIndicator() -> ACPSpawnStatusIndicator {
+        if let session = store?.sessions[acpSessionId] {
+            return ACPSpawnStatusIndicator.resolve(forStatus: session.state.status)
         }
+        return ACPSpawnStatusIndicator.resolve(forToolCall: toolCall)
     }
 }
 
