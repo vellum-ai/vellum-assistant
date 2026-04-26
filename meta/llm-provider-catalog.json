@@ -190,6 +190,66 @@
       "defaultModel": "gemini-2.5-flash",
       "models": [
         {
+          "id": "gemini-3.1-pro-preview",
+          "displayName": "Gemini 3.1 Pro Preview",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2.0,
+            "outputPer1mTokens": 12.0,
+            "cacheReadPer1mTokens": 0.2
+          }
+        },
+        {
+          "id": "gemini-3.1-pro-preview-customtools",
+          "displayName": "Gemini 3.1 Pro Preview (Custom Tools)",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 2.0,
+            "outputPer1mTokens": 12.0,
+            "cacheReadPer1mTokens": 0.2
+          }
+        },
+        {
+          "id": "gemini-3-flash-preview",
+          "displayName": "Gemini 3 Flash Preview",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.5,
+            "outputPer1mTokens": 3.0,
+            "cacheReadPer1mTokens": 0.05
+          }
+        },
+        {
+          "id": "gemini-3.1-flash-lite-preview",
+          "displayName": "Gemini 3.1 Flash-Lite Preview",
+          "contextWindowTokens": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.25,
+            "outputPer1mTokens": 1.5,
+            "cacheReadPer1mTokens": 0.025
+          }
+        },
+        {
           "id": "gemini-2.5-flash",
           "displayName": "Gemini 2.5 Flash",
           "contextWindowTokens": 1000000,
