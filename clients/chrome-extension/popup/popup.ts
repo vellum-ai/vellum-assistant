@@ -4,7 +4,7 @@
  * Manages three screens:
  * 1. Welcome — sign in with Vellum or connect to self-hosted
  * 2. Assistant Picker — choose which cloud assistant to connect to
- * 3. Main — connection toggle, status, settings
+ * 3. Main — connection status, settings
  *
  * The popup determines the initial screen by asking the worker for
  * the current session state. If a session or self-hosted mode is
@@ -81,10 +81,6 @@ function hideAssistantsError(): void {
 const assistantsErrorEl = document.getElementById('assistants-error') as HTMLDivElement;
 const assistantsErrorDetailEl = document.getElementById('assistants-error-detail') as HTMLParagraphElement;
 const connectionAreaEl = document.getElementById('connection-area') as HTMLDivElement;
-const connectionToggle = document.getElementById('connection-toggle') as HTMLInputElement;
-const connectionToggleHint = document.getElementById(
-  'connection-toggle-hint',
-) as HTMLParagraphElement;
 const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const statusBadge = document.getElementById('status-badge') as HTMLSpanElement;
@@ -200,20 +196,6 @@ function updateHealthDisplay(
   statusBadge.textContent = badge.text;
   statusBadge.className = `status-badge ${badge.className}`;
 
-  // Toggle state
-  connectionToggle.checked = health === 'connected' || health === 'connecting' || health === 'reconnecting';
-  connectionToggle.disabled = health === 'connecting' || health === 'reconnecting';
-
-  // Toggle hint
-  connectionToggleHint.textContent =
-    health === 'connected'
-      ? 'Extension is bridging browser actions'
-      : health === 'paused'
-        ? 'Turn on to start relaying'
-        : health === 'connecting' || health === 'reconnecting'
-          ? 'Establishing connection\u2026'
-          : 'Turn on to connect';
-
   // Error text
   if (detail?.lastErrorMessage && (health === 'auth_required' || health === 'error')) {
     errorText.textContent = detail.lastErrorMessage;
@@ -292,16 +274,6 @@ gatewayUrlSave?.addEventListener('click', () => {
 gatewayUrlInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     gatewayUrlSave?.click();
-  }
-});
-
-// ── Connection toggle ───────────────────────────────────────────────
-
-connectionToggle.addEventListener('change', () => {
-  if (connectionToggle.checked) {
-    sendMessage({ type: 'connect' }, () => {});
-  } else {
-    sendMessage({ type: 'pause' }, () => {});
   }
 });
 
@@ -504,6 +476,9 @@ document.getElementById('btn-retry-assistants')?.addEventListener('click', () =>
 
 function loadMainScreen(): void {
   loadGatewayUrl();
+  // Auto-connect if not already connected — the extension manages
+  // the connection lifecycle without a manual toggle.
+  sendMessage({ type: 'connect' }, () => {});
   refreshStatus();
 }
 

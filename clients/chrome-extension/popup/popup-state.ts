@@ -51,71 +51,9 @@ export interface GetStatusResponse {
 
 export type ConnectionPhase = 'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'paused';
 
-export interface CtaState {
-  connectLabel: string;
-  connectEnabled: boolean;
-  pauseLabel: string;
-  pauseEnabled: boolean;
-}
-
-export function deriveCtaState(phase: ConnectionPhase): CtaState {
-  switch (phase) {
-    case 'disconnected':
-      return {
-        connectLabel: 'Connect',
-        connectEnabled: true,
-        pauseLabel: 'Pause',
-        pauseEnabled: false,
-      };
-    case 'connecting':
-      return {
-        connectLabel: 'Connecting\u2026',
-        connectEnabled: false,
-        pauseLabel: 'Pause',
-        pauseEnabled: false,
-      };
-    case 'reconnecting':
-      return {
-        connectLabel: 'Reconnecting\u2026',
-        connectEnabled: false,
-        pauseLabel: 'Pause',
-        pauseEnabled: false,
-      };
-    case 'connected':
-      return {
-        connectLabel: 'Connect',
-        connectEnabled: false,
-        pauseLabel: 'Pause',
-        pauseEnabled: true,
-      };
-    case 'paused':
-      return {
-        connectLabel: 'Connect',
-        connectEnabled: true,
-        pauseLabel: 'Pause',
-        pauseEnabled: false,
-      };
-  }
-}
-
 export interface StatusDisplay {
   dotClass: string;
   text: string;
-}
-
-export function deriveStatusDisplay(phase: ConnectionPhase): StatusDisplay {
-  switch (phase) {
-    case 'disconnected':
-      return { dotClass: 'disconnected', text: 'Not connected' };
-    case 'connecting':
-      return { dotClass: 'disconnected', text: 'Connecting\u2026' };
-    case 'reconnecting':
-      return { dotClass: 'paused', text: 'Reconnecting automatically\u2026' };
-    case 'connected':
-      return { dotClass: 'connected', text: 'Connected to relay server' };
-    case 'paused':
-      return { dotClass: 'paused', text: 'Paused' };
-  }
 }
 
 export function deriveSetupMessage(_phase: ConnectionPhase): string | null {

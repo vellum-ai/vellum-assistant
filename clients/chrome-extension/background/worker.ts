@@ -1199,6 +1199,26 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     (async () => {
       const newMode = message.mode as 'self-hosted' | 'cloud';
       await setStoredUserMode(newMode);
+
+      // Auto-connect for self-hosted mode — the extension manages
+      // its own connection lifecycle without a manual toggle.
+      if (newMode === 'self-hosted') {
+        shouldConnect = true;
+        teardownConnections();
+        try {
+          await connect({ interactive: true });
+          await setAutoConnect(true);
+        } catch (err) {
+          shouldConnect = false;
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          if (err instanceof MissingTokenError) {
+            setConnectionHealth('auth_required', { lastErrorMessage: errorMessage });
+          } else {
+            setConnectionHealth('error', { lastErrorMessage: errorMessage });
+          }
+        }
+      }
+
       sendResponseFn({ ok: true });
     })().catch((err) =>
       sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
@@ -1252,6 +1272,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       const assistantId = message.assistantId as string;
       const assistantName = message.assistantName as string;
       await storeSelectedAssistant({ id: assistantId, name: assistantName });
+
+      // Auto-connect after selecting an assistant — the extension
+      // manages its own connection lifecycle without a manual toggle.
+      shouldConnect = true;
+      teardownConnections();
+      try {
+        await connect({ interactive: true });
+        await setAutoConnect(true);
+      } catch (err) {
+        shouldConnect = false;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        if (err instanceof MissingTokenError) {
+          setConnectionHealth('auth_required', { lastErrorMessage: errorMessage });
+        } else {
+          setConnectionHealth('error', { lastErrorMessage: errorMessage });
+        }
+      }
       sendResponseFn({ ok: true });
     })().catch((err) =>
       sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),

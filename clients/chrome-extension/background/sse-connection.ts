@@ -135,6 +135,7 @@ export class SseConnection {
       });
     } catch {
       if (this.closedByCaller || ac.signal.aborted) return;
+      this.deps.onClose();
       this.scheduleReconnect();
       return;
     }
@@ -148,12 +149,15 @@ export class SseConnection {
         );
         return;
       }
-      // Other errors: reconnect
+      // Other errors: notify the worker so health state transitions
+      // (e.g. connected → reconnecting), then schedule a retry.
+      this.deps.onClose();
       this.scheduleReconnect();
       return;
     }
 
     if (!response.body) {
+      this.deps.onClose();
       this.scheduleReconnect();
       return;
     }

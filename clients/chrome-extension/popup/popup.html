@@ -74,89 +74,6 @@
       letter-spacing: 0.01em;
     }
 
-    /* ── Toggle row ──────────────────────────────────────────────── */
-
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px 14px;
-      margin-bottom: 10px;
-      transition: border-color 0.2s;
-    }
-
-    .toggle-copy {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .toggle-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-1);
-    }
-
-    .toggle-hint {
-      font-size: 11px;
-      color: var(--text-3);
-      line-height: 1.35;
-    }
-
-    /* ── Switch ──────────────────────────────────────────────────── */
-
-    .switch {
-      position: relative;
-      width: 40px;
-      height: 22px;
-      flex-shrink: 0;
-    }
-
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-      position: absolute;
-    }
-
-    .switch-slider {
-      position: absolute;
-      inset: 0;
-      background: var(--text-3);
-      border-radius: 999px;
-      transition: background 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      cursor: pointer;
-    }
-
-    .switch-slider::before {
-      content: "";
-      position: absolute;
-      left: 2px;
-      top: 2px;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: #fff;
-      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-    }
-
-    .switch input:checked + .switch-slider {
-      background: var(--green);
-    }
-
-    .switch input:checked + .switch-slider::before {
-      transform: translateX(18px);
-    }
-
-    .switch input:disabled + .switch-slider {
-      cursor: default;
-      opacity: 0.35;
-    }
-
     /* ── Status card ─────────────────────────────────────────────── */
 
     .status-card {
@@ -888,27 +805,16 @@
     </div>
 
     <div id="connection-area">
-      <div class="toggle-row">
-        <div class="toggle-copy">
-          <p class="toggle-title">Connection</p>
-          <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
-        </div>
-        <label class="switch" for="connection-toggle">
-          <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
-          <span class="switch-slider"></span>
-        </label>
-      </div>
-
-      <div class="status-card" role="status" aria-live="polite">
-        <div class="status-row">
-          <div class="status-left">
-            <div class="status-dot disconnected" id="status-dot"></div>
-            <p class="status-text" id="status-text">Not connected</p>
+        <div class="status-card" role="status" aria-live="polite">
+          <div class="status-row">
+            <div class="status-left">
+              <div class="status-dot disconnected" id="status-dot"></div>
+              <p class="status-text" id="status-text">Connecting…</p>
+            </div>
+            <span class="status-badge disconnected" id="status-badge">Offline</span>
           </div>
-          <span class="status-badge disconnected" id="status-badge">Offline</span>
         </div>
       </div>
-    </div>
 
     <p class="error-text" id="error-text" style="display:none"></p>
     <div class="debug-details" id="debug-details" style="display:none">
