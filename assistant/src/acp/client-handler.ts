@@ -88,6 +88,17 @@ export class VellumAcpClientHandler implements Client {
         break;
       }
 
+      case "agent_thought_chunk": {
+        const text = extractText(update.content);
+        this.sendToVellum({
+          type: "acp_session_update",
+          acpSessionId: this.acpSessionId,
+          updateType: "agent_thought_chunk",
+          content: text,
+        });
+        break;
+      }
+
       case "user_message_chunk": {
         const text = extractText(update.content);
         this.sendToVellum({
@@ -135,9 +146,9 @@ export class VellumAcpClientHandler implements Client {
       }
 
       default: {
-        // Other update types (agent_thought_chunk, available_commands_update,
-        // current_mode_update, config_option_update, session_info_update,
-        // usage_update) are not forwarded to Vellum.
+        // Other update types (available_commands_update, current_mode_update,
+        // config_option_update, session_info_update, usage_update) are not
+        // forwarded to Vellum.
         log.debug(
           {
             acpSessionId: this.acpSessionId,
