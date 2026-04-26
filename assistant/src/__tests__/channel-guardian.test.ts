@@ -427,9 +427,9 @@ describe("guardian service challenge validation", () => {
     expect(telegramResult.success).toBe(true);
   });
 
-  test("validateAndConsumeVerification succeeds even with existing binding (conflict check is caller responsibility)", () => {
+  test("validateAndConsumeVerification succeeds even with existing binding (conflict check is caller responsibility)", async () => {
     // Create initial guardian binding
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "old-user",
       guardianPrincipalId: "old-user",
@@ -466,8 +466,8 @@ describe("guardian identity check", () => {
     resetTables();
   });
 
-  test("isGuardian returns true for matching user", () => {
-    createGuardianBinding({
+  test("isGuardian returns true for matching user", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -477,8 +477,8 @@ describe("guardian identity check", () => {
     expect(isGuardian("asst-1", "telegram", "user-42")).toBe(true);
   });
 
-  test("isGuardian returns false for non-matching user", () => {
-    createGuardianBinding({
+  test("isGuardian returns false for non-matching user", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -492,8 +492,8 @@ describe("guardian identity check", () => {
     expect(isGuardian("asst-1", "telegram", "user-42")).toBe(false);
   });
 
-  test("isGuardian returns false after binding is revoked", () => {
-    createGuardianBinding({
+  test("isGuardian returns false after binding is revoked", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -505,8 +505,8 @@ describe("guardian identity check", () => {
     expect(isGuardian("asst-1", "telegram", "user-42")).toBe(false);
   });
 
-  test("getGuardianBinding returns the active binding", () => {
-    createGuardianBinding({
+  test("getGuardianBinding returns the active binding", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -523,8 +523,8 @@ describe("guardian identity check", () => {
     expect(binding).toBeNull();
   });
 
-  test("isGuardian works for voice channel", () => {
-    createGuardianBinding({
+  test("isGuardian works for voice channel", async () => {
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "phone-user-1",
       guardianPrincipalId: "phone-user-1",
@@ -537,8 +537,8 @@ describe("guardian identity check", () => {
     expect(isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
   });
 
-  test("serviceRevokeBinding revokes the active binding", () => {
-    createGuardianBinding({
+  test("serviceRevokeBinding revokes the active binding", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -1083,16 +1083,16 @@ describe("channel-scoped guardian resolution", () => {
     resetTables();
   });
 
-  test("isGuardian resolves independently per channel", () => {
+  test("isGuardian resolves independently per channel", async () => {
     // Create guardian binding on telegram
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
     // Create guardian binding on voice with a different user
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
@@ -1108,14 +1108,14 @@ describe("channel-scoped guardian resolution", () => {
     expect(isGuardian("self", "telegram", "user-beta")).toBe(false);
   });
 
-  test("getGuardianBinding returns different bindings for different channels", () => {
-    createGuardianBinding({
+  test("getGuardianBinding returns different bindings for different channels", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
@@ -1131,14 +1131,14 @@ describe("channel-scoped guardian resolution", () => {
     expect(bindingVoice!.guardianExternalUserId).toBe("user-beta");
   });
 
-  test("revoking binding for one channel does not affect another", () => {
-    createGuardianBinding({
+  test("revoking binding for one channel does not affect another", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-alpha",
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
@@ -1329,7 +1329,7 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action returns guardianDeliveryChatId when bound", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -1356,7 +1356,7 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action returns guardian username/displayName from binding metadata", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-43",
       guardianPrincipalId: "user-43",
@@ -1652,8 +1652,8 @@ describe("voice guardian challenge validation", () => {
     expect(result2.success).toBe(false);
   });
 
-  test("validateAndConsumeVerification succeeds even with existing voice binding (conflict check is caller responsibility)", () => {
-    createGuardianBinding({
+  test("validateAndConsumeVerification succeeds even with existing voice binding (conflict check is caller responsibility)", async () => {
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "old-voice-user",
       guardianPrincipalId: "old-voice-user",
@@ -1691,8 +1691,8 @@ describe("voice guardian identity and revocation", () => {
     resetTables();
   });
 
-  test("isGuardian works for voice channel", () => {
-    createGuardianBinding({
+  test("isGuardian works for voice channel", async () => {
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
@@ -1705,8 +1705,8 @@ describe("voice guardian identity and revocation", () => {
     expect(isGuardian("asst-1", "telegram", "voice-user-1")).toBe(false);
   });
 
-  test("getGuardianBinding returns voice binding", () => {
-    createGuardianBinding({
+  test("getGuardianBinding returns voice binding", async () => {
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
@@ -1719,8 +1719,8 @@ describe("voice guardian identity and revocation", () => {
     expect(binding!.guardianExternalUserId).toBe("voice-user-1");
   });
 
-  test("revokeBinding clears active voice guardian binding", () => {
-    createGuardianBinding({
+  test("revokeBinding clears active voice guardian binding", async () => {
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
@@ -1732,14 +1732,14 @@ describe("voice guardian identity and revocation", () => {
     expect(getGuardianBinding("asst-1", "phone")).toBeNull();
   });
 
-  test("revokeBinding for voice does not affect telegram binding", () => {
-    createGuardianBinding({
+  test("revokeBinding for voice does not affect telegram binding", async () => {
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "tg-user-1",
       guardianPrincipalId: "tg-user-1",
@@ -1959,7 +1959,7 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("status for voice reflects bound state", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
@@ -1985,7 +1985,7 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("revoke for voice clears active binding", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
@@ -2011,13 +2011,13 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("revoke for voice does not affect telegram binding", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "tg-user-1",
       guardianPrincipalId: "tg-user-1",
@@ -2536,7 +2536,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound rejects when active binding exists (rebind=false)", async () => {
     // Create an existing guardian binding
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
@@ -2562,7 +2562,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound allows rebind when rebind=true", async () => {
     // Create an existing guardian binding
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
@@ -3014,7 +3014,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram rejects when active binding exists (rebind=false)", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
       guardianPrincipalId: "user-42",
@@ -3510,7 +3510,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice rejects when binding exists (rebind=false)", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",

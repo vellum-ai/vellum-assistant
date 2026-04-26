@@ -30,6 +30,7 @@
  * CLI IPC) are unaffected since they don't import from the package.
  */
 
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { mock } from "bun:test";
 
@@ -44,18 +45,134 @@ let ipcResults: Record<string, unknown> = {};
 let simulateError = false;
 
 // ---------------------------------------------------------------------------
+// Built-in mock handlers
+// ---------------------------------------------------------------------------
+
+/**
+ * Handles `create_guardian_binding` by writing directly to the test's
+ * assistant DB — mirrors what the real gateway does (write to assistant
+ * DB + gateway DB). Tests only have the assistant DB, so we skip the
+ * gateway DB portion.
+ */
+function handleCreateGuardianBinding(
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  // Late import to avoid circular deps at mock-registration time.
+  // getSqlite() returns the raw bun:sqlite Database instance that tests
+  // initialise via initializeDb() in their beforeEach.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getSqlite } = require("../memory/db.js");
+  const db = getSqlite();
+
+  const channel = params.channel as string;
+  const externalUserId = params.externalUserId as string;
+  const deliveryChatId = params.deliveryChatId as string;
+  const guardianPrincipalId = params.guardianPrincipalId as string;
+  const displayName = (params.displayName as string) ?? externalUserId;
+  const verifiedVia = (params.verifiedVia as string) ?? "challenge";
+  const now = Date.now();
+
+  // Check if a guardian contact already exists for this principal
+  const existingContact = db
+    .query(
+      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
+    )
+    .get(guardianPrincipalId) as { id: string } | null;
+
+  // Also check for an existing channel by (type, address) — the unique
+  // constraint is on these columns, and re-verification for the same
+  // channel may come through with a different principal.
+  const existingChannelByAddress = db
+    .query(
+      `SELECT cc.id, cc.contact_id FROM contact_channels cc
+       WHERE cc.type = ? AND cc.address = ? LIMIT 1`,
+    )
+    .get(channel, externalUserId) as { id: string; contact_id: string } | null;
+
+  // If the channel already exists, use its contact (may differ from principalId lookup)
+  const contactId =
+    existingContact?.id ?? existingChannelByAddress?.contact_id ?? randomUUID();
+
+  // Determine if the contact row exists in the DB (either by principal or by channel ownership)
+  const contactExists = !!(existingContact || existingChannelByAddress);
+
+  const existingChannel = existingChannelByAddress ?? null;
+  const channelId = existingChannel?.id ?? randomUUID();
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (contactExists) {
+      db.run(
+        `UPDATE contacts SET display_name = ?, role = 'guardian', principal_id = ?, updated_at = ? WHERE id = ?`,
+        [displayName, guardianPrincipalId, now, contactId],
+      );
+    } else {
+      db.run(
+        `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
+         VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
+        [contactId, displayName, guardianPrincipalId, now, now],
+      );
+    }
+
+    if (existingChannel) {
+      db.run(
+        `UPDATE contact_channels
+         SET address = ?, external_user_id = ?, external_chat_id = ?,
+             status = 'active', policy = 'allow', verified_at = ?,
+             verified_via = ?, updated_at = ?
+         WHERE id = ?`,
+        [externalUserId, externalUserId, deliveryChatId, now, verifiedVia, now, channelId],
+      );
+    } else {
+      db.run(
+        `INSERT INTO contact_channels
+           (id, contact_id, type, address, external_user_id, external_chat_id,
+            is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+        [channelId, contactId, channel, externalUserId, externalUserId, deliveryChatId, now, verifiedVia, now],
+      );
+    }
+
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+
+  return { contactId, channelId, guardianPrincipalId, channel };
+}
+
+/**
+ * Dispatch an IPC call — checks built-in handlers first, then
+ * configured mock results, then returns undefined.
+ */
+function dispatchIpcCall(
+  method: string,
+  params?: Record<string, unknown>,
+): unknown {
+  if (simulateError) return undefined;
+
+  // Built-in handlers for gateway-owned write operations
+  if (method === "create_guardian_binding" && params) {
+    return handleCreateGuardianBinding(params);
+  }
+
+  return method in ipcResults ? ipcResults[method] : undefined;
+}
+
+// ---------------------------------------------------------------------------
 // FakePersistentIpcClient — mirrors PersistentIpcClient API
 // ---------------------------------------------------------------------------
 
 class FakePersistentIpcClient extends EventEmitter {
   async call(
     method: string,
-    _params?: Record<string, unknown>,
+    params?: Record<string, unknown>,
   ): Promise<unknown> {
     if (simulateError) {
       throw new Error("Mock IPC socket error");
     }
-    return method in ipcResults ? ipcResults[method] : undefined;
+    return dispatchIpcCall(method, params);
   }
 
   destroy(): void {
@@ -72,13 +189,9 @@ export function installGatewayIpcMock(): void {
     ipcCall: async (
       _socketPath: string,
       method: string,
-      _params?: Record<string, unknown>,
+      params?: Record<string, unknown>,
     ): Promise<unknown> => {
-      if (simulateError) {
-        // Real ipcCall returns undefined on failure — mirror that behavior.
-        return undefined;
-      }
-      return method in ipcResults ? ipcResults[method] : undefined;
+      return dispatchIpcCall(method, params);
     },
     PersistentIpcClient: FakePersistentIpcClient,
   }));

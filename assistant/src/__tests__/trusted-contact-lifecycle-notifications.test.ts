@@ -135,7 +135,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
   test("guardian deny emits guardian_decision and denied signals with display names", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -229,7 +229,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
   test("guardian approve emits guardian_decision and verification_sent signals with display names", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -317,7 +317,7 @@ describe("trusted contact lifecycle notification signals", () => {
 
   test("deduplication keys prevent duplicate signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -383,7 +383,7 @@ describe("trusted contact lifecycle notification signals", () => {
     // contact's displayName to empty string after creation — the signal
     // enrichment code treats empty string the same as null for display
     // purposes.
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-noname-111",
       guardianDeliveryChatId: "guardian-chat-111",
@@ -467,7 +467,7 @@ describe("trusted contact activated notification signal", () => {
 
   test("successful trusted contact verification emits activated signal", async () => {
     // Set up a guardian binding so the verification path allows bypass
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -522,7 +522,7 @@ describe("trusted contact activated notification signal", () => {
   });
 
   test("re-verification preserves an existing guardian-managed member display name", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -600,7 +600,7 @@ describe("trusted contact activated notification signal", () => {
 
   test("member is persisted BEFORE activated signal is emitted", async () => {
     // Set up a guardian binding
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",

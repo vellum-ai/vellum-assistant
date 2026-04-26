@@ -265,7 +265,7 @@ describe("Telegram callback seen signals", () => {
     // Create a guardian binding (via contacts) so approval can be handled
     const { createGuardianBinding } =
       await import("../contacts/contacts-write.js");
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",

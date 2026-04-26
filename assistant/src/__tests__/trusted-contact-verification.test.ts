@@ -351,9 +351,9 @@ describe("trusted contact verification → member activation", () => {
     expect(reactivatedResult!.channel.policy).toBe("allow");
   });
 
-  test("trusted contact verification does NOT create a guardian binding", () => {
+  test("trusted contact verification does NOT create a guardian binding", async () => {
     // Ensure there's an existing guardian binding we want to preserve
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-original",
       guardianDeliveryChatId: "guardian-chat-original",

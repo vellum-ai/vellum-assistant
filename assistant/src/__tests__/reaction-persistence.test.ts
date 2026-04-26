@@ -405,8 +405,8 @@ const GUARDIAN_DISPLAY_NAME = "Guardian Reactor";
 const GUARDIAN_REACTION_TOOL = "execute_shell";
 const GUARDIAN_REACTION_INPUT = { command: "rm -rf /tmp/test" };
 
-function seedGuardianForChannel(): void {
-  createGuardianBinding({
+async function seedGuardianForChannel(): Promise<void> {
+  await createGuardianBinding({
     channel: "slack",
     guardianExternalUserId: GUARDIAN_USER_ID,
     guardianDeliveryChatId: SLACK_CHANNEL_ID,
@@ -469,7 +469,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
   });
 
   test("guardian reaction on pending approval applies decision and persists no transcript row", async () => {
-    seedGuardianForChannel();
+    await seedGuardianForChannel();
     const requestId = "req-guardian-react-1";
     // Conversation must exist so the approval row's conversation_id FK
     // resolves; reuse an inbound seed by sending a no-op message that the

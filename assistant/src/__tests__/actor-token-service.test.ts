@@ -62,9 +62,12 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("guardian vellum migration", () => {
-  test("ensureVellumGuardianBinding creates binding when missing", () => {
+  test("ensureVellumGuardianBinding creates binding when missing", async () => {
     const principalId = ensureVellumGuardianBinding("self");
     expect(principalId).toMatch(/^vellum-principal-/);
+
+    // The write is fire-and-forget via IPC — yield to let it resolve.
+    await new Promise((r) => setTimeout(r, 10));
 
     const guardianResult = findGuardianForChannel("vellum");
     expect(guardianResult).not.toBeNull();
@@ -72,14 +75,15 @@ describe("guardian vellum migration", () => {
     expect(guardianResult!.channel.verifiedVia).toBe("startup-migration");
   });
 
-  test("ensureVellumGuardianBinding is idempotent", () => {
+  test("ensureVellumGuardianBinding is idempotent", async () => {
     const first = ensureVellumGuardianBinding("self");
+    await new Promise((r) => setTimeout(r, 10));
     const second = ensureVellumGuardianBinding("self");
     expect(first).toBe(second);
   });
 
-  test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
-    createGuardianBinding({
+  test("ensureVellumGuardianBinding preserves existing bindings for other channels", async () => {
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "tg-user-123",
       guardianDeliveryChatId: "tg-chat-456",

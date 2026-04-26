@@ -1504,7 +1504,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
@@ -1552,7 +1552,7 @@ describe("relay-server", () => {
       toNumber: "+15551111111",
     });
 
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
@@ -1605,7 +1605,7 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-guardian-outbound-voice-origin",
     });
 
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
@@ -1655,7 +1655,7 @@ describe("relay-server", () => {
       initiatedFromConversationId: "conv-guardian-outbound-strict-origin",
     });
 
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "tg-guardian-user",
       guardianDeliveryChatId: "tg-guardian-chat",
@@ -2000,6 +2000,9 @@ describe("relay-server", () => {
 
     // Verification should have succeeded
     expect(relay.isVerificationSessionActive()).toBe(false);
+
+    // Yield to let the async createGuardianBinding IPC + pointer message settle
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     // Origin conversation should have a pointer message
     const originText = getLatestAssistantText("conv-gv-pointer-success-origin");
@@ -4166,7 +4169,7 @@ describe("relay-server", () => {
     mockUserReference = "Alice";
 
     // Create a guardian binding with a different displayName
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15559990001",
       guardianDeliveryChatId: "+15559990001",
@@ -4211,7 +4214,7 @@ describe("relay-server", () => {
     mockUserReference = "my human";
 
     // Create a guardian binding with a displayName
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "+15559990002",
       guardianDeliveryChatId: "+15559990002",

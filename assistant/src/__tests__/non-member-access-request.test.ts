@@ -103,8 +103,14 @@ function resetState(): string {
     reason: "mock",
     deliveryResults: [],
   };
-  // Ensure the vellum anchor binding exists and return its principal
+  // Ensure the vellum anchor binding exists and return its principal.
+  // ensureVellumGuardianBinding is sync but fire-and-forgets the IPC write.
   return ensureVellumGuardianBinding("self");
+}
+
+/** Yield to let fire-and-forget IPC writes settle. */
+async function flushIpcWrites(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 10));
 }
 
 async function flushAsyncAccessRequestBookkeeping(): Promise<void> {
@@ -143,8 +149,9 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 
 describe("non-member access request notification", () => {
   let anchorPrincipalId: string;
-  beforeEach(() => {
+  beforeEach(async () => {
     anchorPrincipalId = resetState();
+    await flushIpcWrites();
   });
 
   test("non-member message is denied with rejection reply", async () => {
@@ -165,7 +172,7 @@ describe("non-member access request notification", () => {
 
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel using the anchor principal
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -210,7 +217,7 @@ describe("non-member access request notification", () => {
   });
 
   test("no duplicate approval requests for repeated messages from same non-member", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -282,7 +289,7 @@ describe("non-member access request notification", () => {
     // Only a voice guardian binding exists — no Telegram binding.
     // Since cross-channel fallback was removed, the access request resolves
     // to the assistant's vellum anchor identity instead.
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "guardian-voice-user",
       guardianDeliveryChatId: "guardian-voice-chat",
@@ -318,7 +325,7 @@ describe("non-member access request notification", () => {
   });
 
   test("no notification when actorExternalId is absent", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -340,8 +347,9 @@ describe("non-member access request notification", () => {
 
 describe("access-request-helper unit tests", () => {
   let anchorPrincipalId: string;
-  beforeEach(() => {
+  beforeEach(async () => {
     anchorPrincipalId = resetState();
+    await flushIpcWrites();
   });
 
   test("notifyGuardianOfAccessRequest returns no_sender_id when actorExternalId is absent", () => {
@@ -393,9 +401,9 @@ describe("access-request-helper unit tests", () => {
     expect(emitSignalCalls.length).toBe(1);
   });
 
-  test("notifyGuardianOfAccessRequest falls back to assistant-anchored vellum identity when source-channel binding is missing", () => {
+  test("notifyGuardianOfAccessRequest falls back to assistant-anchored vellum identity when source-channel binding is missing", async () => {
     // Only voice binding exists
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "guardian-voice",
       guardianDeliveryChatId: "voice-chat",
@@ -428,16 +436,16 @@ describe("access-request-helper unit tests", () => {
     expect(payload.guardianBindingChannel).toBe("vellum");
   });
 
-  test("notifyGuardianOfAccessRequest prefers source-channel binding over vellum anchor", () => {
+  test("notifyGuardianOfAccessRequest prefers source-channel binding over vellum anchor", async () => {
     // Both Telegram and voice bindings exist with the anchor principal
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
       guardianDeliveryChatId: "tg-chat",
       guardianPrincipalId: anchorPrincipalId,
       verifiedVia: "test",
     });
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "phone",
       guardianExternalUserId: "guardian-voice",
       guardianDeliveryChatId: "voice-chat",
@@ -596,7 +604,7 @@ describe("access-request-helper unit tests", () => {
     // Set up a telegram guardian binding with the anchor principal so
     // guardianResolutionSource resolves to "source-channel-contact" and
     // sameChannelOnly is true.
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-456",
       guardianDeliveryChatId: "guardian-chat-456",

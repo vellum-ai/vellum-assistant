@@ -191,7 +191,7 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
 
   test("trusted contact with guardian binding gets interactive turn", async () => {
     // Create guardian binding in contacts table so the trust resolver finds it
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-user-for-tc",
       guardianDeliveryChatId: "guardian-chat-for-tc",
@@ -291,7 +291,7 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
 
   test("guardian actors remain interactive regardless", async () => {
     // Guardian binding matches the sender — use contacts-first so trust resolver finds it
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",

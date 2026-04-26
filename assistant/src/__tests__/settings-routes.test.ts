@@ -17,13 +17,32 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { mkdirSync } from "node:fs";
+
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb } from "../memory/db.js";
+import { GUARDIAN_PERSONA_TEMPLATE } from "../prompts/persona-resolver.js";
 import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
 
 initializeDb();
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
+
+/**
+ * Manually set userFile and seed the persona file on disk.
+ * createGuardianBinding delegates to the gateway which doesn't set
+ * userFile — tests that depend on persona file presence must call this.
+ */
+function seedGuardianPersona(slug: string): void {
+  const db = getSqlite();
+  db.run(
+    `UPDATE contacts SET user_file = ? WHERE role = 'guardian'`,
+    [slug],
+  );
+  const usersDir = join(testWorkspaceDir, "users");
+  mkdirSync(usersDir, { recursive: true });
+  writeFileSync(join(usersDir, slug), GUARDIAN_PERSONA_TEMPLATE, "utf-8");
+}
 
 function resetContactTables(): void {
   const sqlite = getSqlite();
@@ -87,13 +106,14 @@ describe("GET /workspace-files", () => {
   });
 
   test("with a guardian: includes users/<slug>.md", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
       guardianDeliveryChatId: "chat-alice",
       guardianPrincipalId: "principal-alice",
       verifiedVia: "challenge",
     });
+    seedGuardianPersona("alice.md");
 
     const res = await handler(makeCtx("workspace-files"));
     expect(res.status).toBe(200);
@@ -124,13 +144,14 @@ describe("GET /workspace-files", () => {
     expect(body.files.map((f) => f.path)).not.toContain("users/alice.md");
 
     // Create a guardian mid-session.
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
       guardianDeliveryChatId: "chat-alice",
       guardianPrincipalId: "principal-alice",
       verifiedVia: "challenge",
     });
+    seedGuardianPersona("alice.md");
 
     // The next request must reflect the new guardian — we do not want a
     // stale module-level cache here.
@@ -154,18 +175,16 @@ describe("GET /workspace-files/read", () => {
   });
 
   test("reads a guardian users/<slug>.md file", async () => {
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
       guardianDeliveryChatId: "chat-alice",
       guardianPrincipalId: "principal-alice",
       verifiedVia: "challenge",
     });
+    seedGuardianPersona("alice.md");
 
     const personaPath = join(testWorkspaceDir, "users", "alice.md");
-    // The template scaffold is seeded when the binding is created; overwrite
-    // with something recognizable so the test asserts on exact content rather
-    // than scaffold boilerplate.
     expect(existsSync(personaPath)).toBe(true);
     writeFileSync(
       personaPath,

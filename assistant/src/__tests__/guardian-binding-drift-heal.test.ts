@@ -25,9 +25,9 @@ describe("healGuardianBindingDrift", () => {
     resetTables();
   });
 
-  test("heals drift when both principals have vellum-principal- prefix", () => {
+  test("heals drift when both principals have vellum-principal- prefix", async () => {
     // Simulate DB reset: new guardian binding with a different UUID
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "vellum-principal-new-uuid",
       guardianDeliveryChatId: "local",
@@ -46,8 +46,8 @@ describe("healGuardianBindingDrift", () => {
     expect(guardian!.channel.externalUserId).toBe("vellum-principal-old-uuid");
   });
 
-  test("no-op when principals already match", () => {
-    createGuardianBinding({
+  test("no-op when principals already match", async () => {
+    await createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "vellum-principal-same",
       guardianDeliveryChatId: "local",
@@ -59,8 +59,8 @@ describe("healGuardianBindingDrift", () => {
     expect(healed).toBe(false);
   });
 
-  test("refuses to heal when incoming principal lacks vellum-principal- prefix", () => {
-    createGuardianBinding({
+  test("refuses to heal when incoming principal lacks vellum-principal- prefix", async () => {
+    await createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "vellum-principal-aaa",
       guardianDeliveryChatId: "local",
@@ -77,8 +77,8 @@ describe("healGuardianBindingDrift", () => {
     expect(guardian!.contact.principalId).toBe("vellum-principal-aaa");
   });
 
-  test("refuses to heal when stored principal lacks vellum-principal- prefix", () => {
-    createGuardianBinding({
+  test("refuses to heal when stored principal lacks vellum-principal- prefix", async () => {
+    await createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "verified-phone-guardian",
       guardianDeliveryChatId: "local",

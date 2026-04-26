@@ -331,7 +331,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   let port: number;
   let eventHub: AssistantEventHub;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
@@ -342,7 +342,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     db.run("DELETE FROM contacts");
     pendingInteractions.clear();
 
-    createGuardianBinding({
+    await createGuardianBinding({
       channel: "vellum",
       guardianExternalUserId: "dev-bypass",
       guardianDeliveryChatId: "vellum",

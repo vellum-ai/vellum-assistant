@@ -206,7 +206,7 @@ for (const config of CHANNEL_CONFIGS) {
     });
 
     test("guardian is notified when a non-member messages", async () => {
-      createGuardianBinding({
+      await createGuardianBinding({
         channel: config.channel,
         guardianExternalUserId: config.guardianExternalUserId,
         guardianDeliveryChatId: config.guardianChatId,
