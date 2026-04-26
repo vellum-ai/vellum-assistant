@@ -28,7 +28,7 @@ import {
   type UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
-import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
+import { getTrustRuleCache } from "./trust-rule-cache.js";
 
 // ── Risk ordering helpers ────────────────────────────────────────────────────
 
@@ -357,7 +357,7 @@ export function classifySegment(
   const { spec: resolvedSpec, remainingArgs: _remainingArgs } =
     resolveSubcommand(spec, segment.args);
 
-  // 4b. Check TrustRuleV3Cache for base risk overrides.
+  // 4b. Check TrustRuleCache for base risk overrides.
   // The cache overrides ONLY baseRisk — structural data (argRules, subcommands,
   // isWrapper, sandboxAutoApprove, argSchema) still comes from the registry.
   let effectiveBaseRisk: Risk = resolvedSpec.baseRisk;
@@ -386,7 +386,7 @@ export function classifySegment(
       subcommandChain.length > 0
         ? `${programName} ${subcommandChain.join(" ")}`
         : programName;
-    const cachedRule = getTrustRuleV3Cache().findBaseRisk(
+    const cachedRule = getTrustRuleCache().findBaseRisk(
       toolName,
       subcommandPattern,
     );

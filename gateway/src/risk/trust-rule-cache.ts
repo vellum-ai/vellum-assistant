@@ -1,18 +1,18 @@
 import {
-  TrustRuleV3Store,
-  type TrustRuleV3,
-} from "../db/trust-rule-v3-store.js";
+  TrustRuleStore,
+  type TrustRule,
+} from "../db/trust-rule-store.js";
 
 // ---------------------------------------------------------------------------
 // Cache class
 // ---------------------------------------------------------------------------
 
-class TrustRuleV3Cache {
-  private store: TrustRuleV3Store;
+class TrustRuleCache {
+  private store: TrustRuleStore;
   /** Outer key = tool, inner key = pattern */
-  private rules: Map<string, Map<string, TrustRuleV3>> = new Map();
+  private rules: Map<string, Map<string, TrustRule>> = new Map();
 
-  constructor(store: TrustRuleV3Store) {
+  constructor(store: TrustRuleStore) {
     this.store = store;
     this.refresh();
   }
@@ -43,7 +43,7 @@ class TrustRuleV3Cache {
    * 3. Subcommand match: for multi-word commands (e.g. `git push`),
    *    try progressively shorter prefixes (`"git push"` then `"git"`)
    */
-  findBaseRisk(tool: string, command: string): TrustRuleV3 | null {
+  findBaseRisk(tool: string, command: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
 
@@ -75,7 +75,7 @@ class TrustRuleV3Cache {
    * Look up a tool override rule by exact (tool, pattern) match.
    * Used for non-bash classifiers (file, web, skill, schedule).
    */
-  findToolOverride(tool: string, pattern: string): TrustRuleV3 | null {
+  findToolOverride(tool: string, pattern: string): TrustRule | null {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return null;
     return toolMap.get(pattern) ?? null;
@@ -84,7 +84,7 @@ class TrustRuleV3Cache {
   /**
    * Return all active rules for a given tool.
    */
-  getAllForTool(tool: string): TrustRuleV3[] {
+  getAllForTool(tool: string): TrustRule[] {
     const toolMap = this.rules.get(tool);
     if (!toolMap) return [];
     return Array.from(toolMap.values());
@@ -115,24 +115,24 @@ class TrustRuleV3Cache {
 // Singleton
 // ---------------------------------------------------------------------------
 
-let cache: TrustRuleV3Cache | null = null;
+let cache: TrustRuleCache | null = null;
 
-export function initTrustRuleV3Cache(store?: TrustRuleV3Store): void {
-  cache = new TrustRuleV3Cache(store ?? new TrustRuleV3Store());
+export function initTrustRuleCache(store?: TrustRuleStore): void {
+  cache = new TrustRuleCache(store ?? new TrustRuleStore());
 }
 
-export function getTrustRuleV3Cache(): TrustRuleV3Cache {
+export function getTrustRuleCache(): TrustRuleCache {
   if (!cache)
     throw new Error(
-      "Risk rule cache not initialized \u2014 call initTrustRuleV3Cache() at startup",
+      "Risk rule cache not initialized \u2014 call initTrustRuleCache() at startup",
     );
   return cache;
 }
 
-export function invalidateTrustRuleV3Cache(): void {
+export function invalidateTrustRuleCache(): void {
   cache?.refresh();
 }
 
-export function resetTrustRuleV3Cache(): void {
+export function resetTrustRuleCache(): void {
   cache = null;
 }

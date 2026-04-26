@@ -3217,12 +3217,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/trust-rules-v3": {
+      "/v1/trust-rules": {
         get: {
           summary: "List v3 trust rules",
           description:
             "Authenticated gateway endpoint that lists trust rules from the v3 SQLite-backed store. By default returns user-relevant rules (user_defined + user-modified defaults). Supports `origin`, `tool`, and `include_deleted` query filters.",
-          operationId: "trustRulesV3Get",
+          operationId: "trustRulesGet",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -3258,8 +3258,8 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Create a v3 trust rule",
           description:
-            "Authenticated gateway endpoint that creates a user-defined trust rule in the v3 SQLite-backed store. Gated behind the `permission-controls-v3` feature flag.",
-          operationId: "trustRulesV3Post",
+            "Authenticated gateway endpoint that creates a user-defined trust rule in the v3 SQLite-backed store. Gated behind the `permission-controls` feature flag.",
+          operationId: "trustRulesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -3279,12 +3279,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/trust-rules-v3/suggest": {
+      "/v1/trust-rules/suggest": {
         post: {
           summary: "Suggest a v3 trust rule",
           description:
-            "Authenticated gateway endpoint that calls the assistant daemon to generate an LLM-powered trust rule suggestion for a given command invocation. Gated behind the `permission-controls-v3` feature flag.",
-          operationId: "trustRulesV3Suggest",
+            "Authenticated gateway endpoint that calls the assistant daemon to generate an LLM-powered trust rule suggestion for a given command invocation. Gated behind the `permission-controls` feature flag.",
+          operationId: "trustRulesSuggest",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -3305,12 +3305,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/trust-rules-v3/{ruleId}": {
+      "/v1/trust-rules/{ruleId}": {
         patch: {
           summary: "Update a v3 trust rule",
           description:
-            "Authenticated gateway endpoint that updates a v3 trust rule's risk and/or description. Default rules are marked `userModified=true` on change. Gated behind the `permission-controls-v3` feature flag.",
-          operationId: "trustRulesV3Patch",
+            "Authenticated gateway endpoint that updates a v3 trust rule's risk and/or description. Default rules are marked `userModified=true` on change. Gated behind the `permission-controls` feature flag.",
+          operationId: "trustRulesPatch",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -3341,8 +3341,8 @@ export function buildSchema(): Record<string, unknown> {
         delete: {
           summary: "Delete a v3 trust rule",
           description:
-            "Authenticated gateway endpoint that deletes a v3 trust rule. User-defined rules are hard-deleted; default rules are soft-deleted. Gated behind the `permission-controls-v3` feature flag.",
-          operationId: "trustRulesV3Delete",
+            "Authenticated gateway endpoint that deletes a v3 trust rule. User-defined rules are hard-deleted; default rules are soft-deleted. Gated behind the `permission-controls` feature flag.",
+          operationId: "trustRulesDelete",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -3364,12 +3364,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/trust-rules-v3/{ruleId}/reset": {
+      "/v1/trust-rules/{ruleId}/reset": {
         post: {
           summary: "Reset a v3 default trust rule",
           description:
-            "Authenticated gateway endpoint that resets a modified default trust rule back to its original risk and description from the command registry. Only valid for rules with `origin=default`. Gated behind the `permission-controls-v3` feature flag.",
-          operationId: "trustRulesV3ResetPost",
+            "Authenticated gateway endpoint that resets a modified default trust rule back to its original risk and description from the command registry. Only valid for rules with `origin=default`. Gated behind the `permission-controls` feature flag.",
+          operationId: "trustRulesResetPost",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -3391,233 +3391,6 @@ export function buildSchema(): Record<string, unknown> {
             "403": { description: "Feature not enabled" },
             "404": { description: "Trust rule not found" },
             "500": { description: "Internal server error" },
-          },
-        },
-      },
-      "/v1/trust-rules": {
-        get: {
-          summary: "List trust rules",
-          description:
-            "Authenticated gateway endpoint that lists all trust rules. Returns canonicalized rules with family-aware field normalization.",
-          operationId: "trustRulesGet",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": { description: "Trust rules returned" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-        post: {
-          summary: "Add a trust rule",
-          description:
-            "Authenticated gateway endpoint that adds a new trust rule. Payloads are canonicalized through family-aware parsing before persistence: fields invalid for the tool's family (e.g. executionTarget on URL-tool rules, scope on non-scoped tools) are silently stripped. The `scope` field is required for scoped tools (bash, file_read, etc.) and optional for all others. Legacy request shapes are accepted without 4xx regressions.",
-          operationId: "trustRulesPost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Trust rule added" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/trust-rules/clear": {
-        post: {
-          summary: "Clear all user trust rules",
-          description:
-            "Authenticated gateway endpoint that clears all user-defined trust rules via the assistant runtime.",
-          operationId: "trustRulesClearPost",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": { description: "Trust rules cleared" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/trust-rules/match": {
-        get: {
-          summary: "Query matching trust rule",
-          description:
-            "Authenticated gateway endpoint that queries for a matching trust rule via the assistant runtime.",
-          operationId: "trustRulesMatchGet",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "tool",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-              description: "Tool name to match against.",
-            },
-            {
-              name: "pattern",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-              description: "Pattern to match against.",
-            },
-            {
-              name: "scope",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-              description: "Scope to match against.",
-            },
-          ],
-          responses: {
-            "200": { description: "Matching trust rule returned" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/trust-rules/starter-bundle": {
-        post: {
-          summary: "Accept starter trust rule bundle",
-          description:
-            "Authenticated gateway endpoint that accepts a starter bundle of trust rules via the assistant runtime.",
-          operationId: "trustRulesStarterBundlePost",
-          security: [{ BearerAuth: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Starter bundle accepted" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/trust-rules/{ruleId}": {
-        patch: {
-          summary: "Update a trust rule",
-          description:
-            "Authenticated gateway endpoint that updates a trust rule by ID via the assistant runtime.",
-          operationId: "trustRulesPatch",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "ruleId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Trust rule updated" },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Trust rule not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-        delete: {
-          summary: "Delete a trust rule",
-          description:
-            "Authenticated gateway endpoint that deletes a trust rule by ID via the assistant runtime.",
-          operationId: "trustRulesDelete",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "ruleId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            "200": { description: "Trust rule deleted" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Trust rule not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/integrations/status": {
-        get: {
-          summary: "Integration status",
-          description:
-            "Returns the current status of configured integrations, including the assistant's email address. Requires a valid bearer token.",
-          operationId: "integrationsStatus",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "Integration status",
-              content: {
-                "application/json": {
-                  schema: {
-                    $ref: "#/components/schemas/IntegrationsStatusResponse",
-                  },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "503": {
-              description: "Bearer token not configured",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
           },
         },
       },

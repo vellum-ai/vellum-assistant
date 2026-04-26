@@ -7,10 +7,10 @@
 
 import { z } from "zod";
 import {
-  TrustRuleV3Store,
+  TrustRuleStore,
   VALID_RISK_VALUES,
-} from "../../db/trust-rule-v3-store.js";
-import { invalidateTrustRuleV3Cache } from "../../risk/trust-rule-v3-cache.js";
+} from "../../db/trust-rule-store.js";
+import { invalidateTrustRuleCache } from "../../risk/trust-rule-cache.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry/index.js";
 import { getLogger } from "../../logger.js";
 import { ipcSuggestTrustRule } from "../../ipc/assistant-client.js";
@@ -18,10 +18,10 @@ import { getGatewayDb } from "../../db/connection.js";
 import { autoApproveThresholds } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 
-const log = getLogger("trust-rules-v3");
+const log = getLogger("trust-rules");
 
 // ---------------------------------------------------------------------------
-// Zod schema for POST /v1/trust-rules-v3/suggest request body
+// Zod schema for POST /v1/trust-rules/suggest request body
 // ---------------------------------------------------------------------------
 
 const SuggestRequestSchema = z.object({
@@ -68,10 +68,10 @@ function readInteractiveThreshold(): string {
 }
 
 // ---------------------------------------------------------------------------
-// POST /v1/trust-rules-v3/suggest — LLM-generated trust rule suggestion
+// POST /v1/trust-rules/suggest — LLM-generated trust rule suggestion
 // ---------------------------------------------------------------------------
 
-export function createTrustRuleV3SuggestHandler() {
+export function createTrustRulesSuggestHandler() {
   return async (req: Request): Promise<Response> => {
     let body: unknown;
     try {
@@ -109,11 +109,11 @@ export function createTrustRuleV3SuggestHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// GET /v1/trust-rules-v3 — list rules
+// GET /v1/trust-rules — list rules
 // ---------------------------------------------------------------------------
 
-export function createTrustRuleV3sListHandler() {
-  const store = new TrustRuleV3Store();
+export function createTrustRulesListHandler() {
+  const store = new TrustRuleStore();
 
   return async (req: Request): Promise<Response> => {
     try {
@@ -142,11 +142,11 @@ export function createTrustRuleV3sListHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// POST /v1/trust-rules-v3 — create rule
+// POST /v1/trust-rules — create rule
 // ---------------------------------------------------------------------------
 
-export function createTrustRuleV3sCreateHandler() {
-  const store = new TrustRuleV3Store();
+export function createTrustRulesCreateHandler() {
+  const store = new TrustRuleStore();
 
   return async (req: Request): Promise<Response> => {
     let body: unknown;
@@ -198,7 +198,7 @@ export function createTrustRuleV3sCreateHandler() {
 
     try {
       const rule = store.create({ tool, pattern, risk, description });
-      invalidateTrustRuleV3Cache();
+      invalidateTrustRuleCache();
       return Response.json({ rule }, { status: 201 });
     } catch (err) {
       const message =
@@ -210,11 +210,11 @@ export function createTrustRuleV3sCreateHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// PATCH /v1/trust-rules-v3/:id — update rule
+// PATCH /v1/trust-rules/:id — update rule
 // ---------------------------------------------------------------------------
 
-export function createTrustRuleV3sUpdateHandler() {
-  const store = new TrustRuleV3Store();
+export function createTrustRulesUpdateHandler() {
+  const store = new TrustRuleStore();
 
   return async (req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
@@ -262,7 +262,7 @@ export function createTrustRuleV3sUpdateHandler() {
         risk: risk as string | undefined,
         description: description as string | undefined,
       });
-      invalidateTrustRuleV3Cache();
+      invalidateTrustRuleCache();
       return Response.json({ rule });
     } catch (err) {
       const message =
@@ -277,11 +277,11 @@ export function createTrustRuleV3sUpdateHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /v1/trust-rules-v3/:id — delete rule
+// DELETE /v1/trust-rules/:id — delete rule
 // ---------------------------------------------------------------------------
 
-export function createTrustRuleV3sDeleteHandler() {
-  const store = new TrustRuleV3Store();
+export function createTrustRulesDeleteHandler() {
+  const store = new TrustRuleStore();
 
   return async (_req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
@@ -290,7 +290,7 @@ export function createTrustRuleV3sDeleteHandler() {
 
     try {
       store.remove(ruleId);
-      invalidateTrustRuleV3Cache();
+      invalidateTrustRuleCache();
       return Response.json({ success: true });
     } catch (err) {
       const message =
@@ -305,7 +305,7 @@ export function createTrustRuleV3sDeleteHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// POST /v1/trust-rules-v3/:id/reset — reset default rule
+// POST /v1/trust-rules/:id/reset — reset default rule
 // ---------------------------------------------------------------------------
 
 /**
@@ -357,8 +357,8 @@ function lookupOriginalDefaults(
   return { risk: resolved.baseRisk, description };
 }
 
-export function createTrustRuleV3sResetHandler() {
-  const store = new TrustRuleV3Store();
+export function createTrustRulesResetHandler() {
+  const store = new TrustRuleStore();
 
   return async (_req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
@@ -398,7 +398,7 @@ export function createTrustRuleV3sResetHandler() {
         originalDefaults.risk,
         originalDefaults.description,
       );
-      invalidateTrustRuleV3Cache();
+      invalidateTrustRuleCache();
       return Response.json({ rule });
     } catch (err) {
       const message =

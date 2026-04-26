@@ -96,14 +96,14 @@ import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commi
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import {
-  createTrustRuleV3sListHandler,
-  createTrustRuleV3sCreateHandler,
-  createTrustRuleV3sUpdateHandler,
-  createTrustRuleV3sDeleteHandler,
-  createTrustRuleV3sResetHandler,
-  createTrustRuleV3SuggestHandler,
-} from "./http/routes/trust-rules-v3.js";
-import { initTrustRuleV3Cache } from "./risk/trust-rule-v3-cache.js";
+  createTrustRulesListHandler,
+  createTrustRulesCreateHandler,
+  createTrustRulesUpdateHandler,
+  createTrustRulesDeleteHandler,
+  createTrustRulesResetHandler,
+  createTrustRulesSuggestHandler,
+} from "./http/routes/trust-rules.js";
+import { initTrustRuleCache } from "./risk/trust-rule-cache.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -246,7 +246,7 @@ async function main() {
   log.info("JWT signing key initialized");
 
   await initGatewayDb();
-  initTrustRuleV3Cache();
+  initTrustRuleCache();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -367,12 +367,12 @@ async function main() {
     createConversationThresholdPutHandler();
   const handleConversationThresholdDelete =
     createConversationThresholdDeleteHandler();
-  const handleTrustRuleV3sList = createTrustRuleV3sListHandler();
-  const handleTrustRuleV3sCreate = createTrustRuleV3sCreateHandler();
-  const handleTrustRuleV3sUpdate = createTrustRuleV3sUpdateHandler();
-  const handleTrustRuleV3sDelete = createTrustRuleV3sDeleteHandler();
-  const handleTrustRuleV3sReset = createTrustRuleV3sResetHandler();
-  const handleTrustRuleV3sSuggest = createTrustRuleV3SuggestHandler();
+  const handleTrustRulesList = createTrustRulesListHandler();
+  const handleTrustRulesCreate = createTrustRulesCreateHandler();
+  const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
+  const handleTrustRulesDelete = createTrustRulesDeleteHandler();
+  const handleTrustRulesReset = createTrustRulesResetHandler();
+  const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
 
   const audioProxy = createAudioProxyHandler(config);
 
@@ -1171,43 +1171,43 @@ async function main() {
 
     // ── Trust rules v3 ──
     {
-      path: "/v1/trust-rules-v3",
+      path: "/v1/trust-rules",
       method: "GET",
       auth: "edge",
-      handler: (req) => handleTrustRuleV3sList(req),
+      handler: (req) => handleTrustRulesList(req),
     },
     {
-      // Must appear before the POST /v1/trust-rules-v3 create entry and before
+      // Must appear before the POST /v1/trust-rules create entry and before
       // the /:id catch-all regex so the literal path is matched first.
-      path: "/v1/trust-rules-v3/suggest",
+      path: "/v1/trust-rules/suggest",
       method: "POST",
       auth: "edge",
-      handler: (req) => handleTrustRuleV3sSuggest(req),
+      handler: (req) => handleTrustRulesSuggest(req),
     },
     {
-      path: "/v1/trust-rules-v3",
+      path: "/v1/trust-rules",
       method: "POST",
       auth: "edge",
-      handler: (req) => handleTrustRuleV3sCreate(req),
+      handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex
-      path: /^\/v1\/trust-rules-v3\/([^/]+)\/reset$/,
+      path: /^\/v1\/trust-rules\/([^/]+)\/reset$/,
       method: "POST",
       auth: "edge",
-      handler: (req, params) => handleTrustRuleV3sReset(req, params[0]),
+      handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
-      path: /^\/v1\/trust-rules-v3\/([^/]+)$/,
+      path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
-      handler: (req, params) => handleTrustRuleV3sUpdate(req, params[0]),
+      handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
-      path: /^\/v1\/trust-rules-v3\/([^/]+)$/,
+      path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "DELETE",
       auth: "edge",
-      handler: (req, params) => handleTrustRuleV3sDelete(req, params[0]),
+      handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
   ];

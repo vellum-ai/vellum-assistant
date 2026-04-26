@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
-import { TrustRuleV3Store } from "../db/trust-rule-v3-store.js";
+import { TrustRuleStore } from "../db/trust-rule-store.js";
 import "./test-preload.js";
 
 // ---------------------------------------------------------------------------
@@ -12,7 +12,7 @@ import "./test-preload.js";
 // on (tool, pattern) will trip on re-inserts.
 // ---------------------------------------------------------------------------
 
-let store: TrustRuleV3Store;
+let store: TrustRuleStore;
 
 /**
  * Baseline counts captured after initGatewayDb() seeds the registry defaults.
@@ -26,7 +26,7 @@ let seededTotalWithDeleted: number;
 beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
-  store = new TrustRuleV3Store();
+  store = new TrustRuleStore();
 
   // Capture baselines — initGatewayDb() seeds DEFAULT_COMMAND_REGISTRY.
   // The file accumulates user rules across tests, so these counts drift

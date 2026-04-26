@@ -1,19 +1,19 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
-import { seedTrustRuleV3sFromRegistry } from "../db/seed-trust-rules-v3.js";
-import { TrustRuleV3Store } from "../db/trust-rule-v3-store.js";
+import { seedTrustRulesFromRegistry } from "../db/seed-trust-rules.js";
+import { TrustRuleStore } from "../db/trust-rule-store.js";
 import "./test-preload.js";
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
-let store: TrustRuleV3Store;
+let store: TrustRuleStore;
 
 beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
-  store = new TrustRuleV3Store();
+  store = new TrustRuleStore();
 });
 
 afterEach(() => {
@@ -24,7 +24,7 @@ afterEach(() => {
 // Basic seeding
 // ---------------------------------------------------------------------------
 
-describe("seedTrustRuleV3sFromRegistry()", () => {
+describe("seedTrustRulesFromRegistry()", () => {
   test("creates rows for all registry entries (top-level + subcommands)", () => {
     // initGatewayDb() already seeds, so just check the result
     const rules = store.list({ origin: "default" });
@@ -61,7 +61,7 @@ describe("seedTrustRuleV3sFromRegistry()", () => {
     const countBefore = rulesBefore.length;
 
     // Seed again
-    const count = seedTrustRuleV3sFromRegistry(store);
+    const count = seedTrustRulesFromRegistry(store);
 
     const rulesAfter = store.list({ origin: "default" });
     expect(rulesAfter.length).toBe(countBefore);
@@ -73,7 +73,7 @@ describe("seedTrustRuleV3sFromRegistry()", () => {
     const idsBefore = new Set(rulesBefore.map((r) => r.id));
 
     // Seed again
-    seedTrustRuleV3sFromRegistry(store);
+    seedTrustRulesFromRegistry(store);
 
     const rulesAfter = store.list({ origin: "default" });
     const idsAfter = new Set(rulesAfter.map((r) => r.id));
@@ -109,7 +109,7 @@ describe("three-guard upsert protection", () => {
     expect(modified.userModified).toBe(true);
 
     // Re-seed
-    seedTrustRuleV3sFromRegistry(store);
+    seedTrustRulesFromRegistry(store);
 
     // Verify the modified rule was NOT overwritten
     const afterReseed = store.getById("default:bash:ls")!;
@@ -125,7 +125,7 @@ describe("three-guard upsert protection", () => {
     expect(deleted.deleted).toBe(true);
 
     // Re-seed
-    seedTrustRuleV3sFromRegistry(store);
+    seedTrustRulesFromRegistry(store);
 
     // Verify the deleted rule was NOT restored
     const afterReseed = store.getById("default:bash:ls")!;

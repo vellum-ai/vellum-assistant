@@ -291,7 +291,7 @@ struct SettingsPanel: View {
             bootstrapGeneration += 1
         }
         .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
-            V3TrustRulesView(trustRuleV3Client: TrustRuleV3Client())
+            TrustRulesView(trustRuleClient: TrustRuleClient())
         }
         .onAppear {
             devUnlockMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in

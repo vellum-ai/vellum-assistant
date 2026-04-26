@@ -16,11 +16,11 @@ struct V3SavedRule {
     let scope: String
 }
 
-// MARK: - V3RuleEditorModal
+// MARK: - RuleEditorModal
 
 /// V3 Rule Editor Modal — minimal, focused on generalization and risk assessment.
 /// Shows only the generalized pattern options (skips exact match) and risk level picker.
-struct V3RuleEditorModal: View {
+struct RuleEditorModal: View {
     /// Raw tool identifier (e.g. "bash", "host_bash") used for trust rule persistence.
     let toolName: String
     let commandText: String

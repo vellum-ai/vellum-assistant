@@ -301,7 +301,7 @@ struct AssistantProgressView: View {
             handleOnAppear()
         }
         .sheet(item: $suggestRuleToolCall) { tc in
-            V3RuleEditorModal(
+            RuleEditorModal(
                 toolName: tc.toolName,
                 commandText: tc.inputSummary,
                 commandDescription: tc.reasonDescription ?? "",
@@ -311,7 +311,7 @@ struct AssistantProgressView: View {
                 suggestion: suggestRuleSuggestion,
                 onSave: { rule in
                     Task {
-                        try? await TrustRuleV3Client().createRule(
+                        try? await TrustRuleClient().createRule(
                             tool: rule.toolName,
                             pattern: rule.pattern,
                             risk: rule.riskLevel,
@@ -512,7 +512,7 @@ struct AssistantProgressView: View {
     /// Calls the suggest API for a tool call and opens the rule editor with the result.
     @MainActor
     private func fetchSuggestionAndOpenEditor(for toolCall: ToolCallData) async {
-        let client = TrustRuleV3Client()
+        let client = TrustRuleClient()
         let scopeOpts: [(pattern: String, label: String)] = (toolCall.riskScopeOptions ?? []).map {
             (pattern: $0.pattern, label: $0.label)
         }
@@ -830,9 +830,9 @@ private struct ToolCallStepDetailRow: View {
     /// LLM-generated suggestion to pre-populate the rule editor.
     @State private var ruleEditorSuggestion: TrustRuleSuggestion?
 
-    /// Shared across all rows — `TrustRuleV3Client` is a stateless HTTP client,
+    /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
     /// so a single static instance avoids re-creation on every view rebuild.
-    private static let trustRuleV3Client = TrustRuleV3Client()
+    private static let trustRuleClient = TrustRuleClient()
 
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
         let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
@@ -919,7 +919,7 @@ private struct ToolCallStepDetailRow: View {
             detailContent: { stepDetailContent }
         )
         .sheet(item: $ruleEditorToolCall) { tc in
-            V3RuleEditorModal(
+            RuleEditorModal(
                 toolName: tc.toolName,
                 commandText: tc.inputSummary,
                 commandDescription: tc.reasonDescription ?? "",
@@ -929,7 +929,7 @@ private struct ToolCallStepDetailRow: View {
                 suggestion: ruleEditorSuggestion,
                 onSave: { rule in
                     Task {
-                        try? await Self.trustRuleV3Client.createRule(
+                        try? await Self.trustRuleClient.createRule(
                             tool: rule.toolName,
                             pattern: rule.pattern,
                             risk: rule.riskLevel,

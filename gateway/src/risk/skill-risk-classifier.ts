@@ -18,7 +18,7 @@ import type {
   RiskAssessment,
   RiskClassifier,
 } from "./risk-types.js";
-import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
+import { getTrustRuleCache } from "./trust-rule-cache.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -220,7 +220,7 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
     // created them. Uses resolved skillId from metadata (when available), and
     // skill_load_dynamic as the tool key for dynamic skills.
     try {
-      const ruleCache = getTrustRuleV3Cache();
+      const ruleCache = getTrustRuleCache();
       const isDynamic =
         resolvedMetadata?.isDynamic && resolvedMetadata?.hasInlineExpansions;
       const overrideTool = isDynamic ? "skill_load_dynamic" : toolName;

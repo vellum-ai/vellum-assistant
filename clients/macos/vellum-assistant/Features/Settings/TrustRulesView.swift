@@ -3,15 +3,15 @@ import VellumAssistantShared
 
 // MARK: - V3 Trust Rules View
 
-struct V3TrustRulesView: View {
-    let trustRuleV3Client: TrustRuleV3ClientProtocol
+struct TrustRulesView: View {
+    let trustRuleClient: TrustRuleClientProtocol
     @Environment(\.dismiss) private var dismiss
 
-    @State private var rules: [TrustRuleV3] = []
+    @State private var rules: [TrustRule] = []
     @State private var isLoading = true
     @State private var showAllDefaults = false
-    @State private var editingRule: TrustRuleV3? = nil
-    @State private var ruleToDelete: TrustRuleV3? = nil
+    @State private var editingRule: TrustRule? = nil
+    @State private var ruleToDelete: TrustRule? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,7 +68,7 @@ struct V3TrustRulesView: View {
         .sheet(item: $editingRule) { rule in
             V3TrustRuleEditSheet(
                 rule: rule,
-                trustRuleV3Client: trustRuleV3Client,
+                trustRuleClient: trustRuleClient,
                 onSave: { await loadRules() }
             )
         }
@@ -98,12 +98,12 @@ struct V3TrustRulesView: View {
         do {
             if showAllDefaults {
                 // Fetch all default rules plus user-relevant rules, merge and deduplicate
-                async let defaultRules = trustRuleV3Client.listRules(origin: "default", tool: nil, includeDeleted: nil)
-                async let userRules = trustRuleV3Client.listRules(origin: nil, tool: nil, includeDeleted: nil)
+                async let defaultRules = trustRuleClient.listRules(origin: "default", tool: nil, includeDeleted: nil)
+                async let userRules = trustRuleClient.listRules(origin: nil, tool: nil, includeDeleted: nil)
                 let allDefaults = try await defaultRules
                 let allUser = try await userRules
                 var seen = Set<String>()
-                var merged: [TrustRuleV3] = []
+                var merged: [TrustRule] = []
                 for rule in allUser {
                     if seen.insert(rule.id).inserted {
                         merged.append(rule)
@@ -119,7 +119,7 @@ struct V3TrustRulesView: View {
                     return lhs.description < rhs.description
                 }
             } else {
-                let fetched = try await trustRuleV3Client.listRules(origin: nil, tool: nil, includeDeleted: nil)
+                let fetched = try await trustRuleClient.listRules(origin: nil, tool: nil, includeDeleted: nil)
                 rules = fetched.sorted { lhs, rhs in
                     if lhs.tool != rhs.tool { return lhs.tool < rhs.tool }
                     return lhs.description < rhs.description
@@ -134,9 +134,9 @@ struct V3TrustRulesView: View {
     // MARK: - Delete
 
     @MainActor
-    private func deleteRule(rule: TrustRuleV3) async {
+    private func deleteRule(rule: TrustRule) async {
         do {
-            try await trustRuleV3Client.deleteRule(id: rule.id)
+            try await trustRuleClient.deleteRule(id: rule.id)
             withAnimation {
                 rules.removeAll { $0.id == rule.id }
             }
@@ -149,7 +149,7 @@ struct V3TrustRulesView: View {
 // MARK: - V3 Trust Rule Row
 
 private struct V3TrustRuleRow: View {
-    let rule: TrustRuleV3
+    let rule: TrustRule
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -236,8 +236,8 @@ private struct V3TrustRuleRow: View {
 // MARK: - V3 Trust Rule Edit Sheet
 
 private struct V3TrustRuleEditSheet: View {
-    let rule: TrustRuleV3
-    let trustRuleV3Client: TrustRuleV3ClientProtocol
+    let rule: TrustRule
+    let trustRuleClient: TrustRuleClientProtocol
     let onSave: @Sendable () async -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -296,7 +296,7 @@ private struct V3TrustRuleEditSheet: View {
                     saveError = nil
                     Task {
                         do {
-                            _ = try await trustRuleV3Client.resetRule(id: rule.id)
+                            _ = try await trustRuleClient.resetRule(id: rule.id)
                             await onSave()
                             dismiss()
                         } catch {
@@ -332,7 +332,7 @@ private struct V3TrustRuleEditSheet: View {
                     saveError = nil
                     Task {
                         do {
-                            _ = try await trustRuleV3Client.updateRule(id: rule.id, risk: selectedRisk, description: nil)
+                            _ = try await trustRuleClient.updateRule(id: rule.id, risk: selectedRisk, description: nil)
                             await onSave()
                             dismiss()
                         } catch {

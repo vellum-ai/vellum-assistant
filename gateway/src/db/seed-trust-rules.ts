@@ -10,9 +10,9 @@
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandRiskSpec } from "../risk/risk-types.js";
 import type {
-  TrustRuleV3Store,
+  TrustRuleStore,
   UpsertDefaultInput,
-} from "./trust-rule-v3-store.js";
+} from "./trust-rule-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,7 +77,7 @@ function collectEntries(
  *
  * @returns The number of entries upserted (for logging).
  */
-export function seedTrustRuleV3sFromRegistry(store: TrustRuleV3Store): number {
+export function seedTrustRulesFromRegistry(store: TrustRuleStore): number {
   const entries: UpsertDefaultInput[] = [];
 
   for (const [command, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
