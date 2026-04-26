@@ -34,6 +34,11 @@ export interface ToolUseContent {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  providerMetadata?: {
+    gemini?: {
+      thoughtSignature?: string;
+    };
+  };
 }
 
 export interface ThinkingContent {
