@@ -6,13 +6,13 @@ import XCTest
 
 /// Unit tests for ``ACPSessionDetailView``.
 ///
-/// The view is read-only and stateless beyond auto-scroll bookkeeping, so
-/// the meaningful surface to test is the pure event-stream → timeline-row
-/// reduction (`buildRows(events:)`) plus a smoke test that proves each
-/// fixture builds a body without crashing. SwiftUI does not give us a
-/// way to assert layout output in unit tests, so we cover that contract
-/// at the row-model level — the only place errors can hide that aren't
-/// also caught by the macOS build job.
+/// The bulk of the view's logic is the pure event-stream → timeline-row
+/// reduction (`buildRows(events:)`); we cover that exhaustively below plus a
+/// smoke test that proves each fixture builds a body without crashing. The
+/// cancel button and steer footer add interactive surfaces — their tap
+/// handlers are exposed at internal access so tests can drive them via the
+/// ``SpyACPSessionStore`` instead of round-tripping through SwiftUI's view
+/// tree (XCTest can't tap a `Button` in a unit-test target).
 @MainActor
 final class ACPSessionDetailViewTests: XCTestCase {
 
@@ -35,11 +35,13 @@ final class ACPSessionDetailViewTests: XCTestCase {
 
     // MARK: - Mock store
 
-    /// Records invocations of ``ACPSessionStore/cancel(id:)`` so detail-view
-    /// tests can assert taps reach the store without spinning up the full
-    /// `URLProtocol` mocking apparatus that the network-layer tests use.
+    /// Records invocations of ``ACPSessionStore/cancel(id:)`` and
+    /// ``ACPSessionStore/steer(id:instruction:)`` so detail-view tests can
+    /// assert taps reach the store without spinning up the full `URLProtocol`
+    /// mocking apparatus that the network-layer tests use.
     private final class SpyACPSessionStore: ACPSessionStore {
         var cancelInvocations: [String] = []
+        var steerInvocations: [(id: String, instruction: String)] = []
 
         override func cancel(id: String) async -> Result<Bool, ACPClientError> {
             cancelInvocations.append(id)
@@ -59,6 +61,14 @@ final class ACPSessionDetailViewTests: XCTestCase {
                     stopReason: .cancelled
                 )
             }
+            return .success(true)
+        }
+
+        override func steer(id: String, instruction: String) async -> Result<Bool, ACPClientError> {
+            steerInvocations.append((id: id, instruction: instruction))
+            // The real store does not mutate state synchronously on steer —
+            // the daemon round-trips an SSE update to confirm. Mirror that:
+            // no view-model mutation here, just record and ack.
             return .success(true)
         }
     }
@@ -483,7 +493,7 @@ final class ACPSessionDetailViewTests: XCTestCase {
 
         // The Task spawned inside `handleCancelTap` runs on the main actor;
         // yield until it completes so the assertion sees the recorded call.
-        await waitForCancelInvocation(store: store)
+        await waitForSpyInvocation { !store.cancelInvocations.isEmpty }
 
         XCTAssertEqual(store.cancelInvocations, [session.state.acpSessionId])
     }
@@ -503,12 +513,56 @@ final class ACPSessionDetailViewTests: XCTestCase {
         XCTAssertFalse(cancelled.isCancelable)
     }
 
-    /// Spin briefly on the main actor until the spy records the awaited
-    /// cancel invocation. Bounded so a regression that drops the call still
+    // MARK: - Steer footer
+
+    func test_submitSteer_invokesStoreWithTrimmedInstructionAndAppendsSyntheticEvent() async {
+        let store = SpyACPSessionStore()
+        let session = makeSession(status: .running)
+        store.sessions[session.state.acpSessionId] = session
+
+        let view = ACPSessionDetailView(session: session, store: store)
+        // Leading/trailing whitespace exercises the trim path — return-key
+        // submissions often pick up a stray space.
+        view.submitSteer(rawInstruction: "   slow down and explain   ")
+
+        // Synthetic event lands immediately for instant feedback.
+        XCTAssertEqual(session.events.count, 1, "Synthetic feedback row should append immediately")
+        XCTAssertEqual(session.events.first?.updateType, .userMessageChunk)
+        XCTAssertEqual(session.events.first?.content, "→ steered: slow down and explain")
+
+        await waitForSpyInvocation { !store.steerInvocations.isEmpty }
+
+        XCTAssertEqual(store.steerInvocations.count, 1)
+        XCTAssertEqual(store.steerInvocations.first?.id, session.state.acpSessionId)
+        XCTAssertEqual(
+            store.steerInvocations.first?.instruction,
+            "slow down and explain",
+            "Trimmed instruction must reach the store"
+        )
+    }
+
+    func test_submitSteer_emptyInputIsNoOp() async {
+        let store = SpyACPSessionStore()
+        let session = makeSession(status: .running)
+        store.sessions[session.state.acpSessionId] = session
+
+        let view = ACPSessionDetailView(session: session, store: store)
+        view.submitSteer(rawInstruction: "   ")
+
+        // Yield once — give any erroneous Task a chance to run so the
+        // assertion below catches a regression that calls store anyway.
+        await Task.yield()
+
+        XCTAssertTrue(session.events.isEmpty, "Whitespace-only input should not append a synthetic row")
+        XCTAssertTrue(store.steerInvocations.isEmpty, "Empty input must not reach the store")
+    }
+
+    /// Spin briefly on the main actor until ``predicate`` returns true.
+    /// Bounded so a regression that drops the awaited invocation still
     /// fails the test rather than hanging forever.
-    private func waitForCancelInvocation(store: SpyACPSessionStore) async {
+    private func waitForSpyInvocation(_ predicate: () -> Bool) async {
         for _ in 0..<50 {
-            if !store.cancelInvocations.isEmpty { return }
+            if predicate() { return }
             await Task.yield()
         }
     }
