@@ -295,6 +295,38 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertNil(manager.sessionId)
     }
 
+    func testStartListeningResumesCaptureOnIdleOpenSession() async {
+        await startReadySession()
+
+        await manager.stopListening()
+        client.emit(.sttFinal(text: "hello", seq: 1))
+        client.emit(.ttsDone(turnId: "turn-123"))
+        XCTAssertEqual(manager.state, .idle)
+
+        await manager.startListening()
+        await flushAsyncTasks()
+
+        XCTAssertEqual(capture.startCallCount, 2)
+        XCTAssertEqual(manager.state, .listening)
+        XCTAssertEqual(client.startCalls.count, 1)
+    }
+
+    func testEndClosesIdleOpenSession() async {
+        await startReadySession()
+
+        await manager.stopListening()
+        client.emit(.sttFinal(text: "hello", seq: 1))
+        client.emit(.ttsDone(turnId: "turn-123"))
+        XCTAssertEqual(manager.state, .idle)
+
+        await manager.end()
+
+        XCTAssertEqual(client.endCallCount, 1)
+        XCTAssertEqual(playback.endCallCount, 1)
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertNil(manager.activeConversationId)
+    }
+
     func testFailureCleansUpResourcesAndStoresError() async {
         await startReadySession()
 

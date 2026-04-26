@@ -98,6 +98,13 @@ final class LiveVoiceChannelManager {
             failWithoutActiveClient(message: "A conversation is required to start live voice.")
             return
         }
+        if state == .idle, client != nil {
+            if activeConversationId == trimmedConversationId {
+                await startListening()
+                return
+            }
+            await end()
+        }
         guard state == .idle || state == .failed else { return }
 
         sessionGeneration &+= 1
@@ -120,6 +127,11 @@ final class LiveVoiceChannelManager {
         )
     }
 
+    func startListening() async {
+        guard state == .idle, client != nil else { return }
+        startCapture(generation: sessionGeneration)
+    }
+
     func stopListening() async {
         guard state != .idle, state != .failed, state != .ending else { return }
         guard captureRunning || captureStartInFlight else { return }
@@ -133,7 +145,8 @@ final class LiveVoiceChannelManager {
     }
 
     func end() async {
-        guard state != .idle, state != .failed, state != .ending else { return }
+        guard state != .failed, state != .ending else { return }
+        guard state != .idle || client != nil || captureRunning || captureStartInFlight else { return }
 
         state = .ending
         sessionGeneration &+= 1
@@ -280,7 +293,7 @@ final class LiveVoiceChannelManager {
             }
 
             self.captureRunning = true
-            if self.state == .connecting {
+            if self.state == .connecting || self.state == .idle {
                 self.state = .listening
             }
         }
