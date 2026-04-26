@@ -240,14 +240,21 @@ describe("LiveVoiceSession archive and metrics events", () => {
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());
-    await waitFor(() =>
-      frames.some(
-        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
-      ),
-    );
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
     await session.close("client_end");
 
-    expect(frameTypes(frames)).toContain("tts_done");
+    expect(frameTypes(frames)).toEqual([
+      "ready",
+      "stt_final",
+      "thinking",
+      "assistant_text_delta",
+      "tts_audio",
+      "archived",
+      "archived",
+      "metrics",
+      "tts_done",
+      "metrics",
+    ]);
     expect(archiveAudio).toHaveBeenCalledTimes(2);
     expect(archiveAudio.mock.calls.map((call) => call[0].role)).toEqual([
       "user",

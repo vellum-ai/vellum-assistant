@@ -207,11 +207,7 @@ describe("LiveVoiceSession integration smoke harness", () => {
     await session.start();
     await session.handleBinaryAudio(new Uint8Array([1, 2, 3, 4]));
     await session.handleClientFrame({ type: "ptt_release" });
-    await waitFor(() =>
-      frames.some(
-        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
-      ),
-    );
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
     expect(transcriber.audioChunks).toHaveLength(1);
     expect(transcriber.audioChunks[0]).toEqual(Buffer.from([1, 2, 3, 4]));
@@ -245,10 +241,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
       "thinking",
       "assistant_text_delta",
       "tts_audio",
-      "tts_done",
       "archived",
       "archived",
       "metrics",
+      "tts_done",
     ]);
     expect(frames[5]).toMatchObject({
       type: "tts_audio",
@@ -256,17 +252,17 @@ describe("LiveVoiceSession integration smoke harness", () => {
         "base64",
       ),
     });
-    expect(frames[7]).toMatchObject({
+    expect(frames[6]).toMatchObject({
       type: "archived",
       role: "user",
       attachmentIds: ["user-attachment-123"],
     });
-    expect(frames[8]).toMatchObject({
+    expect(frames[7]).toMatchObject({
       type: "archived",
       role: "assistant",
       attachmentIds: ["assistant-attachment-123"],
     });
-    expect(frames[9]).toMatchObject({
+    expect(frames[8]).toMatchObject({
       type: "metrics",
       event: "turn_completed",
       sessionId: "session-123",
@@ -278,6 +274,10 @@ describe("LiveVoiceSession integration smoke harness", () => {
           cancelledTurnCount: 0,
         },
       },
+    });
+    expect(frames[9]).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
     });
   });
 

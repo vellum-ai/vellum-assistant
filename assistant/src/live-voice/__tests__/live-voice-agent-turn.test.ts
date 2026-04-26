@@ -89,6 +89,7 @@ function createSessionHarness(
     transcriber?: MockStreamingTranscriber;
     startVoiceTurn?: LiveVoiceTurnStarter;
     createTurnId?: () => string;
+    emitMetrics?: boolean;
   } = {},
 ) {
   const transcriber =
@@ -106,6 +107,7 @@ function createSessionHarness(
     resolveTranscriber: mock(async () => transcriber),
     startVoiceTurn,
     createTurnId: options.createTurnId ?? (() => "live-turn-1"),
+    emitMetrics: options.emitMetrics ?? false,
   });
 
   return { frames, session, startVoiceTurn, transcriber };
@@ -122,6 +124,17 @@ async function waitForFrameCount(
 
 async function flushAsyncCallbacks(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  message = "Timed out waiting for live voice assistant turn condition",
+): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(message);
 }
 
 describe("LiveVoiceSession assistant turn", () => {
@@ -191,6 +204,88 @@ describe("LiveVoiceSession assistant turn", () => {
       type: "tts_done",
       turnId: "live-turn-1",
     });
+  });
+
+  test("waits for transcriber closed before starting an assistant turn after release", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+      turnId: "bridge-turn-1",
+      abort: mock(),
+    }));
+    const { frames, session } = createSessionHarness({
+      transcriber,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    transcriber.emit({ type: "final", text: "hello" });
+    await waitForFrameCount(frames, 2);
+
+    await session.handleClientFrame({ type: "ptt_release" });
+    expect(transcriber.stopped).toBe(true);
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+
+    transcriber.emit({ type: "final", text: "after release" });
+    await waitForFrameCount(frames, 3);
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+
+    transcriber.emit({ type: "closed" });
+    await waitForFrameCount(frames, 4);
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      content: "hello after release",
+    });
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "stt_final",
+      "thinking",
+    ]);
+  });
+
+  test("empty transcripts finalize only after the transcriber closes", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+      turnId: "bridge-turn-1",
+      abort: mock(),
+    }));
+    const { frames, session } = createSessionHarness({
+      transcriber,
+      startVoiceTurn,
+      emitMetrics: true,
+    });
+
+    await session.start();
+    await session.handleClientFrame({
+      type: "audio",
+      dataBase64: Buffer.from("user audio").toString("base64"),
+    });
+    await session.handleClientFrame({ type: "ptt_release" });
+
+    transcriber.emit({ type: "final", text: "   \n\t  " });
+    await waitForFrameCount(frames, 2);
+
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    expect(
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    ).toBe(false);
+
+    transcriber.emit({ type: "closed" });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    );
+
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "metrics",
+    ]);
   });
 
   test("does not start an assistant turn for whitespace-only final transcripts", async () => {

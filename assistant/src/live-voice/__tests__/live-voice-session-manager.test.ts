@@ -187,6 +187,7 @@ describe("LiveVoiceSessionManager", () => {
 
     expect(result).toEqual({ status: "handled", sessionId: "session-1" });
     expect(sessions[0]?.clientFrames).toEqual([{ type: "end" }]);
+    expect(sessions[0]?.close).toHaveBeenCalledTimes(1);
     expect(sessions[0]?.closeReasons).toEqual(["client_end"]);
     expect(next).toEqual({ status: "accepted", sessionId: "session-2" });
     expect(sessions).toHaveLength(2);

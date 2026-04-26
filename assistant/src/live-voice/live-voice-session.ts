@@ -224,7 +224,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.interrupt();
         return;
       case "end":
-        await this.close("client_end");
         return;
       case "start":
         return;
@@ -307,6 +306,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           err,
         )}`,
       });
+      this.state = "transcriber_closed";
+      this.transcriber = null;
     }
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
@@ -375,10 +376,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
-    if (
-      this.state !== "utterance_released" &&
-      this.state !== "transcriber_closed"
-    ) {
+    if (this.state !== "transcriber_closed") {
       return;
     }
     if (!this.startVoiceTurn) return;
@@ -575,11 +573,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (currentTurn?.token !== token || currentTurn.ttsDone) return;
 
         currentTurn.ttsDone = true;
+        await this.finalizeAssistantTurn(
+          currentTurn,
+          "completed",
+          "completed",
+          {
+            clearActive: false,
+          },
+        );
         await this.sendFrame(
           { type: "tts_done", turnId: currentTurn.turnId },
-          () => this.isActiveAssistantTurn(token),
+          () =>
+            this.activeAssistantTurn?.token === token &&
+            currentTurn.finalized &&
+            !this.isClosed,
         );
-        await this.finalizeAssistantTurn(currentTurn, "completed");
 
         if (this.activeAssistantTurn?.token === token) {
           if (currentTurn.handle && currentTurn.finalized) {
@@ -732,6 +740,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn: ActiveAssistantTurn,
     status: "completed" | "cancelled",
     reason = "completed",
+    options: { clearActive?: boolean } = {},
   ): Promise<void> {
     if (turn.finalized) return;
 
@@ -749,7 +758,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
     await this.finishMetricsTurn(status, reason, turn.turnId);
 
-    if (this.activeAssistantTurn?.token === turn.token && turn.handle) {
+    if (
+      (options.clearActive ?? true) &&
+      this.activeAssistantTurn?.token === turn.token &&
+      turn.handle
+    ) {
       this.activeAssistantTurn = null;
     }
   }
