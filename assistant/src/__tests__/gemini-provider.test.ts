@@ -96,7 +96,7 @@ function finishChunk(
   return {
     candidates: [{ finishReason: reason }],
     usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: output },
-    modelVersion: "gemini-3-flash-001",
+    modelVersion: "gemini-3-flash-preview-001",
   };
 }
 
@@ -156,7 +156,7 @@ describe("GeminiProvider", () => {
   let provider: GeminiProvider;
 
   beforeEach(() => {
-    provider = new GeminiProvider("test-api-key", "gemini-3-flash");
+    provider = new GeminiProvider("test-api-key", "gemini-3-flash-preview");
     fakeChunks = [];
     lastStreamParams = null;
     lastConstructorOpts = null;
@@ -179,7 +179,7 @@ describe("GeminiProvider", () => {
 
     expect(result.content).toHaveLength(1);
     expect(result.content[0]).toEqual({ type: "text", text: "Hello, world!" });
-    expect(result.model).toBe("gemini-3-flash-001");
+    expect(result.model).toBe("gemini-3-flash-preview-001");
     expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(result.stopReason).toBe("STOP");
   });
@@ -638,7 +638,7 @@ describe("GeminiProvider", () => {
       ],
       undefined,
       undefined,
-      { config: { model: "models/gemini-3-pro-preview" } },
+      { config: { model: "models/gemini-3.1-pro-preview" } },
     );
 
     const contents = lastStreamParams!.contents as Array<{
@@ -1002,7 +1002,7 @@ describe("GeminiProvider", () => {
       { role: "user", content: [{ type: "text", text: "Hi" }] },
     ]);
 
-    expect(lastStreamParams!.model).toBe("gemini-3-flash");
+    expect(lastStreamParams!.model).toBe("gemini-3-flash-preview");
     const contents = lastStreamParams!.contents as Array<{
       role: string;
       parts: unknown[];
@@ -1062,12 +1062,12 @@ describe("GeminiProvider", () => {
   // Managed transport — constructor configuration
   // -----------------------------------------------------------------------
   test("does not set httpOptions when managedBaseUrl is not provided", () => {
-    new GeminiProvider("test-key", "gemini-3-flash");
+    new GeminiProvider("test-key", "gemini-3-flash-preview");
     expect(lastConstructorOpts).toEqual({ apiKey: "test-key" });
   });
 
   test("sets httpOptions.baseUrl when managedBaseUrl is provided", () => {
-    new GeminiProvider("managed-key", "gemini-3-flash", {
+    new GeminiProvider("managed-key", "gemini-3-flash-preview", {
       managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
     });
     expect(lastConstructorOpts).toEqual({
@@ -1081,7 +1081,7 @@ describe("GeminiProvider", () => {
   test("managed transport produces same ProviderResponse shape", async () => {
     const managedProvider = new GeminiProvider(
       "managed-key",
-      "gemini-3-flash",
+      "gemini-3-flash-preview",
       {
         managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },
@@ -1098,7 +1098,7 @@ describe("GeminiProvider", () => {
       type: "text",
       text: "Hello from managed",
     });
-    expect(result.model).toBe("gemini-3-flash-001");
+    expect(result.model).toBe("gemini-3-flash-preview-001");
     expect(result.usage).toEqual({ inputTokens: 15, outputTokens: 8 });
     expect(result.stopReason).toBe("STOP");
   });
@@ -1106,7 +1106,7 @@ describe("GeminiProvider", () => {
   test("managed transport handles tool calls correctly", async () => {
     const managedProvider = new GeminiProvider(
       "managed-key",
-      "gemini-3-flash",
+      "gemini-3-flash-preview",
       {
         managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },
