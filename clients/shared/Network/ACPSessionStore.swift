@@ -29,7 +29,11 @@ public final class ACPSessionViewModel: Identifiable, Hashable {
 
     /// Append a new update event, dropping the oldest entries to stay within
     /// the per-session retention cap.
-    func appendEvent(_ event: ACPSessionUpdateMessage) {
+    ///
+    /// Public so feature-layer code (e.g. ``ACPSessionDetailView``'s steer
+    /// footer) can inject synthetic local-only events for immediate user
+    /// feedback before the daemon round-trips a confirming SSE update.
+    public func appendEvent(_ event: ACPSessionUpdateMessage) {
         events.append(event)
         if events.count > ACPSessionStore.eventsCapPerSession {
             events.removeFirst(events.count - ACPSessionStore.eventsCapPerSession)

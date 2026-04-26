@@ -3,11 +3,13 @@ import VellumAssistantShared
 
 // MARK: - ACPSessionDetailView
 
-/// Read-only timeline of an ACP (Agent Client Protocol) session.
+/// Detail view of an ACP (Agent Client Protocol) session.
 ///
-/// Renders a header (agent + status + elapsed + parent-conversation link) and
-/// a scrolling timeline of `ACPSessionUpdateMessage` events grouped into
-/// visual rows. Tool calls coalesce with their `tool_call_update` siblings
+/// Renders a header (agent + status + elapsed + parent-conversation link), a
+/// scrolling timeline of `ACPSessionUpdateMessage` events grouped into visual
+/// rows, and — for running sessions when a ``ACPSessionStore`` is supplied —
+/// a steering footer (textbox + button) that lets the user redirect the
+/// agent mid-run. Tool calls coalesce with their `tool_call_update` siblings
 /// (latest update wins) so a streaming tool that emits multiple status
 /// transitions still renders as a single row.
 ///
@@ -16,12 +18,14 @@ import VellumAssistantShared
 /// without being yanked back. Resumes when the user returns to the bottom.
 ///
 /// A Cancel button surfaces while the session is `running`/`initializing`
-/// (PR 24); steer and delete affordances arrive in later PRs (25, 26).
+/// (PR 24); a Steer textbox + button surfaces while the session is `running`
+/// (PR 25). The delete affordance arrives in PR 26.
 struct ACPSessionDetailView: View {
     let session: ACPSessionViewModel
-    /// Store used to drive optimistic mutations from this view (cancel today;
-    /// steer in PR 25). Held by reference so the view always invokes the
-    /// caller-owned instance — there's only one ``ACPSessionStore`` per app.
+    /// Store used to drive optimistic mutations from this view (cancel and
+    /// steer today; delete in PR 26). Held by reference so the view always
+    /// invokes the caller-owned instance — there's only one ``ACPSessionStore``
+    /// per app.
     let store: ACPSessionStore
     /// Tap on the parent-conversation link. Wired by PR 22; nil hides the link.
     var onSelectParentConversation: ((String) -> Void)? = nil
@@ -52,6 +56,9 @@ struct ACPSessionDetailView: View {
     /// session is still running. The view only reads it when the session is
     /// non-terminal so terminal sessions don't wake the timer.
     @State private var nowTick: Date = Date()
+    /// Bound text content of the steer textbox. Cleared on every successful
+    /// submission so the field is ready for the next instruction.
+    @State private var steerInput: String = ""
 
     /// Persisted preference for whether agent-thought bubbles render in the
     /// timeline. Defaults to `true` so first-time users see the assistant's
@@ -67,6 +74,10 @@ struct ACPSessionDetailView: View {
             header
             Divider().background(VColor.borderBase)
             timeline
+            if session.state.status == .running {
+                Divider().background(VColor.borderBase)
+                steerFooter
+            }
         }
     }
 
@@ -511,6 +522,72 @@ struct ACPSessionDetailView: View {
             .accessibilityLabel("Agent thought: \(content)")
             Spacer(minLength: 0)
         }
+    }
+
+    // MARK: - Steer Footer
+
+    @ViewBuilder
+    private var steerFooter: some View {
+        HStack(alignment: .center, spacing: VSpacing.sm) {
+            VTextField(
+                placeholder: "Redirect this agent…",
+                text: $steerInput,
+                onSubmit: dispatchSteer
+            )
+            VButton(
+                label: "Steer",
+                style: .primary,
+                isDisabled: steerInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                action: dispatchSteer
+            )
+        }
+        .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg, bottom: VSpacing.md, trailing: VSpacing.lg))
+    }
+
+    /// View-side wrapper that snapshots and clears `steerInput` *before*
+    /// handing the raw text off to ``submitSteer(rawInstruction:)``.
+    /// Keeping the `@State` mutation here means the helper itself is purely
+    /// a function of its arguments, which is what the unit test exploits.
+    private func dispatchSteer() {
+        let toSubmit = steerInput
+        steerInput = ""
+        submitSteer(rawInstruction: toSubmit)
+    }
+
+    /// Trim ``rawInstruction``, append a synthetic `→ steered: …` row to the
+    /// timeline so the user sees the instruction land immediately, then
+    /// dispatch the steer call against the store. Empty/whitespace input is
+    /// a no-op so a stray return-key press is harmless.
+    ///
+    /// The textbox is cleared by the caller (the SwiftUI footer) before this
+    /// runs — that keeps `steerInput`'s `@State` mutation on the rendering
+    /// path, which is also where SwiftUI requires it. Tests can call this
+    /// helper directly with the desired pre-trim string and assert the spy
+    /// store recorded the trimmed instruction, without relying on `@State`
+    /// semantics in a detached view value.
+    ///
+    /// `internal` rather than `private` so unit tests in `VellumAssistantLib`
+    /// can drive submission without round-tripping through SwiftUI focus
+    /// state — there is no supported way to programmatically tap a `Button`
+    /// in an XCTest unit target.
+    func submitSteer(rawInstruction: String) {
+        let instruction = rawInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !instruction.isEmpty else { return }
+
+        // Synthetic local-only event — surfaces the steer in the timeline
+        // before the daemon's confirmation round-trips back as an SSE update.
+        // We piggy-back on `userMessageChunk` rather than introducing a new
+        // wire-side update type so `buildRows` keeps a closed switch and the
+        // entry coalesces naturally with any prior user-message run.
+        session.appendEvent(ACPSessionUpdateMessage(
+            acpSessionId: session.state.acpSessionId,
+            updateType: .userMessageChunk,
+            content: "→ steered: \(instruction)"
+        ))
+
+        // `acpSessionId` (not `state.id`) is the daemon-side session handle
+        // the steer route accepts and the store keys its dictionary by.
+        Task { await store.steer(id: session.state.acpSessionId, instruction: instruction) }
     }
 }
 
