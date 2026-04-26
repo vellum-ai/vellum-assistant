@@ -22,10 +22,10 @@ struct ACPSessionsView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var store: ACPSessionStore
 
-    /// Optional close hook so callers presenting this in a modal context
-    /// (e.g. the temporary debug shortcut from ``IOSRootNavigationView``)
-    /// can dismiss it. PR 34 will replace the debug shortcut with a real
-    /// menu entry and may not need this.
+    /// Optional close hook so callers presenting this view in a modal context
+    /// (the Coding Agents sheet driven from ``IOSRootNavigationView``'s
+    /// terminal-icon toolbar entry) can dismiss it via the in-view close
+    /// button.
     var onClose: (() -> Void)?
 
     @State private var selectedSessionId: String?
