@@ -119,20 +119,26 @@ async function flushAsyncCallbacks(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function makeTtsChunk(text: string): LiveVoiceTtsAudioChunk {
+function makeTtsChunk(
+  text: string,
+  contentType = "audio/pcm",
+): LiveVoiceTtsAudioChunk {
   return {
     type: "tts_audio",
     seq: 0,
-    contentType: "audio/pcm",
+    contentType,
     sampleRate: 24_000,
     dataBase64: Buffer.from(text).toString("base64"),
   };
 }
 
-function makeTtsResult(text: string): LiveVoiceTtsResult {
+function makeTtsResult(
+  text: string,
+  contentType = "audio/pcm",
+): LiveVoiceTtsResult {
   return {
     provider: "fish-audio",
-    contentType: "audio/pcm",
+    contentType,
     sampleRate: 24_000,
     chunks: 1,
     bytes: Buffer.byteLength(text),
@@ -197,6 +203,32 @@ describe("LiveVoiceSession TTS", () => {
     expect(frames.at(-1)).toMatchObject({
       type: "tts_done",
       turnId: "live-turn-1",
+    });
+  });
+
+  test("forwards non-PCM TTS chunk content type unchanged", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("wav audio", "audio/wav"));
+      return makeTtsResult("wav audio", "audio/wav");
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    expect(frames.find((frame) => frame.type === "tts_audio")).toMatchObject({
+      type: "tts_audio",
+      mimeType: "audio/wav",
+      dataBase64: Buffer.from("wav audio").toString("base64"),
     });
   });
 

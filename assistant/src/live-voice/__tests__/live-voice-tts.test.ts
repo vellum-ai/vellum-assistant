@@ -94,6 +94,51 @@ describe("streamLiveVoiceTtsAudio", () => {
     });
   });
 
+  test("labels Fish Audio live voice PCM requests as WAV chunks", async () => {
+    const requests: TtsSynthesisRequest[] = [];
+    registerTtsProvider({
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize(): Promise<TtsSynthesisResult> {
+        throw new Error("buffered synthesis should not be used");
+      },
+      async synthesizeStream(
+        request: TtsSynthesisRequest,
+        onChunk: (chunk: Uint8Array) => void,
+      ): Promise<TtsSynthesisResult> {
+        requests.push(request);
+        onChunk(Buffer.from("wav-chunk"));
+        return {
+          audio: Buffer.from("wav-chunk"),
+          contentType: "audio/wav",
+        };
+      },
+    });
+
+    const frames: LiveVoiceTtsAudioChunk[] = [];
+    const result = await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello from live voice",
+      outputFormat: "pcm",
+      onAudioChunk: (chunk) => frames.push(chunk),
+    });
+
+    expect(requests[0]?.outputFormat).toBe("pcm");
+    expect(frames).toEqual([
+      {
+        type: "tts_audio",
+        seq: 0,
+        contentType: "audio/wav",
+        sampleRate: 24_000,
+        dataBase64: Buffer.from("wav-chunk").toString("base64"),
+      },
+    ]);
+    expect(result.contentType).toBe("audio/wav");
+  });
+
   test("returns a typed configuration error for a non-streaming provider", async () => {
     config = makeConfig({ provider: "elevenlabs" });
     registerTtsProvider({

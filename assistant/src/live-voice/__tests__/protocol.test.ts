@@ -236,7 +236,7 @@ describe("LiveVoiceServerFrameSequencer", () => {
     });
     const tts = sequencer.next({
       type: "tts_audio",
-      mimeType: "audio/pcm",
+      mimeType: "audio/wav",
       sampleRate: 24000,
       dataBase64: "AQIDBA==",
     });
@@ -277,6 +277,8 @@ describe("LiveVoiceServerFrameSequencer", () => {
       type: "metrics",
       turnId: "turn-123",
       sttMs: 25,
+      llmFirstDeltaMs: null,
+      ttsFirstAudioMs: null,
       totalMs: 100,
     });
 
@@ -284,6 +286,8 @@ describe("LiveVoiceServerFrameSequencer", () => {
       type: "metrics",
       turnId: "turn-123",
       sttMs: 25,
+      llmFirstDeltaMs: null,
+      ttsFirstAudioMs: null,
       totalMs: 100,
       seq: 42,
     });

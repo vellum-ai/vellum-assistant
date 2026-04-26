@@ -19,6 +19,7 @@ import type {
   LiveVoiceAudioArchiveRole,
 } from "./live-voice-archive.js";
 import {
+  getLiveVoiceMetricsAggregateFields,
   type LiveVoiceMetricsClock,
   LiveVoiceMetricsCollector,
 } from "./live-voice-metrics.js";
@@ -425,6 +426,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         assistantMessageInterface: "macos",
         voiceControlPrompt:
           "You are speaking in a local live voice session. Keep replies brief and conversational.",
+        approvalMode: "local-live-voice",
         content,
         isInbound: true,
         signal: abortController.signal,
@@ -646,7 +648,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                 this.sendFrame(
                   {
                     type: "tts_audio",
-                    mimeType: "audio/pcm",
+                    mimeType: chunk.contentType,
                     sampleRate: chunk.sampleRate,
                     dataBase64: chunk.dataBase64,
                   },
@@ -895,13 +897,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     event: string,
     turnId = this.currentTurnId ?? this.context.sessionId,
   ): Promise<void> {
+    const metrics = this.metrics.getSnapshot();
     await this.sendFrame({
       type: "metrics",
       event,
       sessionId: this.context.sessionId,
       conversationId: this.conversationId,
       turnId,
-      metrics: this.metrics.getSnapshot(),
+      metrics,
+      ...getLiveVoiceMetricsAggregateFields(metrics, turnId),
     });
   }
 

@@ -163,20 +163,26 @@ function makeArchiveResult(
   };
 }
 
-function makeTtsChunk(text: string): LiveVoiceTtsAudioChunk {
+function makeTtsChunk(
+  text: string,
+  contentType = "audio/pcm",
+): LiveVoiceTtsAudioChunk {
   return {
     type: "tts_audio",
     seq: 0,
-    contentType: "audio/pcm",
+    contentType,
     sampleRate: 24_000,
     dataBase64: Buffer.from(text).toString("base64"),
   };
 }
 
-function makeTtsResult(text: string): LiveVoiceTtsResult {
+function makeTtsResult(
+  text: string,
+  contentType = "audio/pcm",
+): LiveVoiceTtsResult {
   return {
     provider: "fish-audio",
-    contentType: "audio/pcm",
+    contentType,
     sampleRate: 24_000,
     chunks: 1,
     bytes: Buffer.byteLength(text),
@@ -230,6 +236,9 @@ describe("LiveVoiceSession archive and metrics events", () => {
     });
 
     await startReleasedTurn(session);
+    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+      approvalMode: "local-live-voice",
+    });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());
     await waitFor(() =>
@@ -285,6 +294,10 @@ describe("LiveVoiceSession archive and metrics events", () => {
       sessionId: "session-123",
       conversationId: "conversation-123",
       turnId: "live-turn-1",
+      sttMs: 10,
+      llmFirstDeltaMs: 10,
+      ttsFirstAudioMs: 10,
+      totalMs: 60,
       metrics: {
         summary: {
           completedTurnCount: 1,
@@ -312,6 +325,49 @@ describe("LiveVoiceSession archive and metrics events", () => {
         }
       ).activeAssistantTurn,
     ).toBeNull();
+  });
+
+  test("uses the TTS chunk content type for socket frames and archive metadata", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const archiveAudio = mock(
+      async (input: LiveVoiceSessionArchiveAudioInput) =>
+        makeArchiveResult(input),
+    );
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      options.callbacks?.persisted_user_message_id?.("user-message-123");
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant wav bytes", "audio/wav"));
+      return makeTtsResult("assistant wav bytes", "audio/wav");
+    });
+    const { frames, session } = createSessionHarness({
+      archiveAudio,
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "archived" && frame.role === "assistant",
+      ),
+    );
+
+    expect(frames.find((frame) => frame.type === "tts_audio")).toMatchObject({
+      type: "tts_audio",
+      mimeType: "audio/wav",
+      dataBase64: Buffer.from("assistant wav bytes").toString("base64"),
+    });
+    expect(
+      archiveAudio.mock.calls.find((call) => call[0].role === "assistant")?.[0],
+    ).toMatchObject({
+      role: "assistant",
+      mimeType: "audio/wav",
+    });
   });
 
   test("emits cancelled metrics and releases buffers when interrupted", async () => {

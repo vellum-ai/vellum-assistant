@@ -25,6 +25,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -127,6 +128,8 @@ export interface VoiceTurnOptions {
   assistantId?: string;
   /** Guardian trust context for the caller. */
   trustContext?: TrustContext;
+  /** Permission handling mode. Defaults to phone-call auto policy. */
+  approvalMode?: "phone-call" | "local-live-voice";
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -310,12 +313,13 @@ export async function startVoiceTurn(
     },
   };
 
-  // Voice has no interactive permission/secret UI, so apply explicit
-  // per-role policies:
-  // - guardian: permission prompts auto-allow (parity with guardian chat)
-  // - everyone else (including unknown): auto-deny confirmations.
+  // Phone voice has no interactive permission/secret UI, so apply explicit
+  // per-role policies by default. Local live voice opts into the normal
+  // client approval path instead.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
+  const approvalMode = opts.approvalMode ?? "phone-call";
+  const usesLocalInteractiveApprovals = approvalMode === "local-live-voice";
   const voiceSessionId = opts.voiceSessionId ?? opts.callSessionId;
   const turnChannelContext: TurnChannelContext = {
     userMessageChannel: opts.userMessageChannel ?? "phone",
@@ -449,6 +453,27 @@ export async function startVoiceTurn(
   let lastError: string | null = null;
   conversation.updateClient(async (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
+      if (usesLocalInteractiveApprovals) {
+        pendingInteractions.register(msg.requestId, {
+          conversation,
+          conversationId: opts.conversationId,
+          kind: "confirmation",
+          confirmationDetails: {
+            toolName: msg.toolName,
+            input: msg.input,
+            riskLevel: msg.riskLevel,
+            executionTarget: msg.executionTarget,
+            allowlistOptions: msg.allowlistOptions,
+            scopeOptions: msg.scopeOptions,
+            persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+            temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
+            acpToolKind: msg.acpToolKind,
+            acpOptions: msg.acpOptions,
+          },
+        });
+        publishToHub(msg);
+        return;
+      }
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
         // The pre-exec gate (tool-approval-handler.ts) handles grant

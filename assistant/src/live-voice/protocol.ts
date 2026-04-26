@@ -137,7 +137,7 @@ export interface LiveVoiceAssistantTextDeltaServerFrame extends LiveVoiceServerF
 
 export interface LiveVoiceTtsAudioServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "tts_audio";
-  readonly mimeType: "audio/pcm";
+  readonly mimeType: string;
   readonly sampleRate: number;
   readonly dataBase64: string;
 }
@@ -154,10 +154,10 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly conversationId?: string;
   readonly turnId: string;
   readonly metrics?: unknown;
-  readonly sttMs?: number;
-  readonly llmFirstDeltaMs?: number;
-  readonly ttsFirstAudioMs?: number;
-  readonly totalMs?: number;
+  readonly sttMs: number | null;
+  readonly llmFirstDeltaMs: number | null;
+  readonly ttsFirstAudioMs: number | null;
+  readonly totalMs: number | null;
 }
 
 export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {

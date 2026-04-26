@@ -75,6 +75,7 @@ export async function streamLiveVoiceTtsAudio(
     await resolveLiveVoiceStreamingTtsProvider(options.config);
   const sampleRate = resolveSampleRate(options.sampleRate, providerConfig);
   const chunkContentType = resolveChunkContentType(
+    provider,
     providerConfig,
     options.outputFormat,
   );
@@ -196,10 +197,19 @@ function isProviderConfigurationError(err: unknown): boolean {
 }
 
 function resolveChunkContentType(
+  provider: TtsProvider,
   providerConfig: Record<string, unknown>,
   outputFormat: TtsSynthesisRequest["outputFormat"],
 ): string {
-  if (outputFormat === "pcm") return "audio/pcm";
+  if (outputFormat === "pcm") {
+    if (provider.capabilities.supportedFormats.includes("pcm")) {
+      return "audio/pcm";
+    }
+    if (provider.capabilities.supportedFormats.includes("wav")) {
+      return "audio/wav";
+    }
+    return "audio/pcm";
+  }
 
   const format =
     typeof providerConfig.format === "string" ? providerConfig.format : "mp3";

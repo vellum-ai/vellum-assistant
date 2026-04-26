@@ -85,6 +85,13 @@ export interface LiveVoiceMetricsSnapshot {
   summary: LiveVoiceMetricsSummary;
 }
 
+export interface LiveVoiceMetricsAggregateFields {
+  sttMs: number | null;
+  llmFirstDeltaMs: number | null;
+  ttsFirstAudioMs: number | null;
+  totalMs: number | null;
+}
+
 export interface LiveVoiceMetricsFrame {
   type: "metrics";
   event: LiveVoiceMetricsEvent;
@@ -317,10 +324,51 @@ export class LiveVoiceMetricsCollector {
   }
 }
 
+export function getLiveVoiceMetricsAggregateFields(
+  snapshot: LiveVoiceMetricsSnapshot,
+  turnId?: string,
+): LiveVoiceMetricsAggregateFields {
+  const turn = selectTurnForAggregate(snapshot, turnId);
+  if (!turn) {
+    return {
+      sttMs: null,
+      llmFirstDeltaMs: null,
+      ttsFirstAudioMs: null,
+      totalMs: null,
+    };
+  }
+
+  return {
+    sttMs: turn.durations.pttReleaseToFinalTranscriptMs,
+    llmFirstDeltaMs: turn.durations.finalTranscriptToFirstAssistantDeltaMs,
+    ttsFirstAudioMs: turn.durations.firstAssistantDeltaToFirstTtsAudioMs,
+    totalMs: turn.durations.totalTurnDurationMs,
+  };
+}
+
 function normalizeRecentTurnLimit(limit: number | undefined): number {
   if (limit === undefined) return DEFAULT_RECENT_TURN_LIMIT;
   if (!Number.isFinite(limit) || limit < 1) return DEFAULT_RECENT_TURN_LIMIT;
   return Math.floor(limit);
+}
+
+function selectTurnForAggregate(
+  snapshot: LiveVoiceMetricsSnapshot,
+  turnId: string | undefined,
+): LiveVoiceTurnMetrics | null {
+  if (turnId !== undefined) {
+    if (snapshot.activeTurn?.turnId === turnId) return snapshot.activeTurn;
+    const matchingRecentTurn = snapshot.recentTurns.find(
+      (turn) => turn.turnId === turnId,
+    );
+    if (matchingRecentTurn) return matchingRecentTurn;
+  }
+
+  return (
+    snapshot.activeTurn ??
+    snapshot.recentTurns[snapshot.recentTurns.length - 1] ??
+    null
+  );
 }
 
 function cloneMutableTurn(turn: MutableTurn): MutableTurn {
