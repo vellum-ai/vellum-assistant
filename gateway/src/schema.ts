@@ -3219,9 +3219,9 @@ export function buildSchema(): Record<string, unknown> {
       },
       "/v1/trust-rules": {
         get: {
-          summary: "List v3 trust rules",
+          summary: "List trust rules",
           description:
-            "Authenticated gateway endpoint that lists trust rules from the v3 SQLite-backed store. By default returns user-relevant rules (user_defined + user-modified defaults). Supports `origin`, `tool`, and `include_deleted` query filters.",
+            "Authenticated gateway endpoint that lists trust rules from the SQLite-backed store. By default returns user-relevant rules (user_defined + user-modified defaults). Supports `origin`, `tool`, and `include_deleted` query filters.",
           operationId: "trustRulesGet",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3256,9 +3256,9 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
         post: {
-          summary: "Create a v3 trust rule",
+          summary: "Create a trust rule",
           description:
-            "Authenticated gateway endpoint that creates a user-defined trust rule in the v3 SQLite-backed store. Gated behind the `permission-controls` feature flag.",
+            "Authenticated gateway endpoint that creates a user-defined trust rule in the SQLite-backed store. Gated behind the `permission-controls` feature flag.",
           operationId: "trustRulesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3281,7 +3281,7 @@ export function buildSchema(): Record<string, unknown> {
       },
       "/v1/trust-rules/suggest": {
         post: {
-          summary: "Suggest a v3 trust rule",
+          summary: "Suggest a trust rule",
           description:
             "Authenticated gateway endpoint that calls the assistant daemon to generate an LLM-powered trust rule suggestion for a given command invocation. Gated behind the `permission-controls` feature flag.",
           operationId: "trustRulesSuggest",
@@ -3307,9 +3307,9 @@ export function buildSchema(): Record<string, unknown> {
       },
       "/v1/trust-rules/{ruleId}": {
         patch: {
-          summary: "Update a v3 trust rule",
+          summary: "Update a trust rule",
           description:
-            "Authenticated gateway endpoint that updates a v3 trust rule's risk and/or description. Default rules are marked `userModified=true` on change. Gated behind the `permission-controls` feature flag.",
+            "Authenticated gateway endpoint that updates a trust rule's risk and/or description. Default rules are marked `userModified=true` on change. Gated behind the `permission-controls` feature flag.",
           operationId: "trustRulesPatch",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3339,9 +3339,9 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
         delete: {
-          summary: "Delete a v3 trust rule",
+          summary: "Delete a trust rule",
           description:
-            "Authenticated gateway endpoint that deletes a v3 trust rule. User-defined rules are hard-deleted; default rules are soft-deleted. Gated behind the `permission-controls` feature flag.",
+            "Authenticated gateway endpoint that deletes a trust rule. User-defined rules are hard-deleted; default rules are soft-deleted. Gated behind the `permission-controls` feature flag.",
           operationId: "trustRulesDelete",
           security: [{ BearerAuth: [] }],
           parameters: [
@@ -3366,7 +3366,7 @@ export function buildSchema(): Record<string, unknown> {
       },
       "/v1/trust-rules/{ruleId}/reset": {
         post: {
-          summary: "Reset a v3 default trust rule",
+          summary: "Reset a default trust rule",
           description:
             "Authenticated gateway endpoint that resets a modified default trust rule back to its original risk and description from the command registry. Only valid for rules with `origin=default`. Gated behind the `permission-controls` feature flag.",
           operationId: "trustRulesResetPost",

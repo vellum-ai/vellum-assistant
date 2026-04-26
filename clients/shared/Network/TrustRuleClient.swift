@@ -5,7 +5,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Trust
 
 // MARK: - Types
 
-/// A trust rule from the v3 trust rules API.
+/// A trust rule from the trust rules API.
 public struct TrustRule: Codable, Identifiable, Sendable {
     public let id: String
     public let tool: String

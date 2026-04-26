@@ -1141,8 +1141,8 @@ export class Conversation {
    */
   private shouldCascade(
     decision: UserDecision,
-    selectedPattern: string | undefined,
-    details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
+    _selectedPattern: string | undefined,
+    _details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
   ): { allow: boolean } | null {
     // Temporary overrides apply to the entire conversation
     if (decision === "allow_10m" || decision === "allow_conversation") {

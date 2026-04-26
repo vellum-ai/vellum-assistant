@@ -1,10 +1,8 @@
 import {
-  afterEach,
   beforeEach,
   describe,
   expect,
   mock,
-  spyOn,
   test,
 } from "bun:test";
 
@@ -12,14 +10,11 @@ import type {
   AllowlistOption,
   PolicyContext,
   ScopeOption,
-  TrustRule,
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Tool,
   ToolExecutionResult,
-  ToolLifecycleEvent,
-  ToolPermissionPromptEvent,
 } from "../tools/types.js";
 
 const mockConfig = {
@@ -433,22 +428,6 @@ describe("ToolExecutor policy context plumbing", () => {
     });
   });
 });
-
-/**
- * Helper: create a prompter that returns a specific decision with pattern/scope.
- */
-function makePrompterWithDecision(
-  decision: string,
-  selectedPattern?: string,
-  selectedScope?: string,
-): PermissionPrompter {
-  return {
-    prompt: async () => ({ decision, selectedPattern, selectedScope }),
-    resolveConfirmation: () => {},
-    updateSender: () => {},
-    dispose: () => {},
-  } as unknown as PermissionPrompter;
-}
 
 // ---------------------------------------------------------------------------
 // isSideEffectTool classifier

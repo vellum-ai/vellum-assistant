@@ -1,5 +1,5 @@
 /**
- * Tests for gateway trust-rule v3 route handlers.
+ * Tests for gateway trust-rule route handlers.
  *
  * Tests exercise the route handlers directly (not via the full HTTP server),
  * using the SQLite database initialized by initGatewayDb() against a temp dir.

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
@@ -8,7 +8,7 @@ import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
 import { indexCatalogById } from "../skills/include-graph.js";
-import { getSkillRoots, normalizeFilePath } from "../skills/path-classifier.js";
+import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
@@ -29,7 +29,6 @@ import {
   resolveThreshold,
 } from "./approval-policy.js";
 import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
-import type { ClassificationResult } from "./ipc-risk-types.js";
 import type { RiskAssessment } from "./risk-types.js";
 import {
   type AllowlistOption,
@@ -411,166 +410,6 @@ function riskStringToLevel(risk: string): RiskLevel {
   }
 }
 
-// ── Command candidate builders (non-bash tools) ──────────────────────────────
-// Bash command candidates come from the gateway response. Other tool types
-// derive candidates from assistant-local data (file paths, URLs, skill
-// selectors) since the assistant owns the resolution logic.
-
-async function buildCommandCandidates(
-  toolName: string,
-  input: Record<string, unknown>,
-  workingDir: string,
-  gatewayResult?: ClassificationResult,
-): Promise<string[]> {
-  // For bash/host_bash, use gateway-provided candidates and action keys.
-  if (toolName === "bash" || toolName === "host_bash") {
-    if (gatewayResult?.commandCandidates) {
-      return gatewayResult.commandCandidates;
-    }
-    // Fallback: just return the raw command string
-    const command = getStringField(input, "command").trim();
-    return command ? [command] : [command];
-  }
-
-  if (toolName === "skill_load") {
-    const rawSelector = getStringField(input, "skill").trim();
-    const targets: string[] = [];
-    if (!rawSelector) {
-      targets.push("");
-    } else {
-      const resolved = resolveSkillIdAndHash(rawSelector);
-
-      // When the resolved skill contains inline command expansions and the
-      // feature flag is on, emit skill_load_dynamic: candidates so the
-      // higher-priority default ask rule catches them instead of falling
-      // through to the permissive skill_load:* allow rule.
-      const config = getConfig();
-      const inlineEnabled = isAssistantFeatureFlagEnabled(
-        "inline-skill-commands",
-        config,
-      );
-
-      if (resolved && inlineEnabled && hasInlineExpansions(resolved.id)) {
-        const transitiveHash = computeTransitiveHashSafe(resolved.id);
-        if (transitiveHash) {
-          targets.push(`skill_load_dynamic:${resolved.id}@${transitiveHash}`);
-        }
-        targets.push(`skill_load_dynamic:${resolved.id}`);
-        // Don't fall through to skill_load:* — dynamic skills use their own
-        // candidate namespace so the default ask rule applies.
-      } else {
-        if (resolved && resolved.versionHash) {
-          // Version-specific candidate lets rules pin to an exact skill version
-          targets.push(`${resolved.id}@${resolved.versionHash}`);
-        }
-        targets.push(rawSelector);
-      }
-    }
-
-    // Dynamic candidates use skill_load_dynamic: prefix; normal ones use skill_load:
-    return [...new Set(targets)].map((target) => {
-      if (target.startsWith("skill_load_dynamic:")) return target;
-      return `${toolName}:${target}`;
-    });
-  }
-
-  if (
-    toolName === "scaffold_managed_skill" ||
-    toolName === "delete_managed_skill"
-  ) {
-    const skillId = getStringField(input, "skill_id").trim();
-    return [`${toolName}:${skillId}`];
-  }
-
-  if (toolName === "web_fetch" || toolName === "network_request") {
-    const rawUrl = getStringField(input, "url").trim();
-    const candidates: string[] = [];
-
-    if (rawUrl) {
-      candidates.push(`${toolName}:${rawUrl}`);
-    }
-
-    const normalized = normalizeWebFetchUrl(rawUrl);
-    if (normalized) {
-      candidates.push(`${toolName}:${normalized.href}`);
-      candidates.push(`${toolName}:${normalized.origin}/*`);
-    }
-
-    if (candidates.length === 0) {
-      candidates.push(`${toolName}:`);
-    }
-
-    return [...new Set(candidates)];
-  }
-
-  let fileTarget: string;
-  if (toolName === "host_file_transfer") {
-    // For host_file_transfer the security-sensitive path is always the
-    // host-side path: source_path when reading from the host (to_sandbox),
-    // dest_path when writing to the host (to_host).
-    const direction = getStringField(input, "direction");
-    fileTarget =
-      direction === "to_sandbox"
-        ? getStringField(input, "source_path")
-        : getStringField(input, "dest_path");
-  } else {
-    fileTarget = getStringField(
-      input,
-      "path",
-      "file_path",
-      "dest_path",
-      "source_path",
-    );
-  }
-  if (
-    toolName === "host_file_read" ||
-    toolName === "host_file_write" ||
-    toolName === "host_file_edit" ||
-    toolName === "host_file_transfer"
-  ) {
-    const resolved = fileTarget ? resolve(fileTarget) : fileTarget;
-    const normalized =
-      resolved && process.platform === "win32"
-        ? resolved.replaceAll("\\", "/")
-        : resolved;
-    const candidates = [`${toolName}:${normalized}`];
-    if (normalized !== fileTarget) {
-      candidates.push(`${toolName}:${fileTarget}`);
-    }
-    // Include the canonical (symlink-resolved) form so rules written against
-    // real paths match even when the tool receives a symlinked path.
-    if (fileTarget) {
-      const canonical = normalizeFilePath(normalized);
-      if (canonical !== normalized && canonical !== fileTarget) {
-        candidates.push(`${toolName}:${canonical}`);
-      }
-    }
-    return [...new Set(candidates)];
-  }
-
-  const rawResolved = fileTarget ? resolve(workingDir, fileTarget) : fileTarget;
-  const resolved =
-    rawResolved && process.platform === "win32"
-      ? rawResolved.replaceAll("\\", "/")
-      : rawResolved;
-  const candidates = [`${toolName}:${resolved}`];
-  // Also include the raw path if it differs, so user-created rules with
-  // raw paths still match.
-  if (resolved !== fileTarget) {
-    candidates.push(`${toolName}:${fileTarget}`);
-  }
-  // Include the canonical (symlink-resolved) form so rules written against
-  // real paths match even when the tool receives a symlinked or relative path
-  // with redundant segments like `./foo/../bar`.
-  if (fileTarget) {
-    const canonical = normalizeFilePath(resolved);
-    if (canonical !== resolved && canonical !== fileTarget) {
-      candidates.push(`${toolName}:${canonical}`);
-    }
-  }
-  return [...new Set(candidates)];
-}
-
 export async function classifyRisk(
   toolName: string,
   input: Record<string, unknown>,
@@ -666,21 +505,6 @@ export async function check(
   );
 
   const { level: risk, reason: riskReason } = classification;
-
-  // Build command string candidates for rule matching.
-  // For bash tools, use gateway-provided candidates; for other tools,
-  // derive candidates from assistant-local data.
-  const commandCandidates = await buildCommandCandidates(
-    toolName,
-    input,
-    workingDir,
-    // Pass the gateway result so bash tools can use commandCandidates
-    classification.commandCandidates
-      ? ({
-          commandCandidates: classification.commandCandidates,
-        } as ClassificationResult)
-      : undefined,
-  );
 
   // Use gateway-provided sandboxAutoApprove instead of evaluating locally.
   const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;

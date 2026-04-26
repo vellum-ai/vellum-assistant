@@ -2,16 +2,12 @@
 // bun test src/__tests__/checker.test.ts src/__tests__/conversation-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
 import {
-  existsSync,
   mkdirSync,
-  mkdtempSync,
-  realpathSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   afterAll,
   afterEach,
@@ -120,7 +116,6 @@ import {
   generateScopeOptions,
   SCOPE_AWARE_TOOLS,
 } from "../permissions/checker.js";
-import type { TrustRule } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";

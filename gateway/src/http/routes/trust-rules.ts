@@ -135,7 +135,7 @@ export function createTrustRulesListHandler() {
       });
       return Response.json({ rules });
     } catch (err) {
-      log.error({ err }, "Failed to list v3 trust rules");
+      log.error({ err }, "Failed to list trust rules");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };
@@ -203,7 +203,7 @@ export function createTrustRulesCreateHandler() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Internal server error";
-      log.error({ err }, "Failed to create v3 trust rule");
+      log.error({ err }, "Failed to create trust rule");
       return Response.json({ error: message }, { status: 400 });
     }
   };
@@ -270,7 +270,7 @@ export function createTrustRulesUpdateHandler() {
       if (message.includes("not found")) {
         return Response.json({ error: message }, { status: 404 });
       }
-      log.error({ err }, "Failed to update v3 trust rule");
+      log.error({ err }, "Failed to update trust rule");
       return Response.json({ error: message }, { status: 400 });
     }
   };
@@ -298,7 +298,7 @@ export function createTrustRulesDeleteHandler() {
       if (message.includes("not found")) {
         return Response.json({ error: message }, { status: 404 });
       }
-      log.error({ err }, "Failed to delete v3 trust rule");
+      log.error({ err }, "Failed to delete trust rule");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };
@@ -406,7 +406,7 @@ export function createTrustRulesResetHandler() {
       if (message.includes("not found")) {
         return Response.json({ error: message }, { status: 404 });
       }
-      log.error({ err }, "Failed to reset v3 trust rule");
+      log.error({ err }, "Failed to reset trust rule");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };

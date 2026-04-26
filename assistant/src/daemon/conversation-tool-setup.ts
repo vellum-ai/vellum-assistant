@@ -186,15 +186,6 @@ export function createToolExecutor(
       markDoordashStepInProgress(ctx, input);
     }
 
-    // Unwrap skill_execute dispatch so downstream context (notably
-    // batchAuthorizedByTask) is keyed on the tool that will actually run.
-    // Task rules in required_tools contain underlying tool names (e.g.
-    // "gmail_archive"), never the outer "skill_execute" dispatcher.
-    const effectiveToolName =
-      name === "skill_execute" && typeof input.tool === "string" && input.tool
-        ? input.tool
-        : name;
-
     // Build the context object shared by both the skill_execute interception
     // path and the regular executor path.
     const toolContext: ToolContext = {
