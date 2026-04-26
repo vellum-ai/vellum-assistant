@@ -256,12 +256,6 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       res.cesPort = defaultPorts.ces;
       mutated = true;
     }
-    // Strip legacy pidFile from existing lockfile entries — the CLI now
-    // derives PID paths from instanceDir via getDaemonPidPath().
-    if ("pidFile" in res) {
-      delete res.pidFile;
-      mutated = true;
-    }
   }
 
   return mutated;

@@ -239,7 +239,6 @@ describe("migrateLegacyEntry", () => {
     expect(resources.gatewayPort).toBe(7830);
     expect(resources.qdrantPort).toBe(6333);
     expect(resources.cesPort).toBe(8090);
-    expect(resources.pidFile).toBeUndefined();
   });
 
   test("infers gateway port from runtimeUrl", () => {
@@ -312,7 +311,6 @@ describe("migrateLegacyEntry", () => {
     expect(resources.gatewayPort).toBe(7830);
     expect(resources.qdrantPort).toBe(6333);
     expect(resources.cesPort).toBe(8090);
-    expect(resources.pidFile).toBeUndefined();
   });
 
   test("does not overwrite existing resources fields", () => {

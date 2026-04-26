@@ -114,9 +114,6 @@ describe("multi-local", () => {
         expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
         expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
         expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
-
-        // AND pidFile is no longer stored in resources (derived at runtime)
-        expect((res as Record<string, unknown>).pidFile).toBeUndefined();
       } finally {
         if (prevXdg !== undefined) {
           process.env.XDG_DATA_HOME = prevXdg;

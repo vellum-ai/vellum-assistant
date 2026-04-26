@@ -526,6 +526,8 @@ async function listAllAssistants(): Promise<void> {
       let health: { status: string; detail: string | null; version?: string };
       const resources = a.resources;
       if (a.cloud === "local" && resources) {
+        // TODO(ATL-281): Remove readPidFile/getDaemonPidPath in favor of
+        // fetching daemon PIDs via the health API (Gateway Security Migration).
         const pid = readPidFile(getDaemonPidPath(resources));
         const alive = pid !== null && isProcessAlive(pid);
         if (!alive) {
