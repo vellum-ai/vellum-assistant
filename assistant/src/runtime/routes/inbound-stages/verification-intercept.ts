@@ -200,7 +200,7 @@ export async function handleVerificationIntercept(
           canonicalSenderId ??
           rawSenderId;
 
-        createGuardianBinding({
+        await createGuardianBinding({
           channel: sourceChannel,
           guardianExternalUserId: canonicalSenderId ?? rawSenderId,
           guardianDeliveryChatId: conversationExternalId,

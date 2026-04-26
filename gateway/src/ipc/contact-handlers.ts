@@ -1,12 +1,14 @@
 /**
- * IPC route definitions for contact reads.
+ * IPC route definitions for contact reads and guardian binding writes.
  *
  * Exposes gateway-owned contact data (auth/authz) to the assistant
- * daemon over the IPC socket. All methods are read-only.
+ * daemon over the IPC socket. Write methods handle guardian binding
+ * creation — the gateway owns identity establishment for ingress.
  */
 
 import { z } from "zod";
 
+import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import { ContactStore } from "../db/contact-store.js";
 import type { IpcRoute } from "./server.js";
 
@@ -18,6 +20,8 @@ function getStore(): ContactStore {
   }
   return store;
 }
+
+// ── Read schemas ─────────────────────────────────────────────────────────────
 
 const GetContactParamsSchema = z.object({
   contactId: z.string(),
@@ -32,7 +36,21 @@ const GetChannelsForContactParamsSchema = z.object({
   contactId: z.string(),
 });
 
+// ── Write schemas ────────────────────────────────────────────────────────────
+
+const CreateGuardianBindingSchema = z.object({
+  channel: z.string().min(1),
+  externalUserId: z.string().min(1),
+  deliveryChatId: z.string().min(1),
+  guardianPrincipalId: z.string().min(1),
+  displayName: z.string().optional(),
+  verifiedVia: z.string().optional(),
+});
+
+// ── Routes ───────────────────────────────────────────────────────────────────
+
 export const contactRoutes: IpcRoute[] = [
+  // ── Reads ──
   {
     method: "list_contacts",
     handler: () => getStore().listContacts(),
@@ -62,6 +80,16 @@ export const contactRoutes: IpcRoute[] = [
     handler: (params?: Record<string, unknown>) => {
       const contactId = params?.contactId as string;
       return getStore().getChannelsForContact(contactId);
+    },
+  },
+
+  // ── Writes ──
+  {
+    method: "create_guardian_binding",
+    schema: CreateGuardianBindingSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const p = params as z.infer<typeof CreateGuardianBindingSchema>;
+      return createGuardianBinding(p);
     },
   },
 ];

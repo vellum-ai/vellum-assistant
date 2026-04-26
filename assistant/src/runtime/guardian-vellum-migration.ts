@@ -41,34 +41,33 @@ export function ensureVellumGuardianBinding(
     return guardianResult.contact.principalId;
   }
 
+  // The gateway creates the vellum guardian binding at startup. If we get
+  // here, the gateway either hasn't started yet or the binding was lost.
+  // Fire-and-forget the async IPC call and return the new principal
+  // optimistically — the binding will be created by the time the next
+  // inbound message is processed.
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
 
-  try {
-    createGuardianBinding({
-      channel: "vellum",
-      guardianExternalUserId: guardianPrincipalId,
-      guardianDeliveryChatId: "local",
-      guardianPrincipalId,
-      verifiedVia: "startup-migration",
-      metadataJson: JSON.stringify({ migratedAt: Date.now() }),
-    });
-  } catch (err) {
+  createGuardianBinding({
+    channel: "vellum",
+    guardianExternalUserId: guardianPrincipalId,
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId,
+    verifiedVia: "startup-migration",
+    metadataJson: JSON.stringify({ migratedAt: Date.now() }),
+  }).catch((err) => {
     // A concurrent call or legacy binding may already occupy this slot.
-    // Re-check contacts; if a binding now exists, return it instead of throwing.
-    const existing = findGuardianForChannel("vellum");
-    if (existing?.contact.principalId) {
-      log.debug(
-        { assistantId, guardianPrincipalId: existing.contact.principalId },
-        "Vellum guardian binding creation conflicted — returning existing principal",
-      );
-      return existing.contact.principalId;
-    }
-    throw err;
-  }
+    // The gateway startup path handles the primary case — this is a
+    // best-effort self-heal fallback.
+    log.warn(
+      { err, assistantId, guardianPrincipalId },
+      "ensureVellumGuardianBinding: fire-and-forget IPC call failed",
+    );
+  });
 
   log.info(
     { assistantId, guardianPrincipalId },
-    "Backfilled vellum guardian binding on startup",
+    "Backfilled vellum guardian binding on startup (async)",
   );
 
   return guardianPrincipalId;

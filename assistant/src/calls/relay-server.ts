@@ -1010,7 +1010,7 @@ export class RelayConnection {
           );
         } else {
           revokeGuardianBinding("phone");
-          createGuardianBinding({
+          await createGuardianBinding({
             channel: "phone",
             guardianExternalUserId: fromNumber,
             guardianDeliveryChatId: fromNumber,
