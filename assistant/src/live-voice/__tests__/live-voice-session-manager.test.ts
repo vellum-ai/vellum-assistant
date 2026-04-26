@@ -5,6 +5,7 @@ import {
   type LiveVoiceSessionCloseReason,
   type LiveVoiceSessionFactoryContext,
   LiveVoiceSessionManager,
+  LiveVoiceSessionStartupError,
 } from "../live-voice-session-manager.js";
 import type {
   LiveVoiceClientFrame,
@@ -215,6 +216,50 @@ describe("LiveVoiceSessionManager", () => {
     ).rejects.toThrow("session start failed");
     const retry = await manager.startSession(START_FRAME, createSink().sink);
 
+    expect(sessions[0]?.closeReasons).toEqual(["error"]);
+    expect(retry).toEqual({ status: "accepted", sessionId: "session-2" });
+    expect(manager.activeSessionId).toBe("session-2");
+  });
+
+  test("releases the lock without rethrowing terminal startup failures", async () => {
+    const sessions: TestSession[] = [];
+    const first = createSink();
+    const second = createSink();
+    const startupErrorMessage = "Live voice transcription could not be started";
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: mock(() => `session-${sessions.length + 1}`),
+      createSession: (context) => {
+        const session = createTestSession(
+          context.sessionId === "session-1"
+            ? {
+                start: mock(async () => {
+                  await context.sendFrame({
+                    type: "error",
+                    code: "invalid_field",
+                    message: startupErrorMessage,
+                  });
+                  throw new LiveVoiceSessionStartupError(startupErrorMessage);
+                }),
+              }
+            : {},
+        );
+        sessions.push(session);
+        return session;
+      },
+    });
+
+    const failed = await manager.startSession(START_FRAME, first.sink);
+    const retry = await manager.startSession(START_FRAME, second.sink);
+
+    expect(failed).toEqual({ status: "failed", sessionId: "session-1" });
+    expect(first.frames).toEqual([
+      {
+        type: "error",
+        seq: 1,
+        code: "invalid_field",
+        message: startupErrorMessage,
+      },
+    ]);
     expect(sessions[0]?.closeReasons).toEqual(["error"]);
     expect(retry).toEqual({ status: "accepted", sessionId: "session-2" });
     expect(manager.activeSessionId).toBe("session-2");

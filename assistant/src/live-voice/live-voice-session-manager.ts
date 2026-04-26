@@ -42,9 +42,20 @@ export interface LiveVoiceSessionManagerOptions {
   createSessionId?: () => string;
 }
 
+export class LiveVoiceSessionStartupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LiveVoiceSessionStartupError";
+  }
+}
+
 export type LiveVoiceStartSessionResult =
   | {
       status: "accepted";
+      sessionId: string;
+    }
+  | {
+      status: "failed";
       sessionId: string;
     }
   | {
@@ -127,6 +138,9 @@ export class LiveVoiceSessionManager {
       await session.start();
     } catch (err) {
       await this.releaseAfterSessionError(sessionId);
+      if (err instanceof LiveVoiceSessionStartupError) {
+        return { status: "failed", sessionId };
+      }
       throw err;
     }
 
@@ -205,10 +219,4 @@ export class LiveVoiceSessionManager {
       // The original session error is more useful to callers than a cleanup error.
     }
   }
-}
-
-export function createLiveVoiceSessionManager(
-  options: LiveVoiceSessionManagerOptions,
-): LiveVoiceSessionManager {
-  return new LiveVoiceSessionManager(options);
 }

@@ -74,11 +74,16 @@ class MockStreamingTranscriber implements StreamingTranscriber {
 }
 
 const resolvedTranscribers: MockStreamingTranscriber[] = [];
-const resolveStreamingTranscriberMock = mock(async () => {
+function createResolvedTranscriber(): MockStreamingTranscriber {
   const transcriber = new MockStreamingTranscriber();
   resolvedTranscribers.push(transcriber);
   return transcriber;
-});
+}
+
+let resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
+const resolveStreamingTranscriberMock = mock(() =>
+  resolveStreamingTranscriberImpl(),
+);
 
 mock.module("../../providers/speech-to-text/resolve.js", () => ({
   resolveStreamingTranscriber: resolveStreamingTranscriberMock,
@@ -234,6 +239,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   beforeEach(async () => {
     delete process.env.DISABLE_HTTP_AUTH;
     delete process.env.VELLUM_UNSAFE_AUTH_BYPASS;
+    resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
     resolveStreamingTranscriberMock.mockClear();
     resolvedTranscribers.length = 0;
     clients = [];
@@ -378,5 +384,38 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       conversationId: "conversation-second",
     });
     expect(secondReady.sessionId).not.toBe(firstReady.sessionId);
+  });
+
+  test("releases the session lock after startup STT failure without WebSocket close", async () => {
+    let attempts = 0;
+    resolveStreamingTranscriberImpl = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("Deepgram credentials missing");
+      }
+      return createResolvedTranscriber();
+    };
+    const ws = openLiveVoiceClient();
+    await waitForOpen(ws);
+
+    ws.send(startFrame("conversation-failed"));
+    const error = await waitForJsonFrame(ws);
+    expect(error).toMatchObject({
+      type: "error",
+      code: "invalid_field",
+      message: expect.stringContaining("Deepgram credentials missing"),
+    });
+
+    ws.send(startFrame("conversation-retry"));
+    const ready = await waitForJsonFrame(ws);
+
+    expect(ready).toMatchObject({
+      type: "ready",
+      conversationId: "conversation-retry",
+    });
+    expect(typeof ready.sessionId).toBe("string");
+    expect(resolveStreamingTranscriberMock).toHaveBeenCalledTimes(2);
+    expect(resolvedTranscribers).toHaveLength(1);
+    expect(resolvedTranscribers[0]?.started).toBe(true);
   });
 });

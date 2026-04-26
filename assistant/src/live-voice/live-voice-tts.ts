@@ -13,7 +13,6 @@ export type LiveVoiceTtsConfig = Parameters<typeof resolveTtsConfig>[0];
 
 export interface LiveVoiceTtsAudioChunk {
   type: "tts_audio";
-  seq: number;
   contentType: string;
   sampleRate: number;
   dataBase64: string;
@@ -79,9 +78,22 @@ export async function streamLiveVoiceTtsAudio(
     providerConfig,
     options.outputFormat,
   );
-  let seq = 0;
+  const canStreamChunks = isRawPcmContentType(chunkContentType);
   let chunks = 0;
   let bytes = 0;
+
+  const emitAudioFrame = (contentType: string, audio: Uint8Array): void => {
+    if (audio.byteLength === 0) return;
+
+    chunks += 1;
+    bytes += audio.byteLength;
+    options.onAudioChunk({
+      type: "tts_audio",
+      contentType,
+      sampleRate,
+      dataBase64: Buffer.from(audio).toString("base64"),
+    });
+  };
 
   try {
     const result = await provider.synthesizeStream!(
@@ -93,23 +105,20 @@ export async function streamLiveVoiceTtsAudio(
         outputFormat: options.outputFormat,
       },
       (audioChunk) => {
-        if (audioChunk.byteLength === 0) return;
-
-        chunks += 1;
-        bytes += audioChunk.byteLength;
-        options.onAudioChunk({
-          type: "tts_audio",
-          seq: seq++,
-          contentType: chunkContentType,
-          sampleRate,
-          dataBase64: Buffer.from(audioChunk).toString("base64"),
-        });
+        if (canStreamChunks) {
+          emitAudioFrame(chunkContentType, audioChunk);
+        }
       },
     );
+    const contentType = result.contentType || chunkContentType;
+
+    if (!canStreamChunks) {
+      emitAudioFrame(contentType, result.audio);
+    }
 
     return {
       provider: providerId,
-      contentType: result.contentType || chunkContentType,
+      contentType,
       sampleRate,
       chunks,
       bytes,
@@ -244,4 +253,8 @@ function resolveSampleRate(
 
 function isPositiveFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isRawPcmContentType(contentType: string): boolean {
+  return contentType.split(";", 1)[0]?.trim().toLowerCase() === "audio/pcm";
 }
