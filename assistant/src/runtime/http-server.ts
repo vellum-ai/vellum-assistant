@@ -43,11 +43,8 @@ import {
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { normalizeConversationType } from "../daemon/message-types/shared.js";
-import {
-  type LiveVoiceSession,
-  type LiveVoiceSessionFactoryContext,
-  LiveVoiceSessionManager,
-} from "../live-voice/live-voice-session-manager.js";
+import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
+import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import {
   type LiveVoiceClientFrame,
   type LiveVoiceProtocolError,
@@ -350,25 +347,6 @@ interface LiveVoiceWebSocketData {
   lastSeq: number;
 }
 
-class RuntimeLiveVoiceStubSession implements LiveVoiceSession {
-  constructor(private readonly context: LiveVoiceSessionFactoryContext) {}
-
-  async start(): Promise<void> {
-    await this.context.sendFrame({
-      type: "ready",
-      sessionId: this.context.sessionId,
-      conversationId:
-        this.context.startFrame.conversationId ?? this.context.sessionId,
-    });
-  }
-
-  handleClientFrame(_frame: LiveVoiceClientFrame): void {}
-
-  handleBinaryAudio(_chunk: Uint8Array): void {}
-
-  close(): void {}
-}
-
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -421,7 +399,7 @@ export class RuntimeHttpServer {
     this.getHeartbeatService = options.getHeartbeatService;
     this.getFilingService = options.getFilingService;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
-      createSession: (context) => new RuntimeLiveVoiceStubSession(context),
+      createSession: (context) => createLiveVoiceSession(context),
     });
     this.router = new HttpRouter(this.buildRouteTable());
   }
