@@ -381,28 +381,6 @@ export function verifyToken(
 }
 
 // ---------------------------------------------------------------------------
-// Edge relay token
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a short-lived JWT for relay WebSocket connections through the gateway.
- *
- * The gateway's relay WS handler validates tokens with validateEdgeToken(),
- * which expects aud=vellum-gateway.
- *
- * sub=svc:daemon:self, scope_profile=gateway_service_v1
- */
-export function mintEdgeRelayToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:daemon:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 60,
-  });
-}
-
-// ---------------------------------------------------------------------------
 // UI page token
 // ---------------------------------------------------------------------------
 

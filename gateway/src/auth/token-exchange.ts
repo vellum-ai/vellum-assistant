@@ -128,3 +128,23 @@ export function mintServiceToken(): string {
     ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
   });
 }
+
+/**
+ * Mint a relay token for Twilio WebSocket connections.
+ *
+ * The gateway's relay/media-stream WS handlers validate these tokens via
+ * {@link validateEdgeToken} (aud=vellum-gateway). Previously minted by the
+ * daemon and embedded in TwiML; now minted by the gateway and injected into
+ * the TwiML response before it reaches Twilio.
+ *
+ * sub=svc:gateway:self, scope_profile=gateway_service_v1
+ */
+export function mintRelayToken(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
+  });
+}
