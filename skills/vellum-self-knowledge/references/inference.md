@@ -24,6 +24,9 @@ All known models by provider, so you can interpret model IDs from config:
 | Google Gemini | `gemini-3.1-pro-preview-customtools`          | Gemini 3.1 Pro Preview (Custom Tools)       |
 | Google Gemini | `gemini-3-flash-preview`                      | Gemini 3 Flash Preview                      |
 | Google Gemini | `gemini-3.1-flash-lite-preview`               | Gemini 3.1 Flash-Lite Preview               |
+| Google Gemini | `gemini-2.5-flash`                            | Gemini 2.5 Flash                            |
+| Google Gemini | `gemini-2.5-flash-lite`                       | Gemini 2.5 Flash Lite                       |
+| Google Gemini | `gemini-2.5-pro`                              | Gemini 2.5 Pro                              |
 | Ollama        | `llama3.2`                                    | Llama 3.2                                   |
 | Ollama        | `mistral`                                     | Mistral                                     |
 | Fireworks     | `accounts/fireworks/models/kimi-k2p5`         | Kimi K2.5                                   |
