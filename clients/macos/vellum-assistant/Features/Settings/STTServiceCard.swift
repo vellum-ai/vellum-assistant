@@ -19,8 +19,7 @@ struct STTServiceCard: View {
     @State private var sttProviderHasKey: Bool = false
     @State private var sttSaving: Bool = false
     @State private var sttSaveError: String? = nil
-
-    private let sttRegistry = loadSTTProviderRegistry()
+    @State private var sttRegistry = loadSTTProviderRegistry()
 
     private var selectedSTTProvider: STTProviderCatalogEntry? {
         sttRegistry.provider(withId: draftSTTProvider) ?? sttRegistry.providers.first
@@ -98,6 +97,10 @@ struct STTServiceCard: View {
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .vCard(radius: VRadius.xl)
+        .task {
+            await refreshSTTProviderRegistry()
+            sttRegistry = loadSTTProviderRegistry()
+        }
         .onAppear {
             draftSTTProvider = sttProviderRaw
             initialSTTProvider = sttProviderRaw

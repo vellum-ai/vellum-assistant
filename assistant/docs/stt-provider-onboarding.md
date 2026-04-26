@@ -49,40 +49,30 @@ If the new provider introduces a credential-store key that is not already presen
 
 If the new provider **shares** an existing credential name (e.g. reuses `"openai"`), the deduplication logic in `sttApiKeyProviderNames()` handles it — no changes needed.
 
-## 6. Client catalog entry
+## 6. Client display metadata
 
-**File:** `meta/stt-provider-catalog.json`
+All client-facing metadata is part of the daemon's provider catalog entry (`src/providers/speech-to-text/provider-catalog.ts`). When adding a new provider, include these fields in the catalog entry:
 
-Add a new entry to the `providers` array with the following fields:
+| Field              | Description                                                               |
+| ------------------ | ------------------------------------------------------------------------- |
+| `displayName`      | Human-readable name shown in client settings UI.                          |
+| `subtitle`         | Short description displayed below the provider selector.                  |
+| `setupMode`        | `"api-key"` (inline key field) or `"cli"` (instructions-only).            |
+| `setupHint`        | Brief guidance shown during setup.                                        |
+| `credentialsGuide` | Object with `description`, `url`, and `linkLabel` for the key mgmt page.  |
 
-| Field                       | Description                                                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                        | Must match the `SttProviderId` used in step 1.                                                                                        |
-| `displayName`               | Human-readable name shown in client settings UI.                                                                                      |
-| `subtitle`                  | Short description displayed below the provider selector.                                                                              |
-| `setupMode`                 | `"api-key"` (inline key field) or `"cli"` (instructions-only).                                                                        |
-| `setupHint`                 | Brief guidance shown during setup.                                                                                                    |
-| `apiKeyProviderName`        | Must match the `credentialProvider` value from the daemon catalog entry.                                                              |
-| `conversationStreamingMode` | Must match the `conversationStreamingMode` value from the daemon catalog entry (`"realtime-ws"`, `"incremental-batch"`, or `"none"`). |
+Native clients fetch this metadata at launch via `GET /v1/stt/providers`. No separate client-side file updates are needed.
 
 **Naming/mapping examples:**
 
-| Provider ID      | `credentialProvider` / `apiKeyProviderName` | Key ownership |
-| ---------------- | ------------------------------------------- | ------------- |
-| `openai-whisper` | `openai`                                    | shared        |
-| `deepgram`       | `deepgram`                                  | exclusive     |
-| `google-gemini`  | `gemini`                                    | shared        |
-| `xai`            | `xai`                                       | exclusive     |
+| Provider ID      | `credentialProvider` | Key ownership |
+| ---------------- | -------------------- | ------------- |
+| `openai-whisper` | `openai`             | shared        |
+| `deepgram`       | `deepgram`           | exclusive     |
+| `google-gemini`  | `gemini`             | shared        |
+| `xai`            | `xai`                | exclusive     |
 
 When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential. The `sttKeyIsExclusive` / `sttKeyIsShared` helpers in the macOS settings layer derive this automatically from the catalog.
-
-Insertion order in the JSON array must match the daemon catalog insertion order.
-
-### Client-side code
-
-**File:** `clients/shared/Utilities/STTProviderRegistry.swift`
-
-Add a matching fallback entry in `fallbackRegistry` with the same `id`, `displayName`, `subtitle`, `setupMode`, `setupHint`, `apiKeyProviderName`, and `conversationStreamingMode` as the JSON catalog entry. The fallback keeps client startup resilient when the bundled JSON is missing.
 
 ### macOS settings key behavior
 
@@ -90,25 +80,7 @@ Add a matching fallback entry in `fallbackRegistry` with the same `id`, `display
 
 The `sttKeyIsExclusive(for:)` / `sttKeyIsShared(for:)` helpers derive shared-vs-exclusive key behavior from the catalog automatically: if `apiKeyProviderName == id`, the key is exclusive; otherwise it is shared. No new conditionals are needed unless the provider has a non-standard key-ownership model.
 
-## 7. Parity tests
-
-**File:** `src/__tests__/stt-catalog-parity.test.ts`
-
-The existing parity test suite enforces that:
-
-- Daemon and client catalog provider IDs are identical and in the same order.
-- Each entry's `apiKeyProviderName` matches the daemon's `credentialProvider`.
-- The client catalog has all required fields populated.
-
-Run the test after completing steps 1-6:
-
-```bash
-cd assistant && bun test src/__tests__/stt-catalog-parity.test.ts
-```
-
-If any assertion fails, the error message identifies which side is out of sync and what to fix.
-
-## 8. Verify unified STT architecture
+## 7. Verify unified STT architecture
 
 `services.stt.provider` is the single source of truth for all STT routing, including telephony. There is no separate telephony STT config path.
 

@@ -497,6 +497,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "dictation", scopes: ["chat.write"] },
 
   // Speech-to-text
+  { endpoint: "stt/providers", scopes: ["settings.read"] },
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
   // OAuth / integrations

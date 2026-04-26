@@ -1,15 +1,13 @@
 /**
- * HTTP route definitions for speech-to-text transcription.
+ * HTTP route definitions for speech-to-text.
  *
+ * GET  /v1/stt/providers  — list available STT providers and their metadata
  * POST /v1/stt/transcribe — transcribe base64-encoded audio to text
- *
- * Uses the globally configured STT provider via the `services.stt`
- * abstraction. Provider selection is resolved via `resolveBatchTranscriber()`
- * from `providers/speech-to-text/resolve.ts`.
  */
 
 import { z } from "zod";
 
+import { listProviderEntries } from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
 import type { SttErrorCategory } from "../../stt/types.js";
@@ -63,6 +61,29 @@ const STT_ERROR_MAP: Record<
 
 export function sttRouteDefinitions(): RouteDefinition[] {
   return [
+    {
+      endpoint: "stt/providers",
+      method: "GET",
+      policyKey: "stt/providers",
+      summary: "List STT providers",
+      description:
+        "Return the catalog of available STT providers with client-facing metadata.",
+      tags: ["stt"],
+      handler: async () => {
+        const entries = listProviderEntries();
+        const providers = entries.map((e) => ({
+          id: e.id,
+          displayName: e.displayName,
+          subtitle: e.subtitle,
+          setupMode: e.setupMode,
+          setupHint: e.setupHint,
+          apiKeyProviderName: e.credentialProvider,
+          conversationStreamingMode: e.conversationStreamingMode,
+          credentialsGuide: e.credentialsGuide,
+        }));
+        return Response.json({ providers });
+      },
+    },
     {
       endpoint: "stt/transcribe",
       method: "POST",

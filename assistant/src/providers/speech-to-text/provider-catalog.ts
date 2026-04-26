@@ -80,6 +80,20 @@ export interface TelephonyRouting {
 }
 
 // ---------------------------------------------------------------------------
+// Client display metadata
+// ---------------------------------------------------------------------------
+
+/** How the provider's credentials are configured by the user. */
+export type SttSetupMode = "api-key" | "cli";
+
+/** Guide for obtaining API credentials from a provider. */
+export interface SttCredentialsGuide {
+  readonly description: string;
+  readonly url: string;
+  readonly linkLabel: string;
+}
+
+// ---------------------------------------------------------------------------
 // Catalog entry
 // ---------------------------------------------------------------------------
 
@@ -89,6 +103,18 @@ export interface TelephonyRouting {
 export interface SttProviderEntry {
   /** Canonical provider identifier (must match an {@link SttProviderId} variant). */
   readonly id: SttProviderId;
+
+  /** Human-readable name for display in settings UI. */
+  readonly displayName: string;
+
+  /** Short description shown below the provider selector. */
+  readonly subtitle: string;
+
+  /** How the provider's credentials are configured. */
+  readonly setupMode: SttSetupMode;
+
+  /** Brief help text guiding the user through setup. */
+  readonly setupHint: string;
 
   /**
    * Name of the credential provider used by `getProviderKeyAsync` to
@@ -141,6 +167,9 @@ export interface SttProviderEntry {
    * strategy selection and Twilio-native mapping details.
    */
   readonly telephonyRouting: TelephonyRouting;
+
+  /** Guide for obtaining API credentials from this provider. */
+  readonly credentialsGuide?: SttCredentialsGuide;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +193,11 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
     "deepgram",
     {
       id: "deepgram",
+      displayName: "Deepgram",
+      subtitle:
+        "Fast, real-time speech-to-text with streaming support. Requires a Deepgram API key.",
+      setupMode: "api-key",
+      setupHint: "Enter your Deepgram API key to enable speech-to-text.",
       credentialProvider: "deepgram",
       supportedBoundaries: new Set<SttBoundaryId>([
         "daemon-batch",
@@ -179,12 +213,24 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
           defaultSpeechModel: "nova-3",
         },
       },
+      credentialsGuide: {
+        description:
+          "Sign in to the Deepgram console, navigate to API Keys, and create a new key.",
+        url: "https://console.deepgram.com/",
+        linkLabel: "Open Deepgram Console",
+      },
     },
   ],
   [
     "google-gemini",
     {
       id: "google-gemini",
+      displayName: "Google Gemini",
+      subtitle:
+        "Multimodal speech-to-text powered by Google Gemini. Requires a Gemini API key.",
+      setupMode: "api-key",
+      setupHint:
+        "Enter your Gemini API key to enable Google Gemini transcription.",
       credentialProvider: "gemini",
       supportedBoundaries: new Set<SttBoundaryId>([
         "daemon-batch",
@@ -200,12 +246,24 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
           defaultSpeechModel: undefined,
         },
       },
+      credentialsGuide: {
+        description:
+          "Visit Google AI Studio, sign in with your Google account, and create an API key.",
+        url: "https://aistudio.google.com/apikey",
+        linkLabel: "Open Google AI Studio",
+      },
     },
   ],
   [
     "openai-whisper",
     {
       id: "openai-whisper",
+      displayName: "OpenAI Whisper",
+      subtitle:
+        "High-accuracy speech-to-text powered by OpenAI Whisper. Requires an OpenAI API key.",
+      setupMode: "api-key",
+      setupHint:
+        "Enter your OpenAI API key to enable Whisper transcription.",
       credentialProvider: "openai",
       supportedBoundaries: new Set<SttBoundaryId>([
         "daemon-batch",
@@ -217,12 +275,23 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       telephonyRouting: {
         strategyKind: "media-stream-custom",
       },
+      credentialsGuide: {
+        description:
+          "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
+        url: "https://platform.openai.com/api-keys",
+        linkLabel: "Open OpenAI Platform",
+      },
     },
   ],
   [
     "xai",
     {
       id: "xai",
+      displayName: "xAI",
+      subtitle:
+        "Real-time speech-to-text powered by xAI. Requires an xAI API key.",
+      setupMode: "api-key",
+      setupHint: "Enter your xAI API key to enable xAI transcription.",
       credentialProvider: "xai",
       supportedBoundaries: new Set<SttBoundaryId>([
         "daemon-batch",
@@ -233,6 +302,12 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       supportsDiarization: true,
       telephonyRouting: {
         strategyKind: "media-stream-custom",
+      },
+      credentialsGuide: {
+        description:
+          "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+        url: "https://console.x.ai/",
+        linkLabel: "Open xAI Console",
       },
     },
   ],

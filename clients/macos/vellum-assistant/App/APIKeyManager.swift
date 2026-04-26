@@ -50,7 +50,7 @@ enum APIKeyManager {
     /// and STT providers from the shared registries that use `api_key`
     /// setup mode, so new registry entries are automatically included
     /// without code changes here.
-    static let allSyncableProviders: [String] = {
+    static var allSyncableProviders: [String] {
         var ids = coreSyncableProviders
         let ttsApiKeyIds = loadTTSProviderRegistry().providers
             .filter { $0.setupMode == .apiKey }
@@ -65,7 +65,7 @@ enum APIKeyManager {
             ids.append(name)
         }
         return ids
-    }()
+    }
 
     // MARK: - Migration from UserDefaults
 

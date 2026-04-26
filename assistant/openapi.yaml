@@ -8620,6 +8620,16 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/stt/providers:
+    get:
+      operationId: stt_providers_get
+      summary: List STT providers
+      description: Return the catalog of available STT providers with client-facing metadata.
+      tags:
+        - stt
+      responses:
+        "200":
+          description: Successful response
   /v1/stt/transcribe:
     post:
       operationId: stt_transcribe_post
