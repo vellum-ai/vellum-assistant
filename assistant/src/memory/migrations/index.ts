@@ -175,6 +175,7 @@ export { migrateScheduleWakeConversationId } from "./226-schedule-wake-conversat
 export { migrateAddConversationInferenceProfile } from "./227-add-conversation-inference-profile.js";
 export { migrateRenameInferenceProfileSnakeCase } from "./228-rename-inference-profile-snake-case.js";
 export { migrateDeletePrivateConversations } from "./229-delete-private-conversations.js";
+export { migrate230AcpSessionHistory } from "./230-acp-session-history.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

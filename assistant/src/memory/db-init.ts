@@ -35,6 +35,7 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrate230AcpSessionHistory,
   migrateAddConversationInferenceProfile,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
@@ -384,6 +385,7 @@ export function initializeDb(): void {
     migrateAddConversationInferenceProfile,
     migrateRenameInferenceProfileSnakeCase,
     migrateDeletePrivateConversations,
+    migrate230AcpSessionHistory,
   ];
 
   // Run each migration step, catching and logging individual failures so one
