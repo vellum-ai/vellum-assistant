@@ -16,13 +16,6 @@ import { memoryGraphNodes } from "../../memory/schema.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
 import type { RouteDefinition } from "../http-router.js";
 
-/**
- * Sentinel placeholder embedded in the brain-graph HTML where the auth token
- * should go. The gateway replaces this with a real JWT before returning the
- * page to the client.
- */
-export const UI_PAGE_TOKEN_PLACEHOLDER = "__VELLUM_UI_PAGE_TOKEN__";
-
 function getMemoryKindColor(kind: string): string {
   switch (kind) {
     case "episodic":
@@ -95,11 +88,7 @@ function handleServeBrainGraphUI(): Response {
       "./brain-graph",
       "brain-graph",
     );
-    let html = readFileSync(join(brainGraphDir, "brain-graph.html"), "utf-8");
-    html = html.replace(
-      "</head>",
-      `  <meta name="api-token" content="${UI_PAGE_TOKEN_PLACEHOLDER}">\n</head>`,
-    );
+    const html = readFileSync(join(brainGraphDir, "brain-graph.html"), "utf-8");
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://d3js.org",
@@ -154,7 +143,7 @@ export function brainGraphRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       summary: "Serve brain graph UI",
       description:
-        "Return the brain-graph HTML visualization page with an embedded auth token placeholder.",
+        "Return the brain-graph HTML visualization page. The gateway injects an auth token before serving.",
       tags: ["brain-graph"],
       handler: () => handleServeBrainGraphUI(),
     },
