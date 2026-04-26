@@ -10,10 +10,9 @@ import VellumAssistantShared
 ///
 /// Size-class adaptation:
 /// - **Regular (iPad)** — wraps the list in a `NavigationSplitView`. The
-///   detail column is a placeholder until PR 33 ships the iOS detail view.
-/// - **Compact (iPhone)** — wraps in a `NavigationStack` so taps push onto
-///   the existing stack. The detail destination is a placeholder until PR
-///   33 lands.
+///   detail column hosts ``ACPSessionDetailViewIOS`` once a row is selected.
+/// - **Compact (iPhone)** — wraps in a `NavigationStack` so taps push the
+///   detail view onto the existing stack with a native back-swipe affordance.
 ///
 /// Sources of truth: ``ACPSessionStore`` for `sessions` / `sessionOrder`,
 /// SSE-driven via the daemon's `acp_session_*` events. Initial population
@@ -42,7 +41,7 @@ struct ACPSessionsView: View {
                 NavigationStack {
                     listContent
                         .navigationDestination(for: String.self) { sessionId in
-                            ACPSessionDetailPlaceholder(sessionId: sessionId)
+                            detailView(for: sessionId)
                         }
                 }
             }
@@ -150,12 +149,42 @@ struct ACPSessionsView: View {
     @ViewBuilder
     private var detailContent: some View {
         if let id = selectedSessionId {
-            ACPSessionDetailPlaceholder(sessionId: id)
+            detailView(for: id)
         } else {
             Text("Select a coding agent")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Resolves a row's `acpSessionId` to its live ``ACPSessionViewModel``
+    /// and hands it to ``ACPSessionDetailViewIOS``. Resolving on every render
+    /// is fine because the store keeps view-model identity stable for the
+    /// lifetime of a session — SwiftUI's diffing reuses the open detail
+    /// view as `state` / `events` mutate via SSE.
+    ///
+    /// If the id is unknown (e.g. a deep link races with an SSE that hasn't
+    /// arrived yet) we fall back to a graceful empty state so the navigation
+    /// destination still renders something rather than crashing on a
+    /// force-unwrap.
+    @ViewBuilder
+    private func detailView(for sessionId: String) -> some View {
+        if let viewModel = store.sessions[sessionId] {
+            ACPSessionDetailViewIOS(
+                session: viewModel,
+                store: store,
+                onDismiss: horizontalSizeClass == .regular
+                    ? { selectedSessionId = nil }
+                    : nil
+            )
+        } else {
+            VEmptyState(
+                title: "Session unavailable",
+                subtitle: "Try refreshing the list.",
+                icon: "terminal"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -324,30 +353,4 @@ struct ACPSessionsViewRow: View {
     }
 }
 
-// MARK: - Detail placeholder
-
-/// Stand-in for the iOS detail view that PR 33 will introduce. Surfaces the
-/// session id so the placeholder is at least useful during testing of the
-/// list view in isolation.
-private struct ACPSessionDetailPlaceholder: View {
-    let sessionId: String
-
-    var body: some View {
-        VStack(spacing: VSpacing.md) {
-            Text("Coding agent detail")
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentDefault)
-            Text(sessionId)
-                .font(VFont.labelSmall.monospaced())
-                .foregroundStyle(VColor.contentTertiary)
-                .textSelection(.enabled)
-            Text("Detail view ships in a follow-up PR.")
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(VSpacing.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
 #endif
