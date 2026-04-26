@@ -111,6 +111,14 @@ export function getTwilioConnectActionUrl(config: IngressConfig): string {
 }
 
 /**
+ * Build the Twilio SMS webhook URL.
+ */
+export function getTwilioSmsWebhookUrl(config: IngressConfig): string {
+  const base = getPublicBaseUrl(config);
+  return `${base}/webhooks/twilio/sms`;
+}
+
+/**
  * Build the Twilio ConversationRelay WebSocket URL.
  * Converts http:// → ws:// and https:// → wss://.
  */

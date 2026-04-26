@@ -16,6 +16,7 @@ import {
   resolveCallbackUrl,
 } from "../../inbound/platform-callback-registration.js";
 import {
+  getTwilioSmsWebhookUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
@@ -102,9 +103,15 @@ export async function syncTwilioWebhooks(
       "webhooks/twilio/status",
       "twilio_status",
     );
+    const smsUrl = await resolveCallbackUrl(
+      () => getTwilioSmsWebhookUrl(ingressConfig),
+      "webhooks/twilio/sms",
+      "twilio_sms",
+    );
     await updatePhoneNumberWebhooks(accountSid, authToken, phoneNumber, {
       voiceUrl,
       statusCallbackUrl,
+      smsUrl,
     });
     log.info({ phoneNumber }, "Twilio webhooks configured successfully");
     return { success: true };
