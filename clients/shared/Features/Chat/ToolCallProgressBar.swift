@@ -118,9 +118,10 @@ public struct ToolCallProgressBar: View {
     /// otherwise the appended diagnostic invalidates the JSON and the
     /// deep link would silently disappear in that case. On failure or
     /// any non-JSON shape we return `nil` so the caller falls back to
-    /// the regular progress bar. Mirrors
-    /// `ToolCallStepDetailRow.extractAcpSessionId(from:)` on macOS so
-    /// both platforms accept the same payload shapes.
+    /// the regular progress bar. Shared between iOS and macOS — macOS
+    /// `ToolCallStepDetailRow.acpSessionIdToOpen` calls this helper so
+    /// both platforms accept the same payload shapes from a single
+    /// implementation.
     public static func extractAcpSessionId(from result: String) -> String? {
         let leading = result.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
             .first.map(String.init) ?? ""
