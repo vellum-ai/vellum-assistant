@@ -26,7 +26,7 @@ beforeEach(() => {
 });
 
 describe("streamLiveVoiceTtsAudio", () => {
-  test("streams Fish Audio chunks through the configured TTS registry", async () => {
+  test("buffers non-PCM Fish Audio chunks into one playable frame", async () => {
     const requests: TtsSynthesisRequest[] = [];
     const provider: TtsProvider = {
       id: "fish-audio",
@@ -72,29 +72,21 @@ describe("streamLiveVoiceTtsAudio", () => {
     expect(frames).toEqual([
       {
         type: "tts_audio",
-        seq: 0,
         contentType: "audio/mpeg",
         sampleRate: 24_000,
-        dataBase64: Buffer.from("chunk-one").toString("base64"),
-      },
-      {
-        type: "tts_audio",
-        seq: 1,
-        contentType: "audio/mpeg",
-        sampleRate: 24_000,
-        dataBase64: Buffer.from("chunk-two").toString("base64"),
+        dataBase64: Buffer.from("chunk-onechunk-two").toString("base64"),
       },
     ]);
     expect(result).toEqual({
       provider: "fish-audio",
       contentType: "audio/mpeg",
       sampleRate: 24_000,
-      chunks: 2,
+      chunks: 1,
       bytes: Buffer.byteLength("chunk-onechunk-two"),
     });
   });
 
-  test("labels Fish Audio live voice PCM requests as WAV chunks", async () => {
+  test("emits split Fish Audio WAV chunks as one complete WAV frame", async () => {
     const requests: TtsSynthesisRequest[] = [];
     registerTtsProvider({
       id: "fish-audio",
@@ -110,7 +102,8 @@ describe("streamLiveVoiceTtsAudio", () => {
         onChunk: (chunk: Uint8Array) => void,
       ): Promise<TtsSynthesisResult> {
         requests.push(request);
-        onChunk(Buffer.from("wav-chunk"));
+        onChunk(Buffer.from("wav-"));
+        onChunk(Buffer.from("chunk"));
         return {
           audio: Buffer.from("wav-chunk"),
           contentType: "audio/wav",
@@ -130,13 +123,74 @@ describe("streamLiveVoiceTtsAudio", () => {
     expect(frames).toEqual([
       {
         type: "tts_audio",
-        seq: 0,
         contentType: "audio/wav",
         sampleRate: 24_000,
         dataBase64: Buffer.from("wav-chunk").toString("base64"),
       },
     ]);
-    expect(result.contentType).toBe("audio/wav");
+    expect(result).toMatchObject({
+      contentType: "audio/wav",
+      chunks: 1,
+      bytes: Buffer.byteLength("wav-chunk"),
+    });
+  });
+
+  test("streams raw PCM provider chunks incrementally", async () => {
+    config = makeConfig({ provider: "elevenlabs" });
+    const requests: TtsSynthesisRequest[] = [];
+    registerTtsProvider({
+      id: "elevenlabs",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "pcm"],
+      },
+      async synthesize(): Promise<TtsSynthesisResult> {
+        throw new Error("buffered synthesis should not be used");
+      },
+      async synthesizeStream(
+        request: TtsSynthesisRequest,
+        onChunk: (chunk: Uint8Array) => void,
+      ): Promise<TtsSynthesisResult> {
+        requests.push(request);
+        onChunk(Buffer.from("pcm-one"));
+        onChunk(Buffer.from("pcm-two"));
+        return {
+          audio: Buffer.from("pcm-onepcm-two"),
+          contentType: "audio/pcm",
+        };
+      },
+    });
+
+    const frames: LiveVoiceTtsAudioChunk[] = [];
+    const result = await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello from live voice",
+      outputFormat: "pcm",
+      onAudioChunk: (chunk) => frames.push(chunk),
+    });
+
+    expect(requests[0]?.outputFormat).toBe("pcm");
+    expect(frames).toEqual([
+      {
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        dataBase64: Buffer.from("pcm-one").toString("base64"),
+      },
+      {
+        type: "tts_audio",
+        contentType: "audio/pcm",
+        sampleRate: 24_000,
+        dataBase64: Buffer.from("pcm-two").toString("base64"),
+      },
+    ]);
+    expect(result).toEqual({
+      provider: "elevenlabs",
+      contentType: "audio/pcm",
+      sampleRate: 24_000,
+      chunks: 2,
+      bytes: Buffer.byteLength("pcm-onepcm-two"),
+    });
   });
 
   test("returns a typed configuration error for a non-streaming provider", async () => {

@@ -11,7 +11,8 @@ export type LiveVoiceMetricsEvent =
   | "first_assistant_delta"
   | "first_tts_audio"
   | "turn_completed"
-  | "turn_cancelled";
+  | "turn_cancelled"
+  | "session_ended";
 
 export type LiveVoiceTurnStatus = "active" | "completed" | "cancelled";
 

@@ -22,11 +22,13 @@ import {
   getLiveVoiceMetricsAggregateFields,
   type LiveVoiceMetricsClock,
   LiveVoiceMetricsCollector,
+  type LiveVoiceMetricsEvent,
 } from "./live-voice-metrics.js";
-import type {
-  LiveVoiceSession as LiveVoiceSessionContract,
-  LiveVoiceSessionCloseReason,
-  LiveVoiceSessionFactoryContext,
+import {
+  type LiveVoiceSession as LiveVoiceSessionContract,
+  type LiveVoiceSessionCloseReason,
+  type LiveVoiceSessionFactoryContext,
+  LiveVoiceSessionStartupError,
 } from "./live-voice-session-manager.js";
 import type {
   LiveVoiceTtsOptions,
@@ -172,13 +174,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
 
       if (!transcriber) {
-        this.state = "failed";
-        await this.sendFrame({
-          type: "error",
-          code: LiveVoiceProtocolErrorCode.InvalidField,
-          message: unavailableTranscriberMessage(),
-        });
-        return;
+        return await this.failStartup(unavailableTranscriberMessage());
       }
 
       this.transcriber = transcriber;
@@ -200,18 +196,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         conversationId: this.conversationId,
       });
     } catch (err) {
+      if (err instanceof LiveVoiceSessionStartupError) {
+        throw err;
+      }
+
       stopTranscriberBestEffort(this.transcriber);
       this.transcriber = null;
       if (this.isClosed) return;
 
-      this.state = "failed";
-      await this.sendFrame({
-        type: "error",
-        code: LiveVoiceProtocolErrorCode.InvalidField,
-        message: `Live voice transcription could not be started: ${errorMessage(
-          err,
-        )}`,
-      });
+      await this.failStartup(
+        `Live voice transcription could not be started: ${errorMessage(err)}`,
+      );
     }
   }
 
@@ -243,11 +238,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.isClosed) return;
 
+    const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
     stopTranscriberBestEffort(this.transcriber);
     this.transcriber = null;
     await this.cancelAssistantTurn("session_closed");
-    await this.emitSessionEndMetrics();
+    if (shouldEmitSessionEndMetrics) {
+      await this.emitSessionEndMetrics();
+    }
     await this.drainOutboundFrames();
   }
 
@@ -894,7 +892,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async emitMetricsFrame(
-    event: string,
+    event: LiveVoiceMetricsEvent,
     turnId = this.currentTurnId ?? this.context.sessionId,
   ): Promise<void> {
     const metrics = this.metrics.getSnapshot();
@@ -907,6 +905,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       metrics,
       ...getLiveVoiceMetricsAggregateFields(metrics, turnId),
     });
+  }
+
+  private async failStartup(message: string): Promise<never> {
+    this.state = "failed";
+    await this.sendFrame({
+      type: "error",
+      code: LiveVoiceProtocolErrorCode.InvalidField,
+      message,
+    });
+    throw new LiveVoiceSessionStartupError(message);
   }
 
   private async sendAudioAfterReleaseError(): Promise<void> {

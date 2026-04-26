@@ -169,7 +169,6 @@ function makeTtsChunk(
 ): LiveVoiceTtsAudioChunk {
   return {
     type: "tts_audio",
-    seq: 0,
     contentType,
     sampleRate: 24_000,
     dataBase64: Buffer.from(text).toString("base64"),
