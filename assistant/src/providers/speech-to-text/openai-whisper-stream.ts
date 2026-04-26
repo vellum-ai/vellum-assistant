@@ -50,7 +50,7 @@ const log = getLogger("openai-whisper-stream");
  * OpenAI Whisper remains incremental-batch (not true token streaming), but
  * a tighter poll cadence reduces perceived latency for partial updates.
  */
-export const POLL_INTERVAL_MS = 400;
+const POLL_INTERVAL_MS = 400;
 
 /**
  * Timeout per incremental poll request (ms).

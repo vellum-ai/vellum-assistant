@@ -35,7 +35,7 @@ export function validateManagedSkillId(id: string): string | null {
 
 // ─── Path helpers ────────────────────────────────────────────────────────────
 
-export function getManagedSkillsDir(): string {
+function getManagedSkillsDir(): string {
   return getWorkspaceSkillsDir();
 }
 

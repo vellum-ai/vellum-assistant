@@ -39,7 +39,7 @@ const log = getLogger("log-export-workspace");
  * `log-export-routes.ts` so that the workspace section can never blow past
  * the same 10 MB cap that already governs the daemon-logs section.
  */
-export const MAX_WORKSPACE_PAYLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_WORKSPACE_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
 export interface CollectWorkspaceDataOptions {
   /** Absolute path of the export staging directory. */

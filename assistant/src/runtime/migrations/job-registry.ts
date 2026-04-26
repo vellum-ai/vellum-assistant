@@ -270,7 +270,7 @@ export const migrationJobs = new MigrationJobRegistry();
  */
 const SWEEP_INTERVAL_MS = 60 * 1000;
 
-export const sweepIntervalId: NodeJS.Timeout = setInterval(() => {
+const sweepIntervalId: NodeJS.Timeout = setInterval(() => {
   migrationJobs.sweep();
 }, SWEEP_INTERVAL_MS);
 

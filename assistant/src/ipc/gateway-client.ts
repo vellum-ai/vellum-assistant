@@ -24,11 +24,6 @@ import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-ipc-client");
 
-// Re-export the package's PersistentIpcClient under the same name so
-// existing test imports (`import { PersistentIpcClient } from ...`) and
-// direct instantiations continue to work without changes.
-export { PackagePersistentIpcClient as PersistentIpcClient };
-
 // ---------------------------------------------------------------------------
 // One-shot IPC call
 // ---------------------------------------------------------------------------

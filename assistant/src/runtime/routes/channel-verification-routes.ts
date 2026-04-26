@@ -152,7 +152,7 @@ export async function handleCreateVerificationSession(
  *
  * Query params: channel?
  */
-export function handleGetVerificationStatus(url: URL): Response {
+function handleGetVerificationStatus(url: URL): Response {
   const channel =
     (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
   const result = getVerificationStatus(channel);
@@ -226,7 +226,7 @@ export async function handleCancelVerificationSession(
  *
  * Body: { channel?: ChannelId }
  */
-export async function handleRevokeVerificationBinding(
+async function handleRevokeVerificationBinding(
   req: Request,
 ): Promise<Response> {
   const body = (await req.json()) as {

@@ -6,7 +6,6 @@ export {
   resetDb,
 } from "./db-connection.js";
 export { initializeDb } from "./db-init.js";
-export { maybeRunDbMaintenance, runDbMaintenance } from "./db-maintenance.js";
 export {
   rawAll,
   rawAllFrom,

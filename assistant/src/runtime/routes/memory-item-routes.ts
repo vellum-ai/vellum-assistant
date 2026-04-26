@@ -221,7 +221,7 @@ async function searchNodesSemantic(
 // GET /v1/memory-items
 // ---------------------------------------------------------------------------
 
-export async function handleListMemoryItems(url: URL): Promise<Response> {
+async function handleListMemoryItems(url: URL): Promise<Response> {
   const kindParam = url.searchParams.get("kind");
   const statusParam = url.searchParams.get("status") ?? "active";
   const searchParam = url.searchParams.get("search");
@@ -416,7 +416,7 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 // GET /v1/memory-items/:id
 // ---------------------------------------------------------------------------
 
-export function handleGetMemoryItem(ctx: RouteContext): Response {
+function handleGetMemoryItem(ctx: RouteContext): Response {
   const { id } = ctx.params;
 
   const node = getNode(id);
@@ -431,9 +431,7 @@ export function handleGetMemoryItem(ctx: RouteContext): Response {
 // POST /v1/memory-items
 // ---------------------------------------------------------------------------
 
-export async function handleCreateMemoryItem(
-  ctx: RouteContext,
-): Promise<Response> {
+async function handleCreateMemoryItem(ctx: RouteContext): Promise<Response> {
   const body = (await ctx.req.json()) as {
     kind?: string;
     subject?: string;
@@ -525,9 +523,7 @@ export async function handleCreateMemoryItem(
 // PATCH /v1/memory-items/:id
 // ---------------------------------------------------------------------------
 
-export async function handleUpdateMemoryItem(
-  ctx: RouteContext,
-): Promise<Response> {
+async function handleUpdateMemoryItem(ctx: RouteContext): Promise<Response> {
   const { id } = ctx.params;
 
   const existing = getNode(id);
@@ -637,9 +633,7 @@ export async function handleUpdateMemoryItem(
 // DELETE /v1/memory-items/:id
 // ---------------------------------------------------------------------------
 
-export async function handleDeleteMemoryItem(
-  ctx: RouteContext,
-): Promise<Response> {
+async function handleDeleteMemoryItem(ctx: RouteContext): Promise<Response> {
   const { id } = ctx.params;
 
   const existing = getNode(id);

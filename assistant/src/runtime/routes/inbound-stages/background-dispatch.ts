@@ -284,7 +284,7 @@ export function processChannelMessageInBackground(
 
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
 
-export function shouldEmitTelegramTyping(
+function shouldEmitTelegramTyping(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
@@ -296,7 +296,7 @@ export function shouldEmitTelegramTyping(
   }
 }
 
-export function startTelegramTypingHeartbeat(
+function startTelegramTypingHeartbeat(
   callbackUrl: string,
   chatId: string,
   assistantId?: string,
@@ -338,7 +338,7 @@ export function startTelegramTypingHeartbeat(
 // Slack Assistants API thinking status indicator
 // ---------------------------------------------------------------------------
 
-export function shouldEmitSlackReaction(
+function shouldEmitSlackReaction(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
@@ -359,7 +359,7 @@ const SLACK_THINKING_MAX_DURATION_MS = 120_000;
  * A safety timer auto-clears the status after {@link SLACK_THINKING_MAX_DURATION_MS}
  * to prevent a stuck indicator when `processMessage` hangs.
  */
-export function setSlackThinkingStatus(
+function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
   assistantId?: string,
@@ -461,7 +461,7 @@ export function setSlackThinkingStatus(
 
 const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
 
-export function startPendingApprovalPromptWatcher(params: {
+function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
@@ -563,7 +563,7 @@ const globalNotifiedApprovalRequestIds = new Map<string, string>();
  *
  * Only activates for trusted-contact actors with a resolvable guardian route.
  */
-export function startTrustedContactApprovalNotifier(params: {
+function startTrustedContactApprovalNotifier(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;

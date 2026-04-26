@@ -401,7 +401,7 @@ export function handleReadyz(): Response {
   return Response.json({ status: "ok" });
 }
 
-export function handleGetIdentity(): Response {
+function handleGetIdentity(): Response {
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (!existsSync(identityPath)) {
     return httpError("NOT_FOUND", "IDENTITY.md not found", 404);
@@ -463,7 +463,7 @@ function readSoulIdentityIntro(): string | null {
   return null;
 }
 
-export function handleGetIdentityIntro(): Response {
+function handleGetIdentityIntro(): Response {
   // Prefer SOUL.md persisted intro over LLM-generated cache
   const soulIntro = readSoulIdentityIntro();
   if (soulIntro) {

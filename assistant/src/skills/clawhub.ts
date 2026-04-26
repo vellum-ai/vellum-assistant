@@ -42,7 +42,7 @@ function getIntegrityPath(): string {
   return join(getManagedSkillsDir(), ".integrity.json");
 }
 
-export function loadIntegrityManifest(): IntegrityManifest {
+function loadIntegrityManifest(): IntegrityManifest {
   const path = getIntegrityPath();
   if (!existsSync(path)) return {};
   try {

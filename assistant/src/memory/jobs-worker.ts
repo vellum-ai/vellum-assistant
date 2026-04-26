@@ -147,7 +147,7 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   };
 }
 
-export async function runMemoryJobsOnce(
+async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean } = {},
 ): Promise<number> {
   const config = getConfig();
@@ -477,7 +477,7 @@ export const resetCleanupScheduleThrottle = resetCleanupScheduleThrottleImpl;
  * Enqueue periodic cleanup jobs using config-driven retention windows.
  * Enqueue is deduped in jobs-store, so repeated calls remain safe.
  */
-export function maybeEnqueueScheduledCleanupJobs(
+function maybeEnqueueScheduledCleanupJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): boolean {

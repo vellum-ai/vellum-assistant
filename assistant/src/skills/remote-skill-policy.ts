@@ -64,12 +64,11 @@ export type RemoteSkillInstallDecision =
   | { ok: true }
   | { ok: false; reason: RemoteSkillDenyReason };
 
-export const DEFAULT_REMOTE_SKILL_POLICY: Readonly<RemoteSkillPolicy> =
-  Object.freeze({
-    blockSuspicious: true,
-    blockMalware: true,
-    maxSkillsShRisk: "medium",
-  });
+const DEFAULT_REMOTE_SKILL_POLICY: Readonly<RemoteSkillPolicy> = Object.freeze({
+  blockSuspicious: true,
+  blockMalware: true,
+  maxSkillsShRisk: "medium",
+});
 
 const SKILLS_SH_RISK_RANK: Record<SkillsShRisk, number> = {
   safe: 0,
@@ -125,7 +124,7 @@ export function evaluateRemoteSkillInstall(
   return { ok: true };
 }
 
-export function isRemoteSkillInstallable(
+function isRemoteSkillInstallable(
   candidate: RemoteSkillCandidate,
   policy: RemoteSkillPolicy = DEFAULT_REMOTE_SKILL_POLICY,
 ): boolean {

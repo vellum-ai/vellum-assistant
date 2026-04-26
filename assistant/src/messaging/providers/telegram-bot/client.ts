@@ -11,7 +11,7 @@ import type { TelegramGetMeResponse } from "./types.js";
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const DELIVERY_TIMEOUT_MS = 30_000;
 
-export class TelegramApiError extends Error {
+class TelegramApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,

@@ -21,7 +21,14 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
-import { acceptStarterBundleSync, addRuleSync, clearRulesSync, getAllRulesSync, removeRuleSync, updateRuleSync } from "./trust-client.js";
+import {
+  acceptStarterBundleSync,
+  addRuleSync,
+  clearRulesSync,
+  getAllRulesSync,
+  removeRuleSync,
+  updateRuleSync,
+} from "./trust-client.js";
 import type {
   AcceptStarterBundleResult,
   StarterBundleRule,
@@ -1236,7 +1243,7 @@ function getGatewayTrustStore(): GatewayTrustStoreAdapter {
  *
  * When `IS_CONTAINERIZED=false`, returns the file-based implementation.
  */
-export function getTrustStore(): TrustStoreBackend {
+function getTrustStore(): TrustStoreBackend {
   if (getIsContainerized()) {
     return getGatewayTrustStore();
   }

@@ -295,7 +295,7 @@ function saveConfigWithSuppression(
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-export function postInstallSkill(
+function postInstallSkill(
   skillId: string,
   _skillDir: string,
   ctx: SkillOperationContext,
@@ -439,7 +439,7 @@ export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
  * List installed skills merged with available catalog skills.
  * Installed skills take precedence when deduplicating by ID.
  */
-export async function listSkillsWithCatalog(
+async function listSkillsWithCatalog(
   ctx: SkillOperationContext,
 ): Promise<SlimSkillResponse[]> {
   const installed = listSkills(ctx);

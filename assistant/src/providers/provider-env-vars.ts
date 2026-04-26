@@ -20,7 +20,7 @@
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 
 /** Search-provider env var names. */
-export const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
+const SEARCH_PROVIDER_ENV_VAR_NAMES: Record<string, string> = {
   brave: "BRAVE_API_KEY",
   perplexity: "PERPLEXITY_API_KEY",
 };

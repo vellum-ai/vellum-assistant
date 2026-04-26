@@ -218,7 +218,7 @@ export function createEventHandlerState(): EventHandlerState {
 
 // ── Shared Helper ────────────────────────────────────────────────────
 
-export function emitLlmCallStartedIfNeeded(
+function emitLlmCallStartedIfNeeded(
   state: EventHandlerState,
   deps: EventHandlerDeps,
 ): void {
@@ -265,7 +265,7 @@ function friendlyToolName(name: string): string {
 
 // ── Individual Handlers ──────────────────────────────────────────────
 
-export function handleTextDelta(
+function handleTextDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "text_delta" }>,
@@ -295,7 +295,7 @@ export function handleTextDelta(
   }
 }
 
-export function handleThinkingDelta(
+function handleThinkingDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "thinking_delta" }>,
@@ -383,7 +383,7 @@ export function handleToolUsePreviewStart(
   );
 }
 
-export function handleToolOutputChunk(
+function handleToolOutputChunk(
   _state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_output_chunk" }>,
@@ -656,7 +656,7 @@ function annotatePersistedAssistantMessage(
   state.currentTurnToolUseIds = [];
 }
 
-export function handleError(
+function handleError(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
@@ -929,7 +929,7 @@ export async function handleMessageComplete(
   );
 }
 
-export function handleUsage(
+function handleUsage(
   state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "usage" }>,

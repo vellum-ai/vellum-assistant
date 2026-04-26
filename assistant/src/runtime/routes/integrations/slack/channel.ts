@@ -22,7 +22,7 @@ import type { RouteDefinition } from "../../../http-router.js";
 /**
  * GET /v1/integrations/slack/channel/config
  */
-export async function handleGetSlackChannelConfig(): Promise<Response> {
+async function handleGetSlackChannelConfig(): Promise<Response> {
   const result = await getSlackChannelConfig();
   return Response.json(result);
 }
@@ -52,7 +52,7 @@ export async function handleSetSlackChannelConfig(
 /**
  * DELETE /v1/integrations/slack/channel/config
  */
-export async function handleClearSlackChannelConfig(): Promise<Response> {
+async function handleClearSlackChannelConfig(): Promise<Response> {
   const result = await clearSlackChannelConfig();
   return Response.json(result);
 }
@@ -66,7 +66,7 @@ export async function handleClearSlackChannelConfig(): Promise<Response> {
  *
  * Blocks until the user completes the OAuth flow or the 5-minute timeout.
  */
-export async function handleSlackChannelOAuthInstall(): Promise<Response> {
+async function handleSlackChannelOAuthInstall(): Promise<Response> {
   const result = await runSlackChannelOAuthInstall();
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });

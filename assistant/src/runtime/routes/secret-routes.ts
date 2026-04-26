@@ -514,7 +514,7 @@ export async function handleDeleteSecret(
 
 const CREDENTIAL_KEY_PREFIX = "credential/";
 
-export async function handleListSecrets(): Promise<Response> {
+async function handleListSecrets(): Promise<Response> {
   try {
     const { accounts, unreachable } = await listSecureKeysAsync();
     if (unreachable) {

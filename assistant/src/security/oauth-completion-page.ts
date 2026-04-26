@@ -3,7 +3,7 @@
  * after a loopback/redirect OAuth flow completes.
  */
 
-export function escapeHtml(s: string): string {
+function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

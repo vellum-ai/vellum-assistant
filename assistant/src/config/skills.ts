@@ -186,7 +186,7 @@ export interface SkillToolManifestMeta {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-export function getSkillsDir(): string {
+function getSkillsDir(): string {
   return getWorkspaceSkillsDir();
 }
 

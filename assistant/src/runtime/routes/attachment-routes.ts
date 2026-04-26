@@ -12,7 +12,14 @@ import { join, resolve, sep } from "node:path";
 
 import { z } from "zod";
 
-import { deleteAttachment, getAttachmentById, StoredAttachment, uploadAttachment, uploadAttachmentFromBytes, uploadFileBackedAttachment } from "../../memory/attachments-store.js";
+import {
+  deleteAttachment,
+  getAttachmentById,
+  StoredAttachment,
+  uploadAttachment,
+  uploadAttachmentFromBytes,
+  uploadFileBackedAttachment,
+} from "../../memory/attachments-store.js";
 import {
   AttachmentUploadError,
   getFilePathForAttachment,
@@ -105,9 +112,7 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 /**
  * Build the standard JSON success response for an uploaded attachment.
  */
-function attachmentResponse(
-  attachment: StoredAttachment,
-): Response {
+function attachmentResponse(attachment: StoredAttachment): Response {
   return Response.json({
     id: attachment.id,
     original_filename: attachment.originalFilename,
@@ -192,11 +197,7 @@ async function handleMultipartUpload(
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
-  const attachment = uploadAttachmentFromBytes(
-    filename,
-    mimeType,
-    bytes,
-  );
+  const attachment = uploadAttachmentFromBytes(filename, mimeType, bytes);
   return attachmentResponse(attachment);
 }
 
@@ -262,11 +263,7 @@ async function handleOctetStreamUpload(
 
   const bytes = new Uint8Array(rawBody);
 
-  const attachment = uploadAttachmentFromBytes(
-    filename,
-    mimeType,
-    bytes,
-  );
+  const attachment = uploadAttachmentFromBytes(filename, mimeType, bytes);
   return attachmentResponse(attachment);
 }
 
@@ -419,7 +416,7 @@ export async function handleUploadAttachment(
   return handleJsonUpload(req, gatewayTrustedSource);
 }
 
-export async function handleDeleteAttachment(req: Request): Promise<Response> {
+async function handleDeleteAttachment(req: Request): Promise<Response> {
   let body: { attachmentId?: string };
   try {
     body = (await req.json()) as { attachmentId?: string };
@@ -484,7 +481,7 @@ function handleGetAttachment(attachmentId: string): Response {
  * streams from disk; for inline attachments it decodes the base64 data.
  * Supports Range headers for video seeking.
  */
-export function handleGetAttachmentContent(
+function handleGetAttachmentContent(
   attachmentId: string,
   req: Request,
 ): Response {

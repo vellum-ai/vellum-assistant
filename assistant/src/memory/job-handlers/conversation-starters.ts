@@ -41,7 +41,7 @@ const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 
 // ── Rollup construction ───────────────────────────────────────────
 
-export function buildMemoryRollup(scopeId: string): string {
+function buildMemoryRollup(scopeId: string): string {
   let rows: Array<{
     type: string;
     content: string;
@@ -129,7 +129,7 @@ function buildNewItemsDiff(scopeId: string): string {
   );
 }
 
-export function buildSkillsSummary(): string {
+function buildSkillsSummary(): string {
   try {
     const catalog = loadSkillCatalog();
     if (catalog.length === 0) return "";
@@ -153,7 +153,7 @@ export function buildSkillsSummary(): string {
 // ── LLM generation ────────────────────────────────────────────────
 
 /** Capability categories matching the Intelligence page taxonomy. */
-export const CONVERSATION_STARTER_CATEGORIES = [
+const CONVERSATION_STARTER_CATEGORIES = [
   "communication",
   "productivity",
   "development",

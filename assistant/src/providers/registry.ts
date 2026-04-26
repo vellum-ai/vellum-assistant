@@ -18,7 +18,7 @@ import type { Provider } from "./types.js";
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 
-export function registerProvider(name: string, provider: Provider): void {
+function registerProvider(name: string, provider: Provider): void {
   providers.set(name, provider);
 }
 

@@ -37,7 +37,7 @@ function getDbStats(): DbStats {
   return { pageSizeBytes, pageCount, freelistCount, fileSizeBytes };
 }
 
-export function runDbMaintenance(): void {
+function runDbMaintenance(): void {
   const before = getDbStats();
   const freelistPct =
     before.pageCount > 0

@@ -23,7 +23,7 @@ import type { ApprovalCopyGenerator } from "../http-types.js";
 const recentStaleNotifications = new Set<string>();
 
 /** TTL in milliseconds for dedup entries. Exported for testing. */
-export const STALE_DEDUP_TTL_MS = 30_000;
+const STALE_DEDUP_TTL_MS = 30_000;
 
 /** Clear the dedup cache. Exported for testing only. */
 export function clearStaleNotificationCache(): void {

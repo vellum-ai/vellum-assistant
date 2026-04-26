@@ -64,7 +64,7 @@ function canonicalizeV2ConfirmDecision(params: {
  * POST /v1/confirm — resolve a pending confirmation by requestId.
  * Requires AuthContext with guardian-bound actor.
  */
-export async function handleConfirm(
+async function handleConfirm(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {
@@ -252,7 +252,7 @@ export async function handleConfirm(
  * POST /v1/secret — resolve a pending secret request by requestId.
  * Requires AuthContext with guardian-bound actor.
  */
-export async function handleSecret(
+async function handleSecret(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {
@@ -309,7 +309,7 @@ export async function handleSecret(
  * against the server-provided allowlist options from the original
  * confirmation_request.
  */
-export async function handleTrustRule(
+async function handleTrustRule(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {
@@ -436,7 +436,7 @@ export async function handleTrustRule(
  * polling-based clients (like the CLI) to discover approval requests
  * without SSE.
  */
-export function handleListPendingInteractions(
+function handleListPendingInteractions(
   url: URL,
   _authContext: AuthContext,
 ): Response {

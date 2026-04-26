@@ -216,7 +216,7 @@ export function buildRecallAgentPromptBundle(
   return { prompt, evidence };
 }
 
-export function prepareRecallAgentPromptEvidence(
+function prepareRecallAgentPromptEvidence(
   evidence: readonly RecallEvidence[],
   evidenceBudgetChars = DEFAULT_RECALL_AGENT_EVIDENCE_BUDGET_CHARS,
 ): RecallEvidence[] {

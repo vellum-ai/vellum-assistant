@@ -48,7 +48,7 @@ function int(name: string, fallback?: number): number | undefined {
 
 const DEFAULT_GATEWAY_PORT = 7830;
 
-export function getGatewayPort(): number {
+function getGatewayPort(): number {
   return int("GATEWAY_PORT", DEFAULT_GATEWAY_PORT);
 }
 

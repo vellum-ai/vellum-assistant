@@ -81,7 +81,7 @@ function handleGetBrainGraph(): Response {
   }
 }
 
-export function handleServeBrainGraphUI(bearerToken?: string): Response {
+function handleServeBrainGraphUI(bearerToken?: string): Response {
   try {
     const brainGraphDir = resolveBundledDir(
       import.meta.dirname ?? __dirname,

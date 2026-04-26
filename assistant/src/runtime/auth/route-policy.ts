@@ -34,7 +34,7 @@ const policyRegistry = new Map<string, RoutePolicy>();
  * Register a route policy. Called at module load time to populate the
  * registry with all protected endpoint policies.
  */
-export function registerPolicy(endpoint: string, policy: RoutePolicy): void {
+function registerPolicy(endpoint: string, policy: RoutePolicy): void {
   policyRegistry.set(endpoint, policy);
 }
 

@@ -7,10 +7,7 @@ function getConversationDirTimestamp(createdAtMs: number): string {
   return new Date(createdAtMs).toISOString().replace(/:/g, "-");
 }
 
-export function getLegacyConversationDirName(
-  id: string,
-  createdAtMs: number,
-): string {
+function getLegacyConversationDirName(id: string, createdAtMs: number): string {
   return `${id}_${getConversationDirTimestamp(createdAtMs)}`;
 }
 

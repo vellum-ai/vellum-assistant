@@ -35,7 +35,7 @@ function findProxyByTransferId(transferId: string) {
  * to_host transfer. The client downloads these bytes and writes them
  * to the host filesystem.
  */
-export function handleTransferContentGet(
+function handleTransferContentGet(
   transferId: string,
   authContext: AuthContext,
 ): Response {
@@ -69,7 +69,7 @@ export function handleTransferContentGet(
  * to_sandbox transfer. Verifies SHA-256 integrity and writes to the
  * sandbox destination path.
  */
-export async function handleTransferContentPut(
+async function handleTransferContentPut(
   transferId: string,
   req: Request,
   authContext: AuthContext,
@@ -112,7 +112,7 @@ export async function handleTransferContentPut(
  * POST /v1/host-transfer-result — resolve a pending to_host transfer
  * after the client has downloaded and written the file.
  */
-export async function handleTransferResult(
+async function handleTransferResult(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {

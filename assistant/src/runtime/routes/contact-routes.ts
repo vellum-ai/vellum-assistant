@@ -128,7 +128,7 @@ export function handleGetContact(contactId: string): Response {
 /**
  * DELETE /v1/contacts/:id
  */
-export function handleDeleteContact(contactId: string): Response {
+function handleDeleteContact(contactId: string): Response {
   const result = deleteContact(contactId);
   if (result === "not_found") {
     return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
@@ -337,7 +337,7 @@ export async function handleUpsertContact(req: Request): Promise<Response> {
 /**
  * PATCH /v1/contact-channels/:contactChannelId { status?, policy?, reason? }
  */
-export async function handleUpdateContactChannel(
+async function handleUpdateContactChannel(
   req: Request,
   channelId: string,
 ): Promise<Response> {

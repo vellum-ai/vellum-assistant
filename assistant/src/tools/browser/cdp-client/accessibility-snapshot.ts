@@ -47,7 +47,7 @@ export interface AxSnapshotResult {
 // ── Constants ─────────────────────────────────────────────────────────
 
 /** Default maximum number of interactive elements returned in a snapshot. */
-export const DEFAULT_MAX_ELEMENTS = 150;
+const DEFAULT_MAX_ELEMENTS = 150;
 
 /**
  * AX roles we consider "interactive" and surface to the LLM. Includes

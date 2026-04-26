@@ -44,7 +44,7 @@ function getServiceToken(): string | undefined {
 // CesCredentialBackend
 // ---------------------------------------------------------------------------
 
-export class CesCredentialBackend implements CredentialBackend {
+class CesCredentialBackend implements CredentialBackend {
   readonly name = "ces-http";
 
   private getClient(): CesHttpCredentialClient | undefined {

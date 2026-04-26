@@ -16,7 +16,7 @@ import * as pendingInteractions from "../pending-interactions.js";
  * POST /v1/host-file-result — resolve a pending host file request by requestId.
  * Requires AuthContext with guardian-bound actor.
  */
-export async function handleHostFileResult(
+async function handleHostFileResult(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {

@@ -322,7 +322,7 @@ function truncateHtml(html: string, budget: number): string {
  * Prepend workspace context so the model can refine UI surfaces.
  * Adapts the injected rules based on whether the surface is app-backed.
  */
-export function injectActiveSurfaceContext(
+function injectActiveSurfaceContext(
   message: Message,
   ctx: ActiveSurfaceContext,
 ): Message {
@@ -533,7 +533,7 @@ export function buildSubagentStatusBlock(
  * message so the model knows how to emit control markers during voice
  * turns routed through the conversation pipeline.
  */
-export function injectVoiceCallControlContext(
+function injectVoiceCallControlContext(
   message: Message,
   prompt: string,
 ): Message {
@@ -1031,7 +1031,7 @@ export function buildUnifiedTurnContextBlock(
  * This is the shared primitive behind the individual strip* functions and
  * the `stripInjectionsForCompaction` pipeline.
  */
-export function stripUserTextBlocksByPrefix(
+function stripUserTextBlocksByPrefix(
   messages: Message[],
   prefixes: string[],
 ): Message[] {
@@ -1675,7 +1675,7 @@ export interface RuntimeInjectionResult {
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
  * them declaratively without losing per-injector ordering within each slot.
  */
-export async function collectInjectorBlocks(
+async function collectInjectorBlocks(
   ctx: TurnContext,
 ): Promise<InjectionBlock[]> {
   const injectors = getInjectors();
@@ -1910,7 +1910,7 @@ export interface RuntimeInjectionOptions {
  * {@link collectInjectorBlocks} directly — useful for tests and for the
  * overflow-reducer reinject path.
  */
-export function buildTurnInjectionInputs(
+function buildTurnInjectionInputs(
   options: RuntimeInjectionOptions,
 ): TurnInjectionInputs {
   return {

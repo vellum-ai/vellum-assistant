@@ -489,9 +489,6 @@ export class ToolExecutor {
 // `executor.ts` continue to work without changing their imports.
 export { isSideEffectTool } from "./side-effects.js";
 
-// Re-export PermissionChecker for consumers that need direct access
-export { PermissionChecker } from "./permission-checker.js";
-
 /**
  * Compute the effective per-tool execution timeout in milliseconds.
  *

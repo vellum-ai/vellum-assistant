@@ -335,7 +335,7 @@ export async function updatePhoneNumberWebhooks(
  * Get the SID for an incoming phone number.
  * Looks up the number via `IncomingPhoneNumbers.json?PhoneNumber=...`.
  */
-export async function getPhoneNumberSid(
+async function getPhoneNumberSid(
   accountSid: string,
   authToken: string,
   phoneNumber: string,

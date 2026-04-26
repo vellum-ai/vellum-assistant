@@ -43,7 +43,10 @@ import {
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
-import { getAttachmentsByIds, getSourcePathsForAttachments } from "../memory/attachments-store.js";
+import {
+  getAttachmentsByIds,
+  getSourcePathsForAttachments,
+} from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
@@ -136,17 +139,6 @@ import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 
-// Re-export public API so existing consumers don't need to change imports
-export type { StopResult } from "./daemon-control.js";
-export {
-  cleanupPidFile,
-  ensureDaemonRunning,
-  getDaemonStatus,
-  isDaemonRunning,
-  startDaemon,
-  stopDaemon,
-} from "./daemon-control.js";
-
 const log = getLogger("lifecycle");
 
 function loadDotEnv(): void {
@@ -169,7 +161,7 @@ export interface CesStartupResult {
  * The managed sidecar accepts exactly one bootstrap connection, so this must
  * be called at the process level (not per-conversation).
  */
-export async function startCesProcess(
+async function startCesProcess(
   config: AssistantConfig,
 ): Promise<CesStartupResult> {
   const shouldStartCes =
@@ -975,8 +967,7 @@ export async function runDaemon(): Promise<void> {
           const resolved = getAttachmentsByIds(attachmentIds, {
             hydrateFileData: true,
           });
-          const sourcePaths =
-            getSourcePathsForAttachments(attachmentIds);
+          const sourcePaths = getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
@@ -1067,8 +1058,7 @@ export async function runDaemon(): Promise<void> {
         const resolved = getAttachmentsByIds(attachmentIds, {
           hydrateFileData: true,
         });
-        const sourcePaths =
-          getSourcePathsForAttachments(attachmentIds);
+        const sourcePaths = getSourcePathsForAttachments(attachmentIds);
         return resolved.map((a) => ({
           id: a.id,
           filename: a.originalFilename,

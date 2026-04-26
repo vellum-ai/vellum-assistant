@@ -45,9 +45,7 @@ function handleListTrustRules(): Response {
  * `executionTarget` on a `web_fetch` rule) are accepted but canonicalized:
  * the invalid fields are stripped before persistence.
  */
-export async function handleAddTrustRuleManage(
-  req: Request,
-): Promise<Response> {
+async function handleAddTrustRuleManage(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     toolName?: string;
     pattern?: string;
@@ -119,7 +117,7 @@ export async function handleAddTrustRuleManage(
 /**
  * DELETE /v1/trust-rules/manage/:id — remove a trust rule by ID.
  */
-export function handleRemoveTrustRuleManage(id: string): Response {
+function handleRemoveTrustRuleManage(id: string): Response {
   try {
     const removed = removeRule(id);
     if (!removed) {
@@ -138,7 +136,7 @@ export function handleRemoveTrustRuleManage(id: string): Response {
  *
  * Body: { tool?, pattern?, scope?, decision?, priority? }
  */
-export async function handleUpdateTrustRuleManage(
+async function handleUpdateTrustRuleManage(
   req: Request,
   id: string,
 ): Promise<Response> {

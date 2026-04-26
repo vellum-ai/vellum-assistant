@@ -20,7 +20,7 @@ export type CheckpointFile = {
   >;
 };
 
-export function getCheckpointPath(workspaceDir: string): string {
+function getCheckpointPath(workspaceDir: string): string {
   return join(workspaceDir, "data", ".workspace-migrations.json");
 }
 

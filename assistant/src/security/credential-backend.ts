@@ -58,7 +58,7 @@ export interface CredentialBackend {
 // EncryptedStoreBackend
 // ---------------------------------------------------------------------------
 
-export class EncryptedStoreBackend implements CredentialBackend {
+class EncryptedStoreBackend implements CredentialBackend {
   readonly name = "encrypted-store";
 
   isAvailable(): boolean {
