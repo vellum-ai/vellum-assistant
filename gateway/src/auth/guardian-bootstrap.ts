@@ -195,45 +195,120 @@ export function findGuardianForChannelActor(
   return { principalId: row.principal_id };
 }
 
+// ---------------------------------------------------------------------------
+// Guardian binding creation — writes to both assistant + gateway DBs
+// ---------------------------------------------------------------------------
+
+export interface CreateGuardianBindingParams {
+  /** Channel type (e.g. "vellum", "telegram", "slack", "phone", "whatsapp"). */
+  channel: string;
+  /** Canonical external user ID for this channel (pre-canonicalized by caller). */
+  externalUserId: string;
+  /** Delivery chat/conversation ID for this channel. */
+  deliveryChatId: string;
+  /** Guardian's principal ID — links all channel bindings to one identity. */
+  guardianPrincipalId: string;
+  /** Display name for the contact. Defaults to externalUserId. */
+  displayName?: string;
+  /** How this binding was verified. Defaults to "challenge". */
+  verifiedVia?: string;
+}
+
+export interface CreateGuardianBindingResult {
+  contactId: string;
+  channelId: string;
+  guardianPrincipalId: string;
+  channel: string;
+}
+
 /**
- * Create a guardian contact + vellum channel binding.
+ * Create or update a guardian contact + channel binding.
  *
- * Persona-file seeding (`users/<slug>.md`) and trust-rule cache
- * invalidation are handled by the assistant on startup when it detects
- * a guardian contact without a persona file. The gateway doesn't need
- * to duplicate that logic.
+ * Writes to both the assistant DB (primary) and gateway DB (secondary).
+ * Uses upsert semantics: looks up an existing contact by principalId
+ * and an existing channel by (contactId, type), updating if found.
+ *
+ * Persona-file seeding and trust-rule cache invalidation are
+ * assistant-side concerns — the assistant handles them independently.
  */
-function createVellumGuardianBinding(
-  db: Database,
-  guardianPrincipalId: string,
-): void {
+export function createGuardianBinding(
+  params: CreateGuardianBindingParams,
+): CreateGuardianBindingResult {
+  const db = getAssistantDb();
   const now = Date.now();
-  const contactId = uuid();
-  const channelId = uuid();
+  const displayName = params.displayName ?? params.externalUserId;
+  const verifiedVia = params.verifiedVia ?? "challenge";
+
+  const existingContact = db
+    .query<{ id: string }, [string]>(
+      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
+    )
+    .get(params.guardianPrincipalId);
+
+  const contactId = existingContact?.id ?? uuid();
+
+  const existingChannel = existingContact
+    ? db
+        .query<{ id: string }, [string, string]>(
+          `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
+        )
+        .get(contactId, params.channel)
+    : null;
+
+  const channelId = existingChannel?.id ?? uuid();
 
   // --- Assistant DB write (primary) ---
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.run(
-      `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
-       VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
-      [contactId, guardianPrincipalId, guardianPrincipalId, now, now],
-    );
+    if (existingContact) {
+      db.run(
+        `UPDATE contacts SET display_name = ?, updated_at = ? WHERE id = ?`,
+        [displayName, now, contactId],
+      );
+    } else {
+      db.run(
+        `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
+         VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
+        [contactId, displayName, params.guardianPrincipalId, now, now],
+      );
+    }
 
-    db.run(
-      `INSERT INTO contact_channels
-         (id, contact_id, type, address, external_user_id, external_chat_id,
-          is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
-       VALUES (?, ?, 'vellum', ?, ?, 'local', 1, 'active', 'allow', ?, 'bootstrap', 0, ?)`,
-      [
-        channelId,
-        contactId,
-        guardianPrincipalId,
-        guardianPrincipalId,
-        now,
-        now,
-      ],
-    );
+    if (existingChannel) {
+      db.run(
+        `UPDATE contact_channels
+         SET address = ?, external_user_id = ?, external_chat_id = ?,
+             status = 'active', policy = 'allow', verified_at = ?,
+             verified_via = ?, updated_at = ?
+         WHERE id = ?`,
+        [
+          params.externalUserId,
+          params.externalUserId,
+          params.deliveryChatId,
+          now,
+          verifiedVia,
+          now,
+          channelId,
+        ],
+      );
+    } else {
+      db.run(
+        `INSERT INTO contact_channels
+           (id, contact_id, type, address, external_user_id, external_chat_id,
+            is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+        [
+          channelId,
+          contactId,
+          params.channel,
+          params.externalUserId,
+          params.externalUserId,
+          params.deliveryChatId,
+          now,
+          verifiedVia,
+          now,
+        ],
+      );
+    }
 
     db.exec("COMMIT");
   } catch (err) {
@@ -248,32 +323,46 @@ function createVellumGuardianBinding(
       tx.insert(gwContacts)
         .values({
           id: contactId,
-          displayName: guardianPrincipalId,
+          displayName,
           role: "guardian",
-          principalId: guardianPrincipalId,
+          principalId: params.guardianPrincipalId,
           createdAt: now,
           updatedAt: now,
         })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: gwContacts.id,
+          set: { displayName, updatedAt: now },
+        })
         .run();
 
       tx.insert(gwContactChannels)
         .values({
           id: channelId,
           contactId,
-          type: "vellum",
-          address: guardianPrincipalId,
-          externalUserId: guardianPrincipalId,
-          externalChatId: "local",
+          type: params.channel,
+          address: params.externalUserId,
+          externalUserId: params.externalUserId,
+          externalChatId: params.deliveryChatId,
           isPrimary: true,
           status: "active",
           policy: "allow",
           verifiedAt: now,
-          verifiedVia: "bootstrap",
+          verifiedVia,
           interactionCount: 0,
           createdAt: now,
         })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: gwContactChannels.id,
+          set: {
+            address: params.externalUserId,
+            externalUserId: params.externalUserId,
+            externalChatId: params.deliveryChatId,
+            status: "active",
+            policy: "allow",
+            verifiedAt: now,
+            verifiedVia,
+          },
+        })
         .run();
     });
   } catch (gwErr) {
@@ -284,9 +373,38 @@ function createVellumGuardianBinding(
   }
 
   log.info(
-    { contactId, guardianPrincipalId },
-    "Created vellum guardian binding",
+    {
+      contactId,
+      channelId,
+      channel: params.channel,
+      guardianPrincipalId: params.guardianPrincipalId,
+    },
+    "Created guardian binding",
   );
+
+  return {
+    contactId,
+    channelId,
+    guardianPrincipalId: params.guardianPrincipalId,
+    channel: params.channel,
+  };
+}
+
+/**
+ * Thin wrapper for the vellum bootstrap path — creates a vellum channel
+ * guardian binding with bootstrap-specific defaults.
+ */
+function createVellumGuardianBinding(
+  _db: Database,
+  guardianPrincipalId: string,
+): void {
+  createGuardianBinding({
+    channel: "vellum",
+    externalUserId: guardianPrincipalId,
+    deliveryChatId: "local",
+    guardianPrincipalId,
+    verifiedVia: "bootstrap",
+  });
 }
 
 // ---------------------------------------------------------------------------
