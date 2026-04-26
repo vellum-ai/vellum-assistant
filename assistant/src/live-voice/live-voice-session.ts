@@ -1,5 +1,10 @@
 import { Buffer } from "node:buffer";
+import { randomUUID } from "node:crypto";
 
+import type {
+  VoiceTurnHandle,
+  VoiceTurnOptions,
+} from "../calls/voice-session-bridge.js";
 import {
   listProviderIds,
   supportsBoundary,
@@ -25,6 +30,7 @@ type LiveVoiceSessionState =
   | "active"
   | "utterance_released"
   | "transcriber_closed"
+  | "interrupted"
   | "failed"
   | "closed";
 
@@ -32,18 +38,34 @@ export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
 ) => Promise<StreamingTranscriber | null>;
 
+export type LiveVoiceTurnStarter = (
+  options: VoiceTurnOptions,
+) => Promise<VoiceTurnHandle>;
+
 export interface LiveVoiceSessionOptions {
   resolveTranscriber?: LiveVoiceStreamingTranscriberResolver;
+  startVoiceTurn?: LiveVoiceTurnStarter;
+  createTurnId?: () => string;
 }
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
+  private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
+  private readonly createTurnId: () => string;
   private readonly conversationId: string;
   private state: LiveVoiceSessionState = "initializing";
   private transcriber: StreamingTranscriber | null = null;
   private readonly finalTranscriptSegments: string[] = [];
   private outboundFrames: Promise<void> = Promise.resolve();
+  private pttReleased = false;
+  private assistantTurnStarted = false;
+  private activeAssistantTurn: {
+    token: symbol;
+    abortController: AbortController;
+    handle: VoiceTurnHandle | null;
+    completed: boolean;
+  } | null = null;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -52,6 +74,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.context = context;
     this.resolveTranscriber =
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
+    this.startVoiceTurn = options.startVoiceTurn ?? null;
+    this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
   }
@@ -127,6 +151,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.releaseUtterance();
         return;
       case "interrupt":
+        await this.interrupt();
         return;
       case "end":
         await this.close("client_end");
@@ -146,6 +171,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.state = "closed";
     stopTranscriberBestEffort(this.transcriber);
     this.transcriber = null;
+    this.cancelAssistantTurn();
     await this.drainOutboundFrames();
   }
 
@@ -178,15 +204,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async releaseUtterance(): Promise<void> {
-    if (
-      this.state === "utterance_released" ||
-      this.state === "transcriber_closed"
-    ) {
+    if (this.state === "utterance_released") {
+      return;
+    }
+
+    if (this.state === "transcriber_closed") {
+      this.pttReleased = true;
+      await this.startAssistantTurnIfReady();
+      await this.drainOutboundFrames();
       return;
     }
 
     if (this.state !== "active") return;
 
+    this.pttReleased = true;
     this.state = "utterance_released";
     try {
       this.transcriber?.stop();
@@ -199,13 +230,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         )}`,
       });
     }
+    await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
   }
 
   private async handleTranscriberEvent(
     event: SttStreamServerEvent,
   ): Promise<void> {
-    if (this.isClosed || this.state === "failed") return;
+    if (
+      this.isClosed ||
+      this.state === "failed" ||
+      this.state === "interrupted"
+    ) {
+      return;
+    }
 
     switch (event.type) {
       case "partial":
@@ -217,6 +255,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           this.finalTranscriptSegments.push(transcript);
         }
         await this.sendFrame({ type: "stt_final", text: event.text });
+        await this.startAssistantTurnIfReady();
         return;
       }
       case "error":
@@ -230,9 +269,146 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (!this.isClosed) {
           this.state = "transcriber_closed";
           this.transcriber = null;
+          await this.startAssistantTurnIfReady();
         }
         return;
     }
+  }
+
+  private async interrupt(): Promise<void> {
+    if (this.isClosed || this.state === "failed") return;
+
+    this.state = "interrupted";
+    stopTranscriberBestEffort(this.transcriber);
+    this.transcriber = null;
+    this.cancelAssistantTurn();
+    await this.drainOutboundFrames();
+  }
+
+  private async startAssistantTurnIfReady(): Promise<void> {
+    if (
+      !this.pttReleased ||
+      this.assistantTurnStarted ||
+      this.isClosed ||
+      this.state === "failed"
+    ) {
+      return;
+    }
+    if (
+      this.state !== "utterance_released" &&
+      this.state !== "transcriber_closed"
+    ) {
+      return;
+    }
+    if (!this.startVoiceTurn) return;
+
+    const content = this.finalTranscriptText.trim();
+    if (content.length === 0) return;
+
+    this.assistantTurnStarted = true;
+    const token = Symbol("live-voice-assistant-turn");
+    const turnId = this.createTurnId();
+    const abortController = new AbortController();
+    this.activeAssistantTurn = {
+      token,
+      abortController,
+      handle: null,
+      completed: false,
+    };
+
+    await this.sendFrame({ type: "thinking", turnId });
+    if (!this.isForwardingAssistantTurn(token)) return;
+
+    try {
+      const handle = await this.startVoiceTurn({
+        conversationId: this.conversationId,
+        voiceSessionId: this.context.sessionId,
+        userMessageChannel: "vellum",
+        assistantMessageChannel: "vellum",
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+        voiceControlPrompt:
+          "You are speaking in a local live voice session. Keep replies brief and conversational.",
+        content,
+        isInbound: true,
+        signal: abortController.signal,
+        callbacks: {
+          assistant_text_delta: (msg) => {
+            if (!this.isForwardingAssistantTurn(token)) return;
+            void this.sendFrame({
+              type: "assistant_text_delta",
+              text: msg.text,
+            });
+          },
+          message_complete: (msg) => {
+            const activeTurn = this.activeAssistantTurn;
+            if (
+              activeTurn?.token !== token ||
+              activeTurn.completed ||
+              this.isClosed
+            ) {
+              return;
+            }
+            if (msg.type !== "message_complete") return;
+            activeTurn.completed = true;
+            void this.sendFrame({ type: "tts_done", turnId });
+          },
+        },
+        onError: (message) => {
+          if (!this.isForwardingAssistantTurn(token)) return;
+          void this.sendFrame({
+            type: "error",
+            code: LiveVoiceProtocolErrorCode.InvalidField,
+            message,
+          });
+        },
+      });
+
+      const activeTurn = this.activeAssistantTurn;
+      if (activeTurn?.token !== token) {
+        handle.abort();
+        return;
+      }
+      if (activeTurn.completed) {
+        this.activeAssistantTurn = null;
+        return;
+      }
+
+      this.activeAssistantTurn = {
+        token,
+        abortController,
+        handle,
+        completed: false,
+      };
+    } catch (err) {
+      if (!this.isForwardingAssistantTurn(token)) return;
+
+      this.activeAssistantTurn = null;
+      await this.sendFrame({
+        type: "error",
+        code: LiveVoiceProtocolErrorCode.InvalidField,
+        message: `Live voice assistant turn could not be started: ${errorMessage(
+          err,
+        )}`,
+      });
+    }
+  }
+
+  private cancelAssistantTurn(): void {
+    const turn = this.activeAssistantTurn;
+    if (!turn) return;
+
+    this.activeAssistantTurn = null;
+    turn.abortController.abort();
+    turn.handle?.abort();
+  }
+
+  private isForwardingAssistantTurn(token: symbol): boolean {
+    return (
+      this.activeAssistantTurn?.token === token &&
+      !this.activeAssistantTurn.completed &&
+      !this.isClosed
+    );
   }
 
   private async sendAudioAfterReleaseError(): Promise<void> {
@@ -269,7 +445,10 @@ export function createLiveVoiceSession(
   context: LiveVoiceSessionFactoryContext,
   options: LiveVoiceSessionOptions = {},
 ): LiveVoiceSession {
-  return new LiveVoiceSession(context, options);
+  return new LiveVoiceSession(context, {
+    ...options,
+    startVoiceTurn: options.startVoiceTurn ?? defaultStartVoiceTurn,
+  });
 }
 
 async function defaultResolveStreamingTranscriber(
@@ -278,6 +457,13 @@ async function defaultResolveStreamingTranscriber(
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
   return resolveStreamingTranscriber(options);
+}
+
+async function defaultStartVoiceTurn(
+  options: VoiceTurnOptions,
+): Promise<VoiceTurnHandle> {
+  const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
+  return startVoiceTurn(options);
 }
 
 function unavailableTranscriberMessage(): string {
