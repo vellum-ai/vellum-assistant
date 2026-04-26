@@ -471,7 +471,62 @@ export function createResendWebhookHandler(
         );
       }
 
+      // ── Denial reply ────────────────────────────────────────────
+      // When the runtime denies the message (ACL rejection) and provides
+      // replyText, send a reply email so the unknown sender knows why
+      // their message was rejected. The runtime can't send email directly
+      // (no replyCallbackUrl for email), so the gateway handles it.
       const runtimeBody = result.runtimeResponse ?? {};
+      if (
+        result.runtimeResponse?.denied &&
+        result.runtimeResponse.replyText &&
+        apiKey
+      ) {
+        const senderAddress = gatewayEvent.actor.actorExternalId;
+        try {
+          const sendResponse = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: recipientAddress,
+              to: [senderAddress],
+              subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
+              text: result.runtimeResponse.replyText,
+              ...(vellumPayload.messageId
+                ? {
+                    headers: {
+                      "In-Reply-To": vellumPayload.messageId,
+                    },
+                  }
+                : {}),
+            }),
+          });
+          if (sendResponse.ok) {
+            tlog.info(
+              { from: recipientAddress, to: senderAddress },
+              "Sent denial reply via Resend",
+            );
+          } else {
+            tlog.warn(
+              {
+                status: sendResponse.status,
+                from: recipientAddress,
+                to: senderAddress,
+              },
+              "Failed to send denial reply via Resend",
+            );
+          }
+        } catch (err) {
+          tlog.error(
+            { err, from: recipientAddress, to: senderAddress },
+            "Error sending denial reply via Resend",
+          );
+        }
+      }
+
       return Response.json({ ok: true, ...runtimeBody });
     } catch (err) {
       const cbResponse = handleCircuitBreakerError(
