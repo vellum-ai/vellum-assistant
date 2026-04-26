@@ -81,7 +81,6 @@ function makeResources(
     gatewayPort: ports.gatewayPort ?? DEFAULT_GATEWAY_PORT,
     qdrantPort: ports.qdrantPort ?? DEFAULT_QDRANT_PORT,
     cesPort: ports.cesPort ?? DEFAULT_CES_PORT,
-    pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
 
@@ -101,7 +100,7 @@ function makeEntry(
 
 function writePidFile(
   instanceDir: string,
-  name: "vellum" | "gateway" | "qdrant",
+  name: "gateway" | "qdrant",
   pid: number,
 ): void {
   const dir = join(instanceDir, ".vellum");
@@ -115,9 +114,10 @@ describe("detectOrphanedProcesses", () => {
     resetFakeHome();
   });
 
-  test("scans every local entry's instanceDir/.vellum and reports each PID", async () => {
+  test("scans every local entry's instanceDir/.vellum for gateway/qdrant PIDs", async () => {
     // GIVEN two local entries in the lockfile, each pointing at its own
-    // instance directory with a stale PID file
+    // instance directory with a stale PID file (only gateway + qdrant;
+    // daemon PIDs are discovered via process table scan, not PID files)
     const instanceA = mkdtempSync(join(tmpdir(), "orphan-instance-a-"));
     const instanceB = mkdtempSync(join(tmpdir(), "orphan-instance-b-"));
     try {
@@ -127,8 +127,8 @@ describe("detectOrphanedProcesses", () => {
           runtimeUrl: "http://localhost:8821",
         }),
       );
-      writePidFile(instanceA, "vellum", 111111);
-      writePidFile(instanceB, "gateway", 222222);
+      writePidFile(instanceA, "gateway", 111111);
+      writePidFile(instanceB, "qdrant", 222222);
 
       // WHEN we run orphan detection
       const orphans = await detectOrphanedProcesses();
@@ -140,19 +140,19 @@ describe("detectOrphanedProcesses", () => {
       expect(pids).toContain("222222");
 
       const byName = new Map(pidFileOrphans.map((o) => [o.pid, o.name]));
-      expect(byName.get("111111")).toBe("assistant");
-      expect(byName.get("222222")).toBe("gateway");
+      expect(byName.get("111111")).toBe("gateway");
+      expect(byName.get("222222")).toBe("qdrant");
     } finally {
       rmSync(instanceA, { recursive: true, force: true });
       rmSync(instanceB, { recursive: true, force: true });
     }
   });
 
-  test("still scans legacy ~/.vellum/ when no lockfile entry covers it", async () => {
-    // GIVEN no local entries in the lockfile but a stale PID file in the
-    // legacy `~/.vellum/` root (pre-upgrade install)
+  test("still scans legacy ~/.vellum/ for gateway PIDs when no lockfile entry covers it", async () => {
+    // GIVEN no local entries in the lockfile but a stale gateway PID file
+    // in the legacy `~/.vellum/` root (pre-upgrade install)
     resetLockfile();
-    writePidFile(fakeHome, "vellum", 333333);
+    writePidFile(fakeHome, "gateway", 333333);
 
     // WHEN we run orphan detection
     const orphans = await detectOrphanedProcesses();
@@ -169,7 +169,7 @@ describe("detectOrphanedProcesses", () => {
     const instanceA = mkdtempSync(join(tmpdir(), "orphan-instance-coexist-"));
     try {
       saveAssistantEntry(makeEntry("alpha", instanceA));
-      writePidFile(instanceA, "vellum", 444444);
+      writePidFile(instanceA, "qdrant", 444444);
       writePidFile(fakeHome, "gateway", 555555);
 
       // WHEN we run orphan detection

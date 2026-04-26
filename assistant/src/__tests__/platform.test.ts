@@ -73,16 +73,16 @@ describe("path characterization", () => {
     // Hooks live under workspace
     expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
 
-    // Root-level runtime files remain at ~/.vellum/
-    expect(getPidPath()).toBe(join(root, "vellum.pid"));
+    // PID file lives in the workspace directory
+    expect(getPidPath()).toBe(join(ws, "vellum.pid"));
   });
 
   test("VELLUM_WORKSPACE_DIR overrides workspace location", () => {
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/custom-workspace";
     expect(getWorkspaceDir()).toBe("/tmp/custom-workspace");
     expect(getDataDir()).toBe("/tmp/custom-workspace/data");
-    // Root-level paths are NOT affected by VELLUM_WORKSPACE_DIR
-    expect(getPidPath()).toBe(join(homedir(), ".vellum", "vellum.pid"));
+    // PID path follows workspace override
+    expect(getPidPath()).toBe("/tmp/custom-workspace/vellum.pid");
   });
 
   test("hooks directory is inside the workspace boundary", () => {

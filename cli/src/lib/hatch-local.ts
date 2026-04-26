@@ -39,7 +39,7 @@ import {
 import { maybeStartNgrokTunnel } from "./ngrok.js";
 import { httpHealthCheck } from "./http-client.js";
 import { detectOrphanedProcesses } from "./orphan-detection.js";
-import { isProcessAlive, stopProcess } from "./process.js";
+import { stopProcess } from "./process.js";
 import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
 import { archiveLogFile, resetLogFile } from "./xdg-log.js";
@@ -155,29 +155,10 @@ export async function hatchLocal(
 
   emitProgress(1, 7, "Preparing workspace...");
 
-  // Clean up stale local state: if daemon/gateway processes are running but
-  // the lock file has no entries AND the daemon is not healthy, stop them
-  // before starting fresh. A healthy daemon should be reused, not killed —
-  // it may have been started intentionally via `vellum wake`.
-  const vellumDir = join(homedir(), ".vellum");
-  const existingAssistants = loadAllAssistants();
-  const localAssistants = existingAssistants.filter((a) => a.cloud === "local");
-  if (localAssistants.length === 0) {
-    const daemonPid = isProcessAlive(join(vellumDir, "vellum.pid"));
-    const gatewayPid = isProcessAlive(join(vellumDir, "gateway.pid"));
-    if (daemonPid.alive || gatewayPid.alive) {
-      // Check if the daemon is actually healthy before killing it.
-      // Default port 7821 is used when there's no lockfile entry.
-      const defaultPort = parseInt(process.env.RUNTIME_HTTP_PORT || "7821", 10);
-      const healthy = await httpHealthCheck(defaultPort);
-      if (!healthy) {
-        console.log(
-          "🧹 Cleaning up stale local processes (no lock file entry)...\n",
-        );
-        await stopLocalProcesses();
-      }
-    }
-  }
+  // Always stop stale local processes before hatching fresh. Previous
+  // versions tried to reuse healthy daemons, but that led to split-brain
+  // state when PID files and lockfile entries diverged.
+  await stopLocalProcesses();
 
   // On desktop, scan the process table for orphaned vellum processes that
   // are not tracked by any PID file or lock file entry and kill them before

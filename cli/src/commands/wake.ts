@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import {
+  getDaemonPidPath,
   resolveTargetAssistant,
   saveAssistantEntry,
 } from "../lib/assistant-config.js";
@@ -82,7 +83,7 @@ export async function wake(): Promise<void> {
   }
   const resources = entry.resources;
 
-  const pidFile = resources.pidFile;
+  const pidFile = getDaemonPidPath(resources);
 
   // Check if daemon is already running
   let daemonRunning = false;

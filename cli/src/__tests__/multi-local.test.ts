@@ -115,10 +115,8 @@ describe("multi-local", () => {
         expect(res.gatewayPort).toBe(DEFAULT_GATEWAY_PORT);
         expect(res.qdrantPort).toBe(DEFAULT_QDRANT_PORT);
 
-        // AND the PID file is under the instance's .vellum/
-        expect(res.pidFile).toBe(
-          join(res.instanceDir, ".vellum", "vellum.pid"),
-        );
+        // AND pidFile is no longer stored in resources (derived at runtime)
+        expect((res as Record<string, unknown>).pidFile).toBeUndefined();
       } finally {
         if (prevXdg !== undefined) {
           process.env.XDG_DATA_HOME = prevXdg;

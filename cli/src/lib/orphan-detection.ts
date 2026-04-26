@@ -90,7 +90,6 @@ export async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
   // Strategy 1: PID file scan — check every known data directory.
   for (const dir of dirs) {
     const pidFiles: Array<{ file: string; name: string }> = [
-      { file: join(dir, "vellum.pid"), name: "assistant" },
       { file: join(dir, "gateway.pid"), name: "gateway" },
       { file: join(dir, "qdrant.pid"), name: "qdrant" },
     ];

@@ -187,7 +187,7 @@ export function readPlatformToken(): string | null {
 }
 
 export function getPidPath(): string {
-  return join(VELLUM_ROOT, "vellum.pid");
+  return join(getWorkspaceDir(), "vellum.pid");
 }
 
 /**
