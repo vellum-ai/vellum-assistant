@@ -1,10 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Stores the Sentry auth token via the species-specific credential mechanism.
- *
- * For Vellum: uses `assistant credentials prompt` to securely collect the token.
- *
- * Outputs JSON: { stored: boolean, details?: string }
+ * Prompts the user for a Sentry auth token and stores it in the credential vault.
  *
  * Species-gated: delegates to a species-specific implementation.
  */
@@ -12,28 +8,41 @@
 const species = process.env.SPECIES;
 
 async function storeVellum(): Promise<void> {
-  // This script outputs the credential_store call parameters as JSON.
-  // The LLM reads this output and makes the actual credential_store tool call.
-  console.log(
-    JSON.stringify({
-      action: "prompt",
-      service: "sentry",
-      field: "auth_token",
-      label: "Sentry Auth Token",
-      placeholder: "sntrys_...",
-      description:
-        "Auth token from your Sentry internal integration (found on the integration's details page under Tokens)",
-      allowed_domains: ["sentry.io"],
-      injection_templates: [
-        {
-          hostPattern: "sentry.io",
-          injectionType: "header",
-          headerName: "Authorization",
-          valuePrefix: "Bearer ",
-        },
-      ],
-    }),
-  );
+  const args = [
+    "credentials",
+    "prompt",
+    "--service",
+    "sentry",
+    "--field",
+    "auth_token",
+    "--label",
+    "Sentry Auth Token",
+    "--placeholder",
+    "sntrys_...",
+    "--description",
+    "Auth token from your Sentry internal integration (found on the integration's details page under Tokens)",
+    "--allowed-domains",
+    "sentry.io",
+    "--injection-templates",
+    JSON.stringify([
+      {
+        hostPattern: "sentry.io",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ]),
+  ];
+
+  const proc = Bun.spawn(["assistant", ...args], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    process.exitCode = 1;
+  }
 }
 
 async function main(): Promise<void> {

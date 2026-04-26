@@ -71,13 +71,13 @@ After saving, Sentry displays the integration's details page. An auth token is a
 
 Tell the user: on the integration details page, find the **Tokens** section and copy the auth token.
 
-Then run the store script to get the credential parameters:
+Then run the store script to securely collect and store the token:
 
 ```bash
 bun skills/sentry-app-setup/scripts/store-token.ts
 ```
 
-The script outputs JSON with the parameters needed for the credential store call. Use those parameters to securely collect the token from the user.
+The script opens a secure credential prompt in the user's app, stores the token in the encrypted vault with the correct injection templates, and exits. No further action needed — if it exits 0, the token is stored.
 
 ### Step 3: Collect the Organization Slug
 

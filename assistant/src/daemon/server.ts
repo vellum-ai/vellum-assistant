@@ -28,11 +28,17 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
+import { registerCredentialPromptDeps } from "../ipc/routes/credential-prompt.js";
 import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
 import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
-import { getAttachmentsByIds, getSourcePathsForAttachments, uploadFileBackedAttachment, validateAttachmentUpload } from "../memory/attachments-store.js";
+import {
+  getAttachmentsByIds,
+  getSourcePathsForAttachments,
+  uploadFileBackedAttachment,
+  validateAttachmentUpload,
+} from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -104,9 +110,10 @@ import {
 } from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import type {
-  ConversationCreateOptions,
-  HandlerContext,
+import {
+  type ConversationCreateOptions,
+  type HandlerContext,
+  requestSecretStandalone,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
@@ -729,10 +736,7 @@ export class DaemonServer {
       if (params.attachments && params.attachments.length > 0) {
         for (const a of params.attachments) {
           try {
-            const validation = validateAttachmentUpload(
-              a.filename,
-              a.mimeType,
-            );
+            const validation = validateAttachmentUpload(a.filename, a.mimeType);
             if (!validation.ok) {
               log.warn(
                 { error: validation.error, path: a.path },
@@ -914,6 +918,11 @@ export class DaemonServer {
       getCesClient: () => this.getCesClient(),
       onProviderCredentialsChanged: () =>
         this.refreshConversationsForProviderChange(),
+    });
+    registerCredentialPromptDeps({
+      broadcast: (msg) => this.broadcast(msg),
+      requestSecretStandalone: (params) =>
+        requestSecretStandalone(this.handlerContext(), params),
     });
     await this.cliIpc.start();
 
@@ -1433,8 +1442,7 @@ export class DaemonServer {
           const resolved = getAttachmentsByIds(attachmentIds, {
             hydrateFileData: true,
           });
-          const sourcePaths =
-            getSourcePathsForAttachments(attachmentIds);
+          const sourcePaths = getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,

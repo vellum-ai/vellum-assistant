@@ -64,6 +64,7 @@ export const SAFE_ENV_VARS = [
  */
 export const ALWAYS_INJECTED_ENV_VARS = [
   "INTERNAL_GATEWAY_BASE_URL",
+  "SPECIES",
   "VELLUM_DATA_DIR",
   "VELLUM_WORKSPACE_DIR",
 ] as const;
@@ -85,6 +86,9 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Expose the workspace directory so skills and child processes can read/write
   // workspace-scoped files (e.g. avatar traits, user data).
   env.VELLUM_WORKSPACE_DIR = getWorkspaceDir();
+  // Identify the assistant species so skill scripts can gate on species-specific
+  // logic. Hardcoded to "vellum" — this is the Vellum assistant codebase.
+  env.SPECIES = "vellum";
   // Ensure UTF-8 locale so multi-byte characters (em dashes, curly quotes,
   // arrows, etc.) survive piping through tools like pbcopy without corruption.
   // macOS (Darwin) does not provide C.UTF-8, so use en_US.UTF-8 there.
