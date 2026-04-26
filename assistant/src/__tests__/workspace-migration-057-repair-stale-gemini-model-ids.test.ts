@@ -52,7 +52,7 @@ describe("057-repair-stale-gemini-model-ids migration", () => {
     expect(repairStaleGeminiModelIdsMigration.id).toBe(
       "057-repair-stale-gemini-model-ids",
     );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
+    expect(WORKSPACE_MIGRATIONS.map((m) => m.id)).toContain(
       "057-repair-stale-gemini-model-ids",
     );
   });

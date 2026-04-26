@@ -9,7 +9,10 @@ import {
   LiveVoiceSession,
   type LiveVoiceStreamingTranscriberResolver,
 } from "../live-voice-session.js";
-import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
+import {
+  type LiveVoiceSessionFactoryContext,
+  LiveVoiceSessionStartupError,
+} from "../live-voice-session-manager.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -183,7 +186,9 @@ describe("LiveVoiceSession STT", () => {
       resolveTranscriber: resolver,
     });
 
-    await session.start();
+    await expect(session.start()).rejects.toBeInstanceOf(
+      LiveVoiceSessionStartupError,
+    );
 
     expect(frames).toHaveLength(1);
     expect(frames[0]).toMatchObject({
@@ -209,7 +214,9 @@ describe("LiveVoiceSession STT", () => {
       resolveTranscriber: resolver,
     });
 
-    await expect(session.start()).resolves.toBeUndefined();
+    await expect(session.start()).rejects.toBeInstanceOf(
+      LiveVoiceSessionStartupError,
+    );
 
     expect(frames).toEqual([
       {
