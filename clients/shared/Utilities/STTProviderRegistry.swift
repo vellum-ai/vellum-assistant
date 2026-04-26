@@ -134,29 +134,33 @@ public struct STTProviderRegistry: Decodable {
 
 // MARK: - Loader
 
-/// Cached registry, populated by `refreshSTTProviderRegistry()`.
-/// Falls back to an empty registry until the first successful fetch.
+/// Lock-protected cached registry, populated lazily by
+/// `refreshSTTProviderRegistry()`.
+private let _registryLock = NSLock()
 private var _cachedSTTProviderRegistry = STTProviderRegistry(providers: [])
 
 /// Returns the cached STT provider registry.
 ///
-/// Call `refreshSTTProviderRegistry()` at app launch to populate from the
-/// assistant's `GET /v1/stt/providers` API.
+/// The registry starts empty and is populated on first access to the
+/// STT settings panel via `refreshSTTProviderRegistry()`.  Thread-safe.
 public func loadSTTProviderRegistry() -> STTProviderRegistry {
-    _cachedSTTProviderRegistry
+    _registryLock.lock()
+    defer { _registryLock.unlock() }
+    return _cachedSTTProviderRegistry
 }
 
 /// Fetches the STT provider catalog from the assistant API and caches it.
 ///
-/// Called at app launch (or whenever the assistant connection is
-/// established). Failures are logged but non-fatal — the registry stays
-/// empty until a successful fetch.
+/// Called lazily when the STT settings panel first appears. Failures are
+/// logged but non-fatal — the registry stays empty until a successful fetch.
 public func refreshSTTProviderRegistry() async {
     do {
         let (registry, _): (STTProviderRegistry?, GatewayHTTPClient.Response) =
-            try await GatewayHTTPClient.get(path: "stt/providers")
+            try await GatewayHTTPClient.get(path: "assistants/{assistantId}/stt/providers")
         if let registry, !registry.providers.isEmpty {
+            _registryLock.lock()
             _cachedSTTProviderRegistry = registry
+            _registryLock.unlock()
             log.info("Loaded \(registry.providers.count) STT providers from API")
         } else {
             log.warning("STT providers API returned empty or nil response")

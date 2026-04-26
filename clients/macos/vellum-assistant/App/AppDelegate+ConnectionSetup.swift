@@ -195,7 +195,6 @@ extension AppDelegate {
                 refreshSkillsCache()
                 syncPrivacyConfig()
                 featureFlagStore.reloadFromGateway()
-                await refreshSTTProviderRegistry()
             }
         }
     }
