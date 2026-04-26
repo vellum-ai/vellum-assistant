@@ -41,7 +41,6 @@ export * from "./message-types/shared.js";
 export * from "./message-types/skills.js";
 export * from "./message-types/subagents.js";
 export * from "./message-types/surfaces.js";
-export * from "./message-types/trust.js";
 export * from "./message-types/upgrades.js";
 export * from "./message-types/work-items.js";
 export * from "./message-types/workspace.js";
@@ -131,10 +130,6 @@ import type {
   _SurfacesClientMessages,
   _SurfacesServerMessages,
 } from "./message-types/surfaces.js";
-import type {
-  _TrustClientMessages,
-  _TrustServerMessages,
-} from "./message-types/trust.js";
 import type { _UpgradesServerMessages } from "./message-types/upgrades.js";
 import type {
   _WorkItemsClientMessages,
@@ -161,7 +156,6 @@ export type ClientMessage =
   | _MessagesClientMessages
   | _SurfacesClientMessages
   | _SkillsClientMessages
-  | _TrustClientMessages
   | _AppsClientMessages
   | _IntegrationsClientMessages
   | _ComputerUseClientMessages
@@ -187,7 +181,6 @@ export type ServerMessage =
   | _MessagesServerMessages
   | _SurfacesServerMessages
   | _SkillsServerMessages
-  | _TrustServerMessages
   | _AppsServerMessages
   | _IntegrationsServerMessages
   | _ComputerUseServerMessages
@@ -222,3 +215,4 @@ export interface ContractSchema {
   client: ClientMessage;
   server: ServerMessage;
 }
+

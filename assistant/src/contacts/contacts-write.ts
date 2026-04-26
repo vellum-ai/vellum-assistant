@@ -8,7 +8,6 @@
 
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/channel-verification-sessions.js";
-import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
 import { ensureGuardianPersonaFile } from "../prompts/persona-resolver.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
@@ -116,13 +115,6 @@ export function createGuardianBinding(params: {
         "failed to seed guardian persona file; continuing",
       );
     }
-    // Invalidate the trust rule cache so the dynamic guardian-persona
-    // auto-allow rules from `permissions/defaults.ts` are backfilled on
-    // the next `getRules()` call. Without this, guardians created at
-    // runtime (self-heal paths, first-message-seeds-guardian) wouldn't
-    // get their auto-allow rule until the daemon restarts, and the
-    // model would prompt on its first `file_edit users/<slug>.md`.
-    clearTrustCache();
   }
 
   const now = Date.now();

@@ -17,7 +17,6 @@ import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
 import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
-import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
 import { initializeProviders } from "../providers/registry.js";
 import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
@@ -113,7 +112,6 @@ export class ConfigWatcher {
     if (fingerprint === this.lastFingerprint) {
       return false;
     }
-    clearTrustCache();
     clearEmbeddingBackendCache();
     // If cleanup retention settings changed, reset the cleanup scheduler
     // throttle so the next worker tick re-enqueues jobs with the new values

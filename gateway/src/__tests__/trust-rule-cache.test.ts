@@ -1,28 +1,28 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
-import { TrustRuleV3Store } from "../db/trust-rule-v3-store.js";
+import { TrustRuleStore } from "../db/trust-rule-store.js";
 import {
-  initTrustRuleV3Cache,
-  getTrustRuleV3Cache,
-  invalidateTrustRuleV3Cache,
-  resetTrustRuleV3Cache,
-} from "../risk/trust-rule-v3-cache.js";
+  initTrustRuleCache,
+  getTrustRuleCache,
+  invalidateTrustRuleCache,
+  resetTrustRuleCache,
+} from "../risk/trust-rule-cache.js";
 import "./test-preload.js";
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
-let store: TrustRuleV3Store;
+let store: TrustRuleStore;
 
 beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
-  store = new TrustRuleV3Store();
+  store = new TrustRuleStore();
 });
 
 afterEach(() => {
-  resetTrustRuleV3Cache();
+  resetTrustRuleCache();
   resetGatewayDb();
 });
 
@@ -43,8 +43,8 @@ describe("findBaseRisk()", () => {
       description: "Dangerous remove",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findBaseRisk("cache_t1", "exact-match-cmd");
     expect(result).not.toBeNull();
@@ -60,8 +60,8 @@ describe("findBaseRisk()", () => {
       description: "Remove command",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findBaseRisk("cache_t2", "/usr/bin/path-strip-prog");
     expect(result).not.toBeNull();
@@ -76,8 +76,8 @@ describe("findBaseRisk()", () => {
       description: "Git push command",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findBaseRisk(
       "cache_t3",
@@ -95,8 +95,8 @@ describe("findBaseRisk()", () => {
       description: "Base command",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     // "subcmd-fallback push --force" should match "subcmd-fallback" via subcommand fallback
     const result = cache.findBaseRisk(
@@ -121,8 +121,8 @@ describe("findBaseRisk()", () => {
       description: "Push subcommand",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     // "subcmd-prefer push --force" should match "subcmd-prefer push" (longer prefix wins)
     const result = cache.findBaseRisk("cache_t5", "subcmd-prefer push --force");
@@ -139,8 +139,8 @@ describe("findBaseRisk()", () => {
       description: "Echo",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findBaseRisk(
       "cache_t6",
@@ -157,8 +157,8 @@ describe("findBaseRisk()", () => {
       description: "Echo",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findBaseRisk(
       "nonexistent_tool_cache",
@@ -181,8 +181,8 @@ describe("findToolOverride()", () => {
       description: "Sensitive file",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findToolOverride(
       "cache_override_t1",
@@ -201,8 +201,8 @@ describe("findToolOverride()", () => {
       description: "Sensitive file",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findToolOverride("cache_override_t2", "/tmp/safe");
     expect(result).toBeNull();
@@ -216,8 +216,8 @@ describe("findToolOverride()", () => {
       description: "Sensitive file",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.findToolOverride(
       "nonexistent_override_tool",
@@ -252,8 +252,8 @@ describe("getAllForTool()", () => {
       description: "File read",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const rules = cache.getAllForTool("cache_getall_t1");
     expect(rules).toHaveLength(2);
@@ -271,8 +271,8 @@ describe("getAllForTool()", () => {
       description: "Echo",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     const result = cache.getAllForTool("nonexistent_getall_tool");
     expect(result).toEqual([]);
@@ -292,8 +292,8 @@ describe("refresh()", () => {
       description: "Echo",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     // Verify initial state
     expect(
@@ -313,7 +313,7 @@ describe("refresh()", () => {
     expect(cache.findBaseRisk("cache_refresh_t1", "refresh-curl")).toBeNull();
 
     // After refresh, cache should pick it up
-    invalidateTrustRuleV3Cache();
+    invalidateTrustRuleCache();
     expect(
       cache.findBaseRisk("cache_refresh_t1", "refresh-curl"),
     ).not.toBeNull();
@@ -330,8 +330,8 @@ describe("refresh()", () => {
       description: "Echo",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
 
     expect(
       cache.findBaseRisk("cache_refresh_t2", "refresh-remove-echo"),
@@ -346,7 +346,7 @@ describe("refresh()", () => {
     ).not.toBeNull();
 
     // After refresh, the rule should be gone
-    invalidateTrustRuleV3Cache();
+    invalidateTrustRuleCache();
     expect(
       cache.findBaseRisk("cache_refresh_t2", "refresh-remove-echo"),
     ).toBeNull();
@@ -358,13 +358,13 @@ describe("refresh()", () => {
 // ---------------------------------------------------------------------------
 
 describe("singleton functions", () => {
-  test("getTrustRuleV3Cache() throws if not initialized", () => {
-    expect(() => getTrustRuleV3Cache()).toThrow(
+  test("getTrustRuleCache() throws if not initialized", () => {
+    expect(() => getTrustRuleCache()).toThrow(
       "Risk rule cache not initialized",
     );
   });
 
-  test("initTrustRuleV3Cache() initializes the cache", () => {
+  test("initTrustRuleCache() initializes the cache", () => {
     store.create({
       tool: "cache_singleton_t1",
       pattern: "singleton-echo",
@@ -372,27 +372,27 @@ describe("singleton functions", () => {
       description: "Echo",
     });
 
-    initTrustRuleV3Cache(store);
-    const cache = getTrustRuleV3Cache();
+    initTrustRuleCache(store);
+    const cache = getTrustRuleCache();
     expect(
       cache.findBaseRisk("cache_singleton_t1", "singleton-echo"),
     ).not.toBeNull();
   });
 
-  test("resetTrustRuleV3Cache() clears the singleton", () => {
-    initTrustRuleV3Cache(store);
+  test("resetTrustRuleCache() clears the singleton", () => {
+    initTrustRuleCache(store);
     // Should work
-    getTrustRuleV3Cache();
+    getTrustRuleCache();
 
-    resetTrustRuleV3Cache();
+    resetTrustRuleCache();
     // Should throw again
-    expect(() => getTrustRuleV3Cache()).toThrow(
+    expect(() => getTrustRuleCache()).toThrow(
       "Risk rule cache not initialized",
     );
   });
 
-  test("invalidateTrustRuleV3Cache() is safe to call when cache is null", () => {
+  test("invalidateTrustRuleCache() is safe to call when cache is null", () => {
     // Should not throw
-    invalidateTrustRuleV3Cache();
+    invalidateTrustRuleCache();
   });
 });

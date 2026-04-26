@@ -3,10 +3,10 @@ import SwiftUI
 import AppKit
 #endif
 
-/// Standalone v3 permission prompt view.
+/// Standalone permission prompt view.
 /// Provides a simplified Allow/Deny interface with inline risk badge,
 /// risk reason text, and keyboard support.
-public struct V3PermissionPromptView: View {
+public struct PermissionPromptView: View {
     public let confirmation: ToolConfirmationData
     public let isKeyboardActive: Bool
     public let onAllow: () -> Void

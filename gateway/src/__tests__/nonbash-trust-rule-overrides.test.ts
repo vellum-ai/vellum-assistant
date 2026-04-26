@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
-import { TrustRuleV3Store } from "../db/trust-rule-v3-store.js";
+import { TrustRuleStore } from "../db/trust-rule-store.js";
 import {
-  initTrustRuleV3Cache,
-  resetTrustRuleV3Cache,
-} from "../risk/trust-rule-v3-cache.js";
+  initTrustRuleCache,
+  resetTrustRuleCache,
+} from "../risk/trust-rule-cache.js";
 import {
   FileRiskClassifier,
   type FileClassificationContext,
@@ -18,7 +18,7 @@ import "./test-preload.js";
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
-let store: TrustRuleV3Store;
+let store: TrustRuleStore;
 
 const dummyFileContext: FileClassificationContext = {
   protectedDir: "/tmp/test-protected",
@@ -30,11 +30,11 @@ const dummyFileContext: FileClassificationContext = {
 beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
-  store = new TrustRuleV3Store();
+  store = new TrustRuleStore();
 });
 
 afterEach(() => {
-  resetTrustRuleV3Cache();
+  resetTrustRuleCache();
   resetGatewayDb();
 });
 
@@ -51,7 +51,7 @@ describe("FileRiskClassifier user overrides", () => {
       description: "User-blocked file path",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new FileRiskClassifier();
     const result = await classifier.classify(
@@ -78,7 +78,7 @@ describe("FileRiskClassifier user overrides", () => {
       description: "User modified this default rule",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new FileRiskClassifier();
     const result = await classifier.classify(
@@ -109,7 +109,7 @@ describe("WebRiskClassifier user overrides", () => {
       description: "User-blocked URL",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new WebRiskClassifier();
     const result = await classifier.classify({
@@ -136,7 +136,7 @@ describe("SkillLoadRiskClassifier user overrides", () => {
       description: "User-blocked skill",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
@@ -163,7 +163,7 @@ describe("ScheduleRiskClassifier user overrides", () => {
       description: "User-approved cron schedule",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new ScheduleRiskClassifier();
     const result = await classifier.classify({
@@ -191,7 +191,7 @@ describe("unmodified default rules do not override", () => {
       description: "Default high-risk file",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new FileRiskClassifier();
     const result = await classifier.classify(
@@ -213,7 +213,7 @@ describe("unmodified default rules do not override", () => {
       description: "Default high-risk URL",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new WebRiskClassifier();
     const result = await classifier.classify({
@@ -235,7 +235,7 @@ describe("unmodified default rules do not override", () => {
       description: "Default high-risk skill",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
@@ -257,7 +257,7 @@ describe("unmodified default rules do not override", () => {
       description: "Default high-risk schedule",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new ScheduleRiskClassifier();
     const result = await classifier.classify({
@@ -286,7 +286,7 @@ describe("security escalations are preserved despite user overrides", () => {
       description: "User wants to allow this",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new FileRiskClassifier();
     const result = await classifier.classify(
@@ -312,7 +312,7 @@ describe("security escalations are preserved despite user overrides", () => {
       description: "User-approved private network fetch",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new WebRiskClassifier();
     const result = await classifier.classify({
@@ -334,7 +334,7 @@ describe("security escalations are preserved despite user overrides", () => {
       description: "User-approved script schedule",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new ScheduleRiskClassifier();
     const result = await classifier.classify({
@@ -362,7 +362,7 @@ describe("SkillLoadRiskClassifier override key format", () => {
       description: "User-blocked dynamic skill",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
@@ -390,7 +390,7 @@ describe("SkillLoadRiskClassifier override key format", () => {
       description: "User-blocked by resolved ID",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
@@ -420,7 +420,7 @@ describe("SkillLoadRiskClassifier override key format", () => {
       description: "Dynamic-only rule",
     });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
@@ -448,7 +448,7 @@ describe("SkillLoadRiskClassifier override key format", () => {
 describe("graceful fallback when cache not initialized", () => {
   test("file classifier falls through to normal classification", async () => {
     // Ensure cache is reset (not initialized)
-    resetTrustRuleV3Cache();
+    resetTrustRuleCache();
 
     const classifier = new FileRiskClassifier();
     const result = await classifier.classify(
@@ -461,7 +461,7 @@ describe("graceful fallback when cache not initialized", () => {
   });
 
   test("web classifier falls through to normal classification", async () => {
-    resetTrustRuleV3Cache();
+    resetTrustRuleCache();
 
     const classifier = new WebRiskClassifier();
     const result = await classifier.classify({
@@ -474,7 +474,7 @@ describe("graceful fallback when cache not initialized", () => {
   });
 
   test("skill classifier falls through to normal classification", async () => {
-    resetTrustRuleV3Cache();
+    resetTrustRuleCache();
 
     const classifier = new SkillLoadRiskClassifier();
     const result = await classifier.classify({
@@ -487,7 +487,7 @@ describe("graceful fallback when cache not initialized", () => {
   });
 
   test("schedule classifier falls through to normal classification", async () => {
-    resetTrustRuleV3Cache();
+    resetTrustRuleCache();
 
     const classifier = new ScheduleRiskClassifier();
     const result = await classifier.classify({

@@ -10,7 +10,6 @@ import {
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
-import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   CONVERSATION_HOST_ACCESS_PROMPT,
@@ -463,31 +462,8 @@ export class PermissionChecker {
         }
 
         if (decision === "always_deny") {
-          // For non-scoped tools (empty scopeOptions), default to 'everywhere' since
-          // the client has no scope picker and will send undefined.
-          const effectiveDenyScope =
-            promptOptions.scopeOptions.length === 0
-              ? (response.selectedScope ?? "everywhere")
-              : response.selectedScope;
-          const ruleSaved = !!(
-            promptOptions.persistentDecisionsAllowed &&
-            response.selectedPattern &&
-            effectiveDenyScope
-          );
-          if (ruleSaved) {
-            addRule(
-              name,
-              response.selectedPattern!,
-              effectiveDenyScope!,
-              "deny",
-            );
-          }
-          const denialReason = ruleSaved
-            ? "Permission denied by user (rule saved)"
-            : "Permission denied by user";
-          const denialMessage = ruleSaved
-            ? `Permission denied by user, and a rule was saved to always deny the "${name}" tool for this pattern. Do NOT retry this tool call. Inform the user that this action has been permanently blocked by their preference. If the user wants to allow it in the future, they can update their permission rules.`
-            : `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
+          const denialReason = "Permission denied by user";
+          const denialMessage = `Permission denied by user. The user chose not to allow the "${name}" tool. Do NOT retry this tool call immediately. Instead, tell the user that the action was not performed because they denied permission, and ask if they would like you to try again or take a different approach. Wait for the user to explicitly respond before retrying.`;
           const durationMs = Date.now() - startTime;
           emitLifecycleEvent({
             type: "permission_denied",
@@ -510,38 +486,6 @@ export class PermissionChecker {
             content: denialMessage,
             riskMeta,
           };
-        }
-
-        if (
-          promptOptions.persistentDecisionsAllowed &&
-          decision === "always_allow" &&
-          response.selectedPattern
-        ) {
-          const ruleOptions: {
-            executionTarget?: string;
-          } = {};
-
-          if (policyContext?.executionTarget != null) {
-            ruleOptions.executionTarget = policyContext.executionTarget;
-          }
-
-          const hasOptions = Object.keys(ruleOptions).length > 0;
-          // Only default to 'everywhere' for non-scoped tools (empty scopeOptions).
-          // For scoped tools, require an explicit scope to prevent silent permission widening.
-          const effectiveScope =
-            promptOptions.scopeOptions.length === 0
-              ? (response.selectedScope ?? "everywhere")
-              : response.selectedScope;
-          if (effectiveScope) {
-            addRule(
-              name,
-              response.selectedPattern,
-              effectiveScope,
-              "allow",
-              100,
-              hasOptions ? ruleOptions : undefined,
-            );
-          }
         }
 
         // Activate temporary approval mode when the user chooses a

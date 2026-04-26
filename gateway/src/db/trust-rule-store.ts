@@ -1,12 +1,12 @@
 import { and, eq, or, sql } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
-import { trustRulesV3 } from "./schema.js";
+import { trustRules } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface TrustRuleV3 {
+export interface TrustRule {
   id: string;
   tool: string;
   pattern: string;
@@ -62,7 +62,7 @@ export const VALID_RISK_VALUES: ReadonlySet<string> = new Set([
   "high",
 ]);
 
-function assertValidRisk(value: string): asserts value is TrustRuleV3["risk"] {
+function assertValidRisk(value: string): asserts value is TrustRule["risk"] {
   if (!VALID_RISK_VALUES.has(value)) {
     throw new Error(
       `Invalid risk value: "${value}". Must be one of: low, medium, high`,
@@ -74,12 +74,12 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
-function toTrustRuleV3(row: typeof trustRulesV3.$inferSelect): TrustRuleV3 {
+function toTrustRule(row: typeof trustRules.$inferSelect): TrustRule {
   // Belt-and-suspenders: validate the DB risk value. The schema constraint
   // should prevent invalid values, but default to "high" as a defensive
   // fallback if somehow one slips through.
   const risk = VALID_RISK_VALUES.has(row.risk)
-    ? (row.risk as TrustRuleV3["risk"])
+    ? (row.risk as TrustRule["risk"])
     : "high";
 
   return {
@@ -88,7 +88,7 @@ function toTrustRuleV3(row: typeof trustRulesV3.$inferSelect): TrustRuleV3 {
     pattern: row.pattern,
     risk,
     description: row.description,
-    origin: row.origin as TrustRuleV3["origin"],
+    origin: row.origin as TrustRule["origin"],
     userModified: row.userModified,
     deleted: row.deleted,
     createdAt: row.createdAt,
@@ -100,7 +100,7 @@ function toTrustRuleV3(row: typeof trustRulesV3.$inferSelect): TrustRuleV3 {
 // Store
 // ---------------------------------------------------------------------------
 
-export class TrustRuleV3Store {
+export class TrustRuleStore {
   private injectedDb?: GatewayDb;
 
   constructor(db?: GatewayDb) {
@@ -115,60 +115,60 @@ export class TrustRuleV3Store {
    * List trust rules with optional filters.
    * By default excludes soft-deleted rules.
    */
-  list(filters?: ListFilters): TrustRuleV3[] {
+  list(filters?: ListFilters): TrustRule[] {
     const conditions = [];
 
     if (!filters?.includeDeleted) {
-      conditions.push(eq(trustRulesV3.deleted, false));
+      conditions.push(eq(trustRules.deleted, false));
     }
     if (filters?.origin !== undefined) {
-      conditions.push(eq(trustRulesV3.origin, filters.origin));
+      conditions.push(eq(trustRules.origin, filters.origin));
     }
     if (filters?.userRelevantOnly) {
       // Only user_defined rules OR default rules that have been user-modified
       conditions.push(
         or(
-          eq(trustRulesV3.origin, "user_defined"),
-          eq(trustRulesV3.userModified, true),
+          eq(trustRules.origin, "user_defined"),
+          eq(trustRules.userModified, true),
         )!,
       );
     }
     if (filters?.tool !== undefined) {
-      conditions.push(eq(trustRulesV3.tool, filters.tool));
+      conditions.push(eq(trustRules.tool, filters.tool));
     }
 
-    const query = this.db.select().from(trustRulesV3);
+    const query = this.db.select().from(trustRules);
     const rows =
       conditions.length > 0
         ? query.where(and(...conditions)).all()
         : query.all();
 
-    return rows.map(toTrustRuleV3);
+    return rows.map(toTrustRule);
   }
 
   /**
    * Fetch a single rule by ID. Returns null if not found.
    */
-  getById(id: string): TrustRuleV3 | null {
+  getById(id: string): TrustRule | null {
     const row = this.db
       .select()
-      .from(trustRulesV3)
-      .where(eq(trustRulesV3.id, id))
+      .from(trustRules)
+      .where(eq(trustRules.id, id))
       .get();
-    return row ? toTrustRuleV3(row) : null;
+    return row ? toTrustRule(row) : null;
   }
 
   /**
    * Create a user-defined trust rule. Generates a UUIDv4 id.
    */
-  create(input: CreateInput): TrustRuleV3 {
+  create(input: CreateInput): TrustRule {
     assertValidRisk(input.risk);
 
     const now = nowISO();
     const id = crypto.randomUUID();
 
     this.db
-      .insert(trustRulesV3)
+      .insert(trustRules)
       .values({
         id,
         tool: input.tool,
@@ -191,7 +191,7 @@ export class TrustRuleV3Store {
    * If the rule has origin="default", sets userModified=true.
    * Throws if not found.
    */
-  update(id: string, updates: UpdateInput): TrustRuleV3 {
+  update(id: string, updates: UpdateInput): TrustRule {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error(`Trust rule not found: ${id}`);
@@ -223,9 +223,9 @@ export class TrustRuleV3Store {
     }
 
     this.db
-      .update(trustRulesV3)
+      .update(trustRules)
       .set(setValues)
-      .where(eq(trustRulesV3.id, id))
+      .where(eq(trustRules.id, id))
       .run();
 
     return this.getById(id)!;
@@ -245,13 +245,13 @@ export class TrustRuleV3Store {
 
     if (existing.origin === "user_defined") {
       // Hard-delete
-      this.db.delete(trustRulesV3).where(eq(trustRulesV3.id, id)).run();
+      this.db.delete(trustRules).where(eq(trustRules.id, id)).run();
     } else {
       // Soft-delete for default rules
       this.db
-        .update(trustRulesV3)
+        .update(trustRules)
         .set({ deleted: true, updatedAt: nowISO() })
-        .where(eq(trustRulesV3.id, id))
+        .where(eq(trustRules.id, id))
         .run();
     }
 
@@ -267,7 +267,7 @@ export class TrustRuleV3Store {
     id: string,
     originalRisk: string,
     originalDescription?: string,
-  ): TrustRuleV3 {
+  ): TrustRule {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error(`Trust rule not found: ${id}`);
@@ -287,9 +287,9 @@ export class TrustRuleV3Store {
     }
 
     this.db
-      .update(trustRulesV3)
+      .update(trustRules)
       .set(updates)
-      .where(eq(trustRulesV3.id, id))
+      .where(eq(trustRules.id, id))
       .run();
 
     return this.getById(id)!;
@@ -321,19 +321,19 @@ export class TrustRuleV3Store {
    * Return all active (non-deleted) rules, optionally filtered by tool.
    * This is the query the cache will use.
    */
-  listActive(tool?: string): TrustRuleV3[] {
-    const conditions = [eq(trustRulesV3.deleted, false)];
+  listActive(tool?: string): TrustRule[] {
+    const conditions = [eq(trustRules.deleted, false)];
 
     if (tool !== undefined) {
-      conditions.push(eq(trustRulesV3.tool, tool));
+      conditions.push(eq(trustRules.tool, tool));
     }
 
     const rows = this.db
       .select()
-      .from(trustRulesV3)
+      .from(trustRules)
       .where(and(...conditions))
       .all();
 
-    return rows.map(toTrustRuleV3);
+    return rows.map(toTrustRule);
   }
 }

@@ -51,7 +51,6 @@ import {
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
-import { patternMatchesCandidate } from "../permissions/trust-store.js";
 import type { UserDecision } from "../permissions/types.js";
 import {
   isConversationHostAccessDecision,
@@ -1142,36 +1141,12 @@ export class Conversation {
    */
   private shouldCascade(
     decision: UserDecision,
-    selectedPattern: string | undefined,
-    details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
+    _selectedPattern: string | undefined,
+    _details?: import("../runtime/pending-interactions.js").ConfirmationDetails,
   ): { allow: boolean } | null {
     // Temporary overrides apply to the entire conversation
     if (decision === "allow_10m" || decision === "allow_conversation") {
       return { allow: true };
-    }
-
-    // Persistent allow: cascade if the pattern matches any allowlist candidate.
-    // "always_allow" must NOT cascade to high-risk pending confirmations.
-    if (decision === "always_allow" && selectedPattern && details) {
-      if (details.riskLevel === "high") {
-        return null;
-      }
-      for (const option of details.allowlistOptions) {
-        if (patternMatchesCandidate(selectedPattern, option.pattern)) {
-          return { allow: true };
-        }
-      }
-      return null;
-    }
-
-    // Persistent deny: cascade denial if the pattern matches
-    if (decision === "always_deny" && selectedPattern && details) {
-      for (const option of details.allowlistOptions) {
-        if (patternMatchesCandidate(selectedPattern, option.pattern)) {
-          return { allow: false };
-        }
-      }
-      return null;
     }
 
     return null;

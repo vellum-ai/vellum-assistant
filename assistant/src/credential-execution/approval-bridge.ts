@@ -4,7 +4,7 @@
  * Translates a CES `approval_required` response into an interactive
  * confirmation prompt using the existing PermissionPrompter transport.
  * When the guardian approves, the bridge commits the decision back to CES
- * via the `record_grant` RPC rather than writing into `trust.json`.
+ * via the `record_grant` RPC rather than through local trust rules.
  *
  * Design principles:
  * - The assistant never sees raw secret values. The rendered proposal text

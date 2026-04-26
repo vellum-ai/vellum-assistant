@@ -10,7 +10,7 @@
  */
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
-import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
+import { getTrustRuleCache } from "./trust-rule-cache.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -99,7 +99,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
     // This is intentional — user overrides are authoritative for users who explicitly
     // created them.
     try {
-      const ruleCache = getTrustRuleV3Cache();
+      const ruleCache = getTrustRuleCache();
       const override = ruleCache.findToolOverride(toolName, url ?? "");
       if (
         override &&

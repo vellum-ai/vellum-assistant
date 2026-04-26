@@ -16,12 +16,6 @@ export {
 } from "./http-delivery.js";
 
 export {
-  TrustRulesClient,
-  type AcceptStarterBundleResult,
-  type TrustRulesClientOptions,
-} from "./http-trust-rules.js";
-
-export {
   ipcCall,
   PersistentIpcClient,
 } from "./ipc-client.js";

@@ -175,7 +175,7 @@ export const actorRefreshTokenRecords = sqliteTable(
 // Trust rules (v3)
 // ---------------------------------------------------------------------------
 
-export const trustRulesV3 = sqliteTable(
+export const trustRules = sqliteTable(
   "trust_rules",
   {
     id: text("id").primaryKey(),

@@ -50,7 +50,6 @@ import { pipeline } from "node:stream/promises";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import { resetDb } from "../../memory/db-connection.js";
-import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
@@ -832,12 +831,6 @@ export async function streamCommitImport(
       log.warn({ err }, "invalidateConfigCache threw after legacy import");
     }
 
-    try {
-      clearTrustCache();
-    } catch (err) {
-      log.warn({ err }, "clearTrustCache threw after legacy import");
-    }
-
     const report = buildReport(manifest, importedFiles, warnings);
     return { ok: true, report };
   }
@@ -1121,12 +1114,6 @@ export async function streamCommitImport(
     invalidateConfigCache();
   } catch (err) {
     log.warn({ err }, "invalidateConfigCache threw after import");
-  }
-
-  try {
-    clearTrustCache();
-  } catch (err) {
-    log.warn({ err }, "clearTrustCache threw after import");
   }
 
   // Attempt to remove the backup dir (best-effort). Leaving it around is not

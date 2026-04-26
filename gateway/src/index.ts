@@ -97,22 +97,13 @@ import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import {
   createTrustRulesListHandler,
-  createTrustRulesAddHandler,
+  createTrustRulesCreateHandler,
   createTrustRulesUpdateHandler,
   createTrustRulesDeleteHandler,
-  createTrustRulesClearHandler,
-  createTrustRulesMatchHandler,
-  createTrustRulesStarterBundleHandler,
+  createTrustRulesResetHandler,
+  createTrustRulesSuggestHandler,
 } from "./http/routes/trust-rules.js";
-import {
-  createTrustRuleV3sListHandler,
-  createTrustRuleV3sCreateHandler,
-  createTrustRuleV3sUpdateHandler,
-  createTrustRuleV3sDeleteHandler,
-  createTrustRuleV3sResetHandler,
-  createTrustRuleV3SuggestHandler,
-} from "./http/routes/trust-rules-v3.js";
-import { initTrustRuleV3Cache } from "./risk/trust-rule-v3-cache.js";
+import { initTrustRuleCache } from "./risk/trust-rule-cache.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -153,7 +144,6 @@ import {
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
-import { trustRuleRoutes } from "./ipc/trust-rule-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
@@ -256,7 +246,7 @@ async function main() {
   log.info("JWT signing key initialized");
 
   await initGatewayDb();
-  initTrustRuleV3Cache();
+  initTrustRuleCache();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -378,18 +368,11 @@ async function main() {
   const handleConversationThresholdDelete =
     createConversationThresholdDeleteHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
-  const handleTrustRulesAdd = createTrustRulesAddHandler();
+  const handleTrustRulesCreate = createTrustRulesCreateHandler();
   const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
   const handleTrustRulesDelete = createTrustRulesDeleteHandler();
-  const handleTrustRulesClear = createTrustRulesClearHandler();
-  const handleTrustRulesMatch = createTrustRulesMatchHandler();
-  const handleTrustRulesStarterBundle = createTrustRulesStarterBundleHandler();
-  const handleTrustRuleV3sList = createTrustRuleV3sListHandler();
-  const handleTrustRuleV3sCreate = createTrustRuleV3sCreateHandler();
-  const handleTrustRuleV3sUpdate = createTrustRuleV3sUpdateHandler();
-  const handleTrustRuleV3sDelete = createTrustRuleV3sDeleteHandler();
-  const handleTrustRuleV3sReset = createTrustRuleV3sResetHandler();
-  const handleTrustRuleV3sSuggest = createTrustRuleV3SuggestHandler();
+  const handleTrustRulesReset = createTrustRulesResetHandler();
+  const handleTrustRulesSuggest = createTrustRulesSuggestHandler();
 
   const audioProxy = createAudioProxyHandler(config);
 
@@ -1188,75 +1171,31 @@ async function main() {
 
     // ── Trust rules v3 ──
     {
-      path: "/v1/trust-rules-v3",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => handleTrustRuleV3sList(req),
-    },
-    {
-      // Must appear before the POST /v1/trust-rules-v3 create entry and before
-      // the /:id catch-all regex so the literal path is matched first.
-      path: "/v1/trust-rules-v3/suggest",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRuleV3sSuggest(req),
-    },
-    {
-      path: "/v1/trust-rules-v3",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRuleV3sCreate(req),
-    },
-    {
-      // Reset must be registered before the /:id catch-all regex
-      path: /^\/v1\/trust-rules-v3\/([^/]+)\/reset$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req, params) => handleTrustRuleV3sReset(req, params[0]),
-    },
-    {
-      path: /^\/v1\/trust-rules-v3\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) => handleTrustRuleV3sUpdate(req, params[0]),
-    },
-    {
-      path: /^\/v1\/trust-rules-v3\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (req, params) => handleTrustRuleV3sDelete(req, params[0]),
-    },
-
-    // ── Trust rules ──
-    {
-      path: "/v1/trust-rules/clear",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRulesClear(req),
-    },
-    {
-      path: "/v1/trust-rules/match",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => handleTrustRulesMatch(req),
-    },
-    {
-      path: "/v1/trust-rules/starter-bundle",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => handleTrustRulesStarterBundle(req),
-    },
-    {
       path: "/v1/trust-rules",
       method: "GET",
       auth: "edge",
       handler: (req) => handleTrustRulesList(req),
     },
     {
+      // Must appear before the POST /v1/trust-rules create entry and before
+      // the /:id catch-all regex so the literal path is matched first.
+      path: "/v1/trust-rules/suggest",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleTrustRulesSuggest(req),
+    },
+    {
       path: "/v1/trust-rules",
       method: "POST",
       auth: "edge",
-      handler: (req) => handleTrustRulesAdd(req),
+      handler: (req) => handleTrustRulesCreate(req),
+    },
+    {
+      // Reset must be registered before the /:id catch-all regex
+      path: /^\/v1\/trust-rules\/([^/]+)\/reset$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
@@ -1270,6 +1209,7 @@ async function main() {
       auth: "edge",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
+
   ];
 
   // The runtime proxy catch-all is only added when the proxy is enabled.
@@ -1980,7 +1920,6 @@ async function main() {
     ...featureFlagRoutes,
     ...contactRoutes,
     ...thresholdRoutes,
-    ...trustRuleRoutes,
     ...riskClassificationRoutes,
     ...capabilityTokenRoutes,
   ]);

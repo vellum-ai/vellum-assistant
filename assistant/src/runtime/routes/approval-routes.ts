@@ -12,13 +12,11 @@ import { z } from "zod";
 
 import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
 import {
   isConversationHostAccessDecision,
   isConversationHostAccessEnablePrompt,
 } from "../../permissions/v2-consent-policy.js";
-import { getTool } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
@@ -208,126 +206,6 @@ export async function handleSecret(
 }
 
 /**
- * POST /v1/trust-rules — add a trust rule for a pending confirmation.
- * Requires AuthContext with guardian-bound actor.
- *
- * Does NOT resolve the confirmation itself (the client still needs to
- * POST /v1/confirm to approve/deny). Validates the pattern and scope
- * against the server-provided allowlist options from the original
- * confirmation_request.
- */
-export async function handleTrustRule(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  const authError = requireBoundGuardian(authContext);
-  if (authError) return authError;
-
-  const body = (await req.json()) as {
-    requestId?: string;
-    pattern?: string;
-    scope?: string;
-    decision?: string;
-  };
-
-  const { requestId, pattern, scope, decision } = body;
-
-  if (!requestId || typeof requestId !== "string") {
-    return httpError("BAD_REQUEST", "requestId is required", 400);
-  }
-
-  if (!pattern || typeof pattern !== "string") {
-    return httpError("BAD_REQUEST", "pattern is required", 400);
-  }
-
-  if (!scope || typeof scope !== "string") {
-    return httpError("BAD_REQUEST", "scope is required", 400);
-  }
-
-  if (decision !== "allow" && decision !== "deny") {
-    return httpError("BAD_REQUEST", 'decision must be "allow" or "deny"', 400);
-  }
-
-  // Look up without removing — trust rule doesn't resolve the confirmation
-  const interaction = pendingInteractions.get(requestId);
-  if (!interaction) {
-    return httpError(
-      "NOT_FOUND",
-      "No pending interaction found for this requestId",
-      404,
-    );
-  }
-
-  if (!interaction.confirmationDetails) {
-    return httpError(
-      "CONFLICT",
-      "No confirmation details available for this request",
-      409,
-    );
-  }
-
-  const confirmation = interaction.confirmationDetails;
-
-  if (confirmation.persistentDecisionsAllowed === false) {
-    return httpError(
-      "FORBIDDEN",
-      "Persistent trust rules are not allowed for this tool invocation",
-      403,
-    );
-  }
-
-  // Validate pattern against server-provided allowlist options
-  const validPatterns = (confirmation.allowlistOptions ?? []).map(
-    (o) => o.pattern,
-  );
-  if (!validPatterns.includes(pattern)) {
-    return httpError(
-      "FORBIDDEN",
-      "pattern does not match any server-provided allowlist option",
-      403,
-    );
-  }
-
-  // Validate scope against server-provided scope options.
-  // Non-scoped tools have empty scopeOptions — only "everywhere" is valid for them.
-  const validScopes = (confirmation.scopeOptions ?? []).map((o) => o.scope);
-  if (validScopes.length === 0) {
-    if (scope !== "everywhere") {
-      return httpError(
-        "FORBIDDEN",
-        'non-scoped tools only accept scope "everywhere"',
-        403,
-      );
-    }
-  } else if (!validScopes.includes(scope)) {
-    return httpError(
-      "FORBIDDEN",
-      "scope does not match any server-provided scope option",
-      403,
-    );
-  }
-
-  try {
-    const tool = getTool(confirmation.toolName);
-    const executionTarget =
-      tool?.origin === "skill" ? confirmation.executionTarget : undefined;
-
-    // Canonicalization is handled inside addRule — no need to pre-parse here.
-    addRule(confirmation.toolName, pattern, scope, decision, undefined, {
-      ...(executionTarget != null ? { executionTarget } : {}),
-    });
-    log.info(
-      { tool: confirmation.toolName, pattern, scope, decision, requestId },
-      "Trust rule added via HTTP (bound to pending confirmation)",
-    );
-    return Response.json({ accepted: true });
-  } catch (err) {
-    log.error({ err }, "Failed to add trust rule");
-    return httpError("INTERNAL_ERROR", "Failed to add trust rule", 500);
-  }
-}
-
-/**
  * GET /v1/pending-interactions?conversationKey=...
  * Requires AuthContext (already verified upstream by JWT middleware).
  *
@@ -454,25 +332,6 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
         accepted: z.boolean(),
       }),
       handler: async ({ req, authContext }) => handleSecret(req, authContext),
-    },
-    {
-      endpoint: "trust-rules",
-      method: "POST",
-      summary: "Add a trust rule for a pending confirmation",
-      description:
-        "Add a trust rule bound to a pending confirmation without resolving it.",
-      tags: ["approvals"],
-      requestBody: z.object({
-        requestId: z.string().describe("Pending confirmation request ID"),
-        pattern: z.string().describe("Allowlist pattern"),
-        scope: z.string().describe("Scope for the rule"),
-        decision: z.string().describe("allow or deny"),
-      }),
-      responseBody: z.object({
-        accepted: z.boolean(),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleTrustRule(req, authContext),
     },
     {
       endpoint: "pending-interactions",

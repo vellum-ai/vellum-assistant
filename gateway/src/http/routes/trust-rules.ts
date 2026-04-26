@@ -1,52 +1,138 @@
 /**
- * Trust rule CRUD endpoints for the gateway.
+ * Trust rule v3 CRUD endpoints for the gateway.
  *
- * All endpoints require "edge" auth. The assistant daemon will call these
- * endpoints instead of reading trust.json directly once the migration is
- * complete (PR 14-16 in the docker-volume-security plan).
- *
- * Payloads are canonicalized centrally in trust-store addRule/updateRule:
- * legacy clients can keep sending current shapes without 4xx regressions,
- * but fields invalid for a tool's family (e.g. `executionTarget` on a
- * URL-tool rule) are silently stripped before persistence.
+ * Mutations invalidate the in-memory risk rule cache so subsequent
+ * classifications reflect the change immediately.
  */
 
-import { SCOPED_TOOLS } from "@vellumai/service-contracts/trust-rules";
-
-import { getLogger } from "../../logger.js";
+import { z } from "zod";
 import {
-  addRule,
-  updateRule,
-  removeRule,
-  clearRules,
-  getAllRules,
-  findMatchingRule,
-  findHighestPriorityRule,
-  acceptStarterBundle,
-  type TrustDecision,
-} from "../../trust-store.js";
-
-/** Set for O(1) lookup when determining if a tool is scoped. */
-const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
+  TrustRuleStore,
+  VALID_RISK_VALUES,
+} from "../../db/trust-rule-store.js";
+import { invalidateTrustRuleCache } from "../../risk/trust-rule-cache.js";
+import { DEFAULT_COMMAND_REGISTRY } from "../../risk/command-registry/index.js";
+import { getLogger } from "../../logger.js";
+import { ipcSuggestTrustRule } from "../../ipc/assistant-client.js";
+import { getGatewayDb } from "../../db/connection.js";
+import { autoApproveThresholds } from "../../db/schema.js";
+import { eq } from "drizzle-orm";
 
 const log = getLogger("trust-rules");
 
 // ---------------------------------------------------------------------------
-// Validation helpers
+// Zod schema for POST /v1/trust-rules/suggest request body
 // ---------------------------------------------------------------------------
 
-function isValidDecision(value: unknown): value is TrustDecision {
-  return value === "allow" || value === "deny" || value === "ask";
+const SuggestRequestSchema = z.object({
+  tool: z.string().min(1),
+  command: z.string().min(1),
+  riskAssessment: z.object({
+    risk: z.string(),
+    reasoning: z.string(),
+    reasonDescription: z.string(),
+  }),
+  scopeOptions: z.array(
+    z.object({
+      pattern: z.string(),
+      label: z.string(),
+    }),
+  ),
+  directoryScopeOptions: z
+    .array(
+      z.object({
+        scope: z.string(),
+        label: z.string(),
+      }),
+    )
+    .optional(),
+  intent: z.enum(["auto_approve", "escalate"]),
+});
+
+/**
+ * Read the interactive auto-approve threshold from the DB.
+ * Falls back to "low" if the DB is unavailable or the row is missing.
+ */
+function readInteractiveThreshold(): string {
+  try {
+    const db = getGatewayDb();
+    const row = db
+      .select()
+      .from(autoApproveThresholds)
+      .where(eq(autoApproveThresholds.id, 1))
+      .get();
+    return row?.interactive ?? "low";
+  } catch {
+    return "low";
+  }
 }
 
 // ---------------------------------------------------------------------------
-// GET /v1/trust-rules — list all rules
+// POST /v1/trust-rules/suggest — LLM-generated trust rule suggestion
+// ---------------------------------------------------------------------------
+
+export function createTrustRulesSuggestHandler() {
+  return async (req: Request): Promise<Response> => {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return Response.json(
+        { error: "Request body must be valid JSON" },
+        { status: 400 },
+      );
+    }
+
+    const parsed = SuggestRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Invalid request body", issues: parsed.error.issues },
+        { status: 400 },
+      );
+    }
+
+    const currentThreshold = readInteractiveThreshold();
+
+    try {
+      const suggestion = await ipcSuggestTrustRule({
+        ...parsed.data,
+        currentThreshold,
+      });
+      return Response.json({ suggestion });
+    } catch (err) {
+      log.error({ err }, "Trust rule suggestion failed");
+      const message =
+        err instanceof Error ? err.message : "Suggestion generation failed";
+      return Response.json({ error: message }, { status: 503 });
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/trust-rules — list rules
 // ---------------------------------------------------------------------------
 
 export function createTrustRulesListHandler() {
-  return async (_req: Request): Promise<Response> => {
+  const store = new TrustRuleStore();
+
+  return async (req: Request): Promise<Response> => {
     try {
-      const rules = getAllRules();
+      const url = new URL(req.url);
+      const origin = url.searchParams.get("origin") ?? undefined;
+      const tool = url.searchParams.get("tool") ?? undefined;
+      const includeDeleted = url.searchParams.get("include_deleted") === "true";
+
+      // When no origin filter is specified, default to user-relevant rules
+      // only (user_defined + user-modified defaults). This excludes unmodified
+      // defaults and soft-deleted rules from the default listing.
+      const userRelevantOnly = origin === undefined;
+
+      const rules = store.list({
+        origin,
+        tool,
+        includeDeleted,
+        userRelevantOnly,
+      });
       return Response.json({ rules });
     } catch (err) {
       log.error({ err }, "Failed to list trust rules");
@@ -56,10 +142,12 @@ export function createTrustRulesListHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// POST /v1/trust-rules — add rule
+// POST /v1/trust-rules — create rule
 // ---------------------------------------------------------------------------
 
-export function createTrustRulesAddHandler() {
+export function createTrustRulesCreateHandler() {
+  const store = new TrustRuleStore();
+
   return async (req: Request): Promise<Response> => {
     let body: unknown;
     try {
@@ -78,8 +166,10 @@ export function createTrustRulesAddHandler() {
       );
     }
 
-    const { tool, pattern, scope, decision, priority, executionTarget } =
-      body as Record<string, unknown>;
+    const { tool, pattern, risk, description } = body as Record<
+      string,
+      unknown
+    >;
 
     if (typeof tool !== "string" || !tool) {
       return Response.json(
@@ -93,64 +183,27 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    // Scope is required for scoped tools; for non-scoped tools it defaults
-    // to "everywhere" (a no-op that parseTrustRule will strip).
-    const isScoped = SCOPED_TOOLS_SET.has(tool as string);
-    if (isScoped && (typeof scope !== "string" || !scope)) {
+    if (typeof risk !== "string" || !VALID_RISK_VALUES.has(risk)) {
       return Response.json(
-        { error: '"scope" must be a non-empty string for scoped tools' },
+        { error: '"risk" must be one of: low, medium, high' },
         { status: 400 },
       );
     }
-    if (scope !== undefined && typeof scope !== "string") {
+    if (typeof description !== "string" || !description) {
       return Response.json(
-        { error: '"scope" must be a string when provided' },
+        { error: '"description" must be a non-empty string' },
         { status: 400 },
       );
     }
-    if (decision !== undefined && !isValidDecision(decision)) {
-      return Response.json(
-        { error: '"decision" must be one of: allow, deny, ask' },
-        { status: 400 },
-      );
-    }
-    if (
-      priority !== undefined &&
-      (typeof priority !== "number" || !Number.isFinite(priority))
-    ) {
-      return Response.json(
-        { error: '"priority" must be a finite number' },
-        { status: 400 },
-      );
-    }
-    if (executionTarget !== undefined && typeof executionTarget !== "string") {
-      return Response.json(
-        { error: '"executionTarget" must be a string' },
-        { status: 400 },
-      );
-    }
-
-    // For non-scoped tools, pass "everywhere" as a no-op default — addRule
-    // will strip it via parseTrustRule for non-scoped tool families.
-    const effectiveScope = (scope as string) || "everywhere";
 
     try {
-      // Canonicalization is handled inside trust-store addRule.
-      const rule = addRule(
-        tool as string,
-        pattern as string,
-        effectiveScope,
-        (decision as TrustDecision) ?? "allow",
-        (priority as number) ?? 100,
-        {
-          ...(executionTarget != null ? { executionTarget } : {}),
-        },
-      );
+      const rule = store.create({ tool, pattern, risk, description });
+      invalidateTrustRuleCache();
       return Response.json({ rule }, { status: 201 });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Internal server error";
-      log.error({ err }, "Failed to add trust rule");
+      log.error({ err }, "Failed to create trust rule");
       return Response.json({ error: message }, { status: 400 });
     }
   };
@@ -161,6 +214,8 @@ export function createTrustRulesAddHandler() {
 // ---------------------------------------------------------------------------
 
 export function createTrustRulesUpdateHandler() {
+  const store = new TrustRuleStore();
+
   return async (req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
       return Response.json({ error: "Rule ID is required" }, { status: 400 });
@@ -183,55 +238,31 @@ export function createTrustRulesUpdateHandler() {
       );
     }
 
-    const { tool, pattern, scope, decision, priority } = body as Record<
-      string,
-      unknown
-    >;
+    const { risk, description } = body as Record<string, unknown>;
 
-    if (tool !== undefined && (typeof tool !== "string" || !tool)) {
-      return Response.json(
-        { error: '"tool" must be a non-empty string' },
-        { status: 400 },
-      );
-    }
-    if (pattern !== undefined && (typeof pattern !== "string" || !pattern)) {
-      return Response.json(
-        { error: '"pattern" must be a non-empty string' },
-        { status: 400 },
-      );
-    }
-    if (scope !== undefined && (typeof scope !== "string" || !scope)) {
-      return Response.json(
-        { error: '"scope" must be a non-empty string' },
-        { status: 400 },
-      );
-    }
-    if (decision !== undefined && !isValidDecision(decision)) {
-      return Response.json(
-        { error: '"decision" must be one of: allow, deny, ask' },
-        { status: 400 },
-      );
-    }
     if (
-      priority !== undefined &&
-      (typeof priority !== "number" || !Number.isFinite(priority))
+      risk !== undefined &&
+      (typeof risk !== "string" || !VALID_RISK_VALUES.has(risk))
     ) {
       return Response.json(
-        { error: '"priority" must be a finite number' },
+        { error: '"risk" must be one of: low, medium, high' },
+        { status: 400 },
+      );
+    }
+
+    if (description !== undefined && typeof description !== "string") {
+      return Response.json(
+        { error: '"description" must be a string' },
         { status: 400 },
       );
     }
 
     try {
-      // For non-scoped tools, don't include scope in the update — updateRule
-      // will ignore it for non-scoped tool families anyway.
-      const rule = updateRule(ruleId, {
-        tool: tool as string | undefined,
-        pattern: pattern as string | undefined,
-        scope: scope as string | undefined,
-        decision: decision as TrustDecision | undefined,
-        priority: priority as number | undefined,
+      const rule = store.update(ruleId, {
+        risk: risk as string | undefined,
+        description: description as string | undefined,
       });
+      invalidateTrustRuleCache();
       return Response.json({ rule });
     } catch (err) {
       const message =
@@ -246,127 +277,136 @@ export function createTrustRulesUpdateHandler() {
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /v1/trust-rules/:id — remove rule
+// DELETE /v1/trust-rules/:id — delete rule
 // ---------------------------------------------------------------------------
 
 export function createTrustRulesDeleteHandler() {
+  const store = new TrustRuleStore();
+
   return async (_req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
       return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
 
     try {
-      const removed = removeRule(ruleId);
-      if (!removed) {
-        return Response.json(
-          { error: `Trust rule not found: ${ruleId}` },
-          { status: 404 },
-        );
+      store.remove(ruleId);
+      invalidateTrustRuleCache();
+      return Response.json({ success: true });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
+      if (message.includes("not found")) {
+        return Response.json({ error: message }, { status: 404 });
       }
-      return Response.json({ success: true });
-    } catch (err) {
-      log.error({ err }, "Failed to remove trust rule");
+      log.error({ err }, "Failed to delete trust rule");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };
 }
 
 // ---------------------------------------------------------------------------
-// POST /v1/trust-rules/clear — clear all user rules
+// POST /v1/trust-rules/:id/reset — reset default rule
 // ---------------------------------------------------------------------------
 
-export function createTrustRulesClearHandler() {
-  return async (_req: Request): Promise<Response> => {
-    try {
-      clearRules();
-      return Response.json({ success: true });
-    } catch (err) {
-      log.error({ err }, "Failed to clear trust rules");
-      return Response.json({ error: "Internal server error" }, { status: 500 });
-    }
+/**
+ * Look up the original base risk and description for a default rule by parsing
+ * its pattern against the DEFAULT_COMMAND_REGISTRY.
+ *
+ * For simple commands (e.g. "ls"), looks up `registry.ls.baseRisk`.
+ * For subcommands (e.g. "git push"), looks up `registry.git.subcommands.push.baseRisk`.
+ */
+function lookupOriginalDefaults(
+  pattern: string,
+): { risk: string; description: string } | null {
+  const parts = pattern.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const command = parts[0];
+  const spec = (DEFAULT_COMMAND_REGISTRY as Record<string, unknown>)[command];
+  if (!spec || typeof spec !== "object") return null;
+
+  const typed = spec as {
+    baseRisk: string;
+    reason?: string;
+    subcommands?: Record<
+      string,
+      {
+        baseRisk: string;
+        reason?: string;
+        subcommands?: Record<string, { baseRisk: string; reason?: string }>;
+      }
+    >;
   };
+
+  // Walk subcommand chain
+  let resolved: { baseRisk: string; reason?: string } = typed;
+  if (parts.length > 1 && typed.subcommands) {
+    let current: typeof typed = typed;
+    for (let i = 1; i < parts.length; i++) {
+      const sub = current.subcommands?.[parts[i]];
+      if (!sub) break;
+      current = sub as typeof current;
+    }
+    resolved = current;
+  }
+
+  const description = resolved.reason
+    ? `${pattern} \u2014 ${resolved.reason}`
+    : `${pattern} (default)`;
+
+  return { risk: resolved.baseRisk, description };
 }
 
-// ---------------------------------------------------------------------------
-// GET /v1/trust-rules/match — query matching rule
-// ---------------------------------------------------------------------------
+export function createTrustRulesResetHandler() {
+  const store = new TrustRuleStore();
 
-export function createTrustRulesMatchHandler() {
-  return async (req: Request): Promise<Response> => {
-    const url = new URL(req.url);
-    const tool = url.searchParams.get("tool");
-    const pattern = url.searchParams.get("pattern");
-    const scope = url.searchParams.get("scope");
-    const commandsParam = url.searchParams.get("commands");
-    const pathsParam = url.searchParams.get("paths");
+  return async (_req: Request, ruleId: string): Promise<Response> => {
+    if (!ruleId) {
+      return Response.json({ error: "Rule ID is required" }, { status: 400 });
+    }
 
-    if (!tool) {
+    // Look up the rule first to validate origin
+    const existing = store.getById(ruleId);
+    if (!existing) {
       return Response.json(
-        { error: '"tool" query parameter is required' },
+        { error: `Trust rule not found: ${ruleId}` },
+        { status: 404 },
+      );
+    }
+
+    if (existing.origin !== "default") {
+      return Response.json(
+        { error: "Can only reset default rules" },
         { status: 400 },
       );
     }
-    if (!scope) {
+
+    // Determine original risk and description from the command registry
+    const originalDefaults = lookupOriginalDefaults(existing.pattern);
+    if (!originalDefaults) {
       return Response.json(
-        { error: '"scope" query parameter is required' },
+        {
+          error: `Cannot determine original values for pattern: ${existing.pattern}`,
+        },
         { status: 400 },
       );
     }
 
-    // Optional resolved path args, comma-separated. When present, rule scope
-    // must cover ALL resolved paths (AND semantics).
-    const resolvedPaths = pathsParam
-      ? pathsParam.split(",").filter(Boolean)
-      : undefined;
-
     try {
-      // Support two modes:
-      // 1. Single pattern match: ?tool=X&pattern=Y&scope=Z
-      // 2. Multi-command highest priority: ?tool=X&commands=Y,Z&scope=S
-      if (commandsParam) {
-        const commands = commandsParam.split(",").filter(Boolean);
-        if (commands.length === 0) {
-          return Response.json(
-            { error: '"commands" must contain at least one command' },
-            { status: 400 },
-          );
-        }
-        const rule = findHighestPriorityRule(
-          tool,
-          commands,
-          scope,
-          resolvedPaths,
-        );
-        return Response.json({ rule: rule ?? null });
-      }
-
-      if (!pattern) {
-        return Response.json(
-          { error: '"pattern" or "commands" query parameter is required' },
-          { status: 400 },
-        );
-      }
-
-      const rule = findMatchingRule(tool, pattern, scope, resolvedPaths);
-      return Response.json({ rule: rule ?? null });
+      const rule = store.reset(
+        ruleId,
+        originalDefaults.risk,
+        originalDefaults.description,
+      );
+      invalidateTrustRuleCache();
+      return Response.json({ rule });
     } catch (err) {
-      log.error({ err }, "Failed to find matching trust rule");
-      return Response.json({ error: "Internal server error" }, { status: 500 });
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// POST /v1/trust-rules/starter-bundle — accept starter bundle
-// ---------------------------------------------------------------------------
-
-export function createTrustRulesStarterBundleHandler() {
-  return async (_req: Request): Promise<Response> => {
-    try {
-      const result = acceptStarterBundle();
-      return Response.json(result);
-    } catch (err) {
-      log.error({ err }, "Failed to accept starter bundle");
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
+      if (message.includes("not found")) {
+        return Response.json({ error: message }, { status: 404 });
+      }
+      log.error({ err }, "Failed to reset trust rule");
       return Response.json({ error: "Internal server error" }, { status: 500 });
     }
   };

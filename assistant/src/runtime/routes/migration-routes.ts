@@ -23,7 +23,6 @@ import { z } from "zod";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
-import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   bulkSetSecureKeysAsync,
@@ -847,9 +846,8 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     // if Django's post-hatch provisioning raced with the import.
     await reconcileVellumMetadataFromCes(result.report);
 
-    // Invalidate in-process caches so imported settings.json and trust.json take effect
+    // Invalidate in-process config cache so imported settings.json takes effect
     invalidateConfigCache();
-    clearTrustCache();
 
     // Check whether the imported database contains migration checkpoints from
     // a newer version. This is non-blocking — the import has already

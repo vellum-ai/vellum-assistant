@@ -132,7 +132,6 @@ const recoveryCallOrder: string[] = [];
 /** Number of times each recovery helper was invoked. */
 let mockResetDbCalls = 0;
 let mockInvalidateConfigCacheCalls = 0;
-let mockClearTrustCacheCalls = 0;
 
 /** Log calls captured by the mocked logger. */
 let mockLogInfo: string[] = [];
@@ -185,10 +184,7 @@ mock.module("../../../memory/db-connection.js", () => ({
 }));
 
 mock.module("../../../permissions/trust-store.js", () => ({
-  clearCache: () => {
-    mockClearTrustCacheCalls += 1;
-    recoveryCallOrder.push("clearTrustCache");
-  },
+  clearCache: () => {  },
 }));
 
 mock.module("../../../memory/checkpoints.js", () => ({
@@ -348,7 +344,6 @@ beforeEach(() => {
   mockDaemonRunning = false;
   mockResetDbCalls = 0;
   mockInvalidateConfigCacheCalls = 0;
-  mockClearTrustCacheCalls = 0;
   recoveryCallOrder.length = 0;
   process.exitCode = 0;
   mockVerifyResult = { valid: true };
@@ -1008,13 +1003,10 @@ describe("handleRestore", () => {
     // invalidation.
     expect(mockResetDbCalls).toBe(1);
     expect(mockInvalidateConfigCacheCalls).toBe(1);
-    expect(mockClearTrustCacheCalls).toBe(1);
     expect(recoveryCallOrder).toEqual([
       "resetDb",
       "restoreFromSnapshot",
-      "invalidateConfigCache",
-      "clearTrustCache",
-    ]);
+      "invalidateConfigCache",    ]);
   });
 
   test("successful restore runs resetDb, restore, then cache invalidation in order", async () => {
@@ -1032,13 +1024,10 @@ describe("handleRestore", () => {
     expect(process.exitCode).toBe(0);
     expect(mockResetDbCalls).toBe(1);
     expect(mockInvalidateConfigCacheCalls).toBe(1);
-    expect(mockClearTrustCacheCalls).toBe(1);
     expect(recoveryCallOrder).toEqual([
       "resetDb",
       "restoreFromSnapshot",
-      "invalidateConfigCache",
-      "clearTrustCache",
-    ]);
+      "invalidateConfigCache",    ]);
   });
 });
 

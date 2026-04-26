@@ -102,7 +102,7 @@ public struct ToolConfirmationBubble: View {
             collapsedContent
         } else {
             // Pending prompts use the v3 view
-            V3PermissionPromptView(
+            PermissionPromptView(
                 confirmation: confirmation,
                 isKeyboardActive: isKeyboardActive,
                 onAllow: onAllow,

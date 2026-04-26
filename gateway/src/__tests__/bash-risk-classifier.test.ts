@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
-import { TrustRuleV3Store } from "../db/trust-rule-v3-store.js";
+import { TrustRuleStore } from "../db/trust-rule-store.js";
 import {
-  initTrustRuleV3Cache,
-  resetTrustRuleV3Cache,
-} from "../risk/trust-rule-v3-cache.js";
+  initTrustRuleCache,
+  resetTrustRuleCache,
+} from "../risk/trust-rule-cache.js";
 import { classifySegment } from "../risk/bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "../risk/command-registry/index.js";
 import type { CommandSegment } from "../risk/shell-parser.js";
@@ -30,10 +30,10 @@ function segment(command: string): CommandSegment {
 // ---------------------------------------------------------------------------
 
 describe("risk rule cache integration", () => {
-  let store: TrustRuleV3Store;
+  let store: TrustRuleStore;
 
   // initGatewayDb() seeds the trust_rules table from DEFAULT_COMMAND_REGISTRY
-  // via seedTrustRuleV3sFromRegistry(). Tests that modify existing patterns
+  // via seedTrustRulesFromRegistry(). Tests that modify existing patterns
   // (like "git push") must update the seeded rows rather than creating new ones.
   // Seeded IDs follow the pattern: default:bash:<command-with-hyphens>
   // e.g., "git push" -> "default:bash:git-push"
@@ -41,11 +41,11 @@ describe("risk rule cache integration", () => {
   beforeEach(async () => {
     resetGatewayDb();
     await initGatewayDb();
-    store = new TrustRuleV3Store();
+    store = new TrustRuleStore();
   });
 
   afterEach(() => {
-    resetTrustRuleV3Cache();
+    resetTrustRuleCache();
     resetGatewayDb();
   });
 
@@ -53,7 +53,7 @@ describe("risk rule cache integration", () => {
     // Modify the seeded "git push" rule's risk to "low"
     store.update("default:bash:git-push", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const result = classifySegment(
       segment("git push"),
@@ -68,7 +68,7 @@ describe("risk rule cache integration", () => {
     // Modify the seeded "git push" rule — userModified becomes true
     store.update("default:bash:git-push", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const result = classifySegment(
       segment("git push"),
@@ -84,7 +84,7 @@ describe("risk rule cache integration", () => {
     // but userModified=true triggers user_rule matchType
     store.update("default:bash:ls", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const result = classifySegment(segment("ls"), [], DEFAULT_COMMAND_REGISTRY);
 
@@ -95,7 +95,7 @@ describe("risk rule cache integration", () => {
     // Set git push base risk to "low" via cache update
     store.update("default:bash:git-push", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     // git push --force should still escalate via arg rules (--force → high)
     const result = classifySegment(
@@ -108,9 +108,9 @@ describe("risk rule cache integration", () => {
   });
 
   test("fallback when cache is not initialized — classifier uses registry", () => {
-    // Don't initialize the cache — resetTrustRuleV3Cache() was called in afterEach
-    // and we haven't called initTrustRuleV3Cache() here
-    resetTrustRuleV3Cache();
+    // Don't initialize the cache — resetTrustRuleCache() was called in afterEach
+    // and we haven't called initTrustRuleCache() here
+    resetTrustRuleCache();
 
     const result = classifySegment(
       segment("git push"),
@@ -130,7 +130,7 @@ describe("risk rule cache integration", () => {
     store.update("default:bash:git", { risk: "low" });
     store.update("default:bash:git-push", { risk: "high" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const result = classifySegment(
       segment("git push"),
@@ -147,7 +147,7 @@ describe("risk rule cache integration", () => {
     // The seeded "git" rule has NOT been user-modified — it's a default rule.
     // Don't call store.update() so userModified stays false.
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const result = classifySegment(
       segment("git status"),
@@ -165,7 +165,7 @@ describe("risk rule cache integration", () => {
     // "git stash drop" and find this specific rule in the cache.
     store.update("default:bash:git-stash-drop", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     const result = classifySegment(
       segment("git stash drop"),
@@ -186,7 +186,7 @@ describe("risk rule cache integration", () => {
     store.update("default:bash:git-stash", { risk: "low" });
     store.remove("default:bash:git-stash-drop");
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     // "git stash drop" should look up "git stash drop" first, not find it
     // (soft-deleted), then the cache's findBaseRisk falls back to "git stash"
@@ -204,7 +204,7 @@ describe("risk rule cache integration", () => {
     // Set git push base risk to "low" via a user-modified cache rule
     store.update("default:bash:git-push", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
+    initTrustRuleCache(store);
 
     // git push --force: cache sets base to "low" (user_rule matchType),
     // but --force arg rule escalates to "high". Since the registry's arg
