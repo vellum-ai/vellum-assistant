@@ -91,12 +91,16 @@ import { ttsRouteDefinitions } from "../tts-routes.js";
 
 function getMessageTtsHandler() {
   const routes = ttsRouteDefinitions();
-  return routes[0].handler;
+  const route = routes.find((r) => r.endpoint === "messages/:id/tts");
+  if (!route) throw new Error("messages/:id/tts route not found");
+  return route.handler;
 }
 
 function getSynthesizeHandler() {
   const routes = ttsRouteDefinitions();
-  return routes[1].handler;
+  const route = routes.find((r) => r.endpoint === "tts/synthesize");
+  if (!route) throw new Error("tts/synthesize route not found");
+  return route.handler;
 }
 
 function makeRouteContext(
@@ -188,17 +192,27 @@ describe("tts-routes", () => {
 
   test("exports route definitions for messages/:id/tts and tts/synthesize", () => {
     const routes = ttsRouteDefinitions();
-    expect(routes).toHaveLength(2);
-    expect(routes[0].endpoint).toBe("messages/:id/tts");
-    expect(routes[0].method).toBe("POST");
-    expect(routes[1].endpoint).toBe("tts/synthesize");
-    expect(routes[1].method).toBe("POST");
+    expect(routes).toHaveLength(3);
+
+    const providers = routes.find((r) => r.endpoint === "tts/providers");
+    expect(providers).toBeDefined();
+    expect(providers!.method).toBe("GET");
+    expect(providers!.policyKey).toBe("tts/providers");
+
+    const messageTts = routes.find((r) => r.endpoint === "messages/:id/tts");
+    expect(messageTts).toBeDefined();
+    expect(messageTts!.method).toBe("POST");
+
+    const synthesize = routes.find((r) => r.endpoint === "tts/synthesize");
+    expect(synthesize).toBeDefined();
+    expect(synthesize!.method).toBe("POST");
   });
 
   test("route description is provider-agnostic", () => {
     const routes = ttsRouteDefinitions();
-    expect(routes[0].description).not.toMatch(/fish/i);
-    expect(routes[0].description).toContain("configured TTS provider");
+    const messageTts = routes.find((r) => r.endpoint === "messages/:id/tts")!;
+    expect(messageTts.description).not.toMatch(/fish/i);
+    expect(messageTts.description).toContain("configured TTS provider");
   });
 
   // -- Feature flag gating --------------------------------------------------
@@ -321,7 +335,9 @@ describe("tts/synthesize", () => {
 
   test("route description is provider-agnostic", () => {
     const routes = ttsRouteDefinitions();
-    const synthesizeRoute = routes[1];
+    const synthesizeRoute = routes.find(
+      (r) => r.endpoint === "tts/synthesize",
+    )!;
     expect(synthesizeRoute.description).not.toMatch(/elevenlabs/i);
     expect(synthesizeRoute.description).not.toMatch(/fish/i);
     expect(synthesizeRoute.description).toContain("configured TTS provider");
