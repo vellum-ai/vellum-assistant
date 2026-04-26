@@ -80,6 +80,14 @@ function resetState(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  // Seed the vellum guardian binding (gateway does this at startup in production)
+  createGuardianBinding({
+    channel: "vellum",
+    guardianExternalUserId: "guardian-principal",
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId: "guardian-principal",
+    verifiedVia: "bootstrap",
+  });
   emitSignalCalls.length = 0;
   deliverReplyCalls.length = 0;
 }

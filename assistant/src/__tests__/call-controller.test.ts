@@ -243,6 +243,7 @@ import {
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import { loadConfig } from "../config/loader.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
@@ -341,7 +342,17 @@ function resetTables() {
     "tool_invocations",
     "messages",
     "conversations",
+    "contact_channels",
+    "contacts",
   );
+  // Seed the vellum guardian binding (gateway does this at startup in production)
+  createGuardianBinding({
+    channel: "vellum",
+    guardianExternalUserId: "test-principal-id",
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId: "test-principal-id",
+    verifiedVia: "bootstrap",
+  });
   ensuredConvIds = new Set();
 }
 

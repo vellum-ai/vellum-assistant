@@ -31,7 +31,7 @@ mock.module("../config/env.js", () => ({
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import {
@@ -132,8 +132,9 @@ describe("resolveLocalAuthContext", () => {
   });
 
   test("actorPrincipalId is undefined when no vellum binding exists", () => {
-    resetDb();
-    initializeDb();
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
 
     const ctx = resolveLocalAuthContext("session-123");
     expect(ctx.actorPrincipalId).toBeUndefined();

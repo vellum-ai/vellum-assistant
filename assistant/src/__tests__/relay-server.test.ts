@@ -379,6 +379,14 @@ function getLatestAssistantText(conversationId: string): string | null {
 describe("relay-server", () => {
   beforeEach(() => {
     resetTables();
+    // Seed the vellum guardian binding (gateway does this at startup in production)
+    createGuardianBinding({
+      channel: "vellum",
+      guardianExternalUserId: "test-principal-id",
+      guardianDeliveryChatId: "local",
+      guardianPrincipalId: "test-principal-id",
+      verifiedVia: "bootstrap",
+    });
     activeRelayConnections.clear();
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
