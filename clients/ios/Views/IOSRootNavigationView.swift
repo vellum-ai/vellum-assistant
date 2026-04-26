@@ -32,6 +32,10 @@ struct IOSRootNavigationView: View {
 
     @State private var isDrawerOpen: Bool = false
     @State private var isSettingsPresented: Bool = false
+    /// TODO(PR 34): replace this debug shortcut with a real menu entry.
+    /// Until that PR ships, the only way to reach ``ACPSessionsView`` from
+    /// the iOS app is a 2.0s long-press anywhere on this view's root.
+    @State private var isACPSessionsPresented: Bool = false
     @State private var activeConversationId: UUID?
     /// True when `activeConversationId` was populated by the auto-seed path
     /// (cold start / size-class transition / fallback after deletion) rather
@@ -79,6 +83,25 @@ struct IOSRootNavigationView: View {
                 conversationStore: store
             )
         }
+        // TODO(PR 34): the menu entry from PR 34 will replace this debug
+        // shortcut. Until then the long-press below is the only way to
+        // reach ``ACPSessionsView`` from the iOS app. The 2.0s minimum
+        // duration is well past the system's text-selection threshold,
+        // so a UITextView's edit menu still wins on chat content. The
+        // gesture is registered as `simultaneousGesture` so the compact
+        // layout's edge-drag gesture continues to recognize alongside it.
+        .sheet(isPresented: $isACPSessionsPresented) {
+            ACPSessionsView(
+                store: clientProvider.acpSessionStore,
+                onClose: { isACPSessionsPresented = false }
+            )
+        }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 2.0)
+                .onEnded { _ in
+                    isACPSessionsPresented = true
+                }
+        )
         .task {
             seedActiveConversationIfNeeded()
             applyPendingSelectionRequestIfNeeded()
