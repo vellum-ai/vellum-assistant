@@ -284,11 +284,14 @@ export class RemoteFeatureFlagSync {
       log.warn("Skipping cache write — fetch returned no usable data");
       return "error";
     }
-    writeRemoteFeatureFlags(result.values);
-    log.info(
-      { count: Object.keys(result.values).length },
-      "Synced remote feature flags",
-    );
+    const changed = writeRemoteFeatureFlags(result.values);
+    const msg = "Synced remote feature flags";
+    const meta = { count: Object.keys(result.values).length };
+    if (changed) {
+      log.info(meta, msg);
+    } else {
+      log.debug(meta, msg);
+    }
     return "success";
   }
 
