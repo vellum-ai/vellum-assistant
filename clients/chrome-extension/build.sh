@@ -29,11 +29,13 @@ case "$CMD" in
 esac
 
 # Resolve extension version. The release workflow injects VERSION; local
-# dev builds fall back to the value in the source manifest.
+# dev builds fall back to the assistant package.json version (the
+# manifest placeholder 0.0.0 is not a useful display version).
 if [ -n "${VERSION:-}" ]; then
   EXT_VERSION="$VERSION"
 else
-  EXT_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  EXT_VERSION=$(jq -r '.version' "$REPO_ROOT/assistant/package.json" 2>/dev/null || echo "0.0.0")
 fi
 
 # Resolve environment for bundle-time injection. CI and developers can
@@ -102,6 +104,16 @@ cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json"
 jq --arg v "$EXT_VERSION" '.version = $v' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
   && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
 echo "  Extension version: $EXT_VERSION"
+
+# Stamp environment-specific name into the dist manifest so unpacked
+# extensions are distinguishable (e.g. "Vellum Assistant Local").
+case "$VELLUM_ENV" in
+  production) EXT_NAME="Vellum Assistant" ;;
+  *)          EXT_NAME="Vellum Assistant $(echo "$VELLUM_ENV" | sed 's/.*/\u&/')" ;;
+esac
+jq --arg n "$EXT_NAME" '.name = $n' "$DIST_DIR/manifest.json" > "$DIST_DIR/manifest.json.tmp" \
+  && mv "$DIST_DIR/manifest.json.tmp" "$DIST_DIR/manifest.json"
+echo "  Extension name: $EXT_NAME"
 
 cp "$SCRIPT_DIR/popup/popup.html" "$DIST_DIR/popup/popup.html"
 

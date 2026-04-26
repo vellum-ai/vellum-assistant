@@ -60,9 +60,9 @@ import {
   type RelayMode,
 } from './relay-connection.js';
 import { SseConnection, type SseMode } from './sse-connection.js';
+import { fetchAssistants } from './cloud-api.js';
 import {
   startCloudLogin,
-  fetchAssistants,
   getStoredSession,
   clearSession,
   getSelectedAssistant,
@@ -849,6 +849,7 @@ async function doConnect(options: ConnectOptions): Promise<void> {
       runtimeUrl: apiBaseUrl,
       assistantId: selectedAssistant.id,
       token: null, // session cookie handles auth
+      organizationId: session.organizationId,
     });
     sseConnection.start();
   } else {
@@ -1209,7 +1210,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       let assistants: Array<{ id: string; name: string }> = [];
       let assistantsError: string | undefined;
       try {
-        assistants = await fetchAssistants(env, session.organizationId);
+        assistants = await fetchAssistants(env);
       } catch (err) {
         assistantsError = err instanceof Error ? err.message : String(err);
       }
