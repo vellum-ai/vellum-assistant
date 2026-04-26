@@ -276,7 +276,7 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
 
         capture.emitChunk(frameCount: 1_600, amplitude: 0.05)
         capture.emitChunk(frameCount: 1_600, amplitude: 0.05)
-        for _ in 0..<10 {
+        for _ in 0..<11 {
             capture.emitChunk(frameCount: 1_600, amplitude: 0.0)
         }
         await flushAsyncTasks()

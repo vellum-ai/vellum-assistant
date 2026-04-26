@@ -75,36 +75,46 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
         XCTAssertTrue(player.isPlaying)
     }
 
-    func testRapidEnqueuePreservesDeterministicChunkOrder() {
+    func testRapidPCMEnqueueSchedulesContinuouslyInDeterministicOrder() {
         let expectedIds = Array(0..<100)
 
         for id in expectedIds {
             player.enqueueTTSAudio(chunk(id: id))
         }
 
-        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 0)])
-        XCTAssertEqual(player.queuedChunkCount, 99)
+        XCTAssertEqual(output.playedChunks.map(\.data), expectedIds.map { chunkData(id: $0) })
+        XCTAssertEqual(player.queuedChunkCount, 0)
+        XCTAssertEqual(output.stopCallCount, 0)
 
-        for expectedId in expectedIds.dropFirst() {
+        for _ in expectedIds {
             output.completeNextSuccessfully()
-            XCTAssertEqual(output.playedChunks.last?.data, chunkData(id: expectedId))
         }
 
-        output.completeNextSuccessfully()
-
-        XCTAssertEqual(output.playedChunks.map(\.data), expectedIds.map { chunkData(id: $0) })
         XCTAssertEqual(player.queuedChunkCount, 0)
         XCTAssertEqual(player.state, .idle)
         XCTAssertFalse(player.isPlaying)
     }
 
-    func testStopDrainsQueuedChunksAndIgnoresLateCompletion() {
+    func testNonPCMChunksRemainSerial() {
+        player.enqueueTTSAudio(chunk(id: 1, mimeType: "audio/mpeg"))
+        player.enqueueTTSAudio(chunk(id: 2, mimeType: "audio/mpeg"))
+
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
+        XCTAssertEqual(player.queuedChunkCount, 1)
+
+        output.completeNextSuccessfully()
+
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1), chunkData(id: 2)])
+        XCTAssertEqual(player.queuedChunkCount, 0)
+    }
+
+    func testStopDrainsScheduledAndQueuedChunksAndIgnoresLateCompletion() {
         player.enqueueTTSAudio(chunk(id: 1))
         player.enqueueTTSAudio(chunk(id: 2))
         player.enqueueTTSAudio(chunk(id: 3))
 
-        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
-        XCTAssertEqual(player.queuedChunkCount, 2)
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1), chunkData(id: 2), chunkData(id: 3)])
+        XCTAssertEqual(player.queuedChunkCount, 0)
 
         player.stop(reason: .interrupt)
 
@@ -115,7 +125,7 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
 
         output.completeNextSuccessfully()
 
-        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1), chunkData(id: 2), chunkData(id: 3)])
         XCTAssertEqual(player.state, .stopped(.interrupt))
     }
 
@@ -165,7 +175,7 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
         XCTAssertEqual(output.stopCallCount, 1)
 
         player.enqueueTTSAudio(chunk(id: 3))
-        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1), chunkData(id: 2)])
     }
 
     func testEmptyChunksAreIgnored() {
@@ -179,10 +189,10 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.state, .idle)
     }
 
-    private func chunk(id: Int) -> LiveVoiceAudioChunk {
+    private func chunk(id: Int, mimeType: String = "audio/pcm") -> LiveVoiceAudioChunk {
         LiveVoiceAudioChunk(
             data: chunkData(id: id),
-            mimeType: "audio/pcm",
+            mimeType: mimeType,
             sampleRate: 24_000
         )
     }
