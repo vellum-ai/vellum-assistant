@@ -395,6 +395,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "messages/llm-context", scopes: ["chat.read"] },
   { endpoint: "llm-request-logs/payload", scopes: ["chat.read"] },
   { endpoint: "messages/tts", scopes: ["chat.read"] },
+  { endpoint: "tts/providers", scopes: ["settings.read"] },
   { endpoint: "tts/synthesize", scopes: ["chat.read"] },
 
   // Queued message deletion

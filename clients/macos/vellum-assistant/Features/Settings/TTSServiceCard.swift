@@ -23,7 +23,7 @@ struct TTSServiceCard: View {
     @State private var ttsSaveError: String? = nil
     @State private var testPlayer = TTSTestPlayer()
 
-    private let ttsRegistry = loadTTSProviderRegistry()
+    @State private var ttsRegistry = loadTTSProviderRegistry()
 
     private var selectedTTSProvider: TTSProviderCatalogEntry? {
         ttsRegistry.provider(withId: draftTTSProvider) ?? ttsRegistry.providers.first
@@ -136,6 +136,10 @@ struct TTSServiceCard: View {
         .onDisappear {
             testPlayer.stop()
         }
+        .task {
+            await refreshTTSProviderRegistry()
+            ttsRegistry = loadTTSProviderRegistry()
+        }
         .onAppear {
             draftTTSProvider = ttsProviderRaw
             initialTTSProvider = ttsProviderRaw
@@ -143,6 +147,12 @@ struct TTSServiceCard: View {
             let voiceId = storedVoiceId(for: ttsProviderRaw)
             ttsVoiceIdText = voiceId
             initialVoiceId = voiceId
+        }
+        .onChange(of: ttsRegistry.providers.count) { _, _ in
+            // Re-evaluate credential state after the async registry fetch
+            // completes — .onAppear runs before .task finishes, so the
+            // initial check may have hit an empty registry.
+            ttsProviderHasKey = SettingsStore.ttsCredentialExists(for: draftTTSProvider)
         }
         .onChange(of: draftTTSProvider) { _, _ in
             ttsApiKeyText = ""

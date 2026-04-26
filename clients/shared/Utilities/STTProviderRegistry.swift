@@ -148,6 +148,12 @@ public func loadSTTProviderRegistry() -> STTProviderRegistry {
     cachedSTTProviderRegistry.withLock { $0 }
 }
 
+/// Replaces the cached STT provider registry. **Test-only** — call this
+/// in `setUp()` to provide a known registry without hitting the network.
+public func _seedSTTProviderRegistryForTesting(_ registry: STTProviderRegistry) {
+    cachedSTTProviderRegistry.withLock { $0 = registry }
+}
+
 /// Fetches the STT provider catalog from the assistant API and caches it.
 ///
 /// Called lazily when the STT settings panel first appears. Failures are

@@ -106,6 +106,9 @@ struct STTServiceCard: View {
             initialSTTProvider = sttProviderRaw
             sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
         }
+        .onChange(of: sttRegistry.providers.count) { _, _ in
+            sttProviderHasKey = sttKeyExists(for: draftSTTProvider)
+        }
         .onChange(of: draftSTTProvider) { _, _ in
             sttApiKeyText = ""
             sttSaveError = nil

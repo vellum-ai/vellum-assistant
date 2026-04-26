@@ -1189,10 +1189,6 @@ if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
 
-TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
-if [ -f "$TTS_PROVIDER_CATALOG" ]; then
-    cp "$TTS_PROVIDER_CATALOG" "$RESOURCES_DIR/tts-provider-catalog.json"
-fi
 LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
 if [ -f "$LLM_PROVIDER_CATALOG" ]; then
     cp "$LLM_PROVIDER_CATALOG" "$RESOURCES_DIR/llm-provider-catalog.json"
