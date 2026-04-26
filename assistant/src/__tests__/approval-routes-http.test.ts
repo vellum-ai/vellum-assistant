@@ -472,9 +472,12 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
       const body = (await res.json()) as { error?: { message?: string } };
 
-      expect(res.status).toBe(403);
+      // In PR3, temporal decisions (allow_10m) are no longer valid — only allow/deny
+      // are accepted. The canonicalizeConfirmDecision function returns null for temporal
+      // decisions, resulting in a 400 before the host-access-specific check.
+      expect(res.status).toBe(400);
       expect(body.error?.message).toContain(
-        "Conversation host-access prompts only accept allow or deny",
+        "resolve to allow or deny",
       );
       expect(confirmedDecision).toBeUndefined();
       expect(pendingInteractions.get("req-host-access")).toBeDefined();

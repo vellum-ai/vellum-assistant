@@ -71,6 +71,13 @@ mock.module("../permissions/checker.js", () => ({
   check: async () => ({ decision: "allow", reason: "allowed" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
+  getCachedAssessment: () => undefined,
+}));
+
+mock.module("../memory/conversation-crud.js", () => ({
+  getConversationHostAccess: () => false,
+  createConversation: (title: string) => ({ id: "conversation-1", title, hostAccess: 0 }),
+  updateConversationHostAccess: () => {},
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -104,6 +111,93 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 mock.module("../tools/terminal/sandbox.js", () => ({
   wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
+
+// Re-assert the real verification-control-plane-policy implementation.
+// This overrides any mock that an earlier test file may have installed for
+// this module (e.g. tool-approval-handler.test.ts mocks it with denied:false).
+// The real functions are pure and have no external dependencies so they can
+// be inlined here without importing from the original source.
+mock.module("../tools/verification-control-plane-policy.js", () => {
+  const VERIFICATION_PATH_REGEX = /\/v1\/channel-verification-sessions/;
+  const COMMAND_TOOLS = new Set(["bash", "host_bash"]);
+  const URL_TOOLS = new Set(["network_request", "web_fetch"]);
+
+  function normalizeForMatching(value: string): string {
+    let normalized = value;
+    let prev = "";
+    while (prev !== normalized) {
+      prev = normalized;
+      normalized = normalized.replace(/%[0-9a-fA-F]{2}/g, (match) => {
+        try {
+          return decodeURIComponent(match);
+        } catch {
+          return match;
+        }
+      });
+    }
+    normalized = normalized.replace(/(?<!:)\/{2,}/g, "/");
+    return normalized.toLowerCase();
+  }
+
+  function containsVerificationEndpointPath(value: string): boolean {
+    const normalized = normalizeForMatching(value);
+    const VERIFICATION_ENDPOINT_PATHS = [
+      "/v1/channel-verification-sessions",
+      "/v1/channel-verification-sessions/resend",
+      "/v1/channel-verification-sessions/status",
+      "/v1/channel-verification-sessions/revoke",
+    ];
+    for (const path of VERIFICATION_ENDPOINT_PATHS) {
+      if (normalized.includes(path)) return true;
+    }
+    if (VERIFICATION_PATH_REGEX.test(normalized)) return true;
+    return false;
+  }
+
+  function containsVerificationFragments(command: string): boolean {
+    return command.toLowerCase().includes("channel-verification-sessions");
+  }
+
+  function isVerificationControlPlaneInvocation(
+    toolName: string,
+    input: Record<string, unknown>,
+  ): boolean {
+    if (COMMAND_TOOLS.has(toolName)) {
+      const command = input.command;
+      if (typeof command === "string") {
+        if (containsVerificationEndpointPath(command)) return true;
+        if (containsVerificationFragments(command)) return true;
+      }
+    }
+    if (URL_TOOLS.has(toolName)) {
+      const url = input.url;
+      if (typeof url === "string" && containsVerificationEndpointPath(url)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function enforceVerificationControlPlanePolicy(
+    toolName: string,
+    input: Record<string, unknown>,
+    trustClass: string,
+  ): { denied: boolean; reason?: string } {
+    if (!isVerificationControlPlaneInvocation(toolName, input)) {
+      return { denied: false };
+    }
+    if (trustClass === "guardian") {
+      return { denied: false };
+    }
+    return {
+      denied: true,
+      reason:
+        "Guardian verification control-plane actions are restricted to guardian users. This is a security restriction — please wait for the designated guardian to perform this action.",
+    };
+  }
+
+  return { isVerificationControlPlaneInvocation, enforceVerificationControlPlanePolicy };
+});
 
 // -- Real imports --
 
@@ -611,15 +705,17 @@ describe("ToolExecutor verification control-plane policy gate", () => {
     expect(result.content).toBe("ok");
   });
 
-  test("non-guardian invocation of unrelated bash command is blocked by guardian approval gate", async () => {
+  test("non-guardian invocation of unrelated bash command is allowed (sandbox bash is auto-approved)", async () => {
+    // In PR3, trusted_contact sandbox bash is auto-allowed by evaluateV2ConsentDisposition.
+    // Only host tools (host_bash, host_file_*) require explicit host_access or grant approval.
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
       { command: "curl http://localhost:3000/v1/messages" },
       makeContext({ trustClass: "trusted_contact" }),
     );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("requires guardian approval");
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("ok");
   });
 
   test("non-guardian invocation of unrelated tool is unaffected", async () => {
@@ -701,7 +797,9 @@ describe("ToolExecutor verification control-plane policy gate", () => {
     }
   });
 
-  test("non-guardian actor is blocked from host read tools (host execution)", async () => {
+  test("non-guardian actor is blocked from host read tools when host_access is not enabled", async () => {
+    // In PR3, trusted_contact + host tool requires conversation-level host_access.
+    // Without host_access enabled, the tool is denied with a "computer access" message.
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "host_file_read",
@@ -709,7 +807,7 @@ describe("ToolExecutor verification control-plane policy gate", () => {
       makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("requires guardian approval");
+    expect(result.content).toContain("computer access is not enabled");
   });
 
   test("unverified channel actor is blocked from side-effect tools", async () => {

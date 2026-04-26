@@ -70,6 +70,13 @@ mock.module("../permissions/checker.js", () => ({
     { label: "exact", description: "exact", pattern: "exact" },
   ],
   generateScopeOptions: () => [{ label: "/tmp", scope: "/tmp" }],
+  getCachedAssessment: () => undefined,
+}));
+
+mock.module("../memory/conversation-crud.js", () => ({
+  getConversationHostAccess: () => true,
+  createConversation: (title: string) => ({ id: "conversation-1", title, hostAccess: 1 }),
+  updateConversationHostAccess: () => {},
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -161,7 +168,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
 import { ToolError } from "../util/errors.js";
 
-function makeContext(events: ToolLifecycleEvent[]) {
+function makeContext(events: ToolLifecycleEvent[], extra: Record<string, unknown> = {}) {
   return {
     workingDir: "/tmp/project",
     conversationId: "conversation-1",
@@ -169,6 +176,7 @@ function makeContext(events: ToolLifecycleEvent[]) {
     onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
       events.push(event);
     },
+    ...extra,
   };
 }
 
@@ -236,7 +244,7 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "bash",
       { command: "ls -la" },
-      makeContext(events),
+      makeContext(events, { forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -285,7 +293,7 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "bash",
       { command: "echo hi" },
-      makeContext(events),
+      makeContext(events, { forcePromptSideEffects: true }),
     );
 
     expect(result.isError).toBe(true);
@@ -338,7 +346,7 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "bash",
       { command: "rm -rf /tmp" },
-      makeContext(events),
+      makeContext(events, { forcePromptSideEffects: true }),
     );
 
     expect(result).toMatchObject({

@@ -1729,7 +1729,7 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     const srcRoot = resolve(__dirname, "..");
     const fullPath = join(srcRoot, "runtime/routes/guardian-action-routes.ts");
     const source = readFileSync(fullPath, "utf-8");
-    expect(source).toContain('req.kind === "tool_approval"');
+    expect(source).toContain('req.kind === "access_request"');
   });
 
   // Integration tests: verify listGuardianDecisionPrompts returns correct
