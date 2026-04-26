@@ -102,7 +102,7 @@ import {
   authenticateRequest,
 } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
-import { mintUiPageToken, verifyToken } from "./auth/token-service.js";
+import { verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
@@ -351,7 +351,6 @@ export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private hostname: string;
-  private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
@@ -379,7 +378,6 @@ export class RuntimeHttpServer {
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
-    this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
@@ -833,7 +831,6 @@ export class RuntimeHttpServer {
       {
         port: this.actualPort,
         hostname: this.hostname,
-        auth: !!this.bearerToken,
       },
       "Runtime HTTP server listening",
     );
@@ -2361,7 +2358,7 @@ export class RuntimeHttpServer {
         },
       },
 
-      ...brainGraphRouteDefinitions({ mintUiPageToken }),
+      ...brainGraphRouteDefinitions(),
       ...eventsRouteDefinitions(),
       ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),

@@ -195,8 +195,6 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  /** Legacy shared secret for pairing routes (not used for delivery or auth). */
-  bearerToken?: string;
   processMessage?: MessageProcessor;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;

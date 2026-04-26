@@ -75,7 +75,6 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   initAuthSigningKey,
-  mintPairingBearerToken,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
@@ -929,14 +928,9 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
-    // Mint a JWT bearer token for the pairing flow. The pairing handler
-    // and HTTP auto-approve logic both guard on a non-empty bearer token.
-    const pairingBearerToken = mintPairingBearerToken();
-
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
-      bearerToken: pairingBearerToken,
       processMessage: (
         conversationId,
         content,

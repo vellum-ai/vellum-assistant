@@ -25,7 +25,7 @@ import { dirname, join } from "node:path";
 import { getIsContainerized } from "../../config/env-registry.js";
 import { getLogger } from "../../util/logger.js";
 import { getDeprecatedDir } from "../../util/platform.js";
-import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
+import { isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
 const log = getLogger("token-service");
@@ -378,59 +378,6 @@ export function verifyToken(
   }
 
   return { ok: true, claims };
-}
-
-// ---------------------------------------------------------------------------
-// UI page token
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a long-lived JWT for embedding in browser-served UI pages
- * (brain-graph).
- *
- * These pages make API calls that route through the gateway, which validates
- * tokens with validateEdgeToken() expecting aud=vellum-gateway. A 1-hour TTL
- * gives users enough time to interact with the page (including using Refresh
- * buttons) without the token expiring mid-session.
- *
- * Uses the dedicated ui_page_v1 scope profile which grants only settings.read
- * — the minimum needed for the brain-graph data endpoint those pages call.
- */
-export function mintUiPageToken(): string {
-  return mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:daemon:self",
-    scope_profile: "ui_page_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 3600,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Pairing bearer token
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a JWT bearer token for the iOS pairing flow.
- *
- * Minted once at daemon startup and passed to the gateway. The token is
- * stored on approved pairing entries and returned in HTTP responses as a
- * legacy compatibility field. iOS clients also receive proper JWT
- * credentials via the gateway's bootstrapGuardian flow.
- *
- * The 24-hour TTL covers a typical daemon lifecycle. The daemon re-mints
- * on each restart since the signing key is stable across restarts.
- *
- * aud=vellum-daemon, sub=svc:daemon:pairing, scope_profile=gateway_service_v1
- */
-export function mintPairingBearerToken(): string {
-  return mintToken({
-    aud: "vellum-daemon",
-    sub: "svc:daemon:pairing",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 86400, // 24 hours — covers a typical daemon lifecycle
-  });
 }
 
 // ---------------------------------------------------------------------------
