@@ -11,7 +11,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ST
 ///              a text field in Settings).
 /// - `cli`:    Setup requires running CLI commands — the client should show
 ///              instructions rather than an inline key field.
-public enum STTProviderSetupMode: String, Decodable {
+public enum STTProviderSetupMode: String, Decodable, Sendable {
     case apiKey = "api-key"
     case cli
 }
@@ -46,7 +46,7 @@ public enum STTConversationStreamingMode: String, Decodable, Sendable {
 ///
 /// Contains a short description of the steps, a URL to the provider's
 /// key-management page, and a human-readable link label for display.
-public struct STTCredentialsGuide: Decodable {
+public struct STTCredentialsGuide: Decodable, Sendable {
     /// Brief instructions for obtaining an API key (1-2 sentences).
     public let description: String
     /// URL to the provider's API key or console page.
@@ -61,7 +61,7 @@ public struct STTCredentialsGuide: Decodable {
 /// need for display and setup UX — identity, display strings, hints
 /// about how the provider is configured, and conversation streaming
 /// capability.
-public struct STTProviderCatalogEntry: Decodable {
+public struct STTProviderCatalogEntry: Decodable, Sendable {
     /// Unique provider identifier (e.g. `"openai-whisper"`, `"deepgram"`).
     public let id: String
     /// Human-readable name for display in settings UI.
@@ -83,7 +83,7 @@ public struct STTProviderCatalogEntry: Decodable {
 }
 
 /// STT provider registry loaded from the assistant API.
-public struct STTProviderRegistry: Decodable {
+public struct STTProviderRegistry: Decodable, Sendable {
     public let providers: [STTProviderCatalogEntry]
 
     /// Look up a provider entry by its identifier.
@@ -136,17 +136,16 @@ public struct STTProviderRegistry: Decodable {
 
 /// Lock-protected cached registry, populated lazily by
 /// `refreshSTTProviderRegistry()`.
-private let _registryLock = NSLock()
-private var _cachedSTTProviderRegistry = STTProviderRegistry(providers: [])
+private let cachedSTTProviderRegistry = OSAllocatedUnfairLock<STTProviderRegistry>(
+    initialState: STTProviderRegistry(providers: [])
+)
 
 /// Returns the cached STT provider registry.
 ///
 /// The registry starts empty and is populated on first access to the
 /// STT settings panel via `refreshSTTProviderRegistry()`.  Thread-safe.
 public func loadSTTProviderRegistry() -> STTProviderRegistry {
-    _registryLock.lock()
-    defer { _registryLock.unlock() }
-    return _cachedSTTProviderRegistry
+    cachedSTTProviderRegistry.withLock { $0 }
 }
 
 /// Fetches the STT provider catalog from the assistant API and caches it.
@@ -158,9 +157,7 @@ public func refreshSTTProviderRegistry() async {
         let (registry, _): (STTProviderRegistry?, GatewayHTTPClient.Response) =
             try await GatewayHTTPClient.get(path: "assistants/{assistantId}/stt/providers")
         if let registry, !registry.providers.isEmpty {
-            _registryLock.lock()
-            _cachedSTTProviderRegistry = registry
-            _registryLock.unlock()
+            cachedSTTProviderRegistry.withLock { $0 = registry }
             log.info("Loaded \(registry.providers.count) STT providers from API")
         } else {
             log.warning("STT providers API returned empty or nil response")
