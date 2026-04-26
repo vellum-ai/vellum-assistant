@@ -15,7 +15,7 @@ Set up a **Sentry internal integration** so the assistant can interact with a Se
 
 Internal integrations are scoped to a single organization. They don't require an OAuth flow — you get an auth token immediately after creation. Tokens don't expire automatically (but can be revoked manually).
 
-**Total manual effort: ~3 interactions** — create the integration, grab the auth token, (optionally) upload a logo.
+**Total manual effort: ~2 interactions** — create the integration and grab the auth token.
 
 ## Prerequisites
 
@@ -26,14 +26,16 @@ Internal integrations are scoped to a single organization. They don't require an
 
 ### Step 0: Check Existing Configuration
 
-Before starting, check whether Sentry is already configured:
+Before starting, check whether Sentry is already configured by running the check script:
 
-- Call `credential_store` with `action: "list"`.
+```bash
+bun skills/sentry-app-setup/scripts/check-config.ts
+```
 
-Scan the result for entries matching `service: "sentry"` with `field: "auth_token"`.
+The script outputs JSON: `{ "configured": boolean, "details": string }`.
 
-- If `auth_token` is present — Sentry is already configured. Offer to show status, verify the connection, or reconfigure.
-- If not present — continue to Step 1.
+- If `configured` is `true` — Sentry is already set up. Offer to verify the connection or reconfigure.
+- If `configured` is `false` — continue to Step 1.
 
 ### Step 1: Create the Internal Integration
 
@@ -69,29 +71,19 @@ After saving, Sentry displays the integration's details page. An auth token is a
 
 Tell the user: on the integration details page, find the **Tokens** section and copy the auth token.
 
-Then collect it securely:
+Then run the store script to get the credential parameters:
 
+```bash
+bun skills/sentry-app-setup/scripts/store-token.ts
 ```
-credential_store:
-  action: "prompt"
-  service: sentry
-  field: auth_token
-  label: "Sentry Auth Token"
-  placeholder: "sntrys_..."
-  description: "Auth token from your Sentry internal integration (found on the integration's details page under Tokens)"
-  allowed_domains: ["sentry.io"]
-  injection_templates:
-    - hostPattern: "sentry.io"
-      injectionType: header
-      headerName: Authorization
-      valuePrefix: "Bearer "
-```
+
+The script outputs JSON with the parameters needed for the credential store call. Use those parameters to securely collect the token from the user.
 
 ### Step 3: Collect the Organization Slug
 
-The org slug is needed for API calls. Ask the user for it conversationally (it's not secret — visible in their Sentry URL as `sentry.io/organizations/{slug}/`).
+The org slug is needed for API calls. Ask the user for it — it's visible in their Sentry URL as `sentry.io/organizations/{slug}/`.
 
-Store it using `remember` for future API calls.
+Remember the org slug for future API calls.
 
 ### Step 4: Verify
 
@@ -102,16 +94,7 @@ curl -s https://sentry.io/api/0/organizations/{org_slug}/ \
   -H "Content-Type: application/json"
 ```
 
-Run with `network_mode: "proxied"` and the sentry credential. A successful response returns the organization's details:
-
-```json
-{
-  "id": "...",
-  "slug": "my-org",
-  "name": "My Organization",
-  ...
-}
-```
+Run with `network_mode: "proxied"` and the sentry credential. A successful response returns the organization's details.
 
 If the response returns a 401, the token is invalid or revoked. If 403, the integration doesn't have `org:read` permission.
 
@@ -119,13 +102,7 @@ If the response returns a 401, the token is invalid or revoked. If 403, the inte
 
 Sentry supports uploading a logo for internal integrations through the web UI (not via API).
 
-If the assistant has an avatar, send it to the user:
-
-```
-<vellum-attachment source="sandbox" path="data/avatar/avatar-image.png" />
-```
-
-Then direct them:
+Direct the user:
 
 > Go to **Settings > Developer Settings**, find your integration, and upload a logo. Requirements: PNG, 256×256 to 1024×1024, transparent background (unless the logo fills the entire space).
 
@@ -147,49 +124,3 @@ For `{logo_line}`:
 
 - If logo was uploaded: `✅ Logo uploaded`
 - If skipped: `⬜ Logo — upload anytime in Settings > Developer Settings`
-
-## Useful API Endpoints
-
-Once connected, here are common operations the assistant can perform:
-
-| Operation         | Method | Endpoint                                                  |
-| ----------------- | ------ | --------------------------------------------------------- |
-| List projects     | GET    | `/api/0/organizations/{org}/projects/`                    |
-| List issues       | GET    | `/api/0/projects/{org}/{project}/issues/`                 |
-| Get issue details | GET    | `/api/0/issues/{issue_id}/`                               |
-| Resolve an issue  | PUT    | `/api/0/issues/{issue_id}/` with `{"status": "resolved"}` |
-| List issue events | GET    | `/api/0/issues/{issue_id}/events/`                        |
-| List releases     | GET    | `/api/0/organizations/{org}/releases/`                    |
-| Create a release  | POST   | `/api/0/organizations/{org}/releases/`                    |
-
-All requests use `Authorization: Bearer {token}` and target `https://sentry.io`.
-
-## Managing Tokens
-
-Internal integrations can have up to 20 tokens. To generate additional tokens or revoke existing ones:
-
-> Go to **Settings > Developer Settings > {Your Integration}** and manage tokens in the Tokens section.
-
-## Troubleshooting
-
-### 401 Unauthorized
-
-The auth token may have been revoked. Go to **Settings > Developer Settings > {Your Integration}**, generate a new token, and re-enter it via the credential prompt.
-
-### 403 Forbidden
-
-The integration doesn't have the required permission scope for the endpoint. Go to **Settings > Developer Settings > {Your Integration}**, update the permissions, and click **Save Changes**. Note: expanding permissions may require re-confirmation.
-
-### Rate limiting (429)
-
-Sentry API has rate limits. Respect `Retry-After` headers. For bulk operations, add delays between requests.
-
-### Can't find Developer Settings
-
-Make sure the user is an organization **owner or manager**. Regular members don't have access to Developer Settings.
-
-## Implementation Rules
-
-- All credential collection goes through `credential_store` prompts. Do NOT ask the user to paste tokens in chat.
-- The org slug is not secret and can be collected conversationally.
-- Always verify the connection after storing credentials — don't assume the token works.
