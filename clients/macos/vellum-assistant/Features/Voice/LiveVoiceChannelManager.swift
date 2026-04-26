@@ -201,7 +201,9 @@ final class LiveVoiceChannelManager {
 
         case .sttPartial(let text, _):
             update(&partialTranscript, to: text)
-            if state == .listening || state == .transcribing {
+            if captureRunning {
+                state = .listening
+            } else if state == .listening || state == .transcribing {
                 state = .transcribing
             }
 
@@ -209,7 +211,7 @@ final class LiveVoiceChannelManager {
             update(&finalTranscript, to: text)
             update(&partialTranscript, to: "")
             if state != .ending {
-                state = .thinking
+                state = captureRunning ? .listening : .thinking
             }
 
         case .thinking:

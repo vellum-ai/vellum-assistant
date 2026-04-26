@@ -227,8 +227,23 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .transcribing)
     }
 
-    func testSttEventsUpdateTranscriptState() async {
+    func testSttEventsKeepListeningWhileCaptureRuns() async {
         await startReadySession()
+
+        client.emit(.sttPartial(text: "hel", seq: 1))
+        XCTAssertEqual(manager.state, .listening)
+        XCTAssertEqual(manager.partialTranscript, "hel")
+        XCTAssertEqual(manager.finalTranscript, "")
+
+        client.emit(.sttFinal(text: "hello", seq: 2))
+        XCTAssertEqual(manager.state, .listening)
+        XCTAssertEqual(manager.partialTranscript, "")
+        XCTAssertEqual(manager.finalTranscript, "hello")
+    }
+
+    func testSttEventsUpdateProcessingStateAfterPushToTalkRelease() async {
+        await startReadySession()
+        await manager.stopListening()
 
         client.emit(.sttPartial(text: "hel", seq: 1))
         XCTAssertEqual(manager.state, .transcribing)

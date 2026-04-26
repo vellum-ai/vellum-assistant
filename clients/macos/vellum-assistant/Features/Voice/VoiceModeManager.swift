@@ -475,7 +475,11 @@ final class VoiceModeManager {
 
         switch liveVoiceChannelManager.state {
         case .idle:
+            let wasListening = state == .listening
             state = .idle
+            if !wasListening, let conversationId = liveVoiceConversationId(for: chatViewModel) {
+                startLiveVoiceListening(conversationId: conversationId)
+            }
         case .connecting, .listening:
             state = .listening
         case .transcribing, .thinking, .ending:
