@@ -126,7 +126,6 @@ import { isPrivateAddress, RuntimeHttpServer } from "../runtime/http-server.js";
 // ---------------------------------------------------------------------------
 
 /** Legacy shared secret — used only for pairing routes and non-JWT purposes. */
-const TEST_TOKEN = "test-bearer-token-gw";
 
 /** Actor JWT for standard authenticated requests. */
 const TEST_JWT = mintToken({
