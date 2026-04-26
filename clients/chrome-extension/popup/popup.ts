@@ -474,12 +474,17 @@ document.getElementById('btn-retry-assistants')?.addEventListener('click', () =>
 
 // ── Main screen initialization ──────────────────────────────────────
 
+/** Poll interval for refreshing connection status while the popup is open. */
+const STATUS_POLL_INTERVAL_MS = 2_000;
+let statusPollTimer: ReturnType<typeof setInterval> | null = null;
+
 function loadMainScreen(): void {
   loadGatewayUrl();
   // Auto-connect if not already connected — the extension manages
   // the connection lifecycle without a manual toggle.
   sendMessage({ type: 'connect' }, () => {});
   refreshStatus();
+  startStatusPoll();
 }
 
 function refreshStatus(): void {
@@ -488,6 +493,11 @@ function refreshStatus(): void {
     currentAuthProfile = response.authProfile;
     updateHealthDisplay(response.health, response.healthDetail);
   });
+}
+
+function startStatusPoll(): void {
+  if (statusPollTimer) return;
+  statusPollTimer = setInterval(refreshStatus, STATUS_POLL_INTERVAL_MS);
 }
 
 // ── HTML escaping ───────────────────────────────────────────────────
