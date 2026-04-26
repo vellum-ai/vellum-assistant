@@ -133,10 +133,44 @@ paths:
                 - instruction
               additionalProperties: false
   /v1/acp/sessions:
+    delete:
+      operationId: acp_sessions_delete
+      summary: Bulk-clear terminal ACP sessions
+      description:
+        Remove every terminal-state row (completed/failed/cancelled) from the persisted `acp_session_history`
+        table. Active sessions (running/initializing) are untouched. The `?status=completed` query param is a UX
+        shorthand for all terminal statuses — it is the only value currently accepted; other values are rejected with
+        400.
+      tags:
+        - acp
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - deleted
+                additionalProperties: false
+      parameters:
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Must be `completed`. Shorthand for all terminal statuses (completed/failed/cancelled).
     get:
       operationId: acp_sessions_get
       summary: List ACP sessions
-      description: Return all active ACP sessions.
+      description:
+        Return the merged set of in-memory and persisted ACP sessions, newest first. In-memory sessions take
+        precedence on id collision.
       tags:
         - acp
       responses:
@@ -149,11 +183,88 @@ paths:
                 properties:
                   sessions:
                     type: array
-                    items: {}
-                    description: ACP session status objects
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        agentId:
+                          type: string
+                        acpSessionId:
+                          type: string
+                        parentConversationId:
+                          type: string
+                        status:
+                          type: string
+                        startedAt:
+                          type: number
+                        completedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        stopReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        eventLog:
+                          type: array
+                          items: {}
+                      required:
+                        - id
+                        - agentId
+                        - acpSessionId
+                        - status
+                        - startedAt
+                      additionalProperties: false
+                    description: Merged in-memory and persisted ACP sessions.
                 required:
                   - sessions
                 additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of sessions to return (default 50, max 500).
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter to sessions whose parentConversationId matches this value.
+  /v1/acp/sessions/{id}:
+    delete:
+      operationId: acp_sessions_by_id_delete
+      summary: Delete ACP session from history
+      description:
+        Remove a persisted ACP session row. Rejects with 409 when the session is still active in memory; idempotent
+        for unknown ids.
+      tags:
+        - acp
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                required:
+                  - deleted
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/acp/spawn:
     post:
       operationId: acp_spawn_post
