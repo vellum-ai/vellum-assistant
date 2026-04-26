@@ -21,8 +21,8 @@ final class ACPSessionsViewIOSTests: XCTestCase {
 
     func test_populatedStore_listsBothFixturesNewestFirst() {
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-old", agentId: "claude-code", startedAt: 100)
-        injectFixture(into: store, acpSessionId: "acp-new", agentId: "codex", startedAt: 300)
+        injectFixture(into: store, id: "acp-old", agentId: "claude-code", startedAt: 100)
+        injectFixture(into: store, id: "acp-new", agentId: "codex", startedAt: 300)
 
         XCTAssertEqual(store.sessions.count, 2)
         // ``ACPSessionStore.sessionOrder`` sorts by startedAt descending.
@@ -118,7 +118,7 @@ final class ACPSessionsViewIOSTests: XCTestCase {
         // wiring would land the session in `.cancelled` once the daemon
         // emits its terminal event.
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-1", agentId: "claude-code", startedAt: 100)
+        injectFixture(into: store, id: "acp-1", agentId: "claude-code", startedAt: 100)
         XCTAssertEqual(store.sessions["acp-1"]?.state.status, .running)
 
         store.handle(.acpSessionCompleted(ACPSessionCompletedMessage(
@@ -132,26 +132,30 @@ final class ACPSessionsViewIOSTests: XCTestCase {
     // MARK: - Helpers
 
     /// Inserts a synthetic ACP session into the store via the same
-    /// ``ServerMessage`` path the SSE pipeline uses, then pins
-    /// `startedAt` to a deterministic value so assertions don't drift
-    /// with wall-clock skew.
+    /// ``ServerMessage`` path the SSE pipeline uses. Pins `startedAt` and
+    /// sets `state.acpSessionId` to a value distinct from `state.id` —
+    /// matching what the daemon emits after `createSession` resolves on the
+    /// agent process. This ensures the iOS list's store-keyed-by-`state.id`
+    /// contract is exercised: a regression that re-keyed by
+    /// `state.acpSessionId` would break lookups on these fixtures rather
+    /// than silently pass.
     private func injectFixture(
         into store: ACPSessionStore,
-        acpSessionId: String,
+        id: String,
         agentId: String,
         startedAt: Int
     ) {
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
-            acpSessionId: acpSessionId,
+            acpSessionId: id,
             agent: agentId,
-            parentConversationId: "conv-\(acpSessionId)"
+            parentConversationId: "conv-\(id)"
         )))
-        if let viewModel = store.sessions[acpSessionId] {
+        if let viewModel = store.sessions[id] {
             viewModel.state = ACPSessionState(
-                id: viewModel.state.id,
+                id: id,
                 agentId: agentId,
-                acpSessionId: acpSessionId,
-                parentConversationId: "conv-\(acpSessionId)",
+                acpSessionId: "protocol-\(id)",
+                parentConversationId: "conv-\(id)",
                 status: .running,
                 startedAt: startedAt
             )

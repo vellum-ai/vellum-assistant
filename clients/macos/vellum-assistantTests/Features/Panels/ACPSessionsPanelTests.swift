@@ -70,8 +70,8 @@ final class ACPSessionsPanelTests: XCTestCase {
 
     func test_populatedStore_listsBothFixturesNewestFirst() {
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-old", agentId: "claude-code", startedAt: 100)
-        injectFixture(into: store, acpSessionId: "acp-new", agentId: "codex", startedAt: 300)
+        injectFixture(into: store, id: "acp-old", agentId: "claude-code", startedAt: 100)
+        injectFixture(into: store, id: "acp-new", agentId: "codex", startedAt: 300)
 
         XCTAssertEqual(store.sessions.count, 2)
         // ``ACPSessionStore.sessionOrder`` sorts by startedAt descending.
@@ -179,11 +179,11 @@ final class ACPSessionsPanelTests: XCTestCase {
         try installLockfileFixture()
 
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-running", agentId: "claude-code", startedAt: 100, status: .running)
-        injectFixture(into: store, acpSessionId: "acp-completed", agentId: "codex", startedAt: 200, status: .completed)
-        injectFixture(into: store, acpSessionId: "acp-failed", agentId: "claude-code", startedAt: 300, status: .failed)
-        injectFixture(into: store, acpSessionId: "acp-cancelled", agentId: "codex", startedAt: 400, status: .cancelled)
-        injectFixture(into: store, acpSessionId: "acp-init", agentId: "claude-code", startedAt: 500, status: .initializing)
+        injectFixture(into: store, id: "acp-running", agentId: "claude-code", startedAt: 100, status: .running)
+        injectFixture(into: store, id: "acp-completed", agentId: "codex", startedAt: 200, status: .completed)
+        injectFixture(into: store, id: "acp-failed", agentId: "claude-code", startedAt: 300, status: .failed)
+        injectFixture(into: store, id: "acp-cancelled", agentId: "codex", startedAt: 400, status: .cancelled)
+        injectFixture(into: store, id: "acp-init", agentId: "claude-code", startedAt: 500, status: .initializing)
 
         let requestExpectation = expectation(description: "clear completed request")
         MockACPSessionsPanelURLProtocol.requestHandler = { request in
@@ -218,8 +218,8 @@ final class ACPSessionsPanelTests: XCTestCase {
         try installLockfileFixture()
 
         let store = ACPSessionStore()
-        injectFixture(into: store, acpSessionId: "acp-running", agentId: "claude-code", startedAt: 100, status: .running)
-        injectFixture(into: store, acpSessionId: "acp-completed", agentId: "codex", startedAt: 200, status: .completed)
+        injectFixture(into: store, id: "acp-running", agentId: "claude-code", startedAt: 100, status: .running)
+        injectFixture(into: store, id: "acp-completed", agentId: "codex", startedAt: 200, status: .completed)
 
         MockACPSessionsPanelURLProtocol.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -349,33 +349,36 @@ final class ACPSessionsPanelTests: XCTestCase {
     // MARK: - Helpers
 
     /// Inserts a synthetic ACP session into the store via the same
-    /// ``ServerMessage`` path the SSE pipeline uses. The spawn handler stamps
-    /// `startedAt` with the wall-clock time at insertion — newer fixtures
-    /// therefore sort ahead of older ones automatically, so callers should
-    /// inject in oldest-first order to get a deterministic newest-first
-    /// ``sessionOrder``.
+    /// ``ServerMessage`` path the SSE pipeline uses. Pins `startedAt` to a
+    /// deterministic value and sets `state.acpSessionId` to a value that
+    /// differs from `state.id` — this matches what the daemon emits after
+    /// `createSession` resolves on the agent process and ensures the panel's
+    /// store-keyed-by-`state.id` contract is exercised: a regression that
+    /// re-keyed by `state.acpSessionId` would break lookups on these
+    /// fixtures rather than silently pass.
+    ///
+    /// Callers should inject in oldest-first order to get a deterministic
+    /// newest-first ``sessionOrder``.
     private func injectFixture(
         into store: ACPSessionStore,
-        acpSessionId: String,
+        id: String,
         agentId: String,
         parentConversationId: String? = nil,
         startedAt: Int,
-        status: ACPSessionState.Status = .running
+        status: ACPSessionState.Status = .running,
+        protocolSessionId: String? = nil
     ) {
-        let parent = parentConversationId ?? "conv-\(acpSessionId)"
+        let parent = parentConversationId ?? "conv-\(id)"
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
-            acpSessionId: acpSessionId,
+            acpSessionId: id,
             agent: agentId,
             parentConversationId: parent
         )))
-        // Pin `startedAt` to a deterministic value so assertions don't drift
-        // with wall-clock skew. ``sessionOrder`` was already computed by the
-        // spawn handler using insertion order, which matches our intent.
-        if let viewModel = store.sessions[acpSessionId] {
+        if let viewModel = store.sessions[id] {
             viewModel.state = ACPSessionState(
-                id: viewModel.state.id,
+                id: id,
                 agentId: agentId,
-                acpSessionId: acpSessionId,
+                acpSessionId: protocolSessionId ?? "protocol-\(id)",
                 parentConversationId: parent,
                 status: status,
                 startedAt: startedAt
