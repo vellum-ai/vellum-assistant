@@ -641,7 +641,7 @@ struct ComposerView: View, Equatable {
                         iconSize: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
-                    .disabled(manager.state == .processing)
+                    .disabled(!manager.canToggleListening)
                     .vTooltip(manager.state == .listening ? "Mute" : "Unmute")
 
                     VButton(
