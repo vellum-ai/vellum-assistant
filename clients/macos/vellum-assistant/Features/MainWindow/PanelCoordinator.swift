@@ -150,6 +150,9 @@ extension MainWindowView {
             )
         case .home:
             homePanelView(onDismiss: { windowState.selection = nil })
+        case .acpSessions:
+            // Routing is added in a follow-up PR; render nothing for now.
+            EmptyView()
         }
     }
 
