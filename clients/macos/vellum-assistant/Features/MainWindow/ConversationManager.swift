@@ -537,6 +537,38 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
     }
 
+    @discardableResult
+    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 3.0) async -> ChatViewModel? {
+        if activeViewModel == nil {
+            enterDraftMode()
+        }
+        guard let viewModel = activeViewModel else { return nil }
+
+        if selectionStore.activeConversationId == nil,
+           selectionStore.draftViewModel === viewModel {
+            promoteDraft(fromUserSend: false)
+        }
+
+        if viewModel.conversationId != nil {
+            return viewModel
+        }
+
+        viewModel.createConversationIfNeeded()
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if viewModel.conversationId != nil {
+                return viewModel
+            }
+            if !viewModel.isBootstrapping {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return viewModel.conversationId == nil ? nil : viewModel
+    }
+
     func enterDraftMode() {
         if let draftVM = selectionStore.draftViewModel, draftVM.messages.isEmpty, selectionStore.activeConversationId == nil {
             return

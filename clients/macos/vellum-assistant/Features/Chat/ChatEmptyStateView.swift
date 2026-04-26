@@ -21,6 +21,10 @@ struct ChatEmptyStateView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onMicrophoneToggle: () -> Void
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceModeState: VoiceModeManager.State = .off
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
     var recordingAmplitude: Float = 0
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
@@ -176,6 +180,10 @@ struct ChatEmptyStateView: View {
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
                 onMicrophoneToggle: onMicrophoneToggle,
+                voiceModeManager: voiceModeManager,
+                voiceModeState: voiceModeState,
+                voiceService: voiceService,
+                onEndVoiceMode: onEndVoiceMode,
                 recordingAmplitude: recordingAmplitude,
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
