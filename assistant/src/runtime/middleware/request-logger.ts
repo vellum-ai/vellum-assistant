@@ -55,6 +55,7 @@ export async function withRequestLogging(
     path,
     status,
     latencyMs,
+    interfaceId: req.headers.get("x-vellum-interface-id") ?? undefined,
     contentType: req.headers.get("content-type") ?? undefined,
     userAgent: req.headers.get("user-agent") ?? undefined,
   };
