@@ -65,8 +65,24 @@ function showScreen(id: ScreenId): void {
   screenMain.style.display = id === 'main' ? 'block' : 'none';
 }
 
+/** Show the assistants-fetch error state on the main screen. */
+function showAssistantsError(detail: string): void {
+  assistantsErrorDetailEl.textContent = detail;
+  assistantsErrorEl.style.display = 'block';
+  connectionAreaEl.style.display = 'none';
+}
+
+/** Hide the assistants-fetch error and restore the connection area. */
+function hideAssistantsError(): void {
+  assistantsErrorEl.style.display = 'none';
+  connectionAreaEl.style.display = 'block';
+}
+
 // ── DOM references (Main screen) ────────────────────────────────────
 
+const assistantsErrorEl = document.getElementById('assistants-error') as HTMLDivElement;
+const assistantsErrorDetailEl = document.getElementById('assistants-error-detail') as HTMLParagraphElement;
+const connectionAreaEl = document.getElementById('connection-area') as HTMLDivElement;
 const connectionToggle = document.getElementById('connection-toggle') as HTMLInputElement;
 const connectionToggleHint = document.getElementById(
   'connection-toggle-hint',
@@ -380,6 +396,7 @@ btnSignIn?.addEventListener('click', () => {
     ok: boolean;
     session?: { email: string };
     assistants?: Array<{ id: string; name: string }>;
+    assistantsError?: string;
     error?: string;
   }>({ type: 'cloud-login' }, (response) => {
     btnSignIn.disabled = false;
@@ -398,6 +415,19 @@ btnSignIn?.addEventListener('click', () => {
           subtitle.classList.remove('error-text');
         }, 4000);
       }
+      return;
+    }
+
+    // If assistant fetch failed, show error state on main screen
+    // (user is logged in, so show email + sign out)
+    if (response.assistantsError) {
+      currentMode = 'cloud';
+      if (response.session?.email) {
+        assistantAccountEl.textContent = response.session.email;
+      }
+      applyMainScreenMode();
+      showAssistantsError(response.assistantsError);
+      showScreen('main');
       return;
     }
 
@@ -480,7 +510,39 @@ function selectAssistant(id: string, name: string, email?: string): void {
 document.getElementById('btn-sign-out')?.addEventListener('click', () => {
   sendMessage({ type: 'cloud-logout' }, () => {
     currentMode = null;
+    hideAssistantsError();
     showScreen('welcome');
+  });
+});
+
+document.getElementById('btn-retry-assistants')?.addEventListener('click', () => {
+  // Re-trigger cloud-login to retry the full flow
+  hideAssistantsError();
+  sendMessage<{
+    ok: boolean;
+    session?: { email: string };
+    assistants?: Array<{ id: string; name: string }>;
+    assistantsError?: string;
+    error?: string;
+  }>({ type: 'cloud-login' }, (response) => {
+    if (!response?.ok) {
+      showAssistantsError(response?.error ?? 'Login failed');
+      return;
+    }
+    if (response.assistantsError) {
+      showAssistantsError(response.assistantsError);
+      return;
+    }
+    const assistants = response.assistants ?? [];
+    if (assistants.length === 1) {
+      selectAssistant(assistants[0].id, assistants[0].name, response.session?.email);
+    } else if (assistants.length > 1) {
+      renderAssistantList(assistants, response.session?.email);
+      showScreen('picker');
+    } else {
+      applyMainScreenMode();
+      loadMainScreen();
+    }
   });
 });
 

@@ -1190,16 +1190,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       const env = await getEffectiveEnvironment();
       const session = await startCloudLogin(env);
       let assistants: Array<{ id: string; name: string }> = [];
+      let assistantsError: string | undefined;
       try {
-        assistants = await fetchAssistants(env);
-      } catch {
-        // Non-fatal: user logged in but assistant fetch failed.
+        assistants = await fetchAssistants(env, session.organizationId);
+      } catch (err) {
+        assistantsError = err instanceof Error ? err.message : String(err);
       }
       await setStoredUserMode('cloud');
       sendResponseFn({
         ok: true,
         session: { email: session.email },
         assistants,
+        assistantsError,
       });
     })().catch((err) =>
       sendResponseFn({
