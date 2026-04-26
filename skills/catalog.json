@@ -511,6 +511,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "sentry-app-setup",
+      "name": "sentry-app-setup",
+      "description": "Create and configure a Sentry internal integration so the assistant can manage issues, alerts, and releases under its own identity",
+      "metadata": {
+        "emoji": "🔺",
+        "vellum": {
+          "display-name": "Sentry App Setup",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "slack",
       "name": "slack",
       "description": "Read, send, and manage Slack messages via the Web API",
