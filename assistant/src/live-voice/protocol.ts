@@ -149,7 +149,11 @@ export interface LiveVoiceTtsDoneServerFrame extends LiveVoiceServerFrameBase {
 
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
+  readonly event?: string;
+  readonly sessionId?: string;
+  readonly conversationId?: string;
   readonly turnId: string;
+  readonly metrics?: unknown;
   readonly sttMs?: number;
   readonly llmFirstDeltaMs?: number;
   readonly ttsFirstAudioMs?: number;
@@ -160,6 +164,14 @@ export interface LiveVoiceArchivedServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "archived";
   readonly conversationId: string;
   readonly sessionId: string;
+  readonly turnId?: string;
+  readonly role?: "user" | "assistant";
+  readonly attachmentId?: string;
+  readonly attachmentIds?: string[];
+  readonly warning?: {
+    readonly code: string;
+    readonly message: string;
+  };
 }
 
 export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
