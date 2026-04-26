@@ -399,7 +399,7 @@ public struct ACPSpawnDeepLinkCard: View {
                 ACPSpawnStatusIndicatorView(
                     toolCall: toolCall,
                     acpSessionId: acpSessionId,
-                    store: ACPSpawnAppDelegateBridge.shared?.acpSessionStore
+                    store: ACPSpawnAppDelegateBridge.sharedStore
                 )
                 .frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 0) {
