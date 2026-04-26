@@ -883,24 +883,35 @@
       </div>
     </div>
 
-    <div class="toggle-row">
-      <div class="toggle-copy">
-        <p class="toggle-title">Connection</p>
-        <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
+    <!-- Error state: shown when assistant fetch fails after login -->
+    <div id="assistants-error" class="status-card" style="display:none;" role="alert">
+      <div style="padding:4px 0;">
+        <p style="color:var(--red);font-size:13px;font-weight:500;margin-bottom:4px;">Unable to load assistants</p>
+        <p id="assistants-error-detail" style="color:var(--text-2);font-size:12px;word-break:break-word;"></p>
+        <button id="btn-retry-assistants" type="button" style="margin-top:8px;font-size:12px;padding:6px 14px;">Retry</button>
       </div>
-      <label class="switch" for="connection-toggle">
-        <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
-        <span class="switch-slider"></span>
-      </label>
     </div>
 
-    <div class="status-card" role="status" aria-live="polite">
-      <div class="status-row">
-        <div class="status-left">
-          <div class="status-dot disconnected" id="status-dot"></div>
-          <p class="status-text" id="status-text">Not connected</p>
+    <div id="connection-area">
+      <div class="toggle-row">
+        <div class="toggle-copy">
+          <p class="toggle-title">Connection</p>
+          <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
         </div>
-        <span class="status-badge disconnected" id="status-badge">Offline</span>
+        <label class="switch" for="connection-toggle">
+          <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+
+      <div class="status-card" role="status" aria-live="polite">
+        <div class="status-row">
+          <div class="status-left">
+            <div class="status-dot disconnected" id="status-dot"></div>
+            <p class="status-text" id="status-text">Not connected</p>
+          </div>
+          <span class="status-badge disconnected" id="status-badge">Offline</span>
+        </div>
       </div>
     </div>
 
