@@ -101,6 +101,7 @@ export interface VoiceTurnCallbacks {
     >,
   ) => void;
   persisted_user_message_id?: (messageId: string) => void;
+  persisted_assistant_message_id?: (messageId: string) => void;
 }
 
 export interface VoiceTurnOptions {
@@ -290,6 +291,16 @@ export async function startVoiceTurn(
     onMessageComplete: (msg) => {
       opts.onComplete?.();
       opts.callbacks?.message_complete?.(msg);
+      if (msg.type === "message_complete" && msg.messageId) {
+        try {
+          opts.callbacks?.persisted_assistant_message_id?.(msg.messageId);
+        } catch (err) {
+          log.warn(
+            { err, messageId: msg.messageId },
+            "Voice turn assistant-message callback threw",
+          );
+        }
+      }
     },
     onError: (message) => {
       opts.onError?.(message);

@@ -30,6 +30,9 @@ import {
   archiveLiveVoiceAssistantResponseAudio,
   archiveLiveVoiceAudioArtifact,
   archiveLiveVoiceUserUtteranceAudio,
+  linkLiveVoiceAssistantResponseAudioToMessage,
+  linkLiveVoiceAudioArtifactToMessage,
+  linkLiveVoiceUserUtteranceAudioToMessage,
 } from "../live-voice-archive.js";
 
 initializeDb();
@@ -80,6 +83,13 @@ function countAttachmentsForMessage(messageId: string): number {
   const row = rawGet<{ count: number }>(
     `SELECT COUNT(*) AS count FROM message_attachments WHERE message_id = ?`,
     messageId,
+  );
+  return row?.count ?? 0;
+}
+
+function countAllAttachments(): number {
+  const row = rawGet<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM attachments`,
   );
   return row?.count ?? 0;
 }
@@ -189,6 +199,83 @@ describe("live voice audio archive", () => {
     expect(serializedMetadata).not.toContain("providerConfig");
   });
 
+  test("links user utterance audio to a persisted user message id", async () => {
+    const { message } = await createMessage("user");
+
+    const result = linkLiveVoiceUserUtteranceAudioToMessage({
+      messageId: message.id,
+      sessionId: "session-user-link",
+      turnId: "turn-user-link",
+      mimeType: "audio/wav",
+      audio: {
+        type: "base64",
+        dataBase64: Buffer.from("linked user audio").toString("base64"),
+      },
+    });
+
+    expect(result.type).toBe("archived");
+    if (result.type !== "archived") throw new Error("expected archive result");
+    expect(result.artifact).toMatchObject({
+      archiveKey: "live-voice:session-user-link:turn-user-link:user",
+      role: "user",
+    });
+    expect(getAttachmentsForMessage(message.id)).toHaveLength(1);
+    expect(getLiveVoiceArtifacts(message.id)).toEqual([result.artifact]);
+  });
+
+  test("links assistant response audio when the assistant message id is available", async () => {
+    const { message } = await createMessage("assistant");
+
+    const result = linkLiveVoiceAssistantResponseAudioToMessage({
+      messageId: message.id,
+      sessionId: "session-assistant-link",
+      turnId: "turn-assistant-link",
+      mimeType: "audio/pcm",
+      sampleRate: 24000,
+      audio: {
+        type: "base64",
+        dataBase64: Buffer.from("linked assistant audio").toString("base64"),
+      },
+    });
+
+    expect(result.type).toBe("archived");
+    if (result.type !== "archived") throw new Error("expected archive result");
+    expect(result.artifact).toMatchObject({
+      archiveKey:
+        "live-voice:session-assistant-link:turn-assistant-link:assistant",
+      role: "assistant",
+      sampleRate: 24000,
+    });
+    expect(getAttachmentsForMessage(message.id)).toHaveLength(1);
+    expect(getLiveVoiceArtifacts(message.id)).toEqual([result.artifact]);
+  });
+
+  test("returns an unlinked result when the assistant message id is unavailable", () => {
+    const result = linkLiveVoiceAssistantResponseAudioToMessage({
+      messageId: undefined,
+      sessionId: "session-assistant-unlinked",
+      turnId: "turn-assistant-unlinked",
+      mimeType: "audio/pcm",
+      audio: {
+        type: "base64",
+        dataBase64: Buffer.from("unlinked assistant audio").toString("base64"),
+      },
+    });
+
+    expect(result).toEqual({
+      type: "unlinked",
+      warning: {
+        code: "message_id_unavailable",
+        message:
+          "Live voice audio archive could not be linked because no message id was available.",
+      },
+      sessionId: "session-assistant-unlinked",
+      turnId: "turn-assistant-unlinked",
+      role: "assistant",
+    });
+    expect(countAllAttachments()).toBe(0);
+  });
+
   test("is idempotent for the session turn role key", async () => {
     const { message } = await createMessage("user");
 
@@ -280,6 +367,60 @@ describe("live voice audio archive", () => {
     expect(second.artifact.attachmentId).toBe(first.artifact.attachmentId);
     expect(countAttachmentsForMessage(message.id)).toBe(1);
     expect(getLiveVoiceArtifacts(message.id)).toHaveLength(1);
+  });
+
+  test("links an existing archived audio artifact to another message id", async () => {
+    const conversation = createConversation();
+    const sourceMessage = await addMessage(
+      conversation.id,
+      "user",
+      "Example source utterance",
+      { userMessageChannel: "vellum", userMessageInterface: "macos" },
+      { skipIndexing: true },
+    );
+    const targetMessage = await addMessage(
+      conversation.id,
+      "user",
+      "Example target utterance",
+      { userMessageChannel: "vellum", userMessageInterface: "macos" },
+      { skipIndexing: true },
+    );
+
+    const archived = archiveLiveVoiceUserUtteranceAudio({
+      messageId: sourceMessage.id,
+      sessionId: "session-artifact-link",
+      turnId: "turn-artifact-link",
+      mimeType: "audio/wav",
+      audio: {
+        type: "base64",
+        dataBase64: Buffer.from("existing artifact audio").toString("base64"),
+      },
+    });
+    expect(archived.type).toBe("archived");
+    if (archived.type !== "archived") {
+      throw new Error("expected archive result");
+    }
+
+    const linked = linkLiveVoiceAudioArtifactToMessage({
+      messageId: targetMessage.id,
+      artifact: archived.artifact,
+    });
+
+    expect(linked.type).toBe("archived");
+    if (linked.type !== "archived") throw new Error("expected link result");
+    expect(linked.idempotent).toBe(false);
+    expect(linked.artifact.attachmentId).toBe(archived.artifact.attachmentId);
+    expect(getAttachmentsForMessage(targetMessage.id)).toHaveLength(1);
+    expect(getLiveVoiceArtifacts(targetMessage.id)).toEqual([linked.artifact]);
+
+    const second = linkLiveVoiceAudioArtifactToMessage({
+      messageId: targetMessage.id,
+      artifact: archived.artifact,
+    });
+    expect(second.type).toBe("archived");
+    if (second.type !== "archived") throw new Error("expected link result");
+    expect(second.idempotent).toBe(true);
+    expect(countAttachmentsForMessage(targetMessage.id)).toBe(1);
   });
 
   test("returns typed warnings for non-fatal archive failures", async () => {

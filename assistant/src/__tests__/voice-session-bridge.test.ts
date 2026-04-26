@@ -512,6 +512,7 @@ describe("voice-session-bridge", () => {
     const textDeltaEvents: ServerMessage[] = [];
     const completeEvents: ServerMessage[] = [];
     let persistedUserMessageId: string | undefined;
+    let persistedAssistantMessageId: string | undefined;
 
     await startVoiceTurn({
       conversationId: conversation.id,
@@ -531,6 +532,9 @@ describe("voice-session-bridge", () => {
           persistedUserMessageId = messageId;
           capturedVoiceSessionId = session.callSessionId;
         },
+        persisted_assistant_message_id: (messageId) => {
+          persistedAssistantMessageId = messageId;
+        },
       },
     });
 
@@ -543,6 +547,7 @@ describe("voice-session-bridge", () => {
     );
     expect(textDeltaEvents).toEqual([events[0]]);
     expect(completeEvents).toEqual([events[1]]);
+    expect(persistedAssistantMessageId).toBe("assistant-msg-1");
 
     const persisted = getMessages(conversation.id).find(
       (message) => message.id === persistedUserMessageId,

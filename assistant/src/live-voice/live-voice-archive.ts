@@ -3,6 +3,9 @@ import { existsSync, statSync } from "node:fs";
 import {
   attachFileBackedAttachmentToMessage,
   attachInlineAttachmentToMessage,
+  attachmentExists,
+  getAttachmentById,
+  linkAttachmentToMessage,
 } from "../memory/attachments-store.js";
 import { rawAll, rawGet, rawRun } from "../memory/db.js";
 import { getLogger } from "../util/logger.js";
@@ -54,8 +57,11 @@ export interface LiveVoiceAudioArtifactMetadata {
 
 export type LiveVoiceAudioArchiveWarningCode =
   | "archive_failed"
+  | "attachment_not_found"
   | "invalid_audio_source"
   | "invalid_metadata"
+  | "link_failed"
+  | "message_id_unavailable"
   | "message_not_found"
   | "unsupported_mime_type";
 
@@ -71,9 +77,24 @@ export type LiveVoiceAudioArchiveResult =
       idempotent: boolean;
     }
   | {
+      type: "unlinked";
+      warning: LiveVoiceAudioArchiveWarning;
+      sessionId: string;
+      turnId: string;
+      role: LiveVoiceAudioArchiveRole;
+      artifact?: LiveVoiceAudioArtifactMetadata;
+    }
+  | {
       type: "warning";
       warning: LiveVoiceAudioArchiveWarning;
     };
+
+interface LiveVoiceAudioUnlinkedContext {
+  sessionId: string;
+  turnId: string;
+  role: LiveVoiceAudioArchiveRole;
+  artifact?: LiveVoiceAudioArtifactMetadata;
+}
 
 interface AttachmentLookupRow {
   id: string;
@@ -110,6 +131,32 @@ function resultWarning(
   message: string,
 ): LiveVoiceAudioArchiveResult {
   return { type: "warning", warning: { code, message } };
+}
+
+function resultUnlinked(
+  code: LiveVoiceAudioArchiveWarningCode,
+  message: string,
+  input: LiveVoiceAudioUnlinkedContext,
+): LiveVoiceAudioArchiveResult {
+  return {
+    type: "unlinked",
+    warning: { code, message },
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    role: input.role,
+    ...(input.artifact ? { artifact: input.artifact } : {}),
+  };
+}
+
+function unlinkedContextForArtifact(
+  artifact: LiveVoiceAudioArtifactMetadata,
+): LiveVoiceAudioUnlinkedContext {
+  return {
+    sessionId: artifact.sessionId,
+    turnId: artifact.turnId,
+    role: artifact.role,
+    artifact,
+  };
 }
 
 function normalizeMimeType(mimeType: string): string {
@@ -537,6 +584,19 @@ type ArchiveLiveVoiceRolelessAudioInput = Omit<
   "role"
 >;
 
+type LinkLiveVoiceRolelessAudioInput = Omit<
+  ArchiveLiveVoiceAudioInput,
+  "messageId" | "role"
+> & {
+  messageId?: string | null;
+};
+
+export interface LinkLiveVoiceAudioArtifactInput {
+  messageId?: string | null;
+  artifact: LiveVoiceAudioArtifactMetadata;
+  position?: number;
+}
+
 export function archiveLiveVoiceUserUtteranceAudio(
   input: ArchiveLiveVoiceRolelessAudioInput,
 ): LiveVoiceAudioArchiveResult {
@@ -547,4 +607,152 @@ export function archiveLiveVoiceAssistantResponseAudio(
   input: ArchiveLiveVoiceRolelessAudioInput,
 ): LiveVoiceAudioArchiveResult {
   return archiveLiveVoiceAudioArtifact({ ...input, role: "assistant" });
+}
+
+function normalizeMessageId(messageId: string | null | undefined): string {
+  return messageId?.trim() ?? "";
+}
+
+function linkLiveVoiceAudioToMessage(
+  input: LinkLiveVoiceRolelessAudioInput & {
+    role: LiveVoiceAudioArchiveRole;
+  },
+): LiveVoiceAudioArchiveResult {
+  const messageId = normalizeMessageId(input.messageId);
+  if (!messageId) {
+    return resultUnlinked(
+      "message_id_unavailable",
+      "Live voice audio archive could not be linked because no message id was available.",
+      input,
+    );
+  }
+
+  const { messageId: _messageId, ...archiveInput } = input;
+  return archiveLiveVoiceAudioArtifact({
+    ...archiveInput,
+    messageId,
+  });
+}
+
+export function linkLiveVoiceUserUtteranceAudioToMessage(
+  input: LinkLiveVoiceRolelessAudioInput,
+): LiveVoiceAudioArchiveResult {
+  return linkLiveVoiceAudioToMessage({ ...input, role: "user" });
+}
+
+export function linkLiveVoiceAssistantResponseAudioToMessage(
+  input: LinkLiveVoiceRolelessAudioInput,
+): LiveVoiceAudioArchiveResult {
+  return linkLiveVoiceAudioToMessage({ ...input, role: "assistant" });
+}
+
+export function linkLiveVoiceAudioArtifactToMessage(
+  input: LinkLiveVoiceAudioArtifactInput,
+): LiveVoiceAudioArchiveResult {
+  const { artifact } = input;
+  if (!isArtifactMetadata(artifact)) {
+    return resultWarning(
+      "invalid_metadata",
+      "Live voice audio archive artifact metadata is invalid.",
+    );
+  }
+
+  const messageId = normalizeMessageId(input.messageId);
+  if (!messageId) {
+    return resultUnlinked(
+      "message_id_unavailable",
+      "Live voice audio archive could not be linked because no message id was available.",
+      unlinkedContextForArtifact(artifact),
+    );
+  }
+
+  const state = readMessageMetadata(messageId);
+  if (state === "not_found") {
+    return resultUnlinked(
+      "message_not_found",
+      "Live voice audio archive target message was not found.",
+      unlinkedContextForArtifact(artifact),
+    );
+  }
+  if (state === "invalid_metadata") {
+    return resultUnlinked(
+      "invalid_metadata",
+      "Live voice audio archive target message metadata is invalid.",
+      unlinkedContextForArtifact(artifact),
+    );
+  }
+
+  const existingMetadataArtifact = findExistingMetadataArtifact(
+    messageId,
+    artifact.archiveKey,
+    state.artifacts,
+  );
+  if (existingMetadataArtifact) {
+    return {
+      type: "archived",
+      artifact: existingMetadataArtifact,
+      idempotent: true,
+    };
+  }
+
+  if (messageAttachmentLinkExists(messageId, artifact.attachmentId)) {
+    persistArtifactMetadata(messageId, artifact);
+    return { type: "archived", artifact, idempotent: true };
+  }
+
+  if (!attachmentExists(artifact.attachmentId)) {
+    return resultUnlinked(
+      "attachment_not_found",
+      "Live voice audio archive attachment was not found.",
+      unlinkedContextForArtifact(artifact),
+    );
+  }
+
+  try {
+    const linkedAttachmentId = linkAttachmentToMessage(
+      messageId,
+      artifact.attachmentId,
+      input.position ?? nextAttachmentPosition(messageId),
+    );
+    const linkedAttachment = getAttachmentById(linkedAttachmentId);
+    const linkedArtifact = linkedAttachment
+      ? artifactFromAttachment({
+          attachmentId: linkedAttachment.id,
+          archiveKey: artifact.archiveKey,
+          sessionId: artifact.sessionId,
+          turnId: artifact.turnId,
+          role: artifact.role,
+          mimeType: linkedAttachment.mimeType,
+          sampleRate: artifact.sampleRate,
+          durationMs: artifact.durationMs,
+          sizeBytes: linkedAttachment.sizeBytes,
+          filename: linkedAttachment.originalFilename,
+          archivedAt: linkedAttachment.createdAt,
+        })
+      : { ...artifact, attachmentId: linkedAttachmentId };
+
+    if (!persistArtifactMetadata(messageId, linkedArtifact)) {
+      log.warn(
+        { messageId, archiveKey: artifact.archiveKey },
+        "Linked live voice audio but could not persist metadata",
+      );
+    }
+
+    return { type: "archived", artifact: linkedArtifact, idempotent: false };
+  } catch (err) {
+    log.warn(
+      {
+        messageId,
+        attachmentId: artifact.attachmentId,
+        archiveKey: artifact.archiveKey,
+        errorName: err instanceof Error ? err.name : typeof err,
+      },
+      "Failed to link live voice audio artifact",
+    );
+    return resultUnlinked(
+      "link_failed",
+      "Live voice audio archive could not be linked without blocking the turn.",
+      unlinkedContextForArtifact(artifact),
+    );
+  }
 }
