@@ -4,7 +4,7 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP.
  */
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -14,10 +14,20 @@ import {
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getDb } from "../../memory/db.js";
+import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+
+/**
+ * Terminal-state values for `acp_session_history.status`. The bulk-delete
+ * route accepts `?status=completed` as a UX shorthand for "every terminal
+ * state" — sessions are only persisted to the history table on terminal
+ * transition, so clearing this set wipes the visible history without
+ * touching live (running/initializing) sessions.
+ */
+const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
 
 const log = getLogger("acp-routes");
 
@@ -249,6 +259,47 @@ export function acpRouteDefinitions(): RouteDefinition[] {
           url.searchParams.get("conversationId") ?? undefined;
         const sessions = listMergedSessions({ limit, conversationId });
         return Response.json({ sessions });
+      },
+    },
+
+    {
+      endpoint: "acp/sessions",
+      method: "DELETE",
+      summary: "Bulk-clear terminal ACP sessions",
+      description:
+        "Remove every terminal-state row (completed/failed/cancelled) from " +
+        "the persisted `acp_session_history` table. Active sessions " +
+        "(running/initializing) are untouched. The `?status=completed` query " +
+        "param is a UX shorthand for all terminal statuses — it is the only " +
+        "value currently accepted; other values are rejected with 400.",
+      tags: ["acp"],
+      queryParams: [
+        {
+          name: "status",
+          required: true,
+          description:
+            "Must be `completed`. Shorthand for all terminal statuses (completed/failed/cancelled).",
+        },
+      ],
+      responseBody: z.object({
+        deleted: z.number().int(),
+      }),
+      handler: ({ url }) => {
+        const status = url.searchParams.get("status");
+        if (status !== "completed") {
+          return httpError(
+            "BAD_REQUEST",
+            "status query param is required and must be 'completed'",
+            400,
+          );
+        }
+        getDb()
+          .delete(acpSessionHistory)
+          .where(inArray(acpSessionHistory.status, TERMINAL_SESSION_STATUSES))
+          .run();
+        const deleted = rawChanges();
+        log.info({ deleted }, "Bulk-cleared terminal ACP session history");
+        return Response.json({ deleted });
       },
     },
   ];
