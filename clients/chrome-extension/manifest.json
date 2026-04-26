@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vellum Assistant",
-  "version": "0.0.0",
+  "version": "0.6.6",
   "minimum_chrome_version": "116",
   "description": "Bridges the Vellum assistant to your live browser session via Chrome DevTools Protocol (CDP) through chrome.debugger.",
   "homepage_url": "https://www.vellum.ai",

@@ -398,6 +398,9 @@ async function dispatchHostBrowserResult(
     if (mode.token) {
       headers['authorization'] = `Bearer ${mode.token}`;
     }
+    if (mode.organizationId) {
+      headers['Vellum-Organization-Id'] = mode.organizationId;
+    }
     const resp = await fetch(url, {
       method: 'POST',
       headers,
