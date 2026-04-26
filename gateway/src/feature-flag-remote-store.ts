@@ -92,7 +92,11 @@ export function readRemoteFeatureFlags(): Record<string, boolean> {
   }
 }
 
-export function writeRemoteFeatureFlags(values: Record<string, boolean>): void {
+/**
+ * Persist remote feature flags to disk and update the in-memory cache.
+ * Returns `true` when the new values differ from the previous cache.
+ */
+export function writeRemoteFeatureFlags(values: Record<string, boolean>): boolean {
   const path = getRemoteFeatureFlagStorePath();
   const dir = dirname(path);
   if (!existsSync(dir)) {
@@ -105,8 +109,35 @@ export function writeRemoteFeatureFlags(values: Record<string, boolean>): void {
   renameSync(tmpPath, path);
   chmodSync(path, 0o600);
 
+  const changed = !shallowEqual(cachedRemoteValues, values);
   cachedRemoteValues = values;
-  log.info({ count: Object.keys(values).length }, "Wrote remote feature flags");
+
+  const msg = "Wrote remote feature flags";
+  const meta = { count: Object.keys(values).length };
+  if (changed) {
+    log.info(meta, msg);
+  } else {
+    log.debug(meta, msg);
+  }
+
+  return changed;
+}
+
+/**
+ * Returns `true` when the incoming flag snapshot matches what's already
+ * cached. Only used for log-level gating — correctness doesn't depend on it.
+ */
+function shallowEqual(
+  a: Record<string, boolean> | null,
+  b: Record<string, boolean>,
+): boolean {
+  if (a == null) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (const k of aKeys) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
 }
 
 /**
