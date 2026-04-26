@@ -5,6 +5,8 @@
 
 import { randomUUID } from "node:crypto";
 
+import { inArray } from "drizzle-orm";
+
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
 import { getDb } from "../memory/db.js";
@@ -66,7 +68,40 @@ export class AcpSessionManager {
       ) => Promise<void>)
     | null = null;
 
-  constructor(private readonly maxConcurrent: number) {}
+  constructor(private readonly maxConcurrent: number) {
+    this.cleanupStaleRunningRows();
+  }
+
+  /**
+   * On daemon boot, flip any `running`/`initializing` rows in
+   * `acp_session_history` to `cancelled` with a `daemon_restarted` stop
+   * reason. The in-memory ACP sessions they represent died with the
+   * previous daemon process, so the persisted rows would otherwise lie to
+   * the sessions UI about their status.
+   *
+   * Idempotent: a second invocation finds no matching rows (status is
+   * already `cancelled`) and is a no-op. Best-effort: a DB failure is
+   * logged but does not propagate, since failing to clean up stale rows
+   * must not block daemon startup.
+   */
+  private cleanupStaleRunningRows(): void {
+    try {
+      getDb()
+        .update(acpSessionHistory)
+        .set({
+          status: "cancelled",
+          stopReason: "daemon_restarted",
+          completedAt: Date.now(),
+        })
+        .where(inArray(acpSessionHistory.status, ["running", "initializing"]))
+        .run();
+    } catch (err) {
+      log.error(
+        { err },
+        "Failed to mark stale ACP sessions as daemon_restarted",
+      );
+    }
+  }
 
   /**
    * Spawns a new ACP agent session. Returns the generated acpSessionId.
