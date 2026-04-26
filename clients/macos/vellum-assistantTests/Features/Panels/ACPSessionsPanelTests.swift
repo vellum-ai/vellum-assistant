@@ -268,12 +268,12 @@ final class ACPSessionsPanelTests: XCTestCase {
 
         let convA = store.sessions(forConversation: "conv-a")
         XCTAssertEqual(
-            convA.map(\.state.acpSessionId),
+            convA.map(\.state.id),
             ["acp-conv-a-new", "acp-conv-a-old"],
             "Filter must preserve newest-first ordering from sessionOrder"
         )
 
-        let convB = store.sessions(forConversation: "conv-b").map(\.state.acpSessionId)
+        let convB = store.sessions(forConversation: "conv-b").map(\.state.id)
         XCTAssertEqual(convB, ["acp-conv-b"])
 
         XCTAssertTrue(
@@ -315,7 +315,7 @@ final class ACPSessionsPanelTests: XCTestCase {
         // "This conversation" filter renders only the active conversation's
         // sessions.
         let scoped = store.sessions(forConversation: "conv-active")
-        XCTAssertEqual(scoped.map(\.state.acpSessionId), ["acp-active"])
+        XCTAssertEqual(scoped.map(\.state.id), ["acp-active"])
 
         // Toggling to `.all` persists across lookups.
         storage.setFilter(.all, for: "conv-active")
@@ -324,7 +324,7 @@ final class ACPSessionsPanelTests: XCTestCase {
 
         // With the filter switched off, the panel iterates `sessionOrder`
         // and shows every session newest-first.
-        let allSessions = store.sessionOrder.compactMap { store.sessions[$0]?.state.acpSessionId }
+        let allSessions = store.sessionOrder.compactMap { store.sessions[$0]?.state.id }
         XCTAssertEqual(allSessions, ["acp-active", "acp-other"])
 
         // A different conversation has its own preference and is unaffected.
