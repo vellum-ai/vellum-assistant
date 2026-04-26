@@ -11,7 +11,6 @@
  * the desktop app's `defaultHeaders` on the migration transport.
  */
 
-import type { CloudSession } from './cloud-auth.js';
 import { getStoredSession } from './cloud-auth.js';
 import type { ExtensionEnvironment } from './extension-environment.js';
 import { cloudUrlsForEnvironment } from './extension-environment.js';
