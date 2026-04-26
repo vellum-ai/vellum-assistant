@@ -540,7 +540,7 @@ describe("GeminiProvider", () => {
     // assistant → model with functionCall, user → user with functionResponse
     expect(contents).toHaveLength(3);
     expect(contents[1].role).toBe("model");
-    expect(contents[1].parts[0]).toEqual({
+    expect(contents[1].parts[0]).toMatchObject({
       functionCall: {
         name: "file_read",
         args: { path: "/tmp/test" },
@@ -553,6 +553,152 @@ describe("GeminiProvider", () => {
         response: { output: "file content here" },
       },
     });
+  });
+
+  test("replays Gemini thought signatures on serialized tool_use history", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_signed",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+            providerMetadata: {
+              gemini: { thoughtSignature: "signed-thought-1" },
+            },
+          },
+          {
+            type: "tool_use",
+            id: "call_unsigned",
+            name: "file_read",
+            input: { path: "/tmp/other" },
+          },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<{
+        functionCall?: unknown;
+        thoughtSignature?: string;
+      }>;
+    }>;
+    expect(contents[1].parts).toEqual([
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/tmp/test" },
+        },
+        thoughtSignature: "signed-thought-1",
+      },
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/tmp/other" },
+        },
+      },
+    ]);
+  });
+
+  test("adds Gemini 3 fallback thought signature to old unsigned tool_use history", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const overrideProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-2.5-flash",
+    );
+    await overrideProvider.sendMessage(
+      [
+        { role: "user", content: [{ type: "text", text: "Read files" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "call_1",
+              name: "file_read",
+              input: { path: "/a" },
+            },
+            {
+              type: "tool_use",
+              id: "call_2",
+              name: "file_read",
+              input: { path: "/b" },
+            },
+          ],
+        },
+      ],
+      undefined,
+      undefined,
+      { config: { model: "models/gemini-3-pro-preview" } },
+    );
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<{
+        functionCall?: unknown;
+        thoughtSignature?: string;
+      }>;
+    }>;
+    expect(contents[1].parts).toEqual([
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/a" },
+        },
+        thoughtSignature: "context_engineering_is_the_way to_go",
+      },
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/b" },
+        },
+      },
+    ]);
+  });
+
+  test("does not add fallback thought signature for Gemini 2.5 tool_use history", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const gemini25Provider = new GeminiProvider(
+      "test-api-key",
+      "gemini-2.5-flash",
+    );
+    await gemini25Provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_unsigned",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+          },
+        ],
+      },
+    ]);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: unknown[];
+    }>;
+    expect(contents[1].parts).toEqual([
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/tmp/test" },
+        },
+      },
+    ]);
   });
 
   // -----------------------------------------------------------------------

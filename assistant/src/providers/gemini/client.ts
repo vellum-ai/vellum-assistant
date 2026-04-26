@@ -27,6 +27,13 @@ import {
 const GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS =
   /token.?count.*exceeds|exceeds.*maximum.*tokens|prompt.?is.?too.?long|too.?many.?(?:input.?)?tokens|input.?too.?long|context.?length.?exceeded/i;
 
+const GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE =
+  "context_engineering_is_the_way to_go";
+
+export function isGemini3Model(model: string): boolean {
+  return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
+}
+
 /**
  * Detect Gemini's context-overflow signals on an `ApiError`. Gemini surfaces
  * this condition via its "RESOURCE_EXHAUSTED" category. The Gemini SDK's
@@ -155,9 +162,10 @@ export class GeminiProvider implements Provider {
     const configObj = config as Record<string, unknown> | undefined;
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
+    const activeModel = modelOverride ?? this.model;
 
     try {
-      const geminiContents = this.toGeminiContents(messages);
+      const geminiContents = this.toGeminiContents(messages, activeModel);
 
       const geminiConfig: genai.GenerateContentConfig = {};
 
@@ -208,11 +216,11 @@ export class GeminiProvider implements Provider {
       let finishReason = "unknown";
       let promptTokens = 0;
       let outputTokens = 0;
-      let responseModel = modelOverride ?? this.model;
+      let responseModel = activeModel;
 
       try {
         const stream = await this.client.models.generateContentStream({
-          model: modelOverride ?? this.model,
+          model: activeModel,
           contents: geminiContents,
           config: geminiConfig,
         });
@@ -286,7 +294,7 @@ export class GeminiProvider implements Provider {
       }
 
       const rawRequest = {
-        model: modelOverride ?? this.model,
+        model: activeModel,
         contents: geminiContents,
         config: geminiConfig,
       };
@@ -349,7 +357,10 @@ export class GeminiProvider implements Provider {
   }
 
   /** Convert neutral messages to Gemini Content[] format. */
-  private toGeminiContents(messages: Message[]): genai.Content[] {
+  private toGeminiContents(
+    messages: Message[],
+    model: string,
+  ): genai.Content[] {
     const result: genai.Content[] = [];
 
     // Build a map from tool_use id → function name so tool_result blocks
@@ -368,6 +379,8 @@ export class GeminiProvider implements Provider {
       const { parts, toolResultImageParts } = this.toGeminiParts(
         msg.content,
         toolCallNames,
+        model,
+        role,
       );
       if (parts.length > 0) {
         result.push({ role, parts });
@@ -387,6 +400,8 @@ export class GeminiProvider implements Provider {
   private toGeminiParts(
     blocks: ContentBlock[],
     toolCallNames: Map<string, string>,
+    model: string,
+    role: "model" | "user",
   ): { parts: genai.Part[]; toolResultImageParts: genai.Part[] } {
     const parts: genai.Part[] = [];
     const toolResultImageParts: genai.Part[] = [];
@@ -420,12 +435,20 @@ export class GeminiProvider implements Provider {
           }
           break;
         case "tool_use":
-          parts.push({
-            functionCall: {
-              name: block.name,
-              args: block.input,
-            },
-          });
+          {
+            const functionCallPart: genai.Part = {
+              functionCall: {
+                name: block.name,
+                args: block.input,
+              },
+            };
+            const thoughtSignature =
+              block.providerMetadata?.gemini?.thoughtSignature;
+            if (thoughtSignature) {
+              functionCallPart.thoughtSignature = thoughtSignature;
+            }
+            parts.push(functionCallPart);
+          }
           break;
         case "tool_result": {
           let outputText = block.content;
@@ -470,7 +493,31 @@ export class GeminiProvider implements Provider {
       }
     }
 
+    if (role === "model") {
+      this.addGemini3UnsignedToolCallFallback(parts, model);
+    }
+
     return { parts, toolResultImageParts };
+  }
+
+  private addGemini3UnsignedToolCallFallback(
+    parts: genai.Part[],
+    model: string,
+  ): void {
+    if (!isGemini3Model(model)) return;
+
+    const functionCallParts = parts.filter((part) => part.functionCall);
+    if (functionCallParts.length === 0) return;
+
+    const hasRealThoughtSignature = functionCallParts.some((part) =>
+      Boolean(part.thoughtSignature),
+    );
+    if (hasRealThoughtSignature) return;
+
+    const firstFunctionCallPart = functionCallParts[0];
+    if (!firstFunctionCallPart) return;
+    firstFunctionCallPart.thoughtSignature =
+      GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE;
   }
 
   private supportsGeminiInlineFile(mimeType: string): boolean {
