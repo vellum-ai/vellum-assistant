@@ -196,13 +196,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
 
-        // Register with the shared `ACPSpawnAppDelegateBridge` so the
-        // inline `acp_spawn` tool block in chat (rendered via the shared
-        // `ToolCallProgressBar`) can resolve the live `ACPSessionStore`
-        // without `clients/shared/` statically importing iOS-specific
-        // app-delegate types. Mirrors the macOS `AppDelegate.shared`
-        // singleton path.
-        ACPSpawnAppDelegateBridge.shared = self
+        // Publish the live `ACPSessionStore` through the shared
+        // `ACPSpawnAppDelegateBridge` so the inline `acp_spawn` tool
+        // block in chat (rendered via the shared `ToolCallProgressBar`)
+        // can resolve it without `clients/shared/` statically importing
+        // iOS-specific app-delegate types. Mirrors the macOS
+        // `AppDelegate.shared` singleton path.
+        ACPSpawnAppDelegateBridge.sharedStore = clientProvider.acpSessionStore
 
         // Keep the iOS managed-connection identifiers in sync with the shared
         // `AuthManager` auth state. `AuthManager.logout()` clears
@@ -445,19 +445,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         config.delegateClass = SceneDelegate.self
         return config
-    }
-}
-
-// MARK: - ACPSpawnAppDelegateBridgeProvider
-
-extension AppDelegate: ACPSpawnAppDelegateBridgeProvider {
-    /// Surfaces the singleton `ACPSessionStore` to the shared
-    /// `ACPSpawnDeepLinkCard` in `ToolCallProgressBar.swift`. The chat-side
-    /// tap handler resolves this via `ACPSpawnAppDelegateBridge.shared`,
-    /// keeping `clients/shared/` free of any iOS-specific app-delegate
-    /// import.
-    var acpSessionStore: ACPSessionStore {
-        clientProvider.acpSessionStore
     }
 }
 

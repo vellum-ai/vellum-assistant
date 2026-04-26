@@ -99,8 +99,8 @@ final class ChatBubbleACPSpawnIOSTests: XCTestCase {
     }
 
     /// A nil store must short-circuit the deep link without crashing.
-    /// `ACPSpawnAppDelegateBridge.shared` is nil during early launch and
-    /// inside background helpers, so the guard is a real production
+    /// `ACPSpawnAppDelegateBridge.sharedStore` is nil during early launch
+    /// and inside background helpers, so the guard is a real production
     /// path, not just defensive cosmetics.
     func test_applyACPSessionDeepLink_isNoOpWhenStoreIsNil() {
         // No assertion needed beyond "this didn't crash" — the helper

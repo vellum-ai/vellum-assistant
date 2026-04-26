@@ -439,15 +439,15 @@ public struct ACPSpawnDeepLinkCard: View {
     /// `ACPSessionStore` and asking `IOSRootNavigationView` to surface
     /// the Coding Agents sheet via the same store-observation hook.
     /// The store is resolved through ``ACPSpawnAppDelegateBridge``,
-    /// which the iOS app delegate registers itself with on launch — that
-    /// indirection keeps `clients/shared/` free of any
-    /// iOS-specific `AppDelegate` import.
+    /// which the iOS app delegate populates on launch — that indirection
+    /// keeps `clients/shared/` free of any iOS-specific `AppDelegate`
+    /// import.
     ///
     /// `static` so unit tests can exercise the side effects against an
     /// injected `ACPSessionStore` via
     /// ``applyACPSessionDeepLink(id:store:)``.
     static func openACPSession(id: String) {
-        applyACPSessionDeepLink(id: id, store: ACPSpawnAppDelegateBridge.shared?.acpSessionStore)
+        applyACPSessionDeepLink(id: id, store: ACPSpawnAppDelegateBridge.sharedStore)
     }
 
     /// Pure side-effect helper for ``openACPSession(id:)``. Setting the
@@ -503,20 +503,13 @@ private struct ACPSpawnStatusIndicator: View {
 /// Indirection so the deep-link card can resolve the live
 /// `ACPSessionStore` without `ToolCallProgressBar.swift` (a `shared/`
 /// file) statically referencing the iOS `AppDelegate` class. The iOS
-/// app delegate registers itself here on launch; tests inject a stand-in.
+/// app delegate populates this slot on launch; tests assign directly.
 @MainActor
 public enum ACPSpawnAppDelegateBridge {
-    /// Provider of the singleton `ACPSessionStore` for the running app.
-    /// The slot is `weak` so the bridge doesn't keep the app delegate
-    /// alive past its natural lifetime — losing the reference during
-    /// teardown surfaces as a soft no-op tap rather than a leak.
-    public static weak var shared: ACPSpawnAppDelegateBridgeProvider?
-}
-
-/// Surface the bridge needs from whatever owns the live
-/// `ACPSessionStore`. iOS satisfies this with an `AppDelegate`
-/// extension; tests satisfy it with an inline class.
-public protocol ACPSpawnAppDelegateBridgeProvider: AnyObject {
-    var acpSessionStore: ACPSessionStore { get }
+    /// Live `ACPSessionStore` for the running app. The slot is `weak`
+    /// so the bridge doesn't keep the store alive past its natural
+    /// lifetime — losing the reference during teardown surfaces as a
+    /// soft no-op tap rather than a leak.
+    public static weak var sharedStore: ACPSessionStore?
 }
 #endif
