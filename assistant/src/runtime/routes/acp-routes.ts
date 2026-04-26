@@ -302,6 +302,50 @@ export function acpRouteDefinitions(): RouteDefinition[] {
         return Response.json({ deleted });
       },
     },
+
+    {
+      endpoint: "acp/sessions/:id",
+      method: "DELETE",
+      policyKey: "acp/sessions/delete",
+      summary: "Delete ACP session from history",
+      description:
+        "Remove a persisted ACP session row. Rejects with 409 when the " +
+        "session is still active in memory; idempotent for unknown ids.",
+      tags: ["acp"],
+      responseBody: z.object({
+        deleted: z.boolean(),
+      }),
+      handler: ({ params }) => {
+        const id = params.id;
+        // Refuse to delete while the session is still active in memory —
+        // a terminal-state transition would re-persist the row otherwise.
+        // getStatus(id) throws for unknown ids, which is the expected path
+        // for sessions whose only trace is the history row.
+        try {
+          const state = getAcpSessionManager().getStatus(id);
+          if (
+            !Array.isArray(state) &&
+            (state.status === "running" || state.status === "initializing")
+          ) {
+            return httpError(
+              "CONFLICT",
+              `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,
+              409,
+            );
+          }
+        } catch {
+          // Not in memory — fall through to the (idempotent) DB delete.
+        }
+
+        getDb()
+          .delete(acpSessionHistory)
+          .where(eq(acpSessionHistory.id, id))
+          .run();
+        const deleted = rawChanges() > 0;
+        log.info({ acpSessionId: id, deleted }, "ACP session history delete");
+        return Response.json({ deleted });
+      },
+    },
   ];
 }
 

@@ -1,13 +1,23 @@
 /**
- * Tests for the POST /v1/acp/spawn route handler — focused on the three
- * failure paths produced by `resolveAcpAgent` (acp_disabled, unknown_agent,
- * binary_not_found). Mirrors the resolver's test setup using the shared
+ * Tests for the ACP route handlers.
+ *
+ * Suites:
+ *  - POST /v1/acp/spawn — the three failure paths produced by
+ *    `resolveAcpAgent` (acp_disabled, unknown_agent, binary_not_found).
+ *  - DELETE /v1/acp/sessions?status=completed — the bulk-clear route that
+ *    wipes terminal-state rows (completed/failed/cancelled) from
+ *    `acp_session_history` while leaving running/initializing rows intact.
+ *  - DELETE /v1/acp/sessions/:id — single-row delete: completed → 200,
+ *    running → 409, unknown id → idempotent { deleted: false }.
+ *
+ * The spawn tests mirror the resolver's test setup using the shared
  * `installAcpConfigStub` and `installWhichStub` helpers so the host
  * environment doesn't influence the resolver's PATH preflight.
  *
- * Also covers DELETE /v1/acp/sessions?status=completed — the bulk-clear
- * route that wipes terminal-state rows (completed/failed/cancelled) from
- * `acp_session_history` while leaving running/initializing rows intact.
+ * The single-id delete tests stub `getAcpSessionManager` so we can drive
+ * the in-memory-status check without spawning real ACP child processes,
+ * and use the real DB (initialized via the test preload's per-file
+ * workspace) to verify the row is actually removed.
  */
 
 import {
@@ -16,13 +26,13 @@ import {
   beforeEach,
   describe,
   expect,
+  mock,
   test,
 } from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
-import { getDb, getSqlite, initializeDb } from "../../memory/db.js";
-import { acpSessionHistory } from "../../memory/schema.js";
+import type { AcpSessionState } from "../../acp/index.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -30,6 +40,32 @@ const which = installWhichStub();
 afterAll(() => {
   which.restore();
 });
+
+// Stub `getAcpSessionManager` so the DELETE /:id tests can drive the
+// in-memory-status check without spawning real ACP processes. Stored in
+// a mutable map so individual tests can plant arbitrary states.
+const inMemoryStates = new Map<string, AcpSessionState>();
+
+mock.module("../../acp/index.js", () => ({
+  getAcpSessionManager: () => ({
+    getStatus: (id?: string) => {
+      if (id === undefined) {
+        return Array.from(inMemoryStates.values());
+      }
+      const state = inMemoryStates.get(id);
+      if (!state) throw new Error(`ACP session "${id}" not found`);
+      return state;
+    },
+  }),
+  // Spawn and bulk-DELETE tests don't reach this code path, but the mock
+  // factory must export every name the SUT imports.
+  broadcastToAllClients: null,
+}));
+
+import { eq } from "drizzle-orm";
+
+import { getDb, getSqlite, initializeDb } from "../../memory/db.js";
+import { acpSessionHistory } from "../../memory/schema.js";
 
 const { acpRouteDefinitions } = await import("./acp-routes.js");
 
@@ -280,5 +316,144 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(listRows()).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/acp/sessions/:id
+// ---------------------------------------------------------------------------
+
+function getDeleteSessionHandler() {
+  const route = acpRouteDefinitions().find(
+    (r) => r.endpoint === "acp/sessions/:id" && r.method === "DELETE",
+  );
+  if (!route) throw new Error("acp/sessions/:id DELETE route not registered");
+  return route.handler;
+}
+
+function makeDeleteCtx(id: string) {
+  const url = new URL(`http://localhost/v1/acp/sessions/${id}`);
+  return {
+    url,
+    req: new Request(url, { method: "DELETE" }),
+    server: {} as ReturnType<typeof Bun.serve>,
+    authContext: {} as never,
+    params: { id },
+  };
+}
+
+function insertHistoryRow(opts: {
+  id: string;
+  status: AcpSessionState["status"];
+}) {
+  getDb()
+    .insert(acpSessionHistory)
+    .values({
+      id: opts.id,
+      agentId: "claude",
+      acpSessionId: `proto-${opts.id}`,
+      parentConversationId: "conv-1",
+      startedAt: 1_700_000_000_000,
+      completedAt: 1_700_000_001_000,
+      status: opts.status,
+      stopReason: null,
+      error: null,
+      eventLogJson: "[]",
+    })
+    .run();
+}
+
+describe("DELETE /v1/acp/sessions/:id", () => {
+  beforeAll(() => {
+    initializeDb();
+  });
+
+  beforeEach(() => {
+    inMemoryStates.clear();
+    getDb().delete(acpSessionHistory).run();
+  });
+
+  test("removes a completed session row and returns { deleted: true }", async () => {
+    insertHistoryRow({ id: "sess-completed", status: "completed" });
+
+    const handler = getDeleteSessionHandler();
+    const res = await handler(makeDeleteCtx("sess-completed"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: boolean };
+    expect(body.deleted).toBe(true);
+
+    // Row really gone.
+    const remaining = getDb()
+      .select()
+      .from(acpSessionHistory)
+      .where(eq(acpSessionHistory.id, "sess-completed"))
+      .all();
+    expect(remaining).toHaveLength(0);
+  });
+
+  test.each([["running" as const], ["initializing" as const]])(
+    "returns 409 when the session is still %s in memory",
+    async (status) => {
+      inMemoryStates.set("sess-active", {
+        id: "sess-active",
+        agentId: "claude",
+        acpSessionId: "proto-active",
+        parentConversationId: "conv-1",
+        status,
+        startedAt: 1_700_000_000_000,
+      });
+      // Even if a stale history row exists it must NOT be deleted while the
+      // session is active — the row would be re-written when the session
+      // reaches a terminal state.
+      insertHistoryRow({ id: "sess-active", status: "completed" });
+
+      const handler = getDeleteSessionHandler();
+      const res = await handler(makeDeleteCtx("sess-active"));
+
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("CONFLICT");
+
+      // Row untouched.
+      const remaining = getDb()
+        .select()
+        .from(acpSessionHistory)
+        .where(eq(acpSessionHistory.id, "sess-active"))
+        .all();
+      expect(remaining).toHaveLength(1);
+    },
+  );
+
+  test("idempotent for unknown id — returns { deleted: false }", async () => {
+    const handler = getDeleteSessionHandler();
+    const res = await handler(makeDeleteCtx("does-not-exist"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: boolean };
+    expect(body.deleted).toBe(false);
+  });
+
+  test("deletes a cancelled in-memory session whose row is in history", async () => {
+    // A session whose status flipped to a terminal value but is still
+    // present in the in-memory map (e.g. mid-teardown) must be deletable —
+    // only running/initializing states gate the delete.
+    inMemoryStates.set("sess-cancelled", {
+      id: "sess-cancelled",
+      agentId: "claude",
+      acpSessionId: "proto-cancelled",
+      parentConversationId: "conv-1",
+      status: "cancelled",
+      startedAt: 1_700_000_000_000,
+      completedAt: 1_700_000_001_000,
+    });
+    insertHistoryRow({ id: "sess-cancelled", status: "cancelled" });
+
+    const handler = getDeleteSessionHandler();
+    const res = await handler(makeDeleteCtx("sess-cancelled"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: boolean };
+    expect(body.deleted).toBe(true);
   });
 });
