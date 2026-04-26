@@ -117,35 +117,6 @@ export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
-/**
- * Returns the TCP port the daemon should listen on for iOS clients.
- * Hardcoded default: 8765.
- */
-export function getTCPPort(): number {
-  return 8765;
-}
-
-/**
- * Returns whether the daemon TCP listener should be enabled.
- * Checks for the presence of the flag file ~/.vellum/tcp-enabled.
- * Default: false.
- *
- * The flag-file check makes it easy to enable TCP in dev without restarting
- * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
- */
-export function isTCPEnabled(): boolean {
-  return existsSync(join(VELLUM_ROOT, "tcp-enabled"));
-}
-
-/**
- * Returns the hostname/address for the TCP listener.
- * Always binds to localhost only. iOS pairing uses the gateway
- * relay.
- */
-export function getTCPHost(): string {
-  return "127.0.0.1";
-}
-
 // Kept in sync with `cli/src/lib/environments/seeds.ts`. Drift between
 // these two sites is caught at test time by
 // `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared

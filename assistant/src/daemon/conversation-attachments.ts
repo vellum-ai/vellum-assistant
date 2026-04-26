@@ -120,7 +120,7 @@ export async function approveHostAttachmentRead(
     response.selectedPattern &&
     response.selectedScope
   ) {
-    addRule(
+    await addRule(
       toolName,
       response.selectedPattern,
       response.selectedScope,
@@ -133,7 +133,12 @@ export async function approveHostAttachmentRead(
     response.selectedPattern &&
     response.selectedScope
   ) {
-    addRule(toolName, response.selectedPattern, response.selectedScope, "deny");
+    await addRule(
+      toolName,
+      response.selectedPattern,
+      response.selectedScope,
+      "deny",
+    );
   }
 
   return isAllowDecision(response.decision);

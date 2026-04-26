@@ -183,7 +183,7 @@ export async function handleApprovalInterception(
       return { handled: true, type: "stale_ignored" };
     }
 
-    const result = applyGuardianDecision({
+    const result = await applyGuardianDecision({
       approval: guardianPending[0],
       decision: reactionDecision,
       actorPrincipalId: undefined,
@@ -215,7 +215,7 @@ export async function handleApprovalInterception(
     if (pending.length > 0) {
       const reason: "no_identity" | "no_binding" =
         !trustCtx.requesterExternalUserId ? "no_identity" : "no_binding";
-      handleChannelDecision(
+      await handleChannelDecision(
         conversationId,
         { action: "reject", source: "plain_text" },
         buildGuardianDenyContext(pending[0].toolName, reason, sourceChannel),
@@ -280,7 +280,7 @@ export async function handleApprovalInterception(
             };
             // Apply the cancel decision through the unified primitive.
             // The primitive handles record update and (no-op) grant logic.
-            const cancelApplyResult = applyGuardianDecision({
+            const cancelApplyResult = await applyGuardianDecision({
               approval: guardianApprovalForRequest,
               decision: rejectDecision,
               actorPrincipalId: undefined, // Interception path — principal not available
@@ -443,7 +443,7 @@ export async function handleApprovalInterception(
           action: "reject",
           source: "plain_text",
         };
-        handleChannelDecision(conversationId, expiredDecision);
+        await handleChannelDecision(conversationId, expiredDecision);
 
         await deliverStaleApprovalReply({
           scenario: "guardian_expired_requester",
@@ -521,7 +521,10 @@ export async function handleApprovalInterception(
     if (pending.length === 0) {
       return { handled: true, type: "stale_ignored" };
     }
-    const result = handleChannelDecision(conversationId, reactionDecision);
+    const result = await handleChannelDecision(
+      conversationId,
+      reactionDecision,
+    );
     if (result.applied) {
       return { handled: true, type: "decision_applied" };
     }
@@ -562,7 +565,7 @@ export async function handleApprovalInterception(
         }
       }
 
-      const result = handleChannelDecision(conversationId, cbDecision);
+      const result = await handleChannelDecision(conversationId, cbDecision);
 
       if (result.applied) {
         // Edit the original Slack approval message to show the decision
@@ -646,7 +649,7 @@ export async function handleApprovalInterception(
               : "reject",
         source: "plain_text",
       };
-      const nlResult = handleChannelDecision(conversationId, nlDecision);
+      const nlResult = await handleChannelDecision(conversationId, nlDecision);
       if (nlResult.applied) {
         return { handled: true, type: "decision_applied" };
       }

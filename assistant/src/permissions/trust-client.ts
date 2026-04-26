@@ -147,6 +147,16 @@ export async function findMatchingRule(
   return result.rule != null ? parseRuleResponse(result.rule) : null;
 }
 
+/** Clear all user trust rules via IPC. */
+export async function clearRules(): Promise<void> {
+  const result = (await ipcCall("clear_trust_rules")) as {
+    success: boolean;
+  } | null;
+  if (!result) {
+    throw new Error("Trust rule IPC call failed: clear_trust_rules");
+  }
+}
+
 /** Accept the starter approval bundle via IPC. */
 export async function acceptStarterBundle(): Promise<AcceptStarterBundleResult> {
   const result = (await ipcCall(

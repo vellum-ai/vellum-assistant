@@ -41,9 +41,7 @@ mock.module("../../util/platform.js", () => ({
   AVATAR_IMAGE_FILENAME: "avatar-image.png",
   getAvatarImagePath: () =>
     join(workspaceDir ?? fallbackDir, "avatar/avatar-image.png"),
-  getTCPPort: () => 0,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
+
   getXdgVellumConfigDirName: () => ".vellum",
   getXdgPlatformTokenPath: () => join(workspaceDir ?? fallbackDir, "token"),
 }));

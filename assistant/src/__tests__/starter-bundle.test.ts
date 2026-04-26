@@ -54,7 +54,7 @@ describe("Starter approval bundle", () => {
     clearCache();
   });
 
-  test("getStarterBundleRules returns a non-empty array of allow rules", () => {
+  test("getStarterBundleRules returns a non-empty array of allow rules", async () => {
     const rules = getStarterBundleRules();
     expect(rules.length).toBeGreaterThan(0);
     for (const rule of rules) {
@@ -66,12 +66,12 @@ describe("Starter approval bundle", () => {
     }
   });
 
-  test("starter bundle is not accepted by default", () => {
+  test("starter bundle is not accepted by default", async () => {
     expect(isStarterBundleAccepted()).toBe(false);
   });
 
-  test("acceptStarterBundle seeds rules and marks bundle as accepted", () => {
-    const result = acceptStarterBundle();
+  test("acceptStarterBundle seeds rules and marks bundle as accepted", async () => {
+    const result = await acceptStarterBundle();
 
     expect(result.accepted).toBe(true);
     expect(result.alreadyAccepted).toBe(false);
@@ -81,25 +81,25 @@ describe("Starter approval bundle", () => {
     expect(isStarterBundleAccepted()).toBe(true);
 
     // Verify rules are present in the store
-    const allRules = getAllRules();
+    const allRules = await getAllRules();
     const starterRuleIds = new Set(getStarterBundleRules().map((r) => r.id));
     const foundStarterRules = allRules.filter((r) => starterRuleIds.has(r.id));
     expect(foundStarterRules.length).toBe(getStarterBundleRules().length);
   });
 
-  test("acceptStarterBundle is idempotent — second call adds no rules", () => {
-    const first = acceptStarterBundle();
+  test("acceptStarterBundle is idempotent — second call adds no rules", async () => {
+    const first = await acceptStarterBundle();
     expect(first.rulesAdded).toBeGreaterThan(0);
     expect(first.alreadyAccepted).toBe(false);
 
-    const second = acceptStarterBundle();
+    const second = await acceptStarterBundle();
     expect(second.accepted).toBe(true);
     expect(second.alreadyAccepted).toBe(true);
     expect(second.rulesAdded).toBe(0);
   });
 
-  test("starter bundle flag persists across cache clears", () => {
-    acceptStarterBundle();
+  test("starter bundle flag persists across cache clears", async () => {
+    await acceptStarterBundle();
     expect(isStarterBundleAccepted()).toBe(true);
 
     // Clear the in-memory cache to force a re-read from disk
@@ -108,8 +108,8 @@ describe("Starter approval bundle", () => {
     expect(isStarterBundleAccepted()).toBe(true);
   });
 
-  test("starter bundle flag is persisted in the trust file", () => {
-    acceptStarterBundle();
+  test("starter bundle flag is persisted in the trust file", async () => {
+    await acceptStarterBundle();
 
     // Read the raw file and verify the flag
     const raw = readFileSync(TRUST_PATH, "utf-8");
@@ -117,9 +117,9 @@ describe("Starter approval bundle", () => {
     expect(data.starterBundleAccepted).toBe(true);
   });
 
-  test("bundle is opt-in only — rules do not appear without explicit acceptance", () => {
+  test("bundle is opt-in only — rules do not appear without explicit acceptance", async () => {
     // Load rules normally (triggers backfill of default rules)
-    const allRules = getAllRules();
+    const allRules = await getAllRules();
 
     // No starter rules should be present
     const starterRuleIds = new Set(getStarterBundleRules().map((r) => r.id));
@@ -127,9 +127,9 @@ describe("Starter approval bundle", () => {
     expect(foundStarterRules.length).toBe(0);
   });
 
-  test("starter rules have unique IDs that do not collide with defaults", () => {
+  test("starter rules have unique IDs that do not collide with defaults", async () => {
     // Load default rules first
-    const defaultRules = getAllRules();
+    const defaultRules = await getAllRules();
     const defaultIds = new Set(defaultRules.map((r) => r.id));
 
     // Verify no starter rule ID collides with any default rule ID
@@ -138,12 +138,12 @@ describe("Starter approval bundle", () => {
     }
   });
 
-  test("accepted starter rules have canonical persisted shape after disk round-trip", () => {
-    acceptStarterBundle();
+  test("accepted starter rules have canonical persisted shape after disk round-trip", async () => {
+    await acceptStarterBundle();
 
     // Force a disk round-trip by clearing the cache
     clearCache();
-    const allRules = getAllRules();
+    const allRules = await getAllRules();
     const starterRuleIds = new Set(getStarterBundleRules().map((r) => r.id));
     const starterRules = allRules.filter((r) => starterRuleIds.has(r.id));
 

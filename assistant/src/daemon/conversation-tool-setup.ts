@@ -487,7 +487,7 @@ export function createProxyApprovalCallback(
         },
         "Persisting always-allow trust rule (proxy)",
       );
-      addRule(
+      await addRule(
         toolName,
         response.selectedPattern,
         response.selectedScope,
@@ -508,7 +508,7 @@ export function createProxyApprovalCallback(
         },
         "Persisting always-deny trust rule (proxy)",
       );
-      addRule(
+      await addRule(
         toolName,
         response.selectedPattern,
         response.selectedScope,

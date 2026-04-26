@@ -414,7 +414,7 @@ async function handleTrustRule(
       tool?.origin === "skill" ? confirmation.executionTarget : undefined;
 
     // Canonicalization is handled inside addRule — no need to pre-parse here.
-    addRule(confirmation.toolName, pattern, scope, decision, undefined, {
+    await addRule(confirmation.toolName, pattern, scope, decision, undefined, {
       ...(executionTarget != null ? { executionTarget } : {}),
     });
     log.info(

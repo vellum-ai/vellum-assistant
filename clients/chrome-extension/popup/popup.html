@@ -868,45 +868,50 @@
        ═══════════════════════════════════════════════════════════════ -->
   <div id="screen-main" class="screen" style="display:none;">
     <header>
-      <svg class="logo-mark" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-        <path d="M9 1.5L16.5 9L9 16.5L1.5 9L9 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-        <path d="M9 5.5L12.5 9L9 12.5L5.5 9L9 5.5Z" fill="currentColor" opacity="0.3"/>
-      </svg>
+      <img class="logo-mark" src="../icons/icon16.png" alt="" aria-hidden="true" />
       <h1>Vellum Assistant</h1>
     </header>
 
     <!-- Connected assistant info (cloud mode) -->
     <div id="assistant-info" class="assistant-info" style="display:none;">
       <div class="assistant-avatar" id="assistant-avatar" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
-          <path d="M12 2L22 12L12 22L2 12L12 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-          <path d="M12 7L17 12L12 17L7 12L12 7Z" fill="currentColor" opacity="0.3"/>
-        </svg>
-      </div>
+          <img src="../icons/icon48.png" alt="" width="20" height="20" style="border-radius: 4px;" />
+        </div>
       <div class="assistant-meta">
         <p class="assistant-name" id="assistant-name"></p>
         <p class="assistant-account" id="assistant-account"></p>
       </div>
     </div>
 
-    <div class="toggle-row">
-      <div class="toggle-copy">
-        <p class="toggle-title">Connection</p>
-        <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
+    <!-- Error state: shown when assistant fetch fails after login -->
+    <div id="assistants-error" class="status-card" style="display:none;" role="alert">
+      <div style="padding:4px 0;">
+        <p style="color:var(--red);font-size:13px;font-weight:500;margin-bottom:4px;">Unable to load assistants</p>
+        <p id="assistants-error-detail" style="color:var(--text-2);font-size:12px;word-break:break-word;"></p>
+        <button id="btn-retry-assistants" type="button" style="margin-top:8px;font-size:12px;padding:6px 14px;">Retry</button>
       </div>
-      <label class="switch" for="connection-toggle">
-        <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
-        <span class="switch-slider"></span>
-      </label>
     </div>
 
-    <div class="status-card" role="status" aria-live="polite">
-      <div class="status-row">
-        <div class="status-left">
-          <div class="status-dot disconnected" id="status-dot"></div>
-          <p class="status-text" id="status-text">Not connected</p>
+    <div id="connection-area">
+      <div class="toggle-row">
+        <div class="toggle-copy">
+          <p class="toggle-title">Connection</p>
+          <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
         </div>
-        <span class="status-badge disconnected" id="status-badge">Offline</span>
+        <label class="switch" for="connection-toggle">
+          <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+
+      <div class="status-card" role="status" aria-live="polite">
+        <div class="status-row">
+          <div class="status-left">
+            <div class="status-dot disconnected" id="status-dot"></div>
+            <p class="status-text" id="status-text">Not connected</p>
+          </div>
+          <span class="status-badge disconnected" id="status-badge">Offline</span>
+        </div>
       </div>
     </div>
 

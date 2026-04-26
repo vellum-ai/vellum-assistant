@@ -36,6 +36,8 @@ export interface CloudSession {
   email: string;
   /** Environment the session was created against. */
   environment: ExtensionEnvironment;
+  /** The user's active organization ID (first org from the API). */
+  organizationId: string | null;
   /** Timestamp when the session was created. */
   createdAt: number;
 }
@@ -188,29 +190,69 @@ export async function startCloudLogin(
     // Non-fatal: we still have a valid session, just can't get the email.
   }
 
+  // Resolve the user's organization ID for subsequent API calls.
+  const organizationId = await fetchOrganizationId(apiBaseUrl);
+
   const session: CloudSession = {
     email,
     environment,
+    organizationId,
     createdAt: Date.now(),
   };
   await storeSession(session);
   return session;
 }
 
+// ── Organization resolution ─────────────────────────────────────────
+
+/**
+ * Fetch the authenticated user's organizations and return the first
+ * org ID. The `/v1/organizations/` endpoint requires only a session
+ * cookie (no `Vellum-Organization-Id` header).
+ */
+async function fetchOrganizationId(
+  apiBaseUrl: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/v1/organizations/`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as {
+      results?: Array<{ id: string }>;
+    };
+    if (Array.isArray(data.results) && data.results.length > 0) {
+      return data.results[0]!.id;
+    }
+  } catch {
+    // Non-fatal: assistants fetch will fail with a clear error.
+  }
+  return null;
+}
+
 // ── Assistants list ─────────────────────────────────────────────────
 
 /**
  * Fetch the current user's assistants from the platform API.
- * Requires a valid session cookie (set during login).
+ * Requires a valid session cookie (set during login) and the
+ * `Vellum-Organization-Id` header.
  */
 export async function fetchAssistants(
   environment: ExtensionEnvironment,
+  organizationId: string | null,
 ): Promise<CloudAssistant[]> {
   const { apiBaseUrl } = cloudUrlsForEnvironment(environment);
 
-  const response = await fetch(`${apiBaseUrl}/api/assistants/`, {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (organizationId) {
+    headers['Vellum-Organization-Id'] = organizationId;
+  }
+
+  const response = await fetch(`${apiBaseUrl}/v1/assistants/`, {
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers,
   });
 
   if (!response.ok) {

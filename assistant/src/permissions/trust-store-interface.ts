@@ -24,11 +24,14 @@ export interface AcceptStarterBundleResult {
  */
 export interface TrustStoreBackend {
   /** Return a copy of all trust rules (file-based rules + defaults). */
-  getAllRules(): TrustRule[];
+  getAllRules(): Promise<TrustRule[]>;
 
   /**
    * Find the highest-priority rule that matches any of the command candidates.
    * Rules are pre-sorted by priority descending, so the first match wins.
+   *
+   * Reads from the in-memory cache — synchronous even though the interface
+   * is otherwise async. Callers may await the result trivially.
    *
    * When `resolvedPaths` is provided and non-empty, a scoped rule must cover
    * ALL of the provided paths (AND semantics); the `scope` cwd fallback is
@@ -69,7 +72,7 @@ export interface TrustStoreBackend {
     options?: {
       executionTarget?: string;
     },
-  ): TrustRule;
+  ): Promise<TrustRule>;
 
   /** Update an existing trust rule by ID and persist it. */
   updateRule(
@@ -81,16 +84,16 @@ export interface TrustStoreBackend {
       decision?: "allow" | "deny" | "ask";
       priority?: number;
     },
-  ): TrustRule;
+  ): Promise<TrustRule>;
 
   /** Remove a trust rule by ID. Returns true if the rule existed. */
-  removeRule(id: string): boolean;
+  removeRule(id: string): Promise<boolean>;
 
   /** Clear all user-created rules (default rules are re-backfilled). */
-  clearAllRules(): void;
+  clearAllRules(): Promise<void>;
 
   /** Accept the starter approval bundle, seeding low-risk allow rules. */
-  acceptStarterBundle(): AcceptStarterBundleResult;
+  acceptStarterBundle(): Promise<AcceptStarterBundleResult>;
 
   /** Whether the user has previously accepted the starter bundle. */
   isStarterBundleAccepted(): boolean;

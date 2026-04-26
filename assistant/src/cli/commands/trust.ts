@@ -52,8 +52,8 @@ prefix with "trust remove".
 Examples:
   $ assistant trust list`,
     )
-    .action(() => {
-      const rules = getAllRules();
+    .action(async () => {
+      const rules = await getAllRules();
       if (rules.length === 0) {
         log.info("No trust rules");
         return;
@@ -137,8 +137,8 @@ Examples:
   $ assistant trust remove abc1
   $ assistant trust remove a1b2c3d4-e5f6-7890-abcd-ef1234567890`,
     )
-    .action((id: string) => {
-      const rules = getAllRules();
+    .action(async (id: string) => {
+      const rules = await getAllRules();
       const matches = rules.filter((r) => r.id.startsWith(id));
       if (matches.length === 0) {
         log.error(`No rule found matching "${id}"`);
@@ -154,7 +154,7 @@ Examples:
       }
       const match = matches[0]!;
       try {
-        removeRule(match.id);
+        await removeRule(match.id);
       } catch (err) {
         log.error(err instanceof Error ? err.message : String(err));
         process.exit(1);
@@ -180,7 +180,7 @@ Examples:
   $ assistant trust clear`,
     )
     .action(async () => {
-      const rules = getAllRules();
+      const rules = await getAllRules();
       if (rules.length === 0) {
         log.info("No trust rules to clear");
         return;
@@ -195,7 +195,7 @@ Examples:
       });
       rl.close();
       if (answer.toLowerCase() === "y") {
-        clearAllRules();
+        await clearAllRules();
         log.info(`Cleared ${rules.length} trust rules`);
       } else {
         log.info("Cancelled");

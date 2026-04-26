@@ -121,7 +121,7 @@ export async function handleGuardianTextEngineDecision(
       : {}),
   };
 
-  const result = handleChannelDecision(conversationId, engineDecision);
+  const result = await handleChannelDecision(conversationId, engineDecision);
 
   if (result.applied) {
     // Deliver the engine's reply text to the user
