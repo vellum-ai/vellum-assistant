@@ -44,13 +44,17 @@ export async function cloudApiFetch(
 
   // Merge caller-supplied headers (they win over defaults).
   if (init?.headers) {
-    const supplied =
-      init.headers instanceof Headers
-        ? Object.fromEntries(init.headers.entries())
-        : Array.isArray(init.headers)
-          ? Object.fromEntries(init.headers)
-          : init.headers;
-    Object.assign(headers, supplied);
+    if (init.headers instanceof Headers) {
+      init.headers.forEach((v, k) => {
+        headers[k] = v;
+      });
+    } else if (Array.isArray(init.headers)) {
+      for (const [k, v] of init.headers) {
+        headers[k] = v;
+      }
+    } else {
+      Object.assign(headers, init.headers);
+    }
   }
 
   const { skipOrgHeader: _, ...restInit } = init ?? {};
