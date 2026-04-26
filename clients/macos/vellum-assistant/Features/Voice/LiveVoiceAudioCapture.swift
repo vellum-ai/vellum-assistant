@@ -61,6 +61,7 @@ final class LiveVoiceAudioCapture {
     private var generation: UInt64 = 0
     private var chunkHandler: ChunkHandler?
     private var amplitudeHandler: AmplitudeHandler?
+    private var pcmConverter = LiveVoicePCM16kMonoConverter()
 
     init(
         engineController: any LiveVoiceAudioEngineControlling = AudioEngineController(label: "com.vellum.audioEngine.liveVoiceCapture"),
@@ -128,6 +129,7 @@ final class LiveVoiceAudioCapture {
             chunkHandler = nil
             handlerToReset = amplitudeHandler
             amplitudeHandler = nil
+            pcmConverter.reset()
             shouldRemoveTap = false
         case .running:
             generation &+= 1
@@ -135,6 +137,7 @@ final class LiveVoiceAudioCapture {
             chunkHandler = nil
             handlerToReset = amplitudeHandler
             amplitudeHandler = nil
+            pcmConverter.reset()
             shouldRemoveTap = true
         case .idle, .shutDown:
             handlerToReset = nil
@@ -167,6 +170,7 @@ final class LiveVoiceAudioCapture {
             chunkHandler = nil
             handlerToReset = amplitudeHandler
             amplitudeHandler = nil
+            pcmConverter.reset()
         }
         lock.unlock()
 
@@ -202,27 +206,30 @@ final class LiveVoiceAudioCapture {
             state = .starting
             chunkHandler = onChunk
             amplitudeHandler = onAmplitude
+            pcmConverter.reset()
             return .starting(generation)
         }
     }
 
     private func handle(buffer: AVAudioPCMBuffer, generation captureGeneration: UInt64) {
-        guard let chunk = Self.makeChunk(from: buffer) else { return }
-
         let chunkHandler: ChunkHandler?
         let amplitudeHandler: AmplitudeHandler?
+        let chunk: LiveVoiceAudioCaptureChunk?
 
         lock.lock()
         let acceptsBuffer = generation == captureGeneration && (state == .starting || state == .running)
         if acceptsBuffer {
+            chunk = pcmConverter.makeChunk(from: buffer)
             chunkHandler = self.chunkHandler
             amplitudeHandler = self.amplitudeHandler
         } else {
+            chunk = nil
             chunkHandler = nil
             amplitudeHandler = nil
         }
         lock.unlock()
 
+        guard let chunk else { return }
         chunkHandler?(chunk)
         amplitudeHandler?(chunk.amplitude)
     }
@@ -254,6 +261,7 @@ final class LiveVoiceAudioCapture {
             chunkHandler = nil
             handlerToReset = amplitudeHandler
             amplitudeHandler = nil
+            pcmConverter.reset()
         } else {
             handlerToReset = nil
         }
@@ -263,35 +271,8 @@ final class LiveVoiceAudioCapture {
     }
 
     static func makeChunk(from buffer: AVAudioPCMBuffer) -> LiveVoiceAudioCaptureChunk? {
-        guard let channelData = buffer.floatChannelData else { return nil }
-
-        let frameCount = Int(buffer.frameLength)
-        let inputChannelCount = Int(buffer.format.channelCount)
-        let sampleRate = Int(buffer.format.sampleRate.rounded())
-        guard frameCount > 0, inputChannelCount > 0, sampleRate > 0 else { return nil }
-
-        var pcmData = Data(capacity: frameCount * MemoryLayout<Int16>.size)
-        var squareSum: Float = 0
-        let channelZero = channelData[0]
-
-        for frame in 0..<frameCount {
-            let sourceIndex = buffer.format.isInterleaved ? frame * inputChannelCount : frame
-            let clamped = max(-1, min(1, channelZero[sourceIndex]))
-            let sample = pcmInt16Sample(from: clamped)
-            squareSum += clamped * clamped
-            withUnsafeBytes(of: sample.littleEndian) { pcmData.append(contentsOf: $0) }
-        }
-
-        let rms = sqrt(squareSum / Float(frameCount))
-        let amplitude = min(rms * 5, 1)
-
-        return LiveVoiceAudioCaptureChunk(
-            pcm16LittleEndian: pcmData,
-            sampleRate: sampleRate,
-            channelCount: 1,
-            frameCount: frameCount,
-            amplitude: amplitude
-        )
+        var converter = LiveVoicePCM16kMonoConverter()
+        return converter.makeChunk(from: buffer)
     }
 
     static func pcmInt16Sample(from sample: Float) -> Int16 {
@@ -305,5 +286,120 @@ final class LiveVoiceAudioCapture {
 
         let scale: Float = clamped < 0 ? 32768 : 32767
         return Int16((clamped * scale).rounded(.towardZero))
+    }
+}
+
+private struct LiveVoicePCM16kMonoConverter {
+    private static let targetSampleRate = 16_000
+    private static let targetSampleRateDouble = Double(targetSampleRate)
+
+    private var sourceSampleRate: Double?
+    private var nextSourceFramePosition: Double = 0
+
+    mutating func reset() {
+        sourceSampleRate = nil
+        nextSourceFramePosition = 0
+    }
+
+    mutating func makeChunk(from buffer: AVAudioPCMBuffer) -> LiveVoiceAudioCaptureChunk? {
+        guard let channelData = buffer.floatChannelData else { return nil }
+
+        let frameCount = Int(buffer.frameLength)
+        let inputChannelCount = Int(buffer.format.channelCount)
+        let inputSampleRate = buffer.format.sampleRate
+        guard frameCount > 0, inputChannelCount > 0, inputSampleRate > 0 else { return nil }
+
+        if sourceSampleRate != inputSampleRate {
+            sourceSampleRate = inputSampleRate
+            nextSourceFramePosition = 0
+        }
+
+        let samples = makeResampledMonoSamples(
+            channelData: channelData,
+            frameCount: frameCount,
+            channelCount: inputChannelCount,
+            isInterleaved: buffer.format.isInterleaved,
+            inputSampleRate: inputSampleRate
+        )
+        guard !samples.isEmpty else { return nil }
+
+        var pcmData = Data(capacity: samples.count * MemoryLayout<Int16>.size)
+        var squareSum: Float = 0
+
+        for sample in samples {
+            let clamped = max(-1, min(1, sample))
+            let pcmSample = LiveVoiceAudioCapture.pcmInt16Sample(from: clamped)
+            squareSum += clamped * clamped
+            withUnsafeBytes(of: pcmSample.littleEndian) { pcmData.append(contentsOf: $0) }
+        }
+
+        let rms = sqrt(squareSum / Float(samples.count))
+        let amplitude = min(rms * 5, 1)
+
+        return LiveVoiceAudioCaptureChunk(
+            pcm16LittleEndian: pcmData,
+            sampleRate: Self.targetSampleRate,
+            channelCount: 1,
+            frameCount: samples.count,
+            amplitude: amplitude
+        )
+    }
+
+    private mutating func makeResampledMonoSamples(
+        channelData: UnsafePointer<UnsafeMutablePointer<Float>>,
+        frameCount: Int,
+        channelCount: Int,
+        isInterleaved: Bool,
+        inputSampleRate: Double
+    ) -> [Float] {
+        let sourceFramesPerOutputFrame = inputSampleRate / Self.targetSampleRateDouble
+        var samples: [Float] = []
+        samples.reserveCapacity(max(1, Int((Double(frameCount) / sourceFramesPerOutputFrame).rounded(.up))))
+
+        while nextSourceFramePosition < Double(frameCount) {
+            let lowerFrame = min(Int(nextSourceFramePosition.rounded(.down)), frameCount - 1)
+            let upperFrame = min(lowerFrame + 1, frameCount - 1)
+            let fraction = Float(nextSourceFramePosition - Double(lowerFrame))
+            let lowerSample = monoSample(
+                channelData: channelData,
+                frame: lowerFrame,
+                channelCount: channelCount,
+                isInterleaved: isInterleaved
+            )
+            let upperSample = monoSample(
+                channelData: channelData,
+                frame: upperFrame,
+                channelCount: channelCount,
+                isInterleaved: isInterleaved
+            )
+            samples.append(lowerSample + (upperSample - lowerSample) * fraction)
+            nextSourceFramePosition += sourceFramesPerOutputFrame
+        }
+
+        nextSourceFramePosition -= Double(frameCount)
+        if nextSourceFramePosition < 0 {
+            nextSourceFramePosition = 0
+        }
+        return samples
+    }
+
+    private func monoSample(
+        channelData: UnsafePointer<UnsafeMutablePointer<Float>>,
+        frame: Int,
+        channelCount: Int,
+        isInterleaved: Bool
+    ) -> Float {
+        var sum: Float = 0
+        if isInterleaved {
+            let baseIndex = frame * channelCount
+            for channel in 0..<channelCount {
+                sum += channelData[0][baseIndex + channel]
+            }
+        } else {
+            for channel in 0..<channelCount {
+                sum += channelData[channel][frame]
+            }
+        }
+        return sum / Float(channelCount)
     }
 }

@@ -59,6 +59,19 @@ final class LiveVoiceAudioCaptureTests: XCTestCase {
         XCTAssertEqual(readInt16LE(chunk!.pcm16LittleEndian, offset: 12), Int16.max)
     }
 
+    func testHardwareRateFloatPCMResamplesTo16kMonoChunk() {
+        let buffer = makeBuffer(samples: [0.25, 0, 0, -0.25, 0, 0], sampleRate: 48_000)
+
+        let chunk = LiveVoiceAudioCapture.makeChunk(from: buffer)
+
+        XCTAssertEqual(chunk?.sampleRate, 16_000)
+        XCTAssertEqual(chunk?.channelCount, 1)
+        XCTAssertEqual(chunk?.frameCount, 2)
+        XCTAssertEqual(chunk?.pcm16LittleEndian.count, 4)
+        XCTAssertEqual(readInt16LE(chunk!.pcm16LittleEndian, offset: 0), 8_191)
+        XCTAssertEqual(readInt16LE(chunk!.pcm16LittleEndian, offset: 2), -8_192)
+    }
+
     func testCapturedBufferReportsChunkAndScaledAmplitude() async {
         let engine = MockLiveVoiceAudioEngineController()
         let permission = MockLiveVoiceMicrophonePermission()
@@ -78,12 +91,12 @@ final class LiveVoiceAudioCaptureTests: XCTestCase {
         XCTAssertTrue(started)
         XCTAssertEqual(engine.lastBufferSize, 256)
 
-        let buffer = makeBuffer(samples: [0.1, -0.1, 0.1, -0.1], sampleRate: 24_000)
-        engine.tapBlock?(buffer, AVAudioTime(sampleTime: 0, atRate: 24_000))
+        let buffer = makeBuffer(samples: [0.1, 0, 0, -0.1, 0, 0], sampleRate: 48_000)
+        engine.tapBlock?(buffer, AVAudioTime(sampleTime: 0, atRate: 48_000))
 
         XCTAssertEqual(chunks.count, 1)
-        XCTAssertEqual(chunks[0].sampleRate, 24_000)
-        XCTAssertEqual(chunks[0].frameCount, 4)
+        XCTAssertEqual(chunks[0].sampleRate, 16_000)
+        XCTAssertEqual(chunks[0].frameCount, 2)
         XCTAssertEqual(readInt16LE(chunks[0].pcm16LittleEndian, offset: 0), 3_276)
         XCTAssertEqual(readInt16LE(chunks[0].pcm16LittleEndian, offset: 2), -3_276)
         XCTAssertEqual(amplitudes.count, 1)

@@ -73,7 +73,7 @@ sequenceDiagram
     LVM-->>VM: state + transcript updates
 ```
 
-**Transport:** `clients/shared/Network/LiveVoiceChannelClient.swift` is the shared WebSocket client. It builds the authenticated request with `GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params:)`, sends the initial `start` JSON frame, sends mic audio as binary WebSocket frames, sends `ptt_release`, `interrupt`, and `end` control frames, and decodes `ready`, `busy`, `stt_*`, `assistant_text_delta`, `tts_*`, `metrics`, `archived`, and `error` server frames.
+**Transport:** `clients/shared/Network/LiveVoiceChannelClient.swift` is the shared WebSocket client. It builds the authenticated request with `GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params: nil)`, sends the conversation ID in the initial `start` JSON frame, sends mic audio as binary WebSocket frames, sends `ptt_release`, `interrupt`, and `end` control frames, and decodes `ready`, `busy`, `stt_*`, `assistant_text_delta`, `tts_*`, `metrics`, `archived`, and `error` server frames.
 
 **macOS session state:** `clients/macos/vellum-assistant/Features/Voice/LiveVoiceChannelManager.swift` owns the live session state machine (`idle`, `connecting`, `listening`, `transcribing`, `thinking`, `speaking`, `ending`, `failed`). It wires `LiveVoiceAudioCapture` for push-to-talk PCM capture and `LiveVoiceAudioPlayer` for streamed assistant audio. `VoiceModeManager` observes the manager with `withObservationTracking()` and maps live-channel states onto the existing voice-mode UI states (`listening`, `processing`, `speaking`, `idle`).
 

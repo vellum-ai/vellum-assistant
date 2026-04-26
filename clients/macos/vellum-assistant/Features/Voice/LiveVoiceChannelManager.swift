@@ -225,10 +225,7 @@ final class LiveVoiceChannelManager {
             state = .speaking
 
         case .ttsDone:
-            responseAudioStarted = false
-            if state == .speaking || state == .thinking {
-                state = captureRunning ? .listening : .idle
-            }
+            closeCompletedUtteranceSession()
 
         case .metrics, .archived:
             break
@@ -341,6 +338,21 @@ final class LiveVoiceChannelManager {
         responseAudioStarted = true
         interruptSentForCurrentResponse = false
         playback.resetForNextResponse()
+    }
+
+    private func closeCompletedUtteranceSession() {
+        responseAudioStarted = false
+        sessionGeneration &+= 1
+        stopCapture()
+
+        let completedClient = client
+        resetIgnoredSessionState()
+        sessionId = nil
+        state = .idle
+
+        Task {
+            await completedClient?.close()
+        }
     }
 
     private func stopCapture() {
