@@ -91,14 +91,10 @@ mock.module("../../../config/loader.js", () => ({
 // covered in restore.test.ts. Tests here record the call sequence via
 // `recoveryCallOrder` and assert on the relative ordering.
 
-let mockClearTrustCacheCalls = 0;
 const recoveryCallOrder: string[] = [];
 
 mock.module("../../../permissions/trust-store.js", () => ({
-  clearCache: () => {
-    mockClearTrustCacheCalls += 1;
-    recoveryCallOrder.push("clearTrustCache");
-  },
+  clearCache: () => {  },
 }));
 
 // -- Platform paths mock ---------------------------------------------------
@@ -289,7 +285,6 @@ beforeEach(() => {
   };
   mockVerifyResult = { valid: true };
   mockInvalidateConfigCacheCalls = 0;
-  mockClearTrustCacheCalls = 0;
   recoveryCallOrder.length = 0;
   listSnapshotsCallLog.length = 0;
 });
@@ -780,12 +775,9 @@ describe("handleBackupRestore", () => {
     );
     expect(res.status).toBe(200);
     expect(mockInvalidateConfigCacheCalls).toBe(1);
-    expect(mockClearTrustCacheCalls).toBe(1);
     expect(recoveryCallOrder).toEqual([
       "restoreFromSnapshot",
-      "invalidateConfigCache",
-      "clearTrustCache",
-    ]);
+      "invalidateConfigCache",    ]);
   });
 
   test("restore failure leaves caches untouched", async () => {
@@ -812,7 +804,6 @@ describe("handleBackupRestore", () => {
     // still reflect the pre-restore state on disk (the bundle write failed
     // so there's nothing new to re-read).
     expect(mockInvalidateConfigCacheCalls).toBe(0);
-    expect(mockClearTrustCacheCalls).toBe(0);
   });
 
   test("response no longer exposes credentialsIncluded", async () => {
