@@ -19,6 +19,10 @@ import type {
   LiveVoiceSessionCloseReason,
   LiveVoiceSessionFactoryContext,
 } from "./live-voice-session-manager.js";
+import type {
+  LiveVoiceTtsOptions,
+  LiveVoiceTtsResult,
+} from "./live-voice-tts.js";
 import {
   type LiveVoiceClientFrame,
   LiveVoiceProtocolErrorCode,
@@ -34,6 +38,10 @@ type LiveVoiceSessionState =
   | "failed"
   | "closed";
 
+const LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD = 180;
+const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
+const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
+
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
 ) => Promise<StreamingTranscriber | null>;
@@ -42,16 +50,32 @@ export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
 
+export type LiveVoiceTtsStreamer = (
+  options: LiveVoiceTtsOptions,
+) => Promise<LiveVoiceTtsResult>;
+
 export interface LiveVoiceSessionOptions {
   resolveTranscriber?: LiveVoiceStreamingTranscriberResolver;
   startVoiceTurn?: LiveVoiceTurnStarter;
+  streamTtsAudio?: LiveVoiceTtsStreamer | null;
   createTurnId?: () => string;
+}
+
+interface ActiveAssistantTurn {
+  token: symbol;
+  abortController: AbortController;
+  handle: VoiceTurnHandle | null;
+  assistantCompleted: boolean;
+  ttsDone: boolean;
+  ttsBuffer: string;
+  ttsQueue: Promise<void>;
 }
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
+  private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
   private state: LiveVoiceSessionState = "initializing";
@@ -60,12 +84,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private outboundFrames: Promise<void> = Promise.resolve();
   private pttReleased = false;
   private assistantTurnStarted = false;
-  private activeAssistantTurn: {
-    token: symbol;
-    abortController: AbortController;
-    handle: VoiceTurnHandle | null;
-    completed: boolean;
-  } | null = null;
+  private activeAssistantTurn: ActiveAssistantTurn | null = null;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -75,6 +94,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.resolveTranscriber =
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
     this.startVoiceTurn = options.startVoiceTurn ?? null;
+    this.streamTtsAudio = options.streamTtsAudio ?? null;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
@@ -313,11 +333,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       token,
       abortController,
       handle: null,
-      completed: false,
+      assistantCompleted: false,
+      ttsDone: false,
+      ttsBuffer: "",
+      ttsQueue: Promise.resolve(),
     };
 
     await this.sendFrame({ type: "thinking", turnId });
-    if (!this.isForwardingAssistantTurn(token)) return;
+    if (!this.isActiveAssistantTurn(token)) return;
 
     try {
       const handle = await this.startVoiceTurn({
@@ -334,28 +357,29 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         signal: abortController.signal,
         callbacks: {
           assistant_text_delta: (msg) => {
-            if (!this.isForwardingAssistantTurn(token)) return;
+            if (!this.isForwardingAssistantText(token)) return;
             void this.sendFrame({
               type: "assistant_text_delta",
               text: msg.text,
             });
+            this.bufferAssistantTextForTts(token, msg.text);
           },
           message_complete: (msg) => {
             const activeTurn = this.activeAssistantTurn;
             if (
               activeTurn?.token !== token ||
-              activeTurn.completed ||
+              activeTurn.assistantCompleted ||
               this.isClosed
             ) {
               return;
             }
             if (msg.type !== "message_complete") return;
-            activeTurn.completed = true;
-            void this.sendFrame({ type: "tts_done", turnId });
+            activeTurn.assistantCompleted = true;
+            this.completeTtsForTurn(token, turnId);
           },
         },
         onError: (message) => {
-          if (!this.isForwardingAssistantTurn(token)) return;
+          if (!this.isActiveAssistantTurn(token)) return;
           void this.sendFrame({
             type: "error",
             code: LiveVoiceProtocolErrorCode.InvalidField,
@@ -369,19 +393,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         handle.abort();
         return;
       }
-      if (activeTurn.completed) {
+      if (activeTurn.ttsDone) {
         this.activeAssistantTurn = null;
         return;
       }
 
-      this.activeAssistantTurn = {
-        token,
-        abortController,
-        handle,
-        completed: false,
-      };
+      activeTurn.handle = handle;
     } catch (err) {
-      if (!this.isForwardingAssistantTurn(token)) return;
+      if (!this.isActiveAssistantTurn(token)) return;
 
       this.activeAssistantTurn = null;
       await this.sendFrame({
@@ -403,12 +422,134 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn.handle?.abort();
   }
 
-  private isForwardingAssistantTurn(token: symbol): boolean {
+  private isActiveAssistantTurn(token: symbol): boolean {
+    return this.activeAssistantTurn?.token === token && !this.isClosed;
+  }
+
+  private isForwardingAssistantText(token: symbol): boolean {
+    const activeTurn = this.activeAssistantTurn;
     return (
-      this.activeAssistantTurn?.token === token &&
-      !this.activeAssistantTurn.completed &&
+      activeTurn?.token === token &&
+      !activeTurn.assistantCompleted &&
       !this.isClosed
     );
+  }
+
+  private isForwardingTts(token: symbol): boolean {
+    const activeTurn = this.activeAssistantTurn;
+    return (
+      activeTurn?.token === token &&
+      !activeTurn.ttsDone &&
+      !activeTurn.abortController.signal.aborted &&
+      !this.isClosed
+    );
+  }
+
+  private bufferAssistantTextForTts(token: symbol, text: string): void {
+    if (!this.streamTtsAudio || text.length === 0) return;
+
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token || activeTurn.assistantCompleted) return;
+
+    activeTurn.ttsBuffer += text;
+    this.flushTtsBuffer(token, false);
+  }
+
+  private completeTtsForTurn(token: symbol, turnId: string): void {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) return;
+
+    this.flushTtsBuffer(token, true);
+    activeTurn.ttsQueue = activeTurn.ttsQueue
+      .catch(() => {})
+      .then(async () => {
+        const currentTurn = this.activeAssistantTurn;
+        if (currentTurn?.token !== token || currentTurn.ttsDone) return;
+
+        currentTurn.ttsDone = true;
+        await this.sendFrame({ type: "tts_done", turnId }, () =>
+          this.isActiveAssistantTurn(token),
+        );
+
+        if (this.activeAssistantTurn?.token === token) {
+          if (currentTurn.handle) {
+            this.activeAssistantTurn = null;
+          }
+        }
+      });
+  }
+
+  private flushTtsBuffer(token: symbol, force: boolean): void {
+    const activeTurn = this.activeAssistantTurn;
+    if (activeTurn?.token !== token) return;
+
+    if (!this.streamTtsAudio) {
+      activeTurn.ttsBuffer = "";
+      return;
+    }
+
+    const { segments, remainder } = extractSpeakableSegments(
+      activeTurn.ttsBuffer,
+      force,
+    );
+    activeTurn.ttsBuffer = remainder;
+
+    for (const segment of segments) {
+      this.enqueueTtsSegment(token, segment);
+    }
+  }
+
+  private enqueueTtsSegment(token: symbol, segment: string): void {
+    const activeTurn = this.activeAssistantTurn;
+    const streamTtsAudio = this.streamTtsAudio;
+    if (activeTurn?.token !== token || !streamTtsAudio) return;
+
+    activeTurn.ttsQueue = activeTurn.ttsQueue
+      .catch(() => {})
+      .then(async () => {
+        const currentTurn = this.activeAssistantTurn;
+        if (
+          currentTurn?.token !== token ||
+          currentTurn.abortController.signal.aborted
+        ) {
+          return;
+        }
+
+        try {
+          let ttsAudioFrames: Promise<void> = Promise.resolve();
+          await streamTtsAudio({
+            text: segment,
+            signal: currentTurn.abortController.signal,
+            outputFormat: "pcm",
+            sampleRate: this.context.startFrame.audio.sampleRate,
+            onAudioChunk: (chunk) => {
+              if (!this.isForwardingTts(token)) return;
+              ttsAudioFrames = ttsAudioFrames.then(() =>
+                this.sendFrame(
+                  {
+                    type: "tts_audio",
+                    mimeType: "audio/pcm",
+                    sampleRate: chunk.sampleRate,
+                    dataBase64: chunk.dataBase64,
+                  },
+                  () => this.isForwardingTts(token),
+                ),
+              );
+            },
+          });
+          await ttsAudioFrames;
+        } catch (err) {
+          if (!this.isForwardingTts(token)) return;
+          await this.sendFrame(
+            {
+              type: "error",
+              code: LiveVoiceProtocolErrorCode.InvalidField,
+              message: `Live voice TTS failed: ${errorMessage(err)}`,
+            },
+            () => this.isForwardingTts(token),
+          );
+        }
+      });
   }
 
   private async sendAudioAfterReleaseError(): Promise<void> {
@@ -419,10 +560,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
-  private async sendFrame(frame: LiveVoiceServerFramePayload): Promise<void> {
+  private async sendFrame(
+    frame: LiveVoiceServerFramePayload,
+    shouldSend: () => boolean = () => true,
+  ): Promise<void> {
     this.outboundFrames = this.outboundFrames
       .catch(() => {})
       .then(async () => {
+        if (!shouldSend()) return;
         await this.context.sendFrame(frame);
       })
       .catch(() => {
@@ -448,6 +593,10 @@ export function createLiveVoiceSession(
   return new LiveVoiceSession(context, {
     ...options,
     startVoiceTurn: options.startVoiceTurn ?? defaultStartVoiceTurn,
+    streamTtsAudio:
+      options.streamTtsAudio === undefined
+        ? defaultStreamLiveVoiceTtsAudio
+        : options.streamTtsAudio,
   });
 }
 
@@ -464,6 +613,88 @@ async function defaultStartVoiceTurn(
 ): Promise<VoiceTurnHandle> {
   const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
   return startVoiceTurn(options);
+}
+
+async function defaultStreamLiveVoiceTtsAudio(
+  options: LiveVoiceTtsOptions,
+): Promise<LiveVoiceTtsResult> {
+  const { streamLiveVoiceTtsAudio } = await import("./live-voice-tts.js");
+  return streamLiveVoiceTtsAudio(options);
+}
+
+function extractSpeakableSegments(
+  text: string,
+  force: boolean,
+): { segments: string[]; remainder: string } {
+  const segments: string[] = [];
+  let remainder = text;
+
+  while (remainder.length > 0) {
+    const boundary = findSpeakableBoundary(remainder);
+    if (boundary === null) break;
+
+    const segment = remainder.slice(0, boundary).trim();
+    if (segment.length > 0) {
+      segments.push(segment);
+    }
+    remainder = remainder.slice(boundary);
+  }
+
+  if (force) {
+    const segment = remainder.trim();
+    if (segment.length > 0) {
+      segments.push(segment);
+    }
+    remainder = "";
+  }
+
+  return { segments, remainder };
+}
+
+function findSpeakableBoundary(text: string): number | null {
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "\n") return index + 1;
+    if (!char || !SENTENCE_ENDING_PUNCTUATION.has(char)) continue;
+
+    let boundary = index + 1;
+    while (
+      boundary < text.length &&
+      TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
+    ) {
+      boundary += 1;
+    }
+
+    if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
+      return boundary;
+    }
+  }
+
+  if (text.length < LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD) {
+    return null;
+  }
+
+  const preferredBoundary = findLastWhitespaceBoundary(
+    text,
+    LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD,
+  );
+  return preferredBoundary ?? LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD;
+}
+
+function findLastWhitespaceBoundary(
+  text: string,
+  maxLength: number,
+): number | null {
+  for (let index = maxLength; index > Math.floor(maxLength * 0.6); index -= 1) {
+    if (isWhitespace(text[index] ?? "")) {
+      return index + 1;
+    }
+  }
+  return null;
+}
+
+function isWhitespace(value: string): boolean {
+  return /\s/.test(value);
 }
 
 function unavailableTranscriberMessage(): string {
