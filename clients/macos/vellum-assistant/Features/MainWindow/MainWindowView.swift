@@ -68,6 +68,11 @@ struct MainWindowView: View {
     let settingsStore: SettingsStore
     let authManager: AuthManager
     let documentManager: DocumentManager
+    /// Shared observable store for ACP (Agent Client Protocol) sessions.
+    /// Owned by ``AppServices`` and threaded through here so the
+    /// ``ACPSessionsPanel`` route in ``PanelCoordinator`` can drive its
+    /// list off the same instance ``ConversationManager`` updates from SSE.
+    let acpSessionStore: ACPSessionStore
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager
     var updateManager: UpdateManager
@@ -114,7 +119,7 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var activeHomeDetailPanel: HomeDetailPanelKind? = nil
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -130,6 +135,7 @@ struct MainWindowView: View {
         self.windowState = windowState
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.documentManager = documentManager
+        self.acpSessionStore = acpSessionStore
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
         self.updateManager = updateManager
