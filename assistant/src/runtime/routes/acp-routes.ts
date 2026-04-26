@@ -4,6 +4,7 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP.
  */
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -11,11 +12,40 @@ import {
   getAcpSessionManager,
 } from "../../acp/index.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import type { AcpSessionState } from "../../acp/types.js";
+import { getDb } from "../../memory/db.js";
+import { acpSessionHistory } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("acp-routes");
+
+/** Default cap when no `?limit` query param is provided. */
+const DEFAULT_SESSION_LIMIT = 50;
+/** Hard ceiling on `?limit` to keep response sizes bounded. */
+const MAX_SESSION_LIMIT = 500;
+
+/**
+ * Wire shape for a single entry in `GET /v1/acp/sessions`. Combines the
+ * runtime state of an in-memory session (`AcpSessionState`) with the
+ * historical fields persisted on terminal transition. `eventLog` is the
+ * deserialized form of the DB's `event_log_json` column.
+ */
+const sessionEntrySchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  acpSessionId: z.string(),
+  parentConversationId: z.string().optional(),
+  status: z.string(),
+  startedAt: z.number(),
+  completedAt: z.number().nullable().optional(),
+  error: z.string().nullable().optional(),
+  stopReason: z.string().nullable().optional(),
+  eventLog: z.array(z.unknown()).optional(),
+});
+
+type SessionEntry = z.infer<typeof sessionEntrySchema>;
 
 export function acpRouteDefinitions(): RouteDefinition[] {
   return [
@@ -189,16 +219,122 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       policyKey: "acp",
       summary: "List ACP sessions",
-      description: "Return all active ACP sessions.",
+      description:
+        "Return the merged set of in-memory and persisted ACP sessions, " +
+        "newest first. In-memory sessions take precedence on id collision.",
       tags: ["acp"],
+      queryParams: [
+        {
+          name: "limit",
+          type: "integer",
+          required: false,
+          description: `Maximum number of sessions to return (default ${DEFAULT_SESSION_LIMIT}, max ${MAX_SESSION_LIMIT}).`,
+        },
+        {
+          name: "conversationId",
+          type: "string",
+          required: false,
+          description:
+            "Filter to sessions whose parentConversationId matches this value.",
+        },
+      ],
       responseBody: z.object({
-        sessions: z.array(z.unknown()).describe("ACP session status objects"),
+        sessions: z
+          .array(sessionEntrySchema)
+          .describe("Merged in-memory and persisted ACP sessions."),
       }),
-      handler: () => {
-        const manager = getAcpSessionManager();
-        const sessions = manager.getStatus();
+      handler: ({ url }) => {
+        const limit = parseLimit(url.searchParams.get("limit"));
+        const conversationId =
+          url.searchParams.get("conversationId") ?? undefined;
+        const sessions = listMergedSessions({ limit, conversationId });
         return Response.json({ sessions });
       },
     },
   ];
+}
+
+/**
+ * Parses the `?limit` query param. Falls back to the default when missing
+ * or non-numeric, and clamps positive values to `MAX_SESSION_LIMIT`. Zero
+ * and negative values fall back to the default rather than empty results.
+ */
+function parseLimit(raw: string | null): number {
+  if (raw === null) return DEFAULT_SESSION_LIMIT;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SESSION_LIMIT;
+  return Math.min(Math.floor(n), MAX_SESSION_LIMIT);
+}
+
+/**
+ * Merges in-memory sessions (`getStatus()`) with persisted history rows,
+ * deduping by id (in-memory wins), optionally filtering by parent
+ * conversation, sorting newest-first, and truncating to `limit`.
+ */
+function listMergedSessions(opts: {
+  limit: number;
+  conversationId?: string;
+}): SessionEntry[] {
+  const manager = getAcpSessionManager();
+  const inMemory = manager.getStatus() as AcpSessionState[];
+
+  const merged = new Map<string, SessionEntry>();
+  for (const s of inMemory) {
+    if (opts.conversationId && s.parentConversationId !== opts.conversationId) {
+      continue;
+    }
+    merged.set(s.id, {
+      id: s.id,
+      agentId: s.agentId,
+      acpSessionId: s.acpSessionId,
+      parentConversationId: s.parentConversationId,
+      status: s.status,
+      startedAt: s.startedAt,
+      completedAt: s.completedAt ?? null,
+      error: s.error ?? null,
+      stopReason: s.stopReason ?? null,
+    });
+  }
+
+  // The DB-side conversationId filter uses the
+  // `idx_acp_session_history_parent_conversation_id` index, and the
+  // newest-first sort uses `idx_acp_session_history_started_at`.
+  const db = getDb();
+  const baseQuery = db.select().from(acpSessionHistory);
+  const filtered = opts.conversationId
+    ? baseQuery.where(
+        eq(acpSessionHistory.parentConversationId, opts.conversationId),
+      )
+    : baseQuery;
+  const historyRows = filtered.orderBy(desc(acpSessionHistory.startedAt)).all();
+
+  for (const row of historyRows) {
+    if (merged.has(row.id)) continue; // in-memory wins on collision
+    let eventLog: unknown[] = [];
+    try {
+      const parsed = JSON.parse(row.eventLogJson) as unknown;
+      if (Array.isArray(parsed)) eventLog = parsed;
+    } catch (err) {
+      log.warn(
+        { id: row.id, err },
+        "Failed to parse event_log_json for ACP session history row",
+      );
+    }
+    merged.set(row.id, {
+      id: row.id,
+      agentId: row.agentId,
+      acpSessionId: row.acpSessionId,
+      parentConversationId: row.parentConversationId,
+      status: row.status,
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      error: row.error,
+      stopReason: row.stopReason,
+      eventLog,
+    });
+  }
+
+  return Array.from(merged.values())
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, opts.limit);
 }
