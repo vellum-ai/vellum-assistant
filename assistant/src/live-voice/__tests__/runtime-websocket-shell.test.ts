@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type {
+  StreamingTranscriber,
+  SttStreamServerEvent,
+} from "../../stt/types.js";
+
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -40,6 +45,44 @@ mock.module("../../config/loader.js", () => {
     invalidateConfigCache: () => {},
   };
 });
+
+class MockStreamingTranscriber implements StreamingTranscriber {
+  readonly providerId = "deepgram" as const;
+  readonly boundaryId = "daemon-streaming" as const;
+  readonly audioChunks: number[][] = [];
+  readonly mimeTypes: string[] = [];
+  started = false;
+  private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
+
+  async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
+    this.started = true;
+    this.onEvent = onEvent;
+  }
+
+  sendAudio(audio: Buffer, mimeType: string): void {
+    this.audioChunks.push([...audio]);
+    this.mimeTypes.push(mimeType);
+    this.onEvent?.({
+      type: "partial",
+      text: `partial-${this.audioChunks.length}`,
+    });
+  }
+
+  stop(): void {
+    this.onEvent?.({ type: "closed" });
+  }
+}
+
+const resolvedTranscribers: MockStreamingTranscriber[] = [];
+const resolveStreamingTranscriberMock = mock(async () => {
+  const transcriber = new MockStreamingTranscriber();
+  resolvedTranscribers.push(transcriber);
+  return transcriber;
+});
+
+mock.module("../../providers/speech-to-text/resolve.js", () => ({
+  resolveStreamingTranscriber: resolveStreamingTranscriberMock,
+}));
 
 import { CURRENT_POLICY_EPOCH } from "../../runtime/auth/policy.js";
 import { mintToken } from "../../runtime/auth/token-service.js";
@@ -191,6 +234,8 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   beforeEach(async () => {
     delete process.env.DISABLE_HTTP_AUTH;
     delete process.env.VELLUM_UNSAFE_AUTH_BYPASS;
+    resolveStreamingTranscriberMock.mockClear();
+    resolvedTranscribers.length = 0;
     clients = [];
     const port = 21100 + Math.floor(Math.random() * 300);
     server = new RuntimeHttpServer({ port, hostname: "127.0.0.1" });
@@ -256,7 +301,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     expect(externalOrigin.status).toBe(403);
   });
 
-  test("sends ready for a well-formed start frame", async () => {
+  test("routes start and audio frames through the real live voice session", async () => {
     const ws = openLiveVoiceClient();
     await waitForOpen(ws);
 
@@ -269,6 +314,21 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       conversationId: "conversation-ready",
     });
     expect(typeof ready.sessionId).toBe("string");
+    expect(resolveStreamingTranscriberMock).toHaveBeenCalledWith({
+      sampleRate: 24_000,
+    });
+    expect(resolvedTranscribers).toHaveLength(1);
+    expect(resolvedTranscribers[0]?.started).toBe(true);
+
+    ws.send(new Uint8Array([1, 2, 3]));
+    const partial = await waitForJsonFrame(ws);
+    expect(partial).toMatchObject({
+      type: "stt_partial",
+      seq: 2,
+      text: "partial-1",
+    });
+    expect(resolvedTranscribers[0]?.audioChunks).toEqual([[1, 2, 3]]);
+    expect(resolvedTranscribers[0]?.mimeTypes).toEqual(["audio/pcm"]);
   });
 
   test("sends an error for malformed frames and can still start", async () => {
