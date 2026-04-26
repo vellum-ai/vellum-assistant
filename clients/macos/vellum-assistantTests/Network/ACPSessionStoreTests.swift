@@ -626,6 +626,11 @@ final class ACPSessionStoreTests: XCTestCase {
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: lockfile, options: [.sortedKeys])
-        try data.write(to: LockfilePaths.primary, options: .atomic)
+        let primaryLockfileURL = LockfilePaths.primary
+        try FileManager.default.createDirectory(
+            at: primaryLockfileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: primaryLockfileURL, options: .atomic)
     }
 }
