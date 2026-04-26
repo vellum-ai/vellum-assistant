@@ -6,6 +6,21 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VoiceModeManager")
 
+@MainActor
+protocol LiveVoiceChannelManaging: AnyObject {
+    var state: LiveVoiceChannelManager.State { get }
+    var partialTranscript: String { get }
+    var finalTranscript: String { get }
+    var errorMessage: String { get }
+
+    func start(conversationId: String) async
+    func startListening() async
+    func stopListening() async
+    func end() async
+}
+
+extension LiveVoiceChannelManager: LiveVoiceChannelManaging {}
+
 /// Voice-mode state model.
 ///
 /// Marked `@Observable` so views reading only `state` are not invalidated by
@@ -21,6 +36,11 @@ final class VoiceModeManager {
 
     enum State: Equatable {
         case off, idle, listening, processing, speaking
+    }
+
+    private enum VoicePath {
+        case turnBased
+        case liveChannel
     }
 
     var state: State = .off {
@@ -42,6 +62,8 @@ final class VoiceModeManager {
     /// Injected separately from `voiceService` so VoiceModeManager does not
     /// need to know about `OpenAIVoiceService` or any concrete voice service type.
     @ObservationIgnored private let speechRecognizerAdapter: any SpeechRecognizerAdapter
+    @ObservationIgnored private let liveVoiceChannelManager: (any LiveVoiceChannelManaging)?
+    @ObservationIgnored private let liveVoiceAvailability: @MainActor () -> Bool
 
     /// Typed accessor for UI views that need observed amplitude properties.
     var openAIVoiceService: OpenAIVoiceService? {
@@ -70,12 +92,20 @@ final class VoiceModeManager {
     /// Last observed value from the isThinking observation loop, used to
     /// deduplicate redundant same-value writes and only act on actual transitions.
     @ObservationIgnored private var lastObservedIsThinking: Bool = false
+    @ObservationIgnored private var activeVoicePath: VoicePath = .turnBased
+    @ObservationIgnored private var liveVoiceObservationGeneration: Int = 0
+    @ObservationIgnored private var liveVoiceStartTask: Task<Void, Never>?
+    @ObservationIgnored private var liveFallbackAttemptedForSession = false
 
     init(
         voiceService: any VoiceServiceProtocol = OpenAIVoiceService(),
+        liveVoiceChannelManager: (any LiveVoiceChannelManaging)? = nil,
+        liveVoiceAvailability: @escaping @MainActor () -> Bool = { false },
         speechRecognizerAdapter: any SpeechRecognizerAdapter = AppleSpeechRecognizerAdapter()
     ) {
         self.voiceService = voiceService
+        self.liveVoiceChannelManager = liveVoiceChannelManager
+        self.liveVoiceAvailability = liveVoiceAvailability
         self.speechRecognizerAdapter = speechRecognizerAdapter
     }
 
@@ -105,8 +135,9 @@ final class VoiceModeManager {
         // Whisper), native speech recognition permission is not required — the
         // service handles transcription. Skip the speech auth guard entirely.
         let sttConfigured = STTProviderRegistry.isServiceConfigured
+        let liveVoiceEligible = canStartLiveVoiceSession(for: chatViewModel)
 
-        guard sttConfigured || speechRecognizerAdapter.authorizationStatus() == .authorized else {
+        guard liveVoiceEligible || sttConfigured || speechRecognizerAdapter.authorizationStatus() == .authorized else {
             log.error("Voice mode: speech recognition not authorized")
             awaitingAuthorization = true
             let status = speechRecognizerAdapter.authorizationStatus()
@@ -135,6 +166,8 @@ final class VoiceModeManager {
         awaitingAuthorization = false
         self.chatViewModel = chatViewModel
         self.settingsStore = settingsStore
+        activeVoicePath = .turnBased
+        liveFallbackAttemptedForSession = false
 
         // Provide the conversation ID to the voice service so the gateway TTS
         // endpoint can resolve the correct provider context.
@@ -151,12 +184,14 @@ final class VoiceModeManager {
 
         // Stream text deltas to TTS as they arrive
         chatViewModel.onVoiceTextDelta = { [weak self] delta in
-            self?.handleTextDelta(delta)
+            guard let self, self.activeVoicePath == .turnBased else { return }
+            self.handleTextDelta(delta)
         }
 
         // When the full response is complete, flush remaining text to TTS
         chatViewModel.onVoiceResponseComplete = { [weak self] _ in
-            self?.handleResponseComplete()
+            guard let self, self.activeVoicePath == .turnBased else { return }
+            self.handleResponseComplete()
         }
         chatViewModel.isVoiceModeActive = true
 
@@ -203,6 +238,17 @@ final class VoiceModeManager {
         // startListening() during teardown.
         state = .off
 
+        stopLiveVoiceObservation()
+        liveVoiceStartTask?.cancel()
+        liveVoiceStartTask = nil
+        if let liveVoiceChannelManager {
+            Task { @MainActor in
+                await liveVoiceChannelManager.end()
+            }
+        }
+        activeVoicePath = .turnBased
+        liveFallbackAttemptedForSession = false
+
         // Fully shut down audio engine to release the microphone
         voiceService.shutdown()
 
@@ -240,7 +286,11 @@ final class VoiceModeManager {
         case .listening:
             stopListening()
         case .speaking:
-            handleBargeIn()
+            if activeVoicePath == .liveChannel {
+                startListening()
+            } else {
+                handleBargeIn()
+            }
         default:
             break
         }
@@ -248,6 +298,27 @@ final class VoiceModeManager {
 
     func startListening() {
         guard state == .idle else { return }
+        if canStartLiveVoiceSession(for: chatViewModel),
+           let conversationId = liveVoiceConversationId(for: chatViewModel) {
+            startLiveVoiceListening(conversationId: conversationId)
+            return
+        }
+
+        startTurnBasedListeningWithAuthorization()
+    }
+
+    private func startTurnBasedListeningWithAuthorization() {
+        guard STTProviderRegistry.isServiceConfigured || speechRecognizerAdapter.authorizationStatus() == .authorized else {
+            requestTurnBasedSpeechAuthorizationThenStart()
+            return
+        }
+
+        startTurnBasedListening()
+    }
+
+    private func startTurnBasedListening() {
+        guard state == .idle else { return }
+        activeVoicePath = .turnBased
         partialTranscription = ""
         liveTranscription = ""
         errorMessage = ""
@@ -263,9 +334,170 @@ final class VoiceModeManager {
 
     private func stopListening() {
         guard state == .listening else { return }
+
+        if activeVoicePath == .liveChannel {
+            state = .processing
+            let liveVoiceChannelManager = liveVoiceChannelManager
+            Task { @MainActor in
+                await liveVoiceChannelManager?.stopListening()
+            }
+            log.info("Voice mode: released live voice push-to-talk")
+            return
+        }
+
         voiceService.cancelRecording()
         state = .idle
         log.info("Voice mode: stopped listening")
+    }
+
+    private func requestTurnBasedSpeechAuthorizationThenStart() {
+        let status = speechRecognizerAdapter.authorizationStatus()
+        guard status == .notDetermined else {
+            errorMessage = "Speech recognition permission is required for standard voice mode."
+            state = .idle
+            log.warning("Voice mode: standard voice fallback unavailable (speech status: \(status.rawValue))")
+            return
+        }
+
+        awaitingAuthorization = true
+        speechRecognizerAdapter.requestAuthorization { [weak self] newStatus in
+            Task { @MainActor in
+                guard let self, self.awaitingAuthorization, self.state == .idle else { return }
+                self.awaitingAuthorization = false
+                guard newStatus == .authorized else {
+                    self.errorMessage = "Speech recognition permission is required for standard voice mode."
+                    log.warning("Voice mode: speech recognition authorization denied during fallback")
+                    return
+                }
+                self.startTurnBasedListening()
+            }
+        }
+    }
+
+    private func liveVoiceConversationId(for chatViewModel: ChatViewModel?) -> String? {
+        guard let conversationId = chatViewModel?.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !conversationId.isEmpty else {
+            return nil
+        }
+        return conversationId
+    }
+
+    private func canStartLiveVoiceSession(for chatViewModel: ChatViewModel?) -> Bool {
+        liveVoiceChannelManager != nil
+            && liveVoiceAvailability()
+            && pendingPermissionIds.isEmpty
+            && liveVoiceConversationId(for: chatViewModel) != nil
+    }
+
+    private func startLiveVoiceListening(conversationId: String) {
+        guard let liveVoiceChannelManager else { return }
+
+        activeVoicePath = .liveChannel
+        liveFallbackAttemptedForSession = false
+        partialTranscription = ""
+        liveTranscription = ""
+        errorMessage = ""
+        state = .listening
+        startLiveVoiceObservation()
+
+        liveVoiceStartTask?.cancel()
+        liveVoiceStartTask = Task { @MainActor [weak self, weak liveVoiceChannelManager] in
+            guard let self, let liveVoiceChannelManager else { return }
+            await liveVoiceChannelManager.start(conversationId: conversationId)
+            guard !Task.isCancelled, self.activeVoicePath == .liveChannel else { return }
+            self.syncLiveVoiceState(from: liveVoiceChannelManager)
+        }
+        log.info("Voice mode: starting live voice channel")
+    }
+
+    private func startLiveVoiceObservation() {
+        liveVoiceObservationGeneration += 1
+        observeLiveVoiceLoop(generation: liveVoiceObservationGeneration)
+    }
+
+    private func stopLiveVoiceObservation() {
+        liveVoiceObservationGeneration += 1
+    }
+
+    private func observeLiveVoiceLoop(generation: Int) {
+        guard generation == liveVoiceObservationGeneration,
+              activeVoicePath == .liveChannel,
+              let liveVoiceChannelManager else { return }
+
+        withObservationTracking {
+            _ = liveVoiceChannelManager.state
+            _ = liveVoiceChannelManager.partialTranscript
+            _ = liveVoiceChannelManager.finalTranscript
+            _ = liveVoiceChannelManager.errorMessage
+        } onChange: { [weak self, weak liveVoiceChannelManager] in
+            Task { @MainActor [weak self, weak liveVoiceChannelManager] in
+                guard let self,
+                      let liveVoiceChannelManager,
+                      generation == self.liveVoiceObservationGeneration else { return }
+                self.syncLiveVoiceState(from: liveVoiceChannelManager)
+                self.observeLiveVoiceLoop(generation: generation)
+            }
+        }
+    }
+
+    private func syncLiveVoiceState(from liveVoiceChannelManager: any LiveVoiceChannelManaging) {
+        guard activeVoicePath == .liveChannel, state != .off else { return }
+
+        let visibleTranscript = liveVoiceChannelManager.partialTranscript.isEmpty
+            ? liveVoiceChannelManager.finalTranscript
+            : liveVoiceChannelManager.partialTranscript
+        if liveTranscription != visibleTranscript {
+            liveTranscription = visibleTranscript
+        }
+        if partialTranscription != liveVoiceChannelManager.finalTranscript {
+            partialTranscription = liveVoiceChannelManager.finalTranscript
+        }
+
+        switch liveVoiceChannelManager.state {
+        case .idle:
+            state = .idle
+        case .connecting, .listening:
+            state = .listening
+        case .transcribing, .thinking, .ending:
+            state = .processing
+        case .speaking:
+            state = .speaking
+        case .failed:
+            handleLiveVoiceFailure(message: liveVoiceChannelManager.errorMessage)
+        }
+    }
+
+    private func handleLiveVoiceFailure(message: String) {
+        guard activeVoicePath == .liveChannel else { return }
+        stopLiveVoiceObservation()
+
+        let fallbackMessage = message.isEmpty ? "Live voice is unavailable." : message
+        guard !liveFallbackAttemptedForSession else {
+            errorMessage = fallbackMessage
+            state = .idle
+            return
+        }
+
+        liveFallbackAttemptedForSession = true
+        activeVoicePath = .turnBased
+        errorMessage = "Live voice is unavailable. Using standard voice mode."
+        state = .idle
+        log.warning("Voice mode: live channel failed, falling back to standard voice mode — \(fallbackMessage, privacy: .public)")
+        startTurnBasedListeningWithAuthorization()
+    }
+
+    private func leaveLiveVoiceChannelForTurnBasedVoice() {
+        guard activeVoicePath == .liveChannel else { return }
+
+        stopLiveVoiceObservation()
+        liveVoiceStartTask?.cancel()
+        liveVoiceStartTask = nil
+        activeVoicePath = .turnBased
+
+        let liveVoiceChannelManager = liveVoiceChannelManager
+        Task { @MainActor in
+            await liveVoiceChannelManager?.end()
+        }
     }
 
     // MARK: - Silence Detection → Transcription
@@ -376,6 +608,11 @@ final class VoiceModeManager {
 
         pendingPermissionIds = pending.map { $0.requestId }
 
+        let wasUsingLiveVoice = activeVoicePath == .liveChannel
+        if wasUsingLiveVoice {
+            leaveLiveVoiceChannelForTurnBasedVoice()
+        }
+
         // Stop any current activity before speaking the permission prompt
         switch state {
         case .speaking:
@@ -384,9 +621,15 @@ final class VoiceModeManager {
             ttsTimeoutTask?.cancel()
             ttsTimeoutTask = nil
             state = .processing
-            voiceService.stopSpeaking()
+            if !wasUsingLiveVoice {
+                voiceService.stopSpeaking()
+            }
         case .listening:
-            voiceService.cancelRecording()
+            if wasUsingLiveVoice {
+                state = .processing
+            } else {
+                voiceService.cancelRecording()
+            }
         default:
             break
         }
