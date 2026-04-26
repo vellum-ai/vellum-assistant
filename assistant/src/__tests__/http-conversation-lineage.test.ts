@@ -212,7 +212,6 @@ describe("conversation lineage in HTTP reads", () => {
   async function startServer(): Promise<void> {
     server = new RuntimeHttpServer({
       port: 0,
-      bearerToken: "test-bearer-token",
     });
     await server.start();
   }

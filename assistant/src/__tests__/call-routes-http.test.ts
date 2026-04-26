@@ -163,7 +163,7 @@ describe("runtime call routes — HTTP layer", () => {
   });
 
   async function startServer(): Promise<void> {
-    server = new RuntimeHttpServer({ port: 0, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port: 0 });
     await server.start();
     port = server.actualPort;
   }

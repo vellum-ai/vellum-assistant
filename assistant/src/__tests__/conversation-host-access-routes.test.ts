@@ -184,7 +184,6 @@ describe("conversation host-access transport", () => {
 
     server = new RuntimeHttpServer({
       port: 0,
-      bearerToken: "test-bearer-token",
     });
     await server.start();
 

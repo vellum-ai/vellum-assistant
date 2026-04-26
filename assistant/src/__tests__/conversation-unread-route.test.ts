@@ -49,7 +49,7 @@ describe("POST /v1/conversations/unread", () => {
 
   async function startServer(): Promise<void> {
     port = 20000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: "test-bearer-token" });
+    server = new RuntimeHttpServer({ port });
     await server.start();
   }
 

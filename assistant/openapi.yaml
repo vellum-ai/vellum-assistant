@@ -1448,7 +1448,7 @@ paths:
     get:
       operationId: braingraphui_get
       summary: Serve brain graph UI
-      description: Return the brain-graph HTML visualization page with an embedded auth token.
+      description: Return the brain-graph HTML visualization page. The gateway injects an auth token before serving.
       tags:
         - brain-graph
       responses:

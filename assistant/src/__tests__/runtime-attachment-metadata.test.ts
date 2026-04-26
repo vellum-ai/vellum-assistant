@@ -63,7 +63,7 @@ describe("Runtime attachment metadata", () => {
 
     // Use a random port to avoid conflicts
     port = 17000 + Math.floor(Math.random() * 1000);
-    server = new RuntimeHttpServer({ port, bearerToken: TEST_TOKEN });
+    server = new RuntimeHttpServer({ port });
     await server.start();
   });
 
@@ -281,7 +281,6 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     ingressPort = 18000 + Math.floor(Math.random() * 1000);
     ingressServer = new RuntimeHttpServer({
       port: ingressPort,
-      bearerToken: TEST_TOKEN,
       processMessage: noopProcessMessage,
     });
     await ingressServer.start();

@@ -108,7 +108,6 @@ describe("daemon lifecycle startup ordering", () => {
     // lifecycle.ts, this assertion fires.
     server = new RuntimeHttpServer({
       port: 0,
-      bearerToken: "test-bearer-token",
       sendMessageDeps: {
         getOrCreateConversation: async () => {
           throw new Error("not used in this test");

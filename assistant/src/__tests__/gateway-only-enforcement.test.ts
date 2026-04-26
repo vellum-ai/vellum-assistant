@@ -167,7 +167,6 @@ describe("gateway-only ingress enforcement", () => {
     server = new RuntimeHttpServer({
       port: 0,
       hostname: "127.0.0.1",
-      bearerToken: TEST_TOKEN,
     });
     await server.start();
     port = server.actualPort;
@@ -898,7 +897,6 @@ describe("gateway-only ingress enforcement", () => {
       const warnServer = new RuntimeHttpServer({
         port: 0,
         hostname: "0.0.0.0",
-        bearerToken: TEST_TOKEN,
       });
       await warnServer.start();
       expect(warnServer.actualPort).toBeGreaterThan(0);
@@ -909,7 +907,6 @@ describe("gateway-only ingress enforcement", () => {
       const loopbackServer = new RuntimeHttpServer({
         port: 0,
         hostname: "127.0.0.1",
-        bearerToken: TEST_TOKEN,
       });
       await loopbackServer.start();
       expect(loopbackServer.actualPort).toBeGreaterThan(0);

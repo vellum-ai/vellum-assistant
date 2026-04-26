@@ -290,7 +290,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
     port = 20000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
       port,
-      bearerToken: TEST_TOKEN,
       sendMessageDeps: {
         getOrCreateConversation: async () => conversationFactory(),
         assistantEventHub: eventHub,

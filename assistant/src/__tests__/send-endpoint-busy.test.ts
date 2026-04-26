@@ -364,7 +364,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     port = 19000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
       port,
-      bearerToken: TEST_TOKEN,
       approvalConversationGenerator: options?.approvalConversationGenerator,
       sendMessageDeps: {
         getOrCreateConversation: async () => conversationFactory(),
