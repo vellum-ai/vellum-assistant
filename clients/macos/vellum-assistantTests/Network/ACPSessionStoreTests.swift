@@ -394,6 +394,75 @@ final class ACPSessionStoreTests: XCTestCase {
         XCTAssertEqual(after.events.count, 1)
     }
 
+    // MARK: - Delete
+
+    func test_delete_removesSessionAndOrderEntry_onSuccess() async {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-1",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-2",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+        XCTAssertEqual(store.sessions.count, 2)
+        XCTAssertEqual(Set(store.sessionOrder), Set(["acp-1", "acp-2"]))
+
+        MockACPSessionStoreURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"deleted":true}"#.utf8))
+        }
+
+        let result = await store.delete(id: "acp-1")
+
+        guard case .success(true) = result else {
+            return XCTFail("Expected .success(true), got \(result)")
+        }
+        XCTAssertNil(store.sessions["acp-1"], "Deleted session should be removed from sessions")
+        XCTAssertNotNil(store.sessions["acp-2"], "Other sessions should be left alone")
+        XCTAssertFalse(store.sessionOrder.contains("acp-1"), "sessionOrder should not include deleted id")
+        XCTAssertTrue(store.sessionOrder.contains("acp-2"))
+    }
+
+    func test_delete_leavesStoreUntouched_onFailure() async {
+        let store = ACPSessionStore()
+        store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
+            acpSessionId: "acp-active",
+            agent: "a",
+            parentConversationId: "c"
+        )))
+        XCTAssertNotNil(store.sessions["acp-active"])
+
+        // Daemon returns 409 when the session is still active — store must
+        // not optimistically drop the row.
+        MockACPSessionStoreURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 409,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data())
+        }
+
+        let result = await store.delete(id: "acp-active")
+
+        guard case .failure = result else {
+            return XCTFail("Expected .failure, got \(result)")
+        }
+        XCTAssertNotNil(store.sessions["acp-active"], "Failed delete should leave the row in place")
+        XCTAssertTrue(store.sessionOrder.contains("acp-active"))
+    }
+
     // MARK: - Helpers
 
     private func installLockfileFixture() throws {

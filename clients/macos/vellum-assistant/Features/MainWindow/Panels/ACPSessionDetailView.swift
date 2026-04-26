@@ -7,9 +7,9 @@ import VellumAssistantShared
 ///
 /// Renders a header (agent + status + elapsed + parent-conversation link), a
 /// scrolling timeline of `ACPSessionUpdateMessage` events grouped into visual
-/// rows, and — for running sessions when a ``ACPSessionStore`` is supplied —
-/// a steering footer (textbox + button) that lets the user redirect the
-/// agent mid-run. Tool calls coalesce with their `tool_call_update` siblings
+/// rows, and a context-sensitive footer: a steering textbox+button for
+/// running sessions, or a "Delete from history" button once the session is
+/// terminal. Tool calls coalesce with their `tool_call_update` siblings
 /// (latest update wins) so a streaming tool that emits multiple status
 /// transitions still renders as a single row.
 ///
@@ -19,19 +19,23 @@ import VellumAssistantShared
 ///
 /// A Cancel button surfaces while the session is `running`/`initializing`
 /// (PR 24); a Steer textbox + button surfaces while the session is `running`
-/// (PR 25). The delete affordance arrives in PR 26.
+/// (PR 25); a "Delete from history" button surfaces once the session is
+/// terminal (PR 26).
 struct ACPSessionDetailView: View {
     let session: ACPSessionViewModel
-    /// Store used to drive optimistic mutations from this view (cancel and
-    /// steer today; delete in PR 26). Held by reference so the view always
-    /// invokes the caller-owned instance — there's only one ``ACPSessionStore``
-    /// per app.
+    /// Store used to drive optimistic mutations from this view (cancel,
+    /// steer, delete). Held by reference so the view always invokes the
+    /// caller-owned instance — there's only one ``ACPSessionStore`` per app.
     let store: ACPSessionStore
     /// Tap on the parent-conversation link. Wired by PR 22; nil hides the link.
     var onSelectParentConversation: ((String) -> Void)? = nil
     /// Optional close action — surfaces the design-system close button when
     /// this view is hosted inside a panel container that can dismiss itself.
     var onClose: (() -> Void)? = nil
+    /// Pop-to-list callback fired after a successful "Delete from history".
+    /// Hosting view (the panel's `NavigationStack`) is responsible for the
+    /// actual back-pop; we just signal that the underlying row is gone.
+    var onDismiss: (() -> Void)? = nil
 
     /// True while a cancel HTTP request is in flight. Disables the button and
     /// shows an inline spinner so the user can't double-tap.
@@ -59,6 +63,9 @@ struct ACPSessionDetailView: View {
     /// Bound text content of the steer textbox. Cleared on every successful
     /// submission so the field is ready for the next instruction.
     @State private var steerInput: String = ""
+    /// True while a "Delete from history" request is in flight. Gates the
+    /// button so a flurry of taps can't spawn duplicate requests.
+    @State private var isDeleting = false
 
     /// Persisted preference for whether agent-thought bubbles render in the
     /// timeline. Defaults to `true` so first-time users see the assistant's
@@ -77,6 +84,10 @@ struct ACPSessionDetailView: View {
             if session.state.status == .running {
                 Divider().background(VColor.borderBase)
                 steerFooter
+            }
+            if isDeletable {
+                Divider().background(VColor.borderBase)
+                deleteFooter
             }
         }
     }
@@ -588,6 +599,55 @@ struct ACPSessionDetailView: View {
         // `acpSessionId` (not `state.id`) is the daemon-side session handle
         // the steer route accepts and the store keys its dictionary by.
         Task { await store.steer(id: session.state.acpSessionId, instruction: instruction) }
+    }
+
+    // MARK: - Delete Footer
+
+    /// Delete-from-history is only meaningful once the session has reached a
+    /// terminal status. The daemon also enforces this with a 409 on active
+    /// sessions, so gating the button is purely about avoiding a confusing
+    /// affordance that would always fail.
+    ///
+    /// `internal` rather than `private` so unit tests in `VellumAssistantLib`
+    /// can verify the gating without rendering the view.
+    var isDeletable: Bool {
+        ACPSessionStore.isTerminal(session.state.status)
+    }
+
+    @ViewBuilder
+    private var deleteFooter: some View {
+        HStack(alignment: .center, spacing: VSpacing.sm) {
+            Spacer()
+            VButton(
+                label: "Delete from history",
+                leftIcon: "trash",
+                style: .dangerGhost,
+                size: .compact,
+                isDisabled: isDeleting
+            ) {
+                handleDeleteTap()
+            }
+            .accessibilityLabel("Delete session from history")
+        }
+        .padding(EdgeInsets(top: VSpacing.md, leading: VSpacing.lg, bottom: VSpacing.md, trailing: VSpacing.lg))
+    }
+
+    /// `internal` rather than `private` so unit tests in `VellumAssistantLib`
+    /// can drive the delete flow without reaching into SwiftUI's view tree.
+    func handleDeleteTap() {
+        guard !isDeleting else { return }
+        isDeleting = true
+        let id = session.state.acpSessionId
+        Task { @MainActor in
+            let result = await store.delete(id: id)
+            isDeleting = false
+            // Pop only on a successful row removal so the user has a chance
+            // to react if the daemon reports a 409 (still active) or other
+            // failure — the row stays put and the button re-enables.
+            if case .success = result {
+                onDismiss?()
+            }
+        }
     }
 }
 
