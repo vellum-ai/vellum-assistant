@@ -291,6 +291,23 @@ public final class MainWindowState {
         LayoutConfigStore.save(layoutConfig)
     }
 
+    /// Whether the right slot is currently showing the given native panel.
+    func isRightSlotShowing(_ panel: NativePanelId) -> Bool {
+        layoutConfig.right.visible && layoutConfig.right.content == .native(panel)
+    }
+
+    /// Toggle the right slot between showing the given native panel and hidden.
+    /// Persists the updated layout via `LayoutConfigStore`.
+    func toggleRightSlot(_ panel: NativePanelId) {
+        if isRightSlotShowing(panel) {
+            layoutConfig.right.visible = false
+        } else {
+            layoutConfig.right.content = .native(panel)
+            layoutConfig.right.visible = true
+        }
+        LayoutConfigStore.save(layoutConfig)
+    }
+
     func clearDynamicWorkspaceState() {
         activeDynamicSurface = nil
         activeDynamicParsedSurface = nil

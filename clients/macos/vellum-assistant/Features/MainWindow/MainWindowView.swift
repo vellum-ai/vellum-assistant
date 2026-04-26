@@ -512,6 +512,16 @@ struct MainWindowView: View {
                     .vTooltip(homeTooltip)
                 }
 
+                VButton(
+                    label: "Coding Agents",
+                    iconOnly: VIcon.terminal.rawValue,
+                    style: .ghost,
+                    isActive: windowState.isRightSlotShowing(.acpSessions)
+                ) {
+                    windowState.toggleRightSlot(.acpSessions)
+                }
+                .vTooltip("Coding Agents")
+
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
                     AppDelegate.shared?.toggleCommandPalette()
                 }
