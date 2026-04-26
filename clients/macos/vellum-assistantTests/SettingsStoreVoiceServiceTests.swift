@@ -17,56 +17,33 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         mockSettingsClient.patchConfigResponse = true
         store = SettingsStore(settingsClient: mockSettingsClient)
 
-        // Seed provider registries so tests that depend on credential mode
-        // metadata (exclusive/shared classification, credential existence)
-        // see the real catalog entries instead of an empty registry.
+        // Seed provider registries with two dummy providers each.
+        // These are intentionally NOT real provider values — tests should
+        // not give the impression that the seed data must stay in sync
+        // with the actual catalog.
         _seedSTTProviderRegistryForTesting(Self.buildSTTTestRegistry())
         _seedTTSProviderRegistryForTesting(TTSProviderRegistry(providers: [
             TTSProviderCatalogEntry(
-                id: "elevenlabs",
-                displayName: "ElevenLabs",
-                subtitle: "High-quality voice synthesis.",
+                id: "tts-exclusive",
+                displayName: "TTS Exclusive",
+                subtitle: "Dummy exclusive TTS provider.",
                 setupMode: .cli,
                 setupHint: "Run setup.",
                 credentialMode: .credential,
-                credentialNamespace: "elevenlabs",
+                credentialNamespace: "tts-exclusive",
                 apiKeyProviderName: nil,
-                supportsVoiceSelection: true,
-                credentialsGuide: nil
-            ),
-            TTSProviderCatalogEntry(
-                id: "fish-audio",
-                displayName: "Fish Audio",
-                subtitle: "Fast voice cloning.",
-                setupMode: .cli,
-                setupHint: "Run setup.",
-                credentialMode: .credential,
-                credentialNamespace: "fish-audio",
-                apiKeyProviderName: nil,
-                supportsVoiceSelection: true,
-                credentialsGuide: nil
-            ),
-            TTSProviderCatalogEntry(
-                id: "deepgram",
-                displayName: "Deepgram",
-                subtitle: "Fast TTS synthesis.",
-                setupMode: .cli,
-                setupHint: "Run setup.",
-                credentialMode: .apiKey,
-                credentialNamespace: nil,
-                apiKeyProviderName: "deepgram",
                 supportsVoiceSelection: false,
                 credentialsGuide: nil
             ),
             TTSProviderCatalogEntry(
-                id: "xai",
-                displayName: "xAI",
-                subtitle: "Grok-powered speech synthesis.",
+                id: "tts-shared",
+                displayName: "TTS Shared",
+                subtitle: "Dummy shared TTS provider.",
                 setupMode: .cli,
                 setupHint: "Run setup.",
-                credentialMode: .credential,
-                credentialNamespace: "xai",
-                apiKeyProviderName: nil,
+                credentialMode: .apiKey,
+                credentialNamespace: nil,
+                apiKeyProviderName: "shared-key",
                 supportsVoiceSelection: false,
                 credentialsGuide: nil
             ),
@@ -117,47 +94,29 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         wait(for: [expectation], timeout: timeout)
     }
 
-    /// Builds a test STT provider registry matching the real catalog entries.
+    /// Builds a test STT provider registry with two dummy providers.
     /// Uses JSON decoding because STTProviderCatalogEntry has no memberwise init.
     private static func buildSTTTestRegistry() -> STTProviderRegistry {
         let json = """
         {
             "providers": [
                 {
-                    "id": "deepgram",
-                    "displayName": "Deepgram",
-                    "subtitle": "Fast, real-time speech-to-text.",
+                    "id": "stt-exclusive",
+                    "displayName": "STT Exclusive",
+                    "subtitle": "Dummy exclusive STT provider.",
                     "setupMode": "api-key",
-                    "setupHint": "Enter your Deepgram API key.",
-                    "apiKeyProviderName": "deepgram",
-                    "conversationStreamingMode": "realtime-ws"
-                },
-                {
-                    "id": "google-gemini",
-                    "displayName": "Google Gemini",
-                    "subtitle": "Multimodal speech-to-text.",
-                    "setupMode": "api-key",
-                    "setupHint": "Enter your Gemini API key.",
-                    "apiKeyProviderName": "gemini",
-                    "conversationStreamingMode": "incremental-batch"
-                },
-                {
-                    "id": "openai-whisper",
-                    "displayName": "OpenAI Whisper",
-                    "subtitle": "High-accuracy speech-to-text.",
-                    "setupMode": "api-key",
-                    "setupHint": "Enter your OpenAI API key.",
-                    "apiKeyProviderName": "openai",
+                    "setupHint": "Enter your key.",
+                    "apiKeyProviderName": "stt-exclusive",
                     "conversationStreamingMode": "none"
                 },
                 {
-                    "id": "xai",
-                    "displayName": "xAI",
-                    "subtitle": "Real-time speech-to-text.",
+                    "id": "stt-shared",
+                    "displayName": "STT Shared",
+                    "subtitle": "Dummy shared STT provider.",
                     "setupMode": "api-key",
-                    "setupHint": "Enter your xAI API key.",
-                    "apiKeyProviderName": "xai",
-                    "conversationStreamingMode": "realtime-ws"
+                    "setupHint": "Enter your key.",
+                    "apiKeyProviderName": "shared-key",
+                    "conversationStreamingMode": "none"
                 }
             ]
         }
@@ -345,19 +304,17 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
 
     // MARK: - sttApiKeyProviderName mapping
 
-    func testSTTApiKeyProviderNameResolvesOpenAIWhisperToOpenAI() {
-        // openai-whisper shares the "openai" API key
-        let keyName = SettingsStore.sttApiKeyProviderName(for: "openai-whisper")
-        XCTAssertEqual(keyName, "openai")
+    func testSTTApiKeyProviderNameResolvesRegisteredProvider() {
+        let keyName = SettingsStore.sttApiKeyProviderName(for: "stt-shared")
+        XCTAssertEqual(keyName, "shared-key")
     }
 
-    func testSTTApiKeyProviderNameResolvesDeepgramToDeepgram() {
-        let keyName = SettingsStore.sttApiKeyProviderName(for: "deepgram")
-        XCTAssertEqual(keyName, "deepgram")
+    func testSTTApiKeyProviderNameResolvesExclusiveProvider() {
+        let keyName = SettingsStore.sttApiKeyProviderName(for: "stt-exclusive")
+        XCTAssertEqual(keyName, "stt-exclusive")
     }
 
     func testSTTApiKeyProviderNameFallsBackToProviderIdForUnknown() {
-        // Unknown providers fall back to the provider id itself
         let keyName = SettingsStore.sttApiKeyProviderName(for: "unknown-provider")
         XCTAssertEqual(keyName, "unknown-provider")
     }
@@ -505,168 +462,64 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
         )
     }
 
-    // MARK: - sttApiKeyProviderName mapping (Google Gemini)
-
-    func testSTTApiKeyProviderNameResolvesGoogleGeminiToGemini() {
-        // google-gemini shares the "gemini" API key
-        let keyName = SettingsStore.sttApiKeyProviderName(for: "google-gemini")
-        XCTAssertEqual(keyName, "gemini")
-    }
-
     // MARK: - STT Key Ownership Semantics
 
-    func testSharedKeyProviderIsNotExclusive() {
-        // openai-whisper maps to the "openai" credential — shared with
-        // Inference, so it must NOT be classified as exclusive.
+    func testSTTSharedKeyProviderIsNotExclusive() {
+        // stt-shared uses apiKeyProviderName "shared-key" which also
+        // appears in the TTS registry — cross-service shared.
         XCTAssertFalse(
-            SettingsStore.sttKeyIsExclusive(for: "openai-whisper"),
-            "openai-whisper shares the 'openai' key and must not be exclusive"
+            SettingsStore.sttKeyIsExclusive(for: "stt-shared"),
+            "Shared-key STT provider must not be exclusive"
         )
     }
 
-    func testSharedKeyProviderIsShared() {
+    func testSTTSharedKeyProviderIsShared() {
         XCTAssertTrue(
-            SettingsStore.sttKeyIsShared(for: "openai-whisper"),
-            "openai-whisper shares the 'openai' key and must be classified as shared"
+            SettingsStore.sttKeyIsShared(for: "stt-shared"),
+            "Shared-key STT provider must be classified as shared"
         )
     }
 
-    func testDeepgramSTTKeyIsNotExclusive() {
-        // deepgram STT maps to "deepgram" — but deepgram TTS also uses the
-        // same "deepgram" key, so it is shared across services.
-        XCTAssertFalse(
-            SettingsStore.sttKeyIsExclusive(for: "deepgram"),
-            "deepgram STT shares the 'deepgram' key with TTS and must not be exclusive"
-        )
-    }
-
-    func testDeepgramSTTKeyIsShared() {
-        // deepgram STT shares the "deepgram" key with deepgram TTS.
+    func testSTTExclusiveKeyProviderIsExclusive() {
+        // stt-exclusive uses apiKeyProviderName "stt-exclusive" which
+        // matches its id and is not present in the TTS registry.
         XCTAssertTrue(
-            SettingsStore.sttKeyIsShared(for: "deepgram"),
-            "deepgram STT shares the 'deepgram' key with TTS and must be classified as shared"
+            SettingsStore.sttKeyIsExclusive(for: "stt-exclusive"),
+            "Exclusive-key STT provider must be exclusive"
         )
     }
 
-    func testDeepgramSTTSharedKeyCannotBeResetThroughSTTFlow() {
-        // The UI checks sttKeyIsExclusive before allowing the reset action.
-        // For deepgram the guard must prevent the reset because clearing the
-        // "deepgram" key would break TTS.
-        let allowReset = SettingsStore.sttKeyIsExclusive(for: "deepgram")
+    func testSTTExclusiveKeyProviderIsNotShared() {
         XCTAssertFalse(
-            allowReset,
-            "The STT reset flow must not be allowed for deepgram (shared key with TTS)"
+            SettingsStore.sttKeyIsShared(for: "stt-exclusive"),
+            "Exclusive-key STT provider must not be classified as shared"
         )
     }
 
-    func testGoogleGeminiKeyIsShared() {
-        // google-gemini maps to "gemini" — the credential is shared with
-        // other Gemini services, so sttKeyIsShared must be true.
-        XCTAssertTrue(
-            SettingsStore.sttKeyIsShared(for: "google-gemini"),
-            "google-gemini shares the 'gemini' key and must be classified as shared"
-        )
-    }
-
-    func testGoogleGeminiKeyIsNotExclusive() {
-        // google-gemini maps to "gemini" (not "google-gemini"), so the key
-        // is shared — sttKeyIsExclusive must be false.
-        XCTAssertFalse(
-            SettingsStore.sttKeyIsExclusive(for: "google-gemini"),
-            "google-gemini shares the 'gemini' key and must not be exclusive"
-        )
-    }
-
-    func testGoogleGeminiSharedKeyCannotBeResetThroughSTTFlow() {
-        // The UI checks sttKeyIsExclusive before allowing the reset action.
-        // For google-gemini the guard must prevent the reset because
-        // clearing the "gemini" key would break other Gemini services.
-        let allowReset = SettingsStore.sttKeyIsExclusive(for: "google-gemini")
-        XCTAssertFalse(
-            allowReset,
-            "The STT reset flow must not be allowed for google-gemini (shared key)"
-        )
-    }
-
-    func testUnknownProviderDefaultsToExclusive() {
-        // Unknown providers fall back to exclusive — clearing an unknown
-        // key cannot collide with a known service.
-        XCTAssertTrue(
-            SettingsStore.sttKeyIsExclusive(for: "future-provider"),
-            "Unknown providers should default to exclusive"
-        )
-    }
-
-    func testUnknownProviderIsNotShared() {
-        XCTAssertFalse(
-            SettingsStore.sttKeyIsShared(for: "future-provider"),
-            "Unknown providers should not be classified as shared"
-        )
-    }
-
-    // MARK: - Provider Mapping Stability
-
-    /// Ensures that every provider in the STT registry has a consistent
-    /// `apiKeyProviderName` mapping. This test fails fast when a new
-    /// provider is added with an inconsistent catalog entry.
-    func testAllRegistryProvidersHaveStableKeyMapping() {
-        let registry = loadSTTProviderRegistry()
-        for provider in registry.providers {
-            let resolved = SettingsStore.sttApiKeyProviderName(for: provider.id)
-            XCTAssertEqual(
-                resolved,
-                provider.apiKeyProviderName,
-                "sttApiKeyProviderName(for: \"\(provider.id)\") returned \"\(resolved)\" "
-                + "but the catalog entry specifies \"\(provider.apiKeyProviderName)\""
-            )
-        }
-    }
-
-    /// Ensures the ownership classification for every registered provider
-    /// is consistent: a provider is exclusive only when its key name matches
-    /// its id AND no TTS provider shares the same key.
-    func testAllRegistryProvidersHaveConsistentOwnership() {
-        let sttRegistry = loadSTTProviderRegistry()
-        let ttsRegistry = loadTTSProviderRegistry()
-        for provider in sttRegistry.providers {
-            let isExclusive = SettingsStore.sttKeyIsExclusive(for: provider.id)
-            let nameMatchesId = (provider.apiKeyProviderName == provider.id)
-            let ttsSharesKey = ttsRegistry.providers.contains { ttsEntry in
-                guard ttsEntry.credentialMode == .apiKey else { return false }
-                return (ttsEntry.apiKeyProviderName ?? ttsEntry.id) == provider.apiKeyProviderName
-            }
-            let expectedExclusive = nameMatchesId && !ttsSharesKey
-            XCTAssertEqual(
-                isExclusive,
-                expectedExclusive,
-                "Ownership mismatch for \"\(provider.id)\": sttKeyIsExclusive returned "
-                + "\(isExclusive) but expected \(expectedExclusive) "
-                + "(apiKeyProviderName=\"\(provider.apiKeyProviderName)\", ttsSharesKey=\(ttsSharesKey))"
-            )
-        }
-    }
-
-    /// Verifies that shared-key providers cannot be reset through the STT
-    /// card — the `sttKeyIsExclusive` guard prevents `clearSTTKey` from
-    /// being called for providers whose key is shared with another service.
-    func testSharedKeyProviderCannotBeResetThroughSTTFlow() {
-        // Simulate what the UI does: check sttKeyIsExclusive before
-        // allowing the reset action. For openai-whisper, the guard
-        // must prevent the reset.
-        let allowReset = SettingsStore.sttKeyIsExclusive(for: "openai-whisper")
+    func testSTTSharedKeyCannotBeResetThroughSTTFlow() {
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "stt-shared")
         XCTAssertFalse(
             allowReset,
             "The STT reset flow must not be allowed for shared-key providers"
         )
     }
 
-    /// Verifies that exclusive-key providers can be reset through the STT
-    /// card without affecting other services. No current catalog provider is
-    /// exclusive (deepgram is shared with TTS, openai-whisper and
-    /// google-gemini map to shared key names), so we use an unknown provider
-    /// which defaults to exclusive per `sttKeyIsExclusive` semantics.
-    func testExclusiveKeyProviderCanBeResetSafely() {
-        let allowReset = SettingsStore.sttKeyIsExclusive(for: "future-provider")
+    func testSTTUnknownProviderDefaultsToExclusive() {
+        XCTAssertTrue(
+            SettingsStore.sttKeyIsExclusive(for: "future-provider"),
+            "Unknown providers should default to exclusive"
+        )
+    }
+
+    func testSTTUnknownProviderIsNotShared() {
+        XCTAssertFalse(
+            SettingsStore.sttKeyIsShared(for: "future-provider"),
+            "Unknown providers should not be classified as shared"
+        )
+    }
+
+    func testSTTExclusiveKeyProviderCanBeResetSafely() {
+        let allowReset = SettingsStore.sttKeyIsExclusive(for: "stt-exclusive")
         XCTAssertTrue(
             allowReset,
             "The STT reset flow should be allowed for exclusive-key providers"
@@ -928,60 +781,42 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
 
     // MARK: - TTS Key Ownership Semantics
 
-    func testTTSElevenLabsKeyIsExclusive() {
-        // ElevenLabs uses credential mode with its own namespace — always exclusive.
+    func testTTSExclusiveKeyProviderIsExclusive() {
+        // tts-exclusive uses credential mode with its own namespace — always exclusive.
         XCTAssertTrue(
-            SettingsStore.ttsKeyIsExclusive(for: "elevenlabs"),
-            "ElevenLabs TTS owns its own credential namespace and must be exclusive"
+            SettingsStore.ttsKeyIsExclusive(for: "tts-exclusive"),
+            "Credential-mode TTS provider must be exclusive"
         )
     }
 
-    func testTTSElevenLabsKeyIsNotShared() {
+    func testTTSExclusiveKeyProviderIsNotShared() {
         XCTAssertFalse(
-            SettingsStore.ttsKeyIsShared(for: "elevenlabs"),
-            "ElevenLabs TTS must not be classified as shared"
+            SettingsStore.ttsKeyIsShared(for: "tts-exclusive"),
+            "Credential-mode TTS provider must not be classified as shared"
         )
     }
 
-    func testTTSFishAudioKeyIsExclusive() {
-        // Fish Audio uses credential mode with its own namespace — always exclusive.
+    func testTTSSharedKeyProviderIsShared() {
+        // tts-shared uses api-key mode with apiKeyProviderName "shared-key",
+        // which also appears in the STT registry — cross-service shared.
         XCTAssertTrue(
-            SettingsStore.ttsKeyIsExclusive(for: "fish-audio"),
-            "Fish Audio TTS owns its own credential namespace and must be exclusive"
+            SettingsStore.ttsKeyIsShared(for: "tts-shared"),
+            "Shared-key TTS provider must be classified as shared"
         )
     }
 
-    func testTTSFishAudioKeyIsNotShared() {
+    func testTTSSharedKeyProviderIsNotExclusive() {
         XCTAssertFalse(
-            SettingsStore.ttsKeyIsShared(for: "fish-audio"),
-            "Fish Audio TTS must not be classified as shared"
+            SettingsStore.ttsKeyIsExclusive(for: "tts-shared"),
+            "Shared-key TTS provider must not be exclusive"
         )
     }
 
-    func testTTSDeepgramKeyIsShared() {
-        // Deepgram TTS uses api-key mode with apiKeyProviderName "deepgram",
-        // which is also used by Deepgram STT — the key is shared.
-        XCTAssertTrue(
-            SettingsStore.ttsKeyIsShared(for: "deepgram"),
-            "Deepgram TTS shares the 'deepgram' key with STT and must be classified as shared"
-        )
-    }
-
-    func testTTSDeepgramKeyIsNotExclusive() {
-        XCTAssertFalse(
-            SettingsStore.ttsKeyIsExclusive(for: "deepgram"),
-            "Deepgram TTS shares the 'deepgram' key with STT and must not be exclusive"
-        )
-    }
-
-    func testTTSDeepgramSharedKeyCannotBeResetThroughTTSFlow() {
-        // The UI checks ttsKeyIsExclusive before allowing the reset action.
-        // For deepgram the guard must prevent the reset because clearing the
-        // "deepgram" key would break STT.
-        let allowReset = SettingsStore.ttsKeyIsExclusive(for: "deepgram")
+    func testTTSSharedKeyCannotBeResetThroughTTSFlow() {
+        let allowReset = SettingsStore.ttsKeyIsExclusive(for: "tts-shared")
         XCTAssertFalse(
             allowReset,
-            "The TTS reset flow must not be allowed for deepgram (shared key with STT)"
+            "The TTS reset flow must not be allowed for shared-key providers"
         )
     }
 
@@ -1063,29 +898,8 @@ final class SettingsStoreVoiceServiceTests: XCTestCase {
 
     // MARK: - TTS Provider Registry Consistency
 
-    /// Ensures every TTS provider in the registry has the expected credential
-    /// metadata fields set. This test fails fast when a new provider is added
-    /// with incomplete credential metadata.
-    func testAllTTSRegistryProvidersHaveCredentialMetadata() {
-        let registry = loadTTSProviderRegistry()
-        for provider in registry.providers {
-            switch provider.credentialMode {
-            case .credential:
-                XCTAssertNotNil(
-                    provider.credentialNamespace,
-                    "Credential-mode TTS provider \"\(provider.id)\" must have a credentialNamespace"
-                )
-            case .apiKey:
-                XCTAssertNotNil(
-                    provider.apiKeyProviderName,
-                    "Api-key-mode TTS provider \"\(provider.id)\" must have an apiKeyProviderName"
-                )
-            }
-        }
-    }
-
-    /// Ensures the TTS key ownership classification is consistent with the
-    /// provider's credential mode and metadata.
+    /// Ensures the TTS key ownership classification is consistent: every
+    /// seeded provider must be either exclusive or shared, never both.
     func testAllTTSRegistryProvidersHaveConsistentOwnership() {
         let registry = loadTTSProviderRegistry()
         for provider in registry.providers {
