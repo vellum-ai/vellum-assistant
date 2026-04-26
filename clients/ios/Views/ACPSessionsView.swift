@@ -29,6 +29,13 @@ struct ACPSessionsView: View {
 
     @State private var selectedSessionId: String?
 
+    /// Mutable navigation path so the inline `acp_spawn` chat tap can
+    /// push a detail view programmatically on compact iPhone. Mirrors
+    /// the `navigationPath` on macOS's `ACPSessionsPanel` and lets
+    /// ``consumeSelectedSessionIdIfPresent`` flush a pending deep link
+    /// without rebuilding the navigation hierarchy from scratch.
+    @State private var navigationPath: [String] = []
+
     var body: some View {
         Group {
             if horizontalSizeClass == .regular {
@@ -38,7 +45,7 @@ struct ACPSessionsView: View {
                     detailContent
                 }
             } else {
-                NavigationStack {
+                NavigationStack(path: $navigationPath) {
                     listContent
                         .navigationDestination(for: String.self) { sessionId in
                             detailView(for: sessionId)
@@ -54,6 +61,59 @@ struct ACPSessionsView: View {
             if store.seedState == .idle {
                 await store.seed()
             }
+            // If a deep-link landed before this sheet mounted (e.g.
+            // tapping an inline `acp_spawn` chat block opens the sheet
+            // and sets the id in the same tick), consume it now so the
+            // user lands directly on the detail view instead of the
+            // list.
+            consumeSelectedSessionIdIfPresent()
+        }
+        .onChange(of: store.selectedSessionId) { _, _ in
+            consumeSelectedSessionIdIfPresent()
+        }
+    }
+
+    /// Consume a pending `store.selectedSessionId`, routing it to the
+    /// size-class-appropriate selection mechanism. Defers to the pure
+    /// helper ``consumeSelectedSessionIdIfPresent(store:isCompact:selected:path:)``
+    /// so unit tests can exercise the consumption logic without standing
+    /// up a SwiftUI view tree.
+    func consumeSelectedSessionIdIfPresent() {
+        Self.consumeSelectedSessionIdIfPresent(
+            store: store,
+            isCompact: horizontalSizeClass != .regular,
+            selected: &selectedSessionId,
+            path: &navigationPath
+        )
+    }
+
+    /// Pure helper that drives the deep-link consumption against an
+    /// arbitrary store + path / selection pair. `static` so tests can
+    /// call it directly with their own storage. Idempotent: if the
+    /// requested session is already at the top of the stack (compact)
+    /// or already selected (regular), the field is still cleared but
+    /// the push is skipped to avoid stacking duplicate detail views.
+    static func consumeSelectedSessionIdIfPresent(
+        store: ACPSessionStore,
+        isCompact: Bool,
+        selected: inout String?,
+        path: inout [String]
+    ) {
+        guard let id = store.selectedSessionId,
+              store.sessions[id] != nil else {
+            // Either no deep link, or the row hasn't streamed in yet.
+            // Leaving the field set lets a later spawn + re-trigger
+            // flush the deep link when the SSE event finally arrives.
+            return
+        }
+        // Clear first so reentrant `onChange` invocations don't loop.
+        store.selectedSessionId = nil
+        if isCompact {
+            if path.last == id { return }
+            path.append(id)
+        } else {
+            if selected == id { return }
+            selected = id
         }
     }
 

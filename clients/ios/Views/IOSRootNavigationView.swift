@@ -103,9 +103,31 @@ struct IOSRootNavigationView: View {
             if navigateToConnect && !isSettingsPresented {
                 isSettingsPresented = true
             }
+            // Mirror the same coverage for ACP deep links: an
+            // `acp_spawn` tap that lands while the sheet is mounted
+            // re-presents naturally via `.onChange` below, but a deep
+            // link that was already set before this view appeared (e.g.
+            // a launch path that wakes the app via the inline card)
+            // would be missed by `.onChange` alone.
+            if clientProvider.acpSessionStore.selectedSessionId != nil
+                && !isACPSessionsPresented {
+                isACPSessionsPresented = true
+            }
         }
         .onChange(of: store.selectionRequest?.id) { _, _ in
             applyPendingSelectionRequestIfNeeded()
+        }
+        .onChange(of: clientProvider.acpSessionStore.selectedSessionId) { _, newValue in
+            // Inline `acp_spawn` taps (rendered by `ToolCallProgressBar`
+            // on iOS) land here by setting the store's
+            // `selectedSessionId`. We surface the Coding Agents sheet
+            // and let `ACPSessionsView` consume the field on its own
+            // observation tick — that's where the actual detail-view
+            // push happens. Clearing the field here would race the
+            // panel's consume helper, so we leave it alone.
+            if newValue != nil && !isACPSessionsPresented {
+                isACPSessionsPresented = true
+            }
         }
         .onChange(of: store.conversations.map(\.id)) { _, _ in
             // Seeds when no conversation is active AND reselects when the
