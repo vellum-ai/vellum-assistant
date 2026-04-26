@@ -62,6 +62,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# iOS Simulator runtime: ensure the iOS platform is installed for xcodebuild
+#
+# The pre-push hook runs clients/ios/build.sh, which targets an iOS Simulator
+# destination. Without an installed iOS runtime, xcodebuild fails with:
+#   "iOS X.Y is not installed. Please download and install the platform from
+#    Xcode > Settings > Components."
+#
+# `xcodebuild -downloadPlatform iOS` (Xcode 15+) is idempotent — it's a no-op
+# when the latest runtime is already installed and a download otherwise.
+# ---------------------------------------------------------------------------
+if [ "$(uname)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then
+  info "Ensuring iOS Simulator runtime is installed (xcodebuild -downloadPlatform iOS)"
+  info "  note: first-time install can be multi-GB and take several minutes"
+  xcodebuild -downloadPlatform iOS
+else
+  info "Skipping iOS Simulator runtime install (xcodebuild not available)"
+fi
+
+# ---------------------------------------------------------------------------
 # Install dependencies and register local packages as linkable
 # ---------------------------------------------------------------------------
 for dir in cli gateway assistant credential-executor; do
