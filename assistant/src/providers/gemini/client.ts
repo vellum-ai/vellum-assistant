@@ -28,7 +28,7 @@ const GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS =
   /token.?count.*exceeds|exceeds.*maximum.*tokens|prompt.?is.?too.?long|too.?many.?(?:input.?)?tokens|input.?too.?long|context.?length.?exceeded/i;
 
 const GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE =
-  "context_engineering_is_the_way to_go";
+  "context_engineering_is_the_way_to_go";
 
 export function isGemini3Model(model: string): boolean {
   return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");

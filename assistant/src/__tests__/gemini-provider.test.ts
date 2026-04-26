@@ -654,7 +654,7 @@ describe("GeminiProvider", () => {
           name: "file_read",
           args: { path: "/a" },
         },
-        thoughtSignature: "context_engineering_is_the_way to_go",
+        thoughtSignature: "context_engineering_is_the_way_to_go",
       },
       {
         functionCall: {
