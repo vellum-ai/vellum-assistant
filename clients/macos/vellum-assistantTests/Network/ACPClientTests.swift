@@ -324,6 +324,153 @@ final class ACPClientTests: XCTestCase {
         XCTAssertFalse(steered)
     }
 
+    // MARK: - deleteSession
+
+    func testDeleteSessionSendsExpectedRequestAndDecodesResponse() async throws {
+        let requestExpectation = expectation(description: "delete session request")
+        var capturedRequest: URLRequest?
+
+        MockACPClientURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            requestExpectation.fulfill()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"deleted":true}"#.utf8))
+        }
+
+        let result = await ACPClient.deleteSession(id: "acp-1")
+
+        await fulfillment(of: [requestExpectation], timeout: 1.0)
+
+        XCTAssertEqual(
+            capturedRequest?.url?.absoluteString,
+            "http://127.0.0.1:7833/v1/assistants/assistant-acp-test/acp/sessions/acp-1/"
+        )
+        XCTAssertEqual(capturedRequest?.httpMethod, "DELETE")
+
+        guard case .success(let deleted) = result else {
+            return XCTFail("Expected success, got \(result)")
+        }
+        XCTAssertTrue(deleted)
+    }
+
+    func testDeleteSessionPropagatesDeletedFalseForUnknownId() async {
+        // The daemon returns 200 with `deleted: false` when the row was
+        // already gone — verify the client surfaces that as `.success(false)`
+        // rather than collapsing it into the success-true case.
+        MockACPClientURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"deleted":false}"#.utf8))
+        }
+
+        let result = await ACPClient.deleteSession(id: "acp-missing")
+
+        guard case .success(let deleted) = result else {
+            return XCTFail("Expected success, got \(result)")
+        }
+        XCTAssertFalse(deleted)
+    }
+
+    func testDeleteSessionReturnsHttpErrorFor409Conflict() async {
+        MockACPClientURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 409,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"error":{"message":"still running"}}"#.utf8))
+        }
+
+        let result = await ACPClient.deleteSession(id: "acp-running")
+
+        guard case .failure(.httpError(let statusCode)) = result else {
+            return XCTFail("Expected .httpError(409), got \(result)")
+        }
+        XCTAssertEqual(statusCode, 409)
+    }
+
+    func testDeleteSessionReturnsDecodingFailureForMalformedBody() async {
+        MockACPClientURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"unexpected":"shape"}"#.utf8))
+        }
+
+        let result = await ACPClient.deleteSession(id: "acp-1")
+
+        guard case .failure(.decodingFailed) = result else {
+            return XCTFail("Expected .decodingFailed, got \(result)")
+        }
+    }
+
+    // MARK: - clearCompleted
+
+    func testClearCompletedSendsExpectedRequestAndDecodesCount() async throws {
+        let requestExpectation = expectation(description: "clear completed request")
+        var capturedRequest: URLRequest?
+
+        MockACPClientURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            requestExpectation.fulfill()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"deleted":3}"#.utf8))
+        }
+
+        let result = await ACPClient.clearCompleted()
+
+        await fulfillment(of: [requestExpectation], timeout: 1.0)
+
+        let url = try XCTUnwrap(capturedRequest?.url?.absoluteString)
+        XCTAssertTrue(
+            url.hasPrefix("http://127.0.0.1:7833/v1/assistants/assistant-acp-test/acp/sessions"),
+            "Unexpected path prefix: \(url)"
+        )
+        XCTAssertTrue(url.contains("status=completed"), "Expected ?status=completed in URL: \(url)")
+        XCTAssertEqual(capturedRequest?.httpMethod, "DELETE")
+
+        guard case .success(let count) = result else {
+            return XCTFail("Expected success, got \(result)")
+        }
+        XCTAssertEqual(count, 3)
+    }
+
+    func testClearCompletedReturnsDecodingFailureForMalformedBody() async {
+        MockACPClientURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"unexpected":"shape"}"#.utf8))
+        }
+
+        let result = await ACPClient.clearCompleted()
+
+        guard case .failure(.decodingFailed) = result else {
+            return XCTFail("Expected .decodingFailed, got \(result)")
+        }
+    }
+
     // MARK: - Helpers
 
     private func installLockfileFixture() throws {

@@ -115,7 +115,84 @@ public enum ACPClient {
         )
     }
 
+    /// Removes a persisted ACP session row from history.
+    ///
+    /// The daemon refuses with 409 when the session is still active in
+    /// memory (running/initializing) — surface that conflict to callers
+    /// so the UI can prompt the user to cancel first. Idempotent for
+    /// unknown ids: the daemon reports `deleted: false` and we propagate
+    /// that as `.success(false)`.
+    ///
+    /// - Parameter id: The ACP session id (the daemon's `acpSessionId`).
+    /// - Returns: `.success(true)` when the row was removed,
+    ///   `.success(false)` when no row matched (already gone),
+    ///   `.failure(.httpError(statusCode: 409))` when the session is
+    ///   still active, `.failure` on transport, decoding, or other
+    ///   server errors.
+    public static func deleteSession(
+        id: String
+    ) async -> Result<Bool, ACPClientError> {
+        return await deleteExpectingPayload(
+            path: "assistants/{assistantId}/acp/sessions/\(id)",
+            timeout: 10,
+            as: DeleteSessionResponse.self,
+            label: "deleteSession"
+        ).map(\.deleted)
+    }
+
+    /// Bulk-removes every terminal-state session row from history.
+    ///
+    /// Backs the panel-level "clear completed" action. The daemon
+    /// rejects every status value other than `completed` (treated as a
+    /// shorthand for all terminal statuses), so we hardcode the query
+    /// string here rather than expose it as a parameter.
+    ///
+    /// - Returns: `.success(count)` with the number of rows removed,
+    ///   `.failure` on transport, decoding, or non-2xx responses.
+    public static func clearCompleted() async -> Result<Int, ACPClientError> {
+        return await deleteExpectingPayload(
+            path: "assistants/{assistantId}/acp/sessions?status=completed",
+            timeout: 15,
+            as: ClearCompletedResponse.self,
+            label: "clearCompleted"
+        ).map(\.deleted)
+    }
+
     // MARK: - Helpers
+
+    /// Sends a DELETE and decodes the response body. Unlike ``postExpectingAck``,
+    /// 404 is **not** mapped to success — the DELETE routes here either succeed
+    /// with a structured payload or surface a meaningful error status (e.g. 409
+    /// when a session is still active).
+    private static func deleteExpectingPayload<T: Decodable>(
+        path: String,
+        timeout: TimeInterval,
+        as type: T.Type,
+        label: String
+    ) async -> Result<T, ACPClientError> {
+        let response: GatewayHTTPClient.Response
+        do {
+            response = try await GatewayHTTPClient.delete(path: path, timeout: timeout)
+        } catch let error as GatewayHTTPClient.ClientError {
+            log.error("\(label) transport error: \(error.localizedDescription)")
+            return .failure(.transport(underlying: error))
+        } catch {
+            log.error("\(label) error: \(error.localizedDescription)")
+            return .failure(.transport(underlying: .invalidURL))
+        }
+
+        guard response.isSuccess else {
+            log.error("\(label) failed (HTTP \(response.statusCode))")
+            return .failure(.httpError(statusCode: response.statusCode))
+        }
+        do {
+            let decoded = try JSONDecoder().decode(type, from: response.data)
+            return .success(decoded)
+        } catch {
+            log.error("\(label) decode error: \(error.localizedDescription)")
+            return .failure(.decodingFailed(underlying: error))
+        }
+    }
 
     /// Sends a POST that returns an acknowledgement (200) or 404 (already gone).
     /// 404 is mapped to `.success(false)` so callers can distinguish "definitely
@@ -154,5 +231,15 @@ public enum ACPClient {
     /// Wire envelope for `GET /v1/acp/sessions`.
     private struct SessionsListResponse: Decodable {
         let sessions: [ACPSessionState]
+    }
+
+    /// Wire envelope for `DELETE /v1/acp/sessions/:id`.
+    private struct DeleteSessionResponse: Decodable {
+        let deleted: Bool
+    }
+
+    /// Wire envelope for `DELETE /v1/acp/sessions?status=completed`.
+    private struct ClearCompletedResponse: Decodable {
+        let deleted: Int
     }
 }
