@@ -8,15 +8,6 @@ final class LiveVoiceChannelClientTests: XCTestCase {
 
     // MARK: - Request and Client Frames
 
-    func testRequestParamsOnlyIncludeConversationId() {
-        XCTAssertNil(LiveVoiceChannelClient.requestParams(conversationId: nil))
-        XCTAssertNil(LiveVoiceChannelClient.requestParams(conversationId: ""))
-        XCTAssertEqual(
-            LiveVoiceChannelClient.requestParams(conversationId: "conv-123"),
-            ["conversationId": "conv-123"]
-        )
-    }
-
     func testStartFrameOmitsProviderCredentialsAndProviderIds() throws {
         let frame = try LiveVoiceChannelClient.encodeStartFrame(
             conversationId: "conv-123",
@@ -123,9 +114,9 @@ final class LiveVoiceChannelClientTests: XCTestCase {
     // MARK: - WebSocket Lifecycle
 
     func testStartSendsProviderAgnosticStartFrameAndBinaryAudioOnlyAfterReady() async throws {
-        var capturedParams: [String: String]?
+        var capturedRequest: URLRequest?
         let task = MockLiveVoiceWebSocketTask()
-        let client = makeClient(task: task, capturedParams: &capturedParams)
+        let client = makeClient(task: task, capturedRequest: &capturedRequest)
         var events: [LiveVoiceChannelEvent] = []
         var failures: [LiveVoiceChannelFailure] = []
 
@@ -137,7 +128,7 @@ final class LiveVoiceChannelClientTests: XCTestCase {
         )
 
         XCTAssertTrue(task.didResume)
-        XCTAssertEqual(capturedParams, ["conversationId": "conv-123"])
+        XCTAssertNil(capturedRequest?.url?.query)
         XCTAssertEqual(task.stringMessages.count, 1)
         XCTAssertEqual(try frameType(task.stringMessages[0]), "start")
 
@@ -288,14 +279,16 @@ final class LiveVoiceChannelClientTests: XCTestCase {
 
     private func makeClient(
         task: MockLiveVoiceWebSocketTask,
-        capturedParams: UnsafeMutablePointer<[String: String]?>? = nil
+        capturedRequest: UnsafeMutablePointer<URLRequest?>? = nil
     ) -> LiveVoiceChannelClient {
         LiveVoiceChannelClient(
-            requestBuilder: { params in
-                capturedParams?.pointee = params
+            requestBuilder: {
                 return URLRequest(url: URL(string: "wss://example.com/v1/live-voice")!)
             },
-            webSocketFactory: { _ in task }
+            webSocketFactory: { request in
+                capturedRequest?.pointee = request
+                return task
+            }
         )
     }
 

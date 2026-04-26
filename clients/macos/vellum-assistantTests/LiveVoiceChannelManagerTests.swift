@@ -243,8 +243,9 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(manager.finalTranscript, "hello")
     }
 
-    func testAssistantSpeechStreamsToPlaybackAndReturnsToListening() async {
+    func testAssistantSpeechStreamsToPlaybackAndClosesSessionAfterTtsDone() async {
         await startReadySession()
+        await manager.stopListening()
 
         client.emit(.thinking(turnId: "turn-123"))
         client.emit(.assistantTextDelta(text: "Hi", seq: 3))
@@ -260,8 +261,11 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(playback.enqueuedChunks[0].sequence, 4)
 
         client.emit(.ttsDone(turnId: "turn-123"))
+        await flushAsyncTasks()
 
-        XCTAssertEqual(manager.state, .listening)
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertNil(manager.sessionId)
+        XCTAssertEqual(client.closeCallCount, 1)
     }
 
     func testSpeakingOverAssistantAudioSendsInterruptOnce() async {
@@ -295,36 +299,36 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertNil(manager.sessionId)
     }
 
-    func testStartListeningResumesCaptureOnIdleOpenSession() async {
-        await startReadySession()
+    func testNextStartCreatesFreshClientAfterTtsDone() async {
+        let firstClient = FakeLiveVoiceChannelClient()
+        let secondClient = FakeLiveVoiceChannelClient()
+        var factoryCalls = 0
+        manager = LiveVoiceChannelManager(
+            clientFactory: {
+                factoryCalls += 1
+                return factoryCalls == 1 ? firstClient : secondClient
+            },
+            capture: capture,
+            playback: playback,
+            bargeInAmplitudeThreshold: 0.2
+        )
 
+        await manager.start(conversationId: "conv-123")
+        firstClient.emit(.ready(sessionId: "session-1", conversationId: "conv-123"))
+        await flushAsyncTasks()
         await manager.stopListening()
-        client.emit(.sttFinal(text: "hello", seq: 1))
-        client.emit(.ttsDone(turnId: "turn-123"))
-        XCTAssertEqual(manager.state, .idle)
-
-        await manager.startListening()
+        firstClient.emit(.ttsDone(turnId: "turn-1"))
         await flushAsyncTasks()
 
-        XCTAssertEqual(capture.startCallCount, 2)
-        XCTAssertEqual(manager.state, .listening)
-        XCTAssertEqual(client.startCalls.count, 1)
-    }
-
-    func testEndClosesIdleOpenSession() async {
-        await startReadySession()
-
-        await manager.stopListening()
-        client.emit(.sttFinal(text: "hello", seq: 1))
-        client.emit(.ttsDone(turnId: "turn-123"))
         XCTAssertEqual(manager.state, .idle)
+        XCTAssertEqual(firstClient.closeCallCount, 1)
 
-        await manager.end()
+        await manager.start(conversationId: "conv-123")
 
-        XCTAssertEqual(client.endCallCount, 1)
-        XCTAssertEqual(playback.endCallCount, 1)
-        XCTAssertEqual(manager.state, .idle)
-        XCTAssertNil(manager.activeConversationId)
+        XCTAssertEqual(factoryCalls, 2)
+        XCTAssertEqual(firstClient.startCalls.count, 1)
+        XCTAssertEqual(secondClient.startCalls.count, 1)
+        XCTAssertEqual(secondClient.startCalls[0].conversationId, "conv-123")
     }
 
     func testFailureCleansUpResourcesAndStoresError() async {

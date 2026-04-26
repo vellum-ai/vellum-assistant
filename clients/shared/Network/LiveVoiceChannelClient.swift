@@ -171,7 +171,7 @@ public final class LiveVoiceChannelClient: LiveVoiceChannelClientProtocol {
 
     static let connectionTimeout: TimeInterval = 10
 
-    private let requestBuilder: ([String: String]?) throws -> URLRequest
+    private let requestBuilder: () throws -> URLRequest
     private let webSocketFactory: (URLRequest) -> any LiveVoiceChannelWebSocketTask
 
     private var state: LiveVoiceChannelSessionState = .idle
@@ -183,8 +183,8 @@ public final class LiveVoiceChannelClient: LiveVoiceChannelClientProtocol {
 
     public convenience init() {
         self.init(
-            requestBuilder: { params in
-                try GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params: params)
+            requestBuilder: {
+                try GatewayHTTPClient.buildWebSocketRequest(path: "live-voice", params: nil)
             },
             webSocketFactory: { request in
                 URLSession.shared.webSocketTask(with: request)
@@ -193,7 +193,7 @@ public final class LiveVoiceChannelClient: LiveVoiceChannelClientProtocol {
     }
 
     init(
-        requestBuilder: @escaping ([String: String]?) throws -> URLRequest,
+        requestBuilder: @escaping () throws -> URLRequest,
         webSocketFactory: @escaping (URLRequest) -> any LiveVoiceChannelWebSocketTask
     ) {
         self.requestBuilder = requestBuilder
@@ -222,8 +222,7 @@ public final class LiveVoiceChannelClient: LiveVoiceChannelClientProtocol {
         state = .connecting
 
         do {
-            let params = Self.requestParams(conversationId: conversationId)
-            let request = try requestBuilder(params)
+            let request = try requestBuilder()
             log.info("Opening live voice WebSocket")
 
             let task = webSocketFactory(request)
@@ -273,11 +272,6 @@ public final class LiveVoiceChannelClient: LiveVoiceChannelClientProtocol {
     }
 
     // MARK: - Request and Frame Encoding
-
-    static func requestParams(conversationId: String?) -> [String: String]? {
-        guard let conversationId, !conversationId.isEmpty else { return nil }
-        return ["conversationId": conversationId]
-    }
 
     static func encodeStartFrame(conversationId: String?, audioFormat: LiveVoiceChannelAudioFormat) throws -> String {
         struct StartFrame: Encodable {

@@ -7,9 +7,9 @@ import XCTest
 final class LiveVoiceChannelClientIntegrationTests: XCTestCase {
 
     func testScriptedSessionSendsTextAndBinaryFramesAndDecodesServerEvents() async throws {
-        var capturedParams: [String: String]?
+        var capturedRequest: URLRequest?
         let task = ScriptedLiveVoiceWebSocketTask()
-        let client = makeClient(task: task, capturedParams: &capturedParams)
+        let client = makeClient(task: task, capturedRequest: &capturedRequest)
         var events: [LiveVoiceChannelEvent] = []
         var failures: [LiveVoiceChannelFailure] = []
         let audio = Data([0, 1, 2, 255])
@@ -38,7 +38,7 @@ final class LiveVoiceChannelClientIntegrationTests: XCTestCase {
 
         await client.end()
 
-        XCTAssertEqual(capturedParams, ["conversationId": "conv-123"])
+        XCTAssertNil(capturedRequest?.url?.query)
         XCTAssertTrue(task.didResume)
         XCTAssertEqual(task.stringMessages.map { try? frameType($0) }, ["start", "ptt_release", "end"])
         XCTAssertEqual(task.dataMessages, [audio])
@@ -111,14 +111,16 @@ final class LiveVoiceChannelClientIntegrationTests: XCTestCase {
 
     private func makeClient(
         task: ScriptedLiveVoiceWebSocketTask,
-        capturedParams: UnsafeMutablePointer<[String: String]?>? = nil
+        capturedRequest: UnsafeMutablePointer<URLRequest?>? = nil
     ) -> LiveVoiceChannelClient {
         LiveVoiceChannelClient(
-            requestBuilder: { params in
-                capturedParams?.pointee = params
+            requestBuilder: {
                 return URLRequest(url: URL(string: "wss://example.com/v1/live-voice")!)
             },
-            webSocketFactory: { _ in task }
+            webSocketFactory: { request in
+                capturedRequest?.pointee = request
+                return task
+            }
         )
     }
 
