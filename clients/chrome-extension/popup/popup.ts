@@ -174,6 +174,8 @@ function statusBadgeDisplay(health: ConnectionHealthState): {
       return { text: 'Paused', className: 'paused' };
     case 'auth_required':
       return { text: 'Needs action', className: 'disconnected' };
+    case 'assistant_gone':
+      return { text: 'Assistant removed', className: 'disconnected' };
     case 'error':
       return { text: 'Issue detected', className: 'disconnected' };
   }
@@ -183,6 +185,12 @@ function updateHealthDisplay(
   health: ConnectionHealthState,
   detail: ConnectionHealthDetail,
 ): void {
+  // If the assistant was retired/deleted, re-trigger the cloud-login
+  // flow so the user can pick a new one (or auto-select if only 1).
+  if (health === 'assistant_gone' && _currentHealthState !== 'assistant_gone') {
+    triggerAssistantRecovery();
+  }
+
   _currentHealthState = health;
   const phase = healthToPhase(health);
 
@@ -394,6 +402,33 @@ btnSelfHosted?.addEventListener('click', () => {
 pickerBack?.addEventListener('click', () => {
   showScreen('welcome');
 });
+
+/**
+ * Re-trigger the cloud-login flow to refresh the assistants list after
+ * the worker reports that the selected assistant is gone (404).
+ */
+function triggerAssistantRecovery(): void {
+  sendMessage<{
+    ok: boolean;
+    session?: { email: string };
+    assistants?: Array<{ id: string; name: string }>;
+    assistantsError?: string;
+    error?: string;
+  }>({ type: 'cloud-login' }, (response) => {
+    if (!response?.ok || response.assistantsError) {
+      // Already showing assistant_gone state — nothing more to do.
+      return;
+    }
+    const assistants = response.assistants ?? [];
+    if (assistants.length === 1) {
+      selectAssistant(assistants[0].id, assistants[0].name, response.session?.email);
+    } else if (assistants.length > 1) {
+      renderAssistantList(assistants, response.session?.email);
+      showScreen('picker');
+    }
+    // 0 assistants: stay on main screen showing the gone state.
+  });
+}
 
 function renderAssistantList(
   assistants: Array<{ id: string; name: string }>,

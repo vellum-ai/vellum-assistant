@@ -43,6 +43,12 @@ export interface SseConnectionDeps {
    * connection failed due to authentication issues (401/403).
    */
   onClose: (authError?: string) => void;
+  /**
+   * Invoked when the SSE endpoint returns 404 — the selected assistant
+   * no longer exists. The worker should re-validate and recover.
+   * If not provided, 404 is treated as a generic reconnectable error.
+   */
+  onNotFound?: () => void;
 }
 
 /**
@@ -147,6 +153,13 @@ export class SseConnection {
         this.deps.onClose(
           body || `Authentication failed (${response.status}). Sign in again to reconnect.`,
         );
+        return;
+      }
+      if (response.status === 404 && this.deps.onNotFound) {
+        // The assistant no longer exists — stop reconnecting and let
+        // the worker handle recovery (re-validate, switch, or show picker).
+        this._isOpen = false;
+        this.deps.onNotFound();
         return;
       }
       // Other errors: notify the worker so health state transitions
