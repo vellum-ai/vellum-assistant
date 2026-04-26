@@ -7,20 +7,17 @@ struct LiveVoiceAudioChunk: Equatable {
     let mimeType: String
     let sampleRate: Int
     let channels: Int
-    let sequence: Int?
 
     init(
         data: Data,
         mimeType: String,
         sampleRate: Int,
-        channels: Int = 1,
-        sequence: Int? = nil
+        channels: Int = 1
     ) {
         self.data = data
         self.mimeType = mimeType
         self.sampleRate = sampleRate
         self.channels = channels
-        self.sequence = sequence
     }
 }
 
@@ -100,16 +97,14 @@ final class LiveVoiceAudioPlayer {
         data: Data,
         mimeType: String,
         sampleRate: Int,
-        channels: Int = 1,
-        sequence: Int? = nil
+        channels: Int = 1
     ) {
         enqueueTTSAudio(
             LiveVoiceAudioChunk(
                 data: data,
                 mimeType: mimeType,
                 sampleRate: sampleRate,
-                channels: channels,
-                sequence: sequence
+                channels: channels
             )
         )
     }

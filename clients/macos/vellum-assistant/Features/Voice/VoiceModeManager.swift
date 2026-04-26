@@ -14,7 +14,6 @@ protocol LiveVoiceChannelManaging: AnyObject {
     var errorMessage: String { get }
 
     func start(conversationId: String) async
-    func startListening() async
     func interruptSpeakingAndStartListening(conversationId: String) async
     func stopListening() async
     func end() async

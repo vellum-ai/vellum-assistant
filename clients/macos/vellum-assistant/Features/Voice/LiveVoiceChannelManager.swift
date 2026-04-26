@@ -25,8 +25,7 @@ protocol LiveVoiceAudioPlaying: AnyObject {
         data: Data,
         mimeType: String,
         sampleRate: Int,
-        channels: Int,
-        sequence: Int?
+        channels: Int
     )
     func handleInterrupt()
     func handleEnd()
@@ -98,13 +97,6 @@ final class LiveVoiceChannelManager {
             failWithoutActiveClient(message: "A conversation is required to start live voice.")
             return
         }
-        if state == .idle, client != nil {
-            if activeConversationId == trimmedConversationId {
-                await startListening()
-                return
-            }
-            await end()
-        }
         guard state == .idle || state == .failed else { return }
 
         sessionGeneration &+= 1
@@ -125,11 +117,6 @@ final class LiveVoiceChannelManager {
                 self?.handle(failure, generation: generation)
             }
         )
-    }
-
-    func startListening() async {
-        guard state == .idle, client != nil else { return }
-        startCapture(generation: sessionGeneration)
     }
 
     func interruptSpeakingAndStartListening(conversationId: String) async {
@@ -238,14 +225,13 @@ final class LiveVoiceChannelManager {
                 state = .thinking
             }
 
-        case .ttsAudio(let data, let mimeType, let sampleRate, let seq):
+        case .ttsAudio(let data, let mimeType, let sampleRate, _):
             beginAssistantAudioIfNeeded()
             playback.enqueueTTSAudio(
                 data: data,
                 mimeType: mimeType,
                 sampleRate: sampleRate,
-                channels: 1,
-                sequence: seq
+                channels: 1
             )
             state = .speaking
 

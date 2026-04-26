@@ -113,16 +113,14 @@ private final class FakeLiveVoiceAudioPlayback: LiveVoiceAudioPlaying {
         data: Data,
         mimeType: String,
         sampleRate: Int,
-        channels: Int,
-        sequence: Int?
+        channels: Int
     ) {
         enqueuedChunks.append(
             LiveVoiceAudioChunk(
                 data: data,
                 mimeType: mimeType,
                 sampleRate: sampleRate,
-                channels: channels,
-                sequence: sequence
+                channels: channels
             )
         )
         isPlaying = true
@@ -258,7 +256,6 @@ final class LiveVoiceChannelManagerTests: XCTestCase {
         XCTAssertEqual(playback.enqueuedChunks[0].data, Data([9, 8]))
         XCTAssertEqual(playback.enqueuedChunks[0].mimeType, "audio/pcm")
         XCTAssertEqual(playback.enqueuedChunks[0].sampleRate, 16_000)
-        XCTAssertEqual(playback.enqueuedChunks[0].sequence, 4)
 
         client.emit(.ttsDone(turnId: "turn-123"))
         await flushAsyncTasks()

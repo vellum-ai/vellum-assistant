@@ -40,7 +40,6 @@ private final class FakeLiveVoiceChannelManager: LiveVoiceChannelManaging {
     var errorMessage: String = ""
 
     private(set) var startCalls: [String] = []
-    private(set) var startListeningCallCount = 0
     private(set) var interruptSpeakingAndStartListeningCalls: [String] = []
     private(set) var stopListeningCallCount = 0
     private(set) var endCallCount = 0
@@ -48,11 +47,6 @@ private final class FakeLiveVoiceChannelManager: LiveVoiceChannelManaging {
     func start(conversationId: String) async {
         startCalls.append(conversationId)
         state = .connecting
-    }
-
-    func startListening() async {
-        startListeningCallCount += 1
-        state = .listening
     }
 
     func interruptSpeakingAndStartListening(conversationId: String) async {

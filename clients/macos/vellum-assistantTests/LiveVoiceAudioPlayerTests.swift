@@ -68,42 +68,42 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
         XCTAssertFalse(player.isPlaying)
         XCTAssertTrue(output.playedChunks.isEmpty)
 
-        player.enqueueTTSAudio(chunk(sequence: 1))
+        player.enqueueTTSAudio(chunk(id: 1))
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [1])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
         XCTAssertEqual(player.state, .playing)
         XCTAssertTrue(player.isPlaying)
     }
 
     func testRapidEnqueuePreservesDeterministicChunkOrder() {
-        let expectedSequences = Array(0..<100)
+        let expectedIds = Array(0..<100)
 
-        for sequence in expectedSequences {
-            player.enqueueTTSAudio(chunk(sequence: sequence))
+        for id in expectedIds {
+            player.enqueueTTSAudio(chunk(id: id))
         }
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [0])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 0)])
         XCTAssertEqual(player.queuedChunkCount, 99)
 
-        for expectedSequence in expectedSequences.dropFirst() {
+        for expectedId in expectedIds.dropFirst() {
             output.completeNextSuccessfully()
-            XCTAssertEqual(output.playedChunks.last?.sequence, expectedSequence)
+            XCTAssertEqual(output.playedChunks.last?.data, chunkData(id: expectedId))
         }
 
         output.completeNextSuccessfully()
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), expectedSequences)
+        XCTAssertEqual(output.playedChunks.map(\.data), expectedIds.map { chunkData(id: $0) })
         XCTAssertEqual(player.queuedChunkCount, 0)
         XCTAssertEqual(player.state, .idle)
         XCTAssertFalse(player.isPlaying)
     }
 
     func testStopDrainsQueuedChunksAndIgnoresLateCompletion() {
-        player.enqueueTTSAudio(chunk(sequence: 1))
-        player.enqueueTTSAudio(chunk(sequence: 2))
-        player.enqueueTTSAudio(chunk(sequence: 3))
+        player.enqueueTTSAudio(chunk(id: 1))
+        player.enqueueTTSAudio(chunk(id: 2))
+        player.enqueueTTSAudio(chunk(id: 3))
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [1])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
         XCTAssertEqual(player.queuedChunkCount, 2)
 
         player.stop(reason: .interrupt)
@@ -115,48 +115,48 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
 
         output.completeNextSuccessfully()
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [1])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
         XCTAssertEqual(player.state, .stopped(.interrupt))
     }
 
     func testStopPreventsLatePlaybackUntilReset() {
-        player.enqueueTTSAudio(chunk(sequence: 1))
+        player.enqueueTTSAudio(chunk(id: 1))
         player.stop(reason: .end)
 
-        player.enqueueTTSAudio(chunk(sequence: 2))
+        player.enqueueTTSAudio(chunk(id: 2))
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [1])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
         XCTAssertEqual(player.state, .stopped(.end))
 
         player.resetForNextResponse()
-        player.enqueueTTSAudio(chunk(sequence: 3))
+        player.enqueueTTSAudio(chunk(id: 3))
 
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [1, 3])
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1), chunkData(id: 3)])
         XCTAssertEqual(player.state, .playing)
     }
 
     func testInterruptEndAndSessionErrorStopImmediately() {
-        player.enqueueTTSAudio(chunk(sequence: 1))
+        player.enqueueTTSAudio(chunk(id: 1))
         player.handleInterrupt()
         XCTAssertEqual(output.stopCallCount, 1)
         XCTAssertEqual(player.state, .stopped(.interrupt))
 
         player.resetForNextResponse()
-        player.enqueueTTSAudio(chunk(sequence: 2))
+        player.enqueueTTSAudio(chunk(id: 2))
         player.handleEnd()
         XCTAssertEqual(output.stopCallCount, 3)
         XCTAssertEqual(player.state, .stopped(.end))
 
         player.resetForNextResponse()
-        player.enqueueTTSAudio(chunk(sequence: 3))
+        player.enqueueTTSAudio(chunk(id: 3))
         player.handleSessionError()
         XCTAssertEqual(output.stopCallCount, 5)
         XCTAssertEqual(player.state, .stopped(.sessionError))
     }
 
     func testPlaybackFailureStopsQueueAndPreventsLatePlayback() {
-        player.enqueueTTSAudio(chunk(sequence: 1))
-        player.enqueueTTSAudio(chunk(sequence: 2))
+        player.enqueueTTSAudio(chunk(id: 1))
+        player.enqueueTTSAudio(chunk(id: 2))
 
         output.failNext()
 
@@ -164,28 +164,30 @@ final class LiveVoiceAudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.queuedChunkCount, 0)
         XCTAssertEqual(output.stopCallCount, 1)
 
-        player.enqueueTTSAudio(chunk(sequence: 3))
-        XCTAssertEqual(output.playedChunks.map(\.sequence), [1])
+        player.enqueueTTSAudio(chunk(id: 3))
+        XCTAssertEqual(output.playedChunks.map(\.data), [chunkData(id: 1)])
     }
 
     func testEmptyChunksAreIgnored() {
         player.enqueueTTSAudio(
             data: Data(),
             mimeType: "audio/pcm",
-            sampleRate: 24_000,
-            sequence: 1
+            sampleRate: 24_000
         )
 
         XCTAssertTrue(output.playedChunks.isEmpty)
         XCTAssertEqual(player.state, .idle)
     }
 
-    private func chunk(sequence: Int) -> LiveVoiceAudioChunk {
+    private func chunk(id: Int) -> LiveVoiceAudioChunk {
         LiveVoiceAudioChunk(
-            data: Data([UInt8(sequence % 256), UInt8((sequence + 1) % 256)]),
+            data: chunkData(id: id),
             mimeType: "audio/pcm",
-            sampleRate: 24_000,
-            sequence: sequence
+            sampleRate: 24_000
         )
+    }
+
+    private func chunkData(id: Int) -> Data {
+        Data([UInt8(id % 256), UInt8((id + 1) % 256)])
     }
 }
