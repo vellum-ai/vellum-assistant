@@ -9,6 +9,8 @@ import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("http-request");
 
+const UNKNOWN = "unknown" as const;
+
 /**
  * Wrap a request handler to log request metadata and response timing.
  *
@@ -55,9 +57,9 @@ export async function withRequestLogging(
     path,
     status,
     latencyMs,
-    interfaceId: req.headers.get("x-vellum-interface-id") ?? undefined,
-    contentType: req.headers.get("content-type") ?? undefined,
-    userAgent: req.headers.get("user-agent") ?? undefined,
+    interfaceId: req.headers.get("x-vellum-interface-id") ?? UNKNOWN,
+    contentType: req.headers.get("content-type") ?? UNKNOWN,
+    userAgent: req.headers.get("user-agent") ?? UNKNOWN,
   };
 
   if (status >= 500) {
