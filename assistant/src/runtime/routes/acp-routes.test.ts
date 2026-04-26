@@ -4,12 +4,25 @@
  * binary_not_found). Mirrors the resolver's test setup using the shared
  * `installAcpConfigStub` and `installWhichStub` helpers so the host
  * environment doesn't influence the resolver's PATH preflight.
+ *
+ * Also covers DELETE /v1/acp/sessions?status=completed — the bulk-clear
+ * route that wipes terminal-state rows (completed/failed/cancelled) from
+ * `acp_session_history` while leaving running/initializing rows intact.
  */
 
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
+import { getDb, getSqlite, initializeDb } from "../../memory/db.js";
+import { acpSessionHistory } from "../../memory/schema.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -139,5 +152,133 @@ describe("POST /v1/acp/spawn", () => {
     expect(body.error.message).toContain(
       "agent, task, and conversationId are required",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/acp/sessions?status=completed — bulk-clear terminal rows
+// ---------------------------------------------------------------------------
+
+function getBulkDeleteHandler() {
+  const route = acpRouteDefinitions().find(
+    (r) => r.endpoint === "acp/sessions" && r.method === "DELETE",
+  );
+  if (!route) throw new Error("DELETE acp/sessions route not registered");
+  return route.handler;
+}
+
+function makeBulkDeleteCtx(rawQuery: string) {
+  const url = new URL(`http://localhost/v1/acp/sessions${rawQuery}`);
+  return {
+    url,
+    req: new Request(url, { method: "DELETE" }),
+    server: {} as ReturnType<typeof Bun.serve>,
+    authContext: {} as never,
+    params: {},
+  };
+}
+
+function seedHistoryRow(id: string, status: string, startedAt: number): void {
+  getDb()
+    .insert(acpSessionHistory)
+    .values({
+      id,
+      agentId: "agent-x",
+      acpSessionId: `proto-${id}`,
+      parentConversationId: "conv-test",
+      startedAt,
+      completedAt: status === "running" ? null : startedAt + 1000,
+      status,
+      stopReason: status === "completed" ? "end_turn" : null,
+      error: status === "failed" ? "boom" : null,
+      eventLogJson: "[]",
+    })
+    .run();
+}
+
+interface RowSnapshot {
+  id: string;
+  status: string;
+}
+
+function listRows(): RowSnapshot[] {
+  return getSqlite()
+    .query("SELECT id, status FROM acp_session_history ORDER BY id")
+    .all() as RowSnapshot[];
+}
+
+describe("DELETE /v1/acp/sessions?status=completed", () => {
+  beforeAll(() => {
+    initializeDb();
+  });
+
+  beforeEach(() => {
+    getSqlite().run("DELETE FROM acp_session_history");
+  });
+
+  test("removes only terminal-state rows; running/initializing rows survive", async () => {
+    seedHistoryRow("row-completed", "completed", 1000);
+    seedHistoryRow("row-failed", "failed", 2000);
+    seedHistoryRow("row-cancelled", "cancelled", 3000);
+    seedHistoryRow("row-running", "running", 4000);
+    seedHistoryRow("row-initializing", "initializing", 5000);
+
+    const handler = getBulkDeleteHandler();
+    const res = await handler(makeBulkDeleteCtx("?status=completed"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: number };
+    expect(body.deleted).toBe(3);
+
+    const remaining = listRows();
+    expect(remaining.map((r) => r.status).sort()).toEqual([
+      "initializing",
+      "running",
+    ]);
+  });
+
+  test("returns deleted=0 when no terminal rows are present", async () => {
+    seedHistoryRow("row-running", "running", 1000);
+
+    const handler = getBulkDeleteHandler();
+    const res = await handler(makeBulkDeleteCtx("?status=completed"));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: number };
+    expect(body.deleted).toBe(0);
+
+    const remaining = listRows();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe("row-running");
+  });
+
+  test("rejects missing status query param with 400", async () => {
+    seedHistoryRow("row-completed", "completed", 1000);
+
+    const handler = getBulkDeleteHandler();
+    const res = await handler(makeBulkDeleteCtx(""));
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toContain("status");
+    // Row must still be present — guard short-circuited before the delete.
+    expect(listRows()).toHaveLength(1);
+  });
+
+  test("rejects status values other than 'completed' with 400", async () => {
+    seedHistoryRow("row-completed", "completed", 1000);
+
+    const handler = getBulkDeleteHandler();
+    const res = await handler(makeBulkDeleteCtx("?status=failed"));
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(listRows()).toHaveLength(1);
   });
 });

@@ -354,6 +354,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "acp/steer", scopes: ["chat.write"] },
   { endpoint: "acp/cancel", scopes: ["chat.write"] },
   { endpoint: "acp/close", scopes: ["chat.write"] },
+  { endpoint: "acp/sessions:DELETE", scopes: ["chat.write"] },
   { endpoint: "acp", scopes: ["chat.read"] },
 
   // Model config
