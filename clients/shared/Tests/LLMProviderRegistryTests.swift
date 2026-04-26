@@ -35,7 +35,15 @@ final class LLMProviderRegistryTests: XCTestCase {
         }
 
         XCTAssertEqual(gemini.defaultModel, "gemini-2.5-flash")
-        XCTAssertFalse(gemini.models.map(\.id).contains("gemini-3-pro-preview"))
+        XCTAssertEqual(
+            gemini.models.map(\.id).filter { $0.hasPrefix("gemini-3") },
+            [
+                "gemini-3.1-pro-preview",
+                "gemini-3.1-pro-preview-customtools",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+            ]
+        )
         XCTAssertEqual(
             Array(gemini.models.prefix(7).map(\.id)),
             [
