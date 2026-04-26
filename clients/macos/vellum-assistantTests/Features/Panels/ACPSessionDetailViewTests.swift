@@ -35,13 +35,19 @@ final class ACPSessionDetailViewTests: XCTestCase {
 
     // MARK: - Mock store
 
-    /// Records invocations of ``ACPSessionStore/cancel(id:)`` and
-    /// ``ACPSessionStore/steer(id:instruction:)`` so detail-view tests can
-    /// assert taps reach the store without spinning up the full `URLProtocol`
-    /// mocking apparatus that the network-layer tests use.
+    /// Records invocations of ``ACPSessionStore``'s mutating entry points so
+    /// detail-view tests can assert taps reach the store without spinning up
+    /// the full `URLProtocol` mocking apparatus that the network-layer tests
+    /// use. Tests can flip ``deleteResult`` to simulate a daemon failure
+    /// (e.g. the 409 returned for active sessions).
     private final class SpyACPSessionStore: ACPSessionStore {
         var cancelInvocations: [String] = []
         var steerInvocations: [(id: String, instruction: String)] = []
+        var deleteInvocations: [String] = []
+        /// Result the next ``delete(id:)`` call should return. Defaults to
+        /// `.success(true)` (the deleted-from-history happy path); tests
+        /// override to `.failure(...)` to drive the error branch.
+        var deleteResult: Result<Bool, ACPClientError> = .success(true)
 
         override func cancel(id: String) async -> Result<Bool, ACPClientError> {
             cancelInvocations.append(id)
@@ -70,6 +76,17 @@ final class ACPSessionDetailViewTests: XCTestCase {
             // the daemon round-trips an SSE update to confirm. Mirror that:
             // no view-model mutation here, just record and ack.
             return .success(true)
+        }
+
+        override func delete(id: String) async -> Result<Bool, ACPClientError> {
+            deleteInvocations.append(id)
+            // Mirror the production store: only drop the row when the
+            // (mocked) HTTP call would have succeeded.
+            if case .success = deleteResult {
+                sessions.removeValue(forKey: id)
+                sessionOrder.removeAll { $0 == id }
+            }
+            return deleteResult
         }
     }
 
@@ -555,6 +572,80 @@ final class ACPSessionDetailViewTests: XCTestCase {
 
         XCTAssertTrue(session.events.isEmpty, "Whitespace-only input should not append a synthetic row")
         XCTAssertTrue(store.steerInvocations.isEmpty, "Empty input must not reach the store")
+    }
+
+    // MARK: - Delete from history
+
+    func test_isDeletable_terminalStatusesOnly() {
+        let store = ACPSessionStore()
+        let running = ACPSessionDetailView(session: makeSession(status: .running), store: store)
+        let initializing = ACPSessionDetailView(session: makeSession(status: .initializing), store: store)
+        let completed = ACPSessionDetailView(session: makeSession(status: .completed), store: store)
+        let failed = ACPSessionDetailView(session: makeSession(status: .failed), store: store)
+        let cancelled = ACPSessionDetailView(session: makeSession(status: .cancelled), store: store)
+        let unknown = ACPSessionDetailView(session: makeSession(status: .unknown), store: store)
+
+        XCTAssertTrue(completed.isDeletable)
+        XCTAssertTrue(failed.isDeletable)
+        XCTAssertTrue(cancelled.isDeletable)
+        XCTAssertFalse(running.isDeletable)
+        XCTAssertFalse(initializing.isDeletable)
+        XCTAssertFalse(unknown.isDeletable, "Unknown is treated as live until proven terminal")
+    }
+
+    func test_handleDeleteTap_invokesStoreDeleteOnce_andDismisses() async {
+        let store = SpyACPSessionStore()
+        let session = makeSession(status: .completed)
+        store.sessions[session.state.acpSessionId] = session
+        store.sessionOrder = [session.state.acpSessionId]
+
+        let dismissed = expectation(description: "onDismiss fires")
+        let view = ACPSessionDetailView(
+            session: session,
+            store: store,
+            onDismiss: { dismissed.fulfill() }
+        )
+        view.handleDeleteTap()
+
+        // `onDismiss` only fires after the Task spawned inside
+        // `handleDeleteTap` finishes running on the main actor; expectations
+        // make the wait observable without polling.
+        await fulfillment(of: [dismissed], timeout: 1.0)
+
+        XCTAssertEqual(store.deleteInvocations, [session.state.acpSessionId])
+        XCTAssertNil(store.sessions[session.state.acpSessionId],
+                     "Spy store mirror should drop the row on success")
+        XCTAssertFalse(store.sessionOrder.contains(session.state.acpSessionId))
+    }
+
+    func test_handleDeleteTap_doesNotDismiss_whenStoreReportsFailure() async {
+        let store = SpyACPSessionStore()
+        // 409 maps to an `httpError` failure; the view must keep the row in
+        // place and skip the dismissal so the user has a chance to react.
+        store.deleteResult = .failure(.httpError(statusCode: 409))
+        let session = makeSession(status: .completed)
+        store.sessions[session.state.acpSessionId] = session
+        store.sessionOrder = [session.state.acpSessionId]
+
+        var dismissCount = 0
+        let view = ACPSessionDetailView(
+            session: session,
+            store: store,
+            onDismiss: { dismissCount += 1 }
+        )
+        view.handleDeleteTap()
+
+        await waitForSpyInvocation { !store.deleteInvocations.isEmpty }
+        // After the spy records the call the in-flight Task must also finish
+        // its post-await work (resetting `isDeleting`, skipping `onDismiss`).
+        // Yielding once gives the scheduler a chance to drain it before the
+        // negative assertion below.
+        await Task.yield()
+
+        XCTAssertEqual(store.deleteInvocations, [session.state.acpSessionId])
+        XCTAssertEqual(dismissCount, 0, "onDismiss must not fire on failure")
+        XCTAssertNotNil(store.sessions[session.state.acpSessionId],
+                        "Failed delete should leave the row in place")
     }
 
     /// Spin briefly on the main actor until ``predicate`` returns true.

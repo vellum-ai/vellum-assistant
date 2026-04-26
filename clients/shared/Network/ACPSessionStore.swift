@@ -297,6 +297,28 @@ open class ACPSessionStore {
         return await ACPClient.steerSession(id: id, instruction: instruction)
     }
 
+    /// Delete a terminal session row from history. On a successful HTTP
+    /// 2xx response, removes the matching ``ACPSessionViewModel`` from
+    /// ``sessions`` and ``sessionOrder`` so list views update immediately.
+    /// `.success(false)` (the daemon reported no row matched) is also
+    /// treated as "gone now" — we still drop the in-memory entry so the
+    /// UI converges on the daemon's view of the world. Failures (including
+    /// the 409 the daemon returns when a session is still active) leave
+    /// the store untouched; callers can surface the error to the user.
+    ///
+    /// `open` so detail-view tests can spy on invocations without standing
+    /// up the full `URLProtocol` mock; production callers should never
+    /// subclass.
+    @discardableResult
+    open func delete(id: String) async -> Result<Bool, ACPClientError> {
+        let result = await ACPClient.deleteSession(id: id)
+        if case .success = result {
+            sessions.removeValue(forKey: id)
+            sessionOrder.removeAll { $0 == id }
+        }
+        return result
+    }
+
     /// Bulk-clear every terminal session (`completed`/`failed`/`cancelled`)
     /// from the store. Wraps ``ACPClient/clearCompleted()`` and, on success,
     /// optimistically prunes the matching rows from ``sessions`` and
