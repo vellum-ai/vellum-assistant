@@ -72,7 +72,7 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
 
   const today = formatDate(new Date());
   const filePath = logFilePathForDate(config.dir, new Date());
-  const fileStream = pino.destination({
+  const fileDestination = pino.destination({
     dest: filePath,
     sync: true,
     mkdir: true,
@@ -91,7 +91,10 @@ function buildLogger(config: LogFileConfig | null): pino.Logger {
   return pino(
     { name: "gateway", serializers: logSerializers },
     pino.multistream([
-      { stream: fileStream, level: "info" as const },
+      {
+        stream: pinoPretty({ destination: fileDestination }),
+        level: "info" as const,
+      },
       { stream: pinoPretty({ destination: 1 }), level: "info" as const },
     ]),
   );
