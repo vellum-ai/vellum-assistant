@@ -18,13 +18,11 @@ import {
   healthToPhase,
   shouldExpandTroubleshooting,
   hasTroubleshootingControls,
-  deriveEnvironmentHint,
   type ConnectionHealthState,
   type ConnectionHealthDetail,
   type ConnectionPhase,
   type GetStatusResponse,
   type GatewayUrlGetResponse,
-  type EnvironmentStateResponse,
 } from './popup-state.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -120,13 +118,6 @@ const gatewayUrlSave = document.getElementById(
   'gateway-url-save',
 ) as HTMLButtonElement;
 
-const environmentSelect = document.getElementById(
-  'environment-select',
-) as HTMLSelectElement;
-const environmentHint = document.getElementById(
-  'environment-hint',
-) as HTMLParagraphElement;
-
 const selfHostedSettings = document.getElementById(
   'self-hosted-settings',
 ) as HTMLDivElement;
@@ -156,7 +147,7 @@ const pickerLoading = document.getElementById('picker-loading') as HTMLParagraph
 let currentAuthProfile: AssistantAuthProfile | null = null;
 let _currentHealthState: ConnectionHealthState = 'paused';
 let currentDebugDetails: string | null = null;
-let currentBuildDefaultEnvironment: string | undefined;
+
 /** Tracks whether the user has an established mode (self-hosted or cloud). */
 let currentMode: 'self-hosted' | 'cloud' | null = null;
 
@@ -353,40 +344,6 @@ troubleshootToggle?.addEventListener('click', () => {
   troubleshootBody.style.display = isExpanded ? 'none' : 'block';
 });
 
-// ── Environment selector ────────────────────────────────────────────
-
-function loadEnvironment(): void {
-  sendMessage<EnvironmentStateResponse>({ type: 'environment-get' }, (response) => {
-    if (!response?.ok) return;
-    currentBuildDefaultEnvironment = response.buildDefaultEnvironment;
-    if (response.overrideEnvironment) {
-      environmentSelect.value = response.overrideEnvironment;
-    } else if (response.buildDefaultEnvironment) {
-      environmentSelect.value = response.buildDefaultEnvironment;
-    }
-    environmentHint.textContent = deriveEnvironmentHint(
-      response.overrideEnvironment,
-      response.buildDefaultEnvironment,
-    );
-  });
-}
-
-environmentSelect?.addEventListener('change', () => {
-  const value = environmentSelect.value;
-  const isDefault = value === currentBuildDefaultEnvironment;
-  sendMessage<EnvironmentStateResponse>(
-    { type: 'environment-set', environment: isDefault ? null : value },
-    (response) => {
-      if (response?.ok) {
-        environmentHint.textContent = deriveEnvironmentHint(
-          response.overrideEnvironment,
-          response.buildDefaultEnvironment,
-        );
-      }
-    },
-  );
-});
-
 // ── Welcome screen handlers ─────────────────────────────────────────
 
 btnSignIn?.addEventListener('click', () => {
@@ -479,10 +436,7 @@ function renderAssistantList(
     row.className = 'assistant-row';
     row.innerHTML = `
       <div class="assistant-row-icon">
-        <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
-          <path d="M12 2L22 12L12 22L2 12L12 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-          <path d="M12 7L17 12L12 17L7 12L12 7Z" fill="currentColor" opacity="0.3"/>
-        </svg>
+        <img src="../icons/icon48.png" alt="" width="16" height="16" style="border-radius:3px;" />
       </div>
       <span class="assistant-row-name">${escapeHtml(a.name)}</span>
       <svg class="assistant-row-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -550,7 +504,6 @@ document.getElementById('btn-retry-assistants')?.addEventListener('click', () =>
 
 function loadMainScreen(): void {
   loadGatewayUrl();
-  loadEnvironment();
   refreshStatus();
 }
 

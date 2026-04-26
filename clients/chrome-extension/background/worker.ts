@@ -28,6 +28,7 @@
 
 import {
   type ExtensionEnvironment,
+  cloudUrlsForEnvironment,
   parseExtensionEnvironment,
   resolveBuildDefaultEnvironment,
 } from './extension-environment.js';
@@ -628,7 +629,6 @@ function createRelayConnection(
  * Wire an SseConnection up with the worker's message/open/close
  * callbacks for vellum-cloud assistants. Does NOT start it.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- vellum-cloud SSE path will be re-enabled in a follow-up PR
 function createSseConnection(mode: SseMode): SseConnection {
   return new SseConnection({
     mode,
@@ -826,23 +826,40 @@ async function doConnect(options: ConnectOptions): Promise<void> {
   // retrying, and we want the popup to stop nagging.
   await clearRelayAuthError();
 
-  // Self-hosted: connect via WebSocket relay to the user-provided
-  // gateway URL. The auth profile is always 'self-hosted' for now —
-  // vellum-cloud SSE support will add a second path here.
-  currentAuthProfile = 'self-hosted';
-
   // Tear down any stale connections before constructing new ones.
   teardownConnections();
 
-  // self-hosted: connect via WebSocket relay.
-  const rawMode = await buildSelfHostedRelayMode();
-  const mode = await connectPreflight(currentAuthProfile, rawMode, options);
-  // Resolve the stable per-install id up front so every handshake
-  // (including reconnects on the freshly constructed RelayConnection)
-  // sends the same value. The call is cached after the first lookup.
-  const clientInstanceId = await getOrCreateClientInstanceId();
-  relayConnection = createRelayConnection(mode, clientInstanceId);
-  relayConnection.start();
+  const userMode = await getStoredUserMode();
+
+  if (userMode === 'cloud') {
+    // Cloud mode: connect via SSE to the platform API.
+    currentAuthProfile = 'vellum-cloud';
+    const session = await getStoredSession();
+    const selectedAssistant = await getSelectedAssistant();
+    if (!session || !selectedAssistant) {
+      setConnectionHealth('auth_required', {
+        lastErrorMessage: 'Sign in and select an assistant to connect.',
+      });
+      return;
+    }
+    const env = await getEffectiveEnvironment();
+    const { apiBaseUrl } = cloudUrlsForEnvironment(env);
+    sseConnection = createSseConnection({
+      kind: 'vellum-cloud',
+      runtimeUrl: apiBaseUrl,
+      assistantId: selectedAssistant.id,
+      token: null, // session cookie handles auth
+    });
+    sseConnection.start();
+  } else {
+    // Self-hosted: connect via WebSocket relay to the local gateway.
+    currentAuthProfile = 'self-hosted';
+    const rawMode = await buildSelfHostedRelayMode();
+    const mode = await connectPreflight(currentAuthProfile, rawMode, options);
+    const clientInstanceId = await getOrCreateClientInstanceId();
+    relayConnection = createRelayConnection(mode, clientInstanceId);
+    relayConnection.start();
+  }
 }
 
 /**
