@@ -32,6 +32,7 @@
 
 import { parseInterfaceId } from "../../channels/types.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
   AssistantEventFilter,
@@ -46,6 +47,8 @@ import type { AuthContext } from "../auth/types.js";
 import { getClientRegistry } from "../client-registry.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+
+const log = getLogger("events-routes");
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -103,6 +106,10 @@ export function handleSubscribeAssistantEvents(
     : null;
 
   if (clientId && !interfaceId) {
+    log.error(
+      { clientId, rawInterfaceId },
+      "client registration failed: invalid or missing X-Vellum-Interface-Id",
+    );
     return httpError(
       "BAD_REQUEST",
       "X-Vellum-Interface-Id is required when X-Vellum-Client-Id is provided",
@@ -113,6 +120,10 @@ export function handleSubscribeAssistantEvents(
   const registry = getClientRegistry();
   if (clientId && interfaceId) {
     registry.register({ clientId, interfaceId });
+    log.info(
+      { clientId, interfaceId },
+      "client registered via /events SSE connect",
+    );
   }
 
   const hub = options?.hub ?? assistantEventHub;
