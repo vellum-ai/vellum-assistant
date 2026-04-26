@@ -43,6 +43,7 @@ private final class FakeLiveVoiceChannelManager: LiveVoiceChannelManaging {
     private(set) var interruptSpeakingAndStartListeningCalls: [String] = []
     private(set) var stopListeningCallCount = 0
     private(set) var endCallCount = 0
+    var stopListeningUpdatesState = true
 
     func start(conversationId: String) async {
         startCalls.append(conversationId)
@@ -56,7 +57,9 @@ private final class FakeLiveVoiceChannelManager: LiveVoiceChannelManaging {
 
     func stopListening() async {
         stopListeningCallCount += 1
-        state = .transcribing
+        if stopListeningUpdatesState {
+            state = .transcribing
+        }
     }
 
     func end() async {
@@ -571,6 +574,21 @@ final class VoiceModeManagerTests: XCTestCase {
         XCTAssertFalse(mockVoiceService.startRecordingCalled)
     }
 
+    func testCanToggleListeningAllowsLiveChannelProcessingOnly() {
+        forceActivate()
+        manager.state = .idle
+        XCTAssertTrue(manager.canToggleListening)
+
+        manager.state = .listening
+        XCTAssertTrue(manager.canToggleListening)
+
+        manager.state = .speaking
+        XCTAssertTrue(manager.canToggleListening)
+
+        manager.state = .processing
+        XCTAssertFalse(manager.canToggleListening)
+    }
+
     // MARK: - Service-First STT: State Transitions
 
     /// Verify voice mode cycles through listening -> processing -> speaking -> idle -> listening
@@ -830,6 +848,57 @@ final class VoiceModeManagerTests: XCTestCase {
         XCTAssertEqual(liveManager.stopListeningCallCount, 1)
         XCTAssertEqual(manager.state, .processing)
         XCTAssertFalse(mockVoiceService.cancelRecordingCalled)
+    }
+
+    func testLiveChannelStopListeningDoesNotTrapProcessingWhenReleaseIsNoOp() async {
+        let liveManager = FakeLiveVoiceChannelManager()
+        liveManager.stopListeningUpdatesState = false
+        chatViewModel.conversationId = "conv-123"
+        manager = VoiceModeManager(
+            voiceService: mockVoiceService,
+            liveVoiceChannelManager: liveManager,
+            liveVoiceAvailability: { true }
+        )
+        forceActivate()
+
+        manager.startListening()
+        await flushAsyncTasks()
+        liveManager.becomeReady()
+        await flushAsyncTasks()
+
+        manager.toggleListening()
+        await flushAsyncTasks()
+
+        XCTAssertEqual(liveManager.stopListeningCallCount, 1)
+        XCTAssertEqual(manager.state, .listening)
+        XCTAssertTrue(manager.canToggleListening)
+    }
+
+    func testLiveChannelProcessingToggleInterruptsAndRestartsListening() async {
+        let liveManager = FakeLiveVoiceChannelManager()
+        chatViewModel.conversationId = "conv-123"
+        manager = VoiceModeManager(
+            voiceService: mockVoiceService,
+            liveVoiceChannelManager: liveManager,
+            liveVoiceAvailability: { true }
+        )
+        forceActivate()
+
+        manager.startListening()
+        await flushAsyncTasks()
+        liveManager.state = .thinking
+        await flushAsyncTasks()
+
+        XCTAssertEqual(manager.state, .processing)
+        XCTAssertTrue(manager.canToggleListening)
+
+        manager.toggleListening()
+        await flushAsyncTasks()
+
+        XCTAssertEqual(liveManager.interruptSpeakingAndStartListeningCalls, ["conv-123"])
+        XCTAssertEqual(manager.state, .listening)
+        XCTAssertFalse(mockVoiceService.stopSpeakingCalled)
+        XCTAssertFalse(mockVoiceService.startRecordingCalled)
     }
 
     func testLiveChannelBargeInInterruptsAndRestartsLiveListening() async {

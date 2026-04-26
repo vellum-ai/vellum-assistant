@@ -125,7 +125,7 @@ final class LiveVoiceChannelManager {
             failWithoutActiveClient(message: "A conversation is required to start live voice.")
             return
         }
-        guard state == .speaking, client != nil else {
+        guard client != nil, state != .idle, state != .failed else {
             await start(conversationId: trimmedConversationId)
             return
         }

@@ -128,6 +128,17 @@ final class VoiceModeManager {
         }
     }
 
+    var canToggleListening: Bool {
+        switch state {
+        case .idle, .listening, .speaking:
+            return true
+        case .processing:
+            return activeVoicePath == .liveChannel
+        case .off:
+            return false
+        }
+    }
+
     func activate(chatViewModel: ChatViewModel, settingsStore: SettingsStore? = nil) {
         guard state == .off else { return }
         wasAutoDeactivated = false
@@ -290,9 +301,13 @@ final class VoiceModeManager {
             stopListening()
         case .speaking:
             if activeVoicePath == .liveChannel {
-                handleLiveBargeIn()
+                interruptLiveVoiceAndStartListening()
             } else {
                 handleBargeIn()
+            }
+        case .processing:
+            if activeVoicePath == .liveChannel {
+                interruptLiveVoiceAndStartListening()
             }
         default:
             break
@@ -339,10 +354,11 @@ final class VoiceModeManager {
         guard state == .listening else { return }
 
         if activeVoicePath == .liveChannel {
-            state = .processing
             let liveVoiceChannelManager = liveVoiceChannelManager
             Task { @MainActor in
-                await liveVoiceChannelManager?.stopListening()
+                guard let liveVoiceChannelManager else { return }
+                await liveVoiceChannelManager.stopListening()
+                self.syncLiveVoiceState(from: liveVoiceChannelManager)
             }
             log.info("Voice mode: released live voice push-to-talk")
             return
@@ -1048,12 +1064,12 @@ final class VoiceModeManager {
 
     // MARK: - Barge-in (interrupt TTS)
 
-    private func handleLiveBargeIn() {
-        guard state == .speaking,
+    private func interruptLiveVoiceAndStartListening() {
+        guard activeVoicePath == .liveChannel,
               let liveVoiceChannelManager,
               let conversationId = liveVoiceConversationId(for: chatViewModel) else { return }
 
-        log.info("Voice mode: live barge-in — interrupting TTS")
+        log.info("Voice mode: live voice resume — interrupting current turn")
 
         ttsTimeoutTask?.cancel()
         ttsTimeoutTask = nil
