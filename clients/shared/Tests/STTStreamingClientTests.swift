@@ -268,7 +268,6 @@ final class STTStreamingClientTests: XCTestCase {
     func testFullCatalogDecodingWithStreamingMode() throws {
         let json = """
         {
-            "version": 2,
             "providers": [
                 {
                     "id": "openai-whisper",
@@ -292,7 +291,6 @@ final class STTStreamingClientTests: XCTestCase {
         }
         """
         let catalog = try JSONDecoder().decode(STTProviderRegistry.self, from: json.data(using: .utf8)!)
-        XCTAssertEqual(catalog.version, 2)
         XCTAssertEqual(catalog.providers.count, 2)
         XCTAssertEqual(catalog.providers[0].conversationStreamingMode, .incrementalBatch)
         XCTAssertEqual(catalog.providers[1].conversationStreamingMode, .realtimeWs)
@@ -303,7 +301,6 @@ final class STTStreamingClientTests: XCTestCase {
     /// Build a test registry with all providers for capability testing.
     private func buildTestRegistry() -> STTProviderRegistry {
         STTProviderRegistry(
-            version: 2,
             providers: [
                 STTProviderCatalogEntry(
                     id: "openai-whisper",
