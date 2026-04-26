@@ -212,22 +212,11 @@ struct ACPSessionDetailViewIOS: View {
     @ViewBuilder
     private var statusPill: some View {
         VBadge(
-            label: statusLabel(session.state.status),
+            label: ACPSessionStateFormatter.statusLabel(session.state.status),
             tone: statusTone(session.state.status),
             emphasis: .subtle
         )
-        .accessibilityLabel("Status: \(statusLabel(session.state.status))")
-    }
-
-    private func statusLabel(_ status: ACPSessionState.Status) -> String {
-        switch status {
-        case .initializing: return "Starting"
-        case .running:      return "Running"
-        case .completed:    return "Completed"
-        case .failed:       return "Failed"
-        case .cancelled:    return "Cancelled"
-        case .unknown:      return "Unknown"
-        }
+        .accessibilityLabel("Status: \(ACPSessionStateFormatter.statusLabel(session.state.status))")
     }
 
     private func statusTone(_ status: ACPSessionState.Status) -> VBadge.Tone {
