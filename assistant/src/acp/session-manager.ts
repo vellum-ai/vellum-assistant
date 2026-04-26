@@ -96,6 +96,7 @@ export class AcpSessionManager {
       id: acpSessionId,
       agentId,
       acpSessionId: "", // placeholder until createSession resolves
+      parentConversationId,
       status: "initializing",
       startedAt: Date.now(),
     };

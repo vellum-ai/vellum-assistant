@@ -22,7 +22,7 @@ export interface AcpSessionState {
   agentId: string;
   acpSessionId: string;
   /** Conversation that spawned this session. */
-  parentConversationId?: string;
+  parentConversationId: string;
   status: "initializing" | "running" | "completed" | "failed" | "cancelled";
   startedAt: number;
   completedAt?: number;
