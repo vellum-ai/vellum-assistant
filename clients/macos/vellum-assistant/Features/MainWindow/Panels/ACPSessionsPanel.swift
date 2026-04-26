@@ -20,12 +20,21 @@ import VellumAssistantShared
 /// the parent having to reach back into the store on every tick.
 struct ACPSessionsPanel: View {
     @Bindable var store: ACPSessionStore
+    /// Currently active conversation id used to drive the
+    /// "This conversation" / "All" filter. When `nil` the segmented control
+    /// is hidden and every session is shown — there is no conversation to
+    /// scope against.
+    var activeConversationId: String?
     var onClose: (() -> Void)?
 
     /// Drives the destructive-confirmation alert for the overflow menu's
     /// "Clear completed history" action. Hoisted to view state so the menu
     /// itself can dismiss while the alert remains presented.
     @State private var showClearCompletedConfirm: Bool = false
+
+    /// Per-conversation filter preference, persisted in `UserDefaults`
+    /// under `acp.filter.<conversationId>`.
+    @State private var filterStorage = ACPSessionsPanelFilterStorage()
 
     var body: some View {
         NavigationStack {
@@ -90,6 +99,10 @@ struct ACPSessionsPanel: View {
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
 
+        if activeConversationId != nil {
+            filterPicker
+        }
+
         Divider().background(VColor.borderBase)
     }
 
@@ -121,9 +134,54 @@ struct ACPSessionsPanel: View {
         store.sessions.values.contains { ACPSessionStore.isTerminal($0.state.status) }
     }
 
+    @ViewBuilder
+    private var filterPicker: some View {
+        Picker("Filter coding agents", selection: filterBinding) {
+            Text("This conversation").tag(ACPSessionsPanelFilter.thisConversation)
+            Text("All").tag(ACPSessionsPanelFilter.all)
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.bottom, VSpacing.sm)
+        .accessibilityLabel("Filter coding agents")
+    }
+
+    private var filterBinding: Binding<ACPSessionsPanelFilter> {
+        Binding(
+            get: { activeFilter },
+            set: { newValue in filterStorage.setFilter(newValue, for: activeConversationId) }
+        )
+    }
+
+    /// Currently effective filter for the panel. Reads the stored
+    /// preference if one exists; otherwise falls back to a context-aware
+    /// default — `.thisConversation` when at least one session matches the
+    /// active conversation, `.all` otherwise. The default is computed at
+    /// read-time rather than seeded into storage so the picker updates
+    /// naturally when sessions stream in after the panel mounts.
+    private var activeFilter: ACPSessionsPanelFilter {
+        guard let activeConversationId else { return .all }
+        if filterStorage.hasStoredFilter(for: activeConversationId) {
+            return filterStorage.filter(for: activeConversationId)
+        }
+        return store.sessions(forConversation: activeConversationId).isEmpty
+            ? .all : .thisConversation
+    }
+
     private var countLabel: String {
-        let count = store.sessionOrder.count
+        let count = filteredSessions.count
         return count == 1 ? "1 agent" : "\(count) agents"
+    }
+
+    /// Sessions that should appear in the list once the active filter is
+    /// applied. Defined here so the count label and the list iterate the
+    /// same set without recomputing.
+    private var filteredSessions: [ACPSessionViewModel] {
+        guard let activeConversationId, activeFilter == .thisConversation else {
+            return store.sessionOrder.compactMap { store.sessions[$0] }
+        }
+        return store.sessions(forConversation: activeConversationId)
     }
 
     // MARK: - Session list
@@ -137,23 +195,82 @@ struct ACPSessionsPanel: View {
         // initial paint simpler and avoids the lazy-container row recycling
         // overhead for short lists.
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(store.sessionOrder, id: \.self) { sessionId in
-                if let viewModel = store.sessions[sessionId] {
-                    // `NavigationLink(value:)` defers detail construction
-                    // to the parent's `navigationDestination`, so passing
-                    // the live `ACPSessionViewModel` does not capture a
-                    // stale snapshot — the destination reads observable
-                    // properties off the same instance the store mutates.
-                    NavigationLink(value: viewModel) {
-                        ACPSessionsPanelRow(state: viewModel.state)
-                    }
-                    .buttonStyle(.plain)
-                    if sessionId != store.sessionOrder.last {
-                        Divider().background(VColor.borderBase)
-                    }
+            let visible = filteredSessions
+            ForEach(visible, id: \.id) { viewModel in
+                // `NavigationLink(value:)` defers detail construction to
+                // the parent's `navigationDestination`, so passing the live
+                // `ACPSessionViewModel` does not capture a stale snapshot
+                // — the destination reads observable properties off the
+                // same instance the store mutates.
+                NavigationLink(value: viewModel) {
+                    ACPSessionsPanelRow(state: viewModel.state)
+                }
+                .buttonStyle(.plain)
+                if viewModel.id != visible.last?.id {
+                    Divider().background(VColor.borderBase)
                 }
             }
         }
+    }
+}
+
+// MARK: - Filter
+
+/// Two-state filter for ``ACPSessionsPanel``. Persisted to `UserDefaults`
+/// via its raw value — never rename or remove cases without a migration.
+enum ACPSessionsPanelFilter: String {
+    case thisConversation
+    case all
+}
+
+/// Conversation-keyed filter preference. Reads/writes are keyed by the
+/// active conversation id so each conversation remembers its own
+/// preference independently.
+///
+/// Persistence lives in `UserDefaults`; the `@Observable` cache is what
+/// drives SwiftUI invalidation when the binding flips, since `UserDefaults`
+/// writes alone do not trigger view updates.
+@Observable
+final class ACPSessionsPanelFilterStorage {
+    /// Observed cache. Mutating an entry invalidates any view that reads
+    /// the same key via ``filter(for:)``. Persisted writes flow through
+    /// `UserDefaults` so the preference survives relaunches.
+    private var cache: [String: ACPSessionsPanelFilter] = [:]
+
+    /// Defaults instance used for persistence. Held as a property so tests
+    /// can substitute an isolated suite without touching
+    /// `UserDefaults.standard`.
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func filter(for conversationId: String?) -> ACPSessionsPanelFilter {
+        guard let conversationId else { return .all }
+        if let cached = cache[conversationId] { return cached }
+        if let raw = defaults.string(forKey: Self.key(for: conversationId)),
+           let value = ACPSessionsPanelFilter(rawValue: raw) {
+            return value
+        }
+        return .thisConversation
+    }
+
+    func setFilter(_ filter: ACPSessionsPanelFilter, for conversationId: String?) {
+        guard let conversationId else { return }
+        // Update the observed cache first so SwiftUI invalidates views that
+        // read this key, then persist for relaunch.
+        cache[conversationId] = filter
+        defaults.set(filter.rawValue, forKey: Self.key(for: conversationId))
+    }
+
+    func hasStoredFilter(for conversationId: String) -> Bool {
+        if cache[conversationId] != nil { return true }
+        return defaults.object(forKey: Self.key(for: conversationId)) != nil
+    }
+
+    static func key(for conversationId: String) -> String {
+        "acp.filter.\(conversationId)"
     }
 }
 

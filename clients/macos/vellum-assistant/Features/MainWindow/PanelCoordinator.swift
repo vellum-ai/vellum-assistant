@@ -153,6 +153,7 @@ extension MainWindowView {
         case .acpSessions:
             ACPSessionsPanel(
                 store: acpSessionStore,
+                activeConversationId: conversationManager.activeConversationId?.uuidString,
                 onClose: { windowState.navigateBackOrDismiss() }
             )
         }

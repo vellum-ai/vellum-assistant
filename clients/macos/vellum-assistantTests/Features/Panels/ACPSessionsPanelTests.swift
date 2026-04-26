@@ -240,6 +240,112 @@ final class ACPSessionsPanelTests: XCTestCase {
         XCTAssertEqual(Set(store.sessionOrder), ["acp-running", "acp-completed"])
     }
 
+    // MARK: - Per-conversation filter
+
+    func test_sessionsForConversation_returnsOnlyMatchingSessions() {
+        let store = ACPSessionStore()
+        injectFixture(
+            into: store,
+            acpSessionId: "acp-conv-a-old",
+            agentId: "claude-code",
+            parentConversationId: "conv-a",
+            startedAt: 100
+        )
+        injectFixture(
+            into: store,
+            acpSessionId: "acp-conv-b",
+            agentId: "codex",
+            parentConversationId: "conv-b",
+            startedAt: 200
+        )
+        injectFixture(
+            into: store,
+            acpSessionId: "acp-conv-a-new",
+            agentId: "claude-code",
+            parentConversationId: "conv-a",
+            startedAt: 300
+        )
+
+        let convA = store.sessions(forConversation: "conv-a")
+        XCTAssertEqual(
+            convA.map(\.state.acpSessionId),
+            ["acp-conv-a-new", "acp-conv-a-old"],
+            "Filter must preserve newest-first ordering from sessionOrder"
+        )
+
+        let convB = store.sessions(forConversation: "conv-b").map(\.state.acpSessionId)
+        XCTAssertEqual(convB, ["acp-conv-b"])
+
+        XCTAssertTrue(
+            store.sessions(forConversation: "conv-missing").isEmpty,
+            "Filtering on a conversation with no sessions must return an empty array"
+        )
+    }
+
+    func test_sessionsForConversation_panelFilterEndToEnd() {
+        let store = ACPSessionStore()
+        injectFixture(
+            into: store,
+            acpSessionId: "acp-other",
+            agentId: "codex",
+            parentConversationId: "conv-other",
+            startedAt: 100
+        )
+        injectFixture(
+            into: store,
+            acpSessionId: "acp-active",
+            agentId: "claude-code",
+            parentConversationId: "conv-active",
+            startedAt: 200
+        )
+
+        let suiteName = "ACPSessionsPanelTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Failed to allocate isolated UserDefaults suite")
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let storage = ACPSessionsPanelFilterStorage(defaults: defaults)
+
+        // Default for a conversation with matches is `.thisConversation`.
+        XCTAssertEqual(storage.filter(for: "conv-active"), .thisConversation)
+        XCTAssertFalse(storage.hasStoredFilter(for: "conv-active"))
+
+        // "This conversation" filter renders only the active conversation's
+        // sessions.
+        let scoped = store.sessions(forConversation: "conv-active")
+        XCTAssertEqual(scoped.map(\.state.acpSessionId), ["acp-active"])
+
+        // Toggling to `.all` persists across lookups.
+        storage.setFilter(.all, for: "conv-active")
+        XCTAssertEqual(storage.filter(for: "conv-active"), .all)
+        XCTAssertTrue(storage.hasStoredFilter(for: "conv-active"))
+
+        // With the filter switched off, the panel iterates `sessionOrder`
+        // and shows every session newest-first.
+        let allSessions = store.sessionOrder.compactMap { store.sessions[$0]?.state.acpSessionId }
+        XCTAssertEqual(allSessions, ["acp-active", "acp-other"])
+
+        // A different conversation has its own preference and is unaffected.
+        XCTAssertEqual(storage.filter(for: "conv-other"), .thisConversation)
+    }
+
+    func test_filterStorage_returnsAllForNilConversation() {
+        let suiteName = "ACPSessionsPanelTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Failed to allocate isolated UserDefaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let storage = ACPSessionsPanelFilterStorage(defaults: defaults)
+
+        // No active conversation → no scope to filter against, so the
+        // storage reports `.all` and silently ignores writes.
+        XCTAssertEqual(storage.filter(for: nil), .all)
+        storage.setFilter(.thisConversation, for: nil)
+        XCTAssertEqual(storage.filter(for: nil), .all)
+    }
+
     // MARK: - Helpers
 
     /// Inserts a synthetic ACP session into the store via the same
@@ -252,13 +358,15 @@ final class ACPSessionsPanelTests: XCTestCase {
         into store: ACPSessionStore,
         acpSessionId: String,
         agentId: String,
+        parentConversationId: String? = nil,
         startedAt: Int,
         status: ACPSessionState.Status = .running
     ) {
+        let parent = parentConversationId ?? "conv-\(acpSessionId)"
         store.handle(.acpSessionSpawned(ACPSessionSpawnedMessage(
             acpSessionId: acpSessionId,
             agent: agentId,
-            parentConversationId: "conv-\(acpSessionId)"
+            parentConversationId: parent
         )))
         // Pin `startedAt` to a deterministic value so assertions don't drift
         // with wall-clock skew. ``sessionOrder`` was already computed by the
@@ -268,7 +376,7 @@ final class ACPSessionsPanelTests: XCTestCase {
                 id: viewModel.state.id,
                 agentId: agentId,
                 acpSessionId: acpSessionId,
-                parentConversationId: "conv-\(acpSessionId)",
+                parentConversationId: parent,
                 status: status,
                 startedAt: startedAt
             )

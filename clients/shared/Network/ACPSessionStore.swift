@@ -163,6 +163,21 @@ public final class ACPSessionStore {
             .map(\.state.acpSessionId)
     }
 
+    // MARK: - Filtering
+
+    /// View models for sessions whose `parentConversationId` matches the
+    /// supplied conversation id, in the same newest-first order as
+    /// ``sessionOrder``. Used by the panel's per-conversation filter so the
+    /// list can scope to "this conversation" without rebuilding the order
+    /// array on every render.
+    public func sessions(forConversation id: String) -> [ACPSessionViewModel] {
+        sessionOrder.compactMap { sessionId in
+            guard let viewModel = sessions[sessionId],
+                  viewModel.state.parentConversationId == id else { return nil }
+            return viewModel
+        }
+    }
+
     // MARK: - SSE Event Handling
 
     /// Apply an SSE `ServerMessage` to the store. Non-ACP cases are ignored
