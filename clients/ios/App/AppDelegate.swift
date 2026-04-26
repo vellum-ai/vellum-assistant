@@ -81,6 +81,10 @@ final class ClientProvider: ObservableObject {
     /// Task running the SSE subscribe loop that ingests trace events.
     private var traceSubscriptionTask: Task<Void, Never>?
 
+    /// Task running the SSE subscribe loop that forwards ACP session events to
+    /// `acpSessionStore`.
+    private var acpSessionSubscriptionTask: Task<Void, Never>?
+
     /// Connection lifecycle manager — owns EventStreamClient.
     private(set) var connectionManager: GatewayConnectionManager
 
@@ -90,12 +94,17 @@ final class ClientProvider: ObservableObject {
     /// Shared trace store updated by the daemon client's trace event subscription.
     let traceStore: TraceStore
 
+    /// Shared ACP session store updated by the daemon's `acpSession*` SSE events.
+    let acpSessionStore: ACPSessionStore
+
     init(connectionManager: GatewayConnectionManager, client: GatewayConnectionManager) {
         self.connectionManager = connectionManager
         self.client = client
         self.traceStore = TraceStore()
+        self.acpSessionStore = ACPSessionStore()
         bindCombineBridge()
         bindTraceEvents()
+        bindAcpSessionEvents()
     }
 
     /// Recreate the GatewayConnectionManager from current UserDefaults/Keychain settings.
@@ -119,6 +128,7 @@ final class ClientProvider: ObservableObject {
         self.isConnected = false
         bindCombineBridge()
         bindTraceEvents()
+        bindAcpSessionEvents()
     }
 
     private func bindCombineBridge() {
@@ -143,6 +153,22 @@ final class ClientProvider: ObservableObject {
                 if case .traceEvent(let msg) = message {
                     self.traceStore.ingest(msg)
                 }
+            }
+        }
+    }
+
+    /// Forward every SSE message to `acpSessionStore.handle(_:)`. The store
+    /// internally ignores non-ACP cases, so we don't filter here — keeping the
+    /// pipeline forward-compatible if new ACP cases get added to
+    /// `ServerMessage`.
+    private func bindAcpSessionEvents() {
+        acpSessionSubscriptionTask?.cancel()
+        acpSessionSubscriptionTask = nil
+        acpSessionSubscriptionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await message in eventStreamClient.subscribe() {
+                if Task.isCancelled { break }
+                self.acpSessionStore.handle(message)
             }
         }
     }
