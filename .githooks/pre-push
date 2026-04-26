@@ -163,18 +163,53 @@ if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
         # macOS doesn't ship by default.
         _scratch_path="/tmp/spm-build/${_cache_slug}"
         mkdir -p "$_scratch_path"
-        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant --scratch-path "$_scratch_path" -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
+        # Capture combined stdout+stderr so we can inspect failures for the
+        # SwiftPM resolver-flake pattern before deciding whether to retry. The
+        # tradeoff is no live progress on the first attempt — acceptable for a
+        # ~30s build, and the retry (when triggered) streams live so the user
+        # sees the recovery attempt happen. Use a temp file rather than $() so
+        # we don't strip trailing newlines from the captured output.
+        _swift_out_file="$(mktemp -t prepush-swift-build.XXXXXX)"
+        # shellcheck disable=SC2317
+        _swift_build_failed() {
             echo ""
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Swift build errors in clients/ — push blocked${NC}"
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo ""
             echo "Fix the build errors or push with --no-verify to skip."
-            _debug_log "swift build done (FAILED)"
-            exit 1
+        }
+        (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant --scratch-path "$_scratch_path" -Xswiftc -module-cache-path -Xswiftc "$_module_cache" >"$_swift_out_file" 2>&1)
+        _swift_exit=$?
+        if [ $_swift_exit -ne 0 ]; then
+            if grep -q "Dependencies could not be resolved because no versions of" "$_swift_out_file"; then
+                # Transient SwiftPM resolver flake against a fresh per-worktree
+                # scratch dir. Wipe scratch + module cache and retry once,
+                # streaming live this time.
+                echo -e "${YELLOW}⚠️  SwiftPM resolver flake detected — wiping scratch and retrying once...${NC}"
+                _debug_log "swift build done (FAILED with resolver flake — retrying)"
+                rm -rf "$_scratch_path" "$_module_cache"
+                mkdir -p "$_scratch_path"
+                rm -f "$_swift_out_file"
+                if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant --scratch-path "$_scratch_path" -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
+                    _swift_build_failed
+                    _debug_log "swift build retry done (FAILED)"
+                    exit 1
+                fi
+                _debug_log "swift build retry done (passed)"
+            else
+                cat "$_swift_out_file"
+                rm -f "$_swift_out_file"
+                _swift_build_failed
+                _debug_log "swift build done (FAILED)"
+                exit 1
+            fi
+        else
+            cat "$_swift_out_file"
+            rm -f "$_swift_out_file"
+            _debug_log "swift build done (passed)"
         fi
         echo -e "  ${GREEN}✅ Swift build OK in clients/${NC}"
-        _debug_log "swift build done (passed)"
     fi
 fi
 
