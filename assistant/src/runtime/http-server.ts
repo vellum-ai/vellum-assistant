@@ -128,7 +128,6 @@ import {
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
-import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
 import { backupRouteDefinitions } from "./routes/backup-routes.js";
 import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
@@ -1792,7 +1791,6 @@ export class RuntimeHttpServer {
       ...memoryItemRouteDefinitions(),
       ...conversationStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
-      ...avatarRouteDefinitions(),
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),

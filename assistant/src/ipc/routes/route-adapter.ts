@@ -20,10 +20,14 @@ export function routeDefinitionsToIpcRoutes(
     .filter((r) => !r.requireGuardian)
     .map((r) => ({
       method: r.operationId,
-      handler: (params?: Record<string, unknown>) =>
-        r.handler({
-          pathParams: (params as Record<string, string> | undefined) ?? {},
+      handler: (params?: Record<string, unknown>) => {
+        const stringParams =
+          (params as Record<string, string> | undefined) ?? {};
+        return r.handler({
+          pathParams: stringParams,
+          queryParams: stringParams,
           body: params,
-        }),
+        });
+      },
     }));
 }

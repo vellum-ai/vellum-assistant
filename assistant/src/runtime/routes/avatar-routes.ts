@@ -10,8 +10,12 @@ import { getAvatarImagePath } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError, type HttpErrorCode } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import {
+  BadRequestError,
+  RouteError,
+  ServiceUnavailableError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("avatar-routes");
 
@@ -29,80 +33,67 @@ export function publishAvatarUpdated(): void {
     });
 }
 
-export function avatarRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "avatar/character-components",
-      method: "GET",
-      summary: "Get character components",
-      description: "Return available avatar character components.",
-      tags: ["avatar"],
-      handler: () => Response.json(getCharacterComponents()),
-    },
-    {
-      endpoint: "avatar/render-from-traits",
-      method: "POST",
-      summary: "Render avatar from traits",
-      description: "Write character traits and render an avatar PNG.",
-      tags: ["avatar"],
-      requestBody: z.object({
-        bodyShape: z.string(),
-        eyeStyle: z.string(),
-        color: z.string(),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        let body: CharacterTraits;
-        try {
-          body = (await req.json()) as CharacterTraits;
-        } catch {
-          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-        }
-
-        if (
-          !body ||
-          typeof body !== "object" ||
-          !body.bodyShape ||
-          !body.eyeStyle ||
-          !body.color
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing required fields: bodyShape, eyeStyle, color",
-            400,
-          );
-        }
-
-        const result = writeTraitsAndRenderAvatar(body);
-
-        if (!result.ok) {
-          // Map each failure reason to an HTTP status that reflects its
-          // cause: invalid inputs → 400, missing native dependency → 503,
-          // everything else → 500.
-          let status: number;
-          let code: HttpErrorCode;
-          switch (result.reason) {
-            case "invalid_traits":
-              status = 400;
-              code = "BAD_REQUEST";
-              break;
-            case "native_unavailable":
-              status = 503;
-              code = "SERVICE_UNAVAILABLE";
-              break;
-            case "render_error":
-              status = 500;
-              code = "INTERNAL_ERROR";
-              break;
-          }
-          return httpError(code, result.message, status);
-        }
-
-        publishAvatarUpdated();
-        return Response.json({ ok: true });
-      },
-    },
-  ];
+function handleGetCharacterComponents() {
+  return getCharacterComponents();
 }
+
+function handleRenderFromTraits({ body }: RouteHandlerArgs) {
+  const traits = body as CharacterTraits | undefined;
+
+  if (
+    !traits ||
+    typeof traits !== "object" ||
+    !traits.bodyShape ||
+    !traits.eyeStyle ||
+    !traits.color
+  ) {
+    throw new BadRequestError(
+      "Missing required fields: bodyShape, eyeStyle, color",
+    );
+  }
+
+  const result = writeTraitsAndRenderAvatar(traits);
+
+  if (!result.ok) {
+    switch (result.reason) {
+      case "invalid_traits":
+        throw new BadRequestError(result.message);
+      case "native_unavailable":
+        throw new ServiceUnavailableError(result.message);
+      case "render_error":
+        throw new RouteError(result.message, "INTERNAL_ERROR", 500);
+    }
+  }
+
+  publishAvatarUpdated();
+  return { ok: true };
+}
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "avatar_character_components",
+    endpoint: "avatar/character-components",
+    method: "GET",
+    handler: handleGetCharacterComponents,
+    summary: "Get character components",
+    description: "Return available avatar character components.",
+    tags: ["avatar"],
+  },
+  {
+    operationId: "avatar_render_from_traits",
+    endpoint: "avatar/render-from-traits",
+    method: "POST",
+    handler: handleRenderFromTraits,
+    summary: "Render avatar from traits",
+    description: "Write character traits and render an avatar PNG.",
+    tags: ["avatar"],
+    requestBody: z.object({
+      bodyShape: z.string(),
+      eyeStyle: z.string(),
+      color: z.string(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+  },
+];
