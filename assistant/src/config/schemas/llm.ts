@@ -45,6 +45,7 @@ export const LLMCallSiteEnum = z.enum([
   "memoryExtraction",
   "memoryConsolidation",
   "memoryRetrieval",
+  "memoryV2Migration",
   "recall",
   "narrativeRefinement",
   "patternScan",
