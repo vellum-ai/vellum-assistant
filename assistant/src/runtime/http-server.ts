@@ -126,7 +126,6 @@ import {
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
 import { handleServePage } from "./routes/app-routes.js";
-import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
@@ -1004,9 +1003,10 @@ export class RuntimeHttpServer {
     // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
     if (pagesMatch && req.method === "GET") {
-      return withErrorHandling("pages", async () =>
-        handleServePage(pagesMatch[1]),
-      );
+      return withErrorHandling("pages", async () => {
+        const result = handleServePage({ pathParams: { appId: pagesMatch[1] } });
+        return new Response(result.body, { headers: result.headers });
+      });
     }
 
     // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
@@ -1772,7 +1772,6 @@ export class RuntimeHttpServer {
 
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
-      ...appRouteDefinitions(),
       ...secretRouteDefinitions({
         getCesClient: this.getCesClient,
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,

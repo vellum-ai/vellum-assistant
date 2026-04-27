@@ -8,6 +8,7 @@ import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
+import { isRouteResponse } from "./types.js";
 
 export function routeDefinitionsToHTTPRoutes(
   routes: RouteDefinition[],
@@ -36,19 +37,28 @@ export function routeDefinitionsToHTTPRoutes(
           queryParams[key] = value;
         }
 
-        let body: Record<string, unknown> | undefined;
+        const contentType = req.headers.get("content-type") ?? "";
+        let body: Record<string, unknown> | Uint8Array | undefined;
         if (
           r.method === "POST" ||
           r.method === "PUT" ||
           r.method === "PATCH"
         ) {
-          try {
-            const parsed = (await req.json()) as Record<string, unknown>;
-            if (parsed && typeof parsed === "object") {
-              body = parsed;
+          if (
+            contentType.includes("application/json") ||
+            contentType === ""
+          ) {
+            try {
+              const parsed = (await req.json()) as Record<string, unknown>;
+              if (parsed && typeof parsed === "object") {
+                body = parsed;
+              }
+            } catch {
+              // No body or invalid JSON — handler will validate
             }
-          } catch {
-            // No body or invalid JSON — handler will validate
+          } else {
+            // Binary body (e.g. application/zip, application/octet-stream)
+            body = new Uint8Array(await req.arrayBuffer());
           }
         }
 
@@ -63,6 +73,10 @@ export function routeDefinitionsToHTTPRoutes(
           body,
           headers,
         });
+
+        if (isRouteResponse(result)) {
+          return new Response(result.body, { headers: result.headers });
+        }
         return Response.json(result);
       } catch (err) {
         if (err instanceof RouteError) {

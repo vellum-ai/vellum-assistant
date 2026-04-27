@@ -6,9 +6,18 @@
  * CLI and the daemon. File-based signals and the HTTP port are deprecated
  * in favor of this IPC socket.
  *
- * Protocol: newline-delimited JSON over a Unix domain socket.
- * - Request:  { "id": string, "method": string, "params"?: Record<string, unknown> }
- * - Response: { "id": string, "result"?: unknown, "error"?: string }
+ * Protocol: length-prefixed binary frames over a Unix domain socket.
+ * Each frame: [4-byte big-endian length][payload bytes]
+ *
+ * Messages use a JSON envelope:
+ * - Request:  { id, method, params?, headers? }
+ * - Response: { id, result?, error?, headers? }
+ *
+ * When a message's headers map contains "content-length", a binary data
+ * frame immediately follows the JSON frame.
+ *
+ * Legacy newline-delimited JSON is auto-detected and supported for
+ * backward compatibility with older CLI clients.
  *
  * The preferred socket path is `{workspaceDir}/assistant.sock`. On
  * platforms with strict AF_UNIX path limits (notably macOS), the server falls
@@ -20,6 +29,12 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
 import { getLogger } from "../util/logger.js";
+import type { IpcEnvelope } from "./ipc-framing.js";
+import {
+  IpcFrameReader,
+  writeLegacyMessage,
+  writeMessage,
+} from "./ipc-framing.js";
 import { cliIpcRoutes } from "./routes/index.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -34,12 +49,14 @@ export type IpcRequest = {
   id: string;
   method: string;
   params?: Record<string, unknown>;
+  headers?: Record<string, string>;
 };
 
 export type IpcResponse = {
   id: string;
   result?: unknown;
   error?: string;
+  headers?: Record<string, string>;
 };
 
 export type IpcMethodHandler = (
@@ -92,18 +109,14 @@ export class AssistantIpcServer {
       this.clients.add(socket);
       log.debug("IPC client connected");
 
-      let buffer = "";
+      const reader = new IpcFrameReader(
+        (envelope, binary) =>
+          this.handleEnvelope(socket, reader, envelope, binary),
+        (err) => log.warn({ err }, "IPC frame read error"),
+      );
 
       socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).trim();
-          buffer = buffer.slice(newlineIdx + 1);
-          if (line) {
-            this.handleMessage(socket, line);
-          }
-        }
+        reader.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
 
       socket.on("close", () => {
@@ -154,33 +167,17 @@ export class AssistantIpcServer {
 
   // ── Internal ──────────────────────────────────────────────────────────
 
-  private handleMessage(socket: Socket, line: string): void {
-    let req: IpcRequest;
-    try {
-      req = JSON.parse(line) as IpcRequest;
-    } catch {
-      this.sendResponse(socket, {
-        id: "unknown",
-        error: "Invalid JSON",
-      });
-      return;
-    }
+  private handleEnvelope(
+    socket: Socket,
+    reader: IpcFrameReader,
+    envelope: IpcEnvelope,
+    binary: Uint8Array | undefined,
+  ): void {
+    const req = envelope as IpcRequest;
 
-    if (
-      !req ||
-      typeof req !== "object" ||
-      Array.isArray(req) ||
-      !req.id ||
-      !req.method
-    ) {
-      const id =
-        req &&
-        typeof req === "object" &&
-        !Array.isArray(req) &&
-        typeof req.id === "string"
-          ? req.id
-          : "unknown";
-      this.sendResponse(socket, {
+    if (!req.id || !req.method) {
+      const id = typeof req.id === "string" ? req.id : "unknown";
+      this.sendResponse(socket, reader, {
         id,
         error: "Missing 'id' or 'method' field",
       });
@@ -189,42 +186,54 @@ export class AssistantIpcServer {
 
     const handler = this.methods.get(req.method);
     if (!handler) {
-      this.sendResponse(socket, {
+      this.sendResponse(socket, reader, {
         id: req.id,
         error: `Unknown method: ${req.method}`,
       });
       return;
     }
 
+    // TODO: pass binary + req.headers through to route handlers once
+    // IPC callers send structured RouteHandlerArgs payloads.
+    void binary;
+
     try {
       const result = handler(req.params);
       if (result instanceof Promise) {
         result
           .then((value) => {
-            this.sendResponse(socket, { id: req.id, result: value });
+            this.sendResponse(socket, reader, { id: req.id, result: value });
           })
           .catch((err) => {
             log.warn({ err, method: req.method }, "IPC handler error");
-            this.sendResponse(socket, {
+            this.sendResponse(socket, reader, {
               id: req.id,
               error: String(err),
             });
           });
       } else {
-        this.sendResponse(socket, { id: req.id, result });
+        this.sendResponse(socket, reader, { id: req.id, result });
       }
     } catch (err) {
       log.warn({ err, method: req.method }, "IPC handler error");
-      this.sendResponse(socket, {
+      this.sendResponse(socket, reader, {
         id: req.id,
         error: String(err),
       });
     }
   }
 
-  private sendResponse(socket: Socket, response: IpcResponse): void {
-    if (!socket.destroyed) {
-      socket.write(JSON.stringify(response) + "\n");
+  private sendResponse(
+    socket: Socket,
+    reader: IpcFrameReader,
+    response: IpcResponse,
+    binary?: Uint8Array,
+  ): void {
+    if (socket.destroyed) return;
+    if (reader.isLegacy) {
+      writeLegacyMessage(socket, response);
+    } else {
+      writeMessage(socket, response, binary);
     }
   }
 }
