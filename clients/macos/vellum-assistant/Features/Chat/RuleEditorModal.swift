@@ -3,13 +3,13 @@ import VellumAssistantShared
 
 // MARK: - Helper Types
 
-struct V3ScopeOptionItem: Identifiable, Equatable {
+struct ScopeOptionItem: Identifiable, Equatable {
     let id = UUID()
     let label: String
     let pattern: String
 }
 
-struct V3SavedRule {
+struct SavedRule {
     let toolName: String
     let pattern: String
     let riskLevel: String
@@ -26,11 +26,11 @@ struct RuleEditorModal: View {
     let commandText: String
     let commandDescription: String
     let riskLevel: String
-    let scopeOptions: [V3ScopeOptionItem]
+    let scopeOptions: [ScopeOptionItem]
     let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
     /// Optional LLM-generated suggestion used to pre-populate selections.
     let suggestion: TrustRuleSuggestion?
-    let onSave: (V3SavedRule) -> Void
+    let onSave: (SavedRule) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedPatternIndex: Int = 1 // Start from first generalization (skip exact match at index 0)
@@ -41,7 +41,7 @@ struct RuleEditorModal: View {
     /// Generalized pattern options.
     /// If scopeOptions has multiple elements, skip the exact match at index 0.
     /// If scopeOptions has only 1 element (single wildcard), show it directly.
-    private var generalizedOptions: [V3ScopeOptionItem] {
+    private var generalizedOptions: [ScopeOptionItem] {
         scopeOptions.count > 1 ? Array(scopeOptions.dropFirst()) : scopeOptions
     }
 
@@ -208,7 +208,7 @@ struct RuleEditorModal: View {
     }
 
     @ViewBuilder
-    private func patternRow(option: V3ScopeOptionItem, index: Int) -> some View {
+    private func patternRow(option: ScopeOptionItem, index: Int) -> some View {
         // If single option, map directly to index 0. Otherwise, offset by 1 since we skip index 0.
         let targetIndex = isSingleOption ? index : index + 1
         Button {
@@ -357,7 +357,7 @@ struct RuleEditorModal: View {
                     }
                     return "everywhere"
                 }()
-                let rule = V3SavedRule(
+                let rule = SavedRule(
                     toolName: toolName,
                     pattern: selectedOption.pattern,
                     riskLevel: selectedRiskLevel,
