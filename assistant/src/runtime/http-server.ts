@@ -174,7 +174,6 @@ import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
-import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
@@ -1779,7 +1778,6 @@ export class RuntimeHttpServer {
         getCesClient: this.getCesClient,
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
-      ...migrationRollbackRouteDefinitions(),
       ...workspaceHttpOnlyRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...scheduleRouteDefinitions({
