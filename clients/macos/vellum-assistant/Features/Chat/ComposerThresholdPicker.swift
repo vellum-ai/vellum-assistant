@@ -177,7 +177,7 @@ struct ComposerThresholdPicker: View {
 
     /// The currently displayed preset. Updated optimistically on selection and
     /// reconciled with the gateway on appearance / conversation change.
-    @State private var currentPreset: ThresholdPreset = .default
+    @State private var currentPreset: ThresholdPreset = .relaxed
 
     /// The global interactive threshold raw value, fetched on load.
     @State private var globalInteractive: String = RiskThreshold.medium.rawValue
