@@ -2753,6 +2753,8 @@ paths:
                   - deleted
                   - id
                 additionalProperties: false
+        "404":
+          description: Conversation starter not found
       parameters:
         - name: id
           in: path
@@ -7272,7 +7274,7 @@ paths:
       parameters:
         - name: q
           in: query
-          required: false
+          required: true
           schema:
             type: string
           description: Search query (required)

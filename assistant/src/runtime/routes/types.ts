@@ -58,4 +58,11 @@ export interface RouteDefinition {
   responseHeaders?:
     | Record<string, string>
     | ((args: ResponseHeaderArgs) => Record<string, string>);
+  /**
+   * Additional HTTP response descriptions for the OpenAPI spec (e.g. 404,
+   * 409). Carried through to the spec generator so error variants are
+   * documented even though the handler communicates them via thrown
+   * RouteError subclasses rather than explicit Response objects.
+   */
+  additionalResponses?: Record<string, { description: string }>;
 }
