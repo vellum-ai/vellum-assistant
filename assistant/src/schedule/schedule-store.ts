@@ -505,6 +505,51 @@ export function failOneShot(id: string): void {
 }
 
 /**
+ * Revert a one-shot from 'firing' back to 'active' and increment its
+ * retry count. Used when a wake times out waiting for an idle conversation
+ * — the job should be retried on the next scheduler tick.
+ */
+export function retryOneShot(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  const row = db
+    .select({ retryCount: scheduleJobs.retryCount })
+    .from(scheduleJobs)
+    .where(eq(scheduleJobs.id, id))
+    .get();
+  db.update(scheduleJobs)
+    .set({
+      status: "active",
+      retryCount: (row?.retryCount ?? 0) + 1,
+      updatedAt: now,
+    })
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+    .run();
+}
+
+/**
+ * Permanently fail a one-shot schedule by marking it as cancelled and
+ * disabled. Used when a wake has exceeded its retry cap and should not
+ * be retried further.
+ */
+export function failOneShotPermanently(id: string, error?: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "cancelled",
+      enabled: false,
+      lastStatus: "error",
+      updatedAt: now,
+    })
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+    .run();
+  if (error) {
+    logger.warn({ scheduleId: id, error }, "One-shot permanently failed");
+  }
+}
+
+/**
  * Cancel a one-shot schedule. Sets status to 'cancelled' and disables it.
  * Returns true if a row was actually updated (i.e., it was in 'active' status).
  */

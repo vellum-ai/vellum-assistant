@@ -260,4 +260,93 @@ describe("scheduler wake mode", () => {
       }),
     );
   });
+
+  test("retries wake when wakeAgentForOpportunity returns timeout", async () => {
+    // GIVEN wakeAgentForOpportunity returns timeout on first call, then succeeds
+    mockWakeAgentForOpportunity
+      .mockResolvedValueOnce({
+        invoked: false,
+        producedToolCalls: false,
+        reason: "timeout",
+      })
+      .mockResolvedValueOnce({
+        invoked: true,
+        producedToolCalls: false,
+      });
+
+    const schedule = createSchedule({
+      name: "Wake Retry",
+      message: "Retry after timeout",
+      mode: "wake",
+      wakeConversationId: "conv-retry",
+      nextRunAt: Date.now() - 1000,
+    });
+    forceScheduleDue(schedule.id);
+
+    const scheduler = startScheduler(
+      mock(() => Promise.resolve()),
+      () => {},
+    );
+
+    // WHEN the first tick runs (fires immediately from startScheduler)
+    await new Promise((resolve) => origSetTimeout(resolve, 600));
+
+    // THEN the job is NOT completed — it's reverted to 'active' for retry
+    const rowAfterFirst = getRawDb()
+      .query("SELECT status, retry_count FROM cron_jobs WHERE id = ?")
+      .get(schedule.id) as { status: string; retry_count: number } | null;
+    expect(rowAfterFirst?.status).toBe("active");
+    expect(rowAfterFirst?.retry_count).toBe(1);
+
+    // WHEN the second tick fires (call runOnce directly to avoid waiting for setInterval)
+    await scheduler.runOnce();
+    scheduler.stop();
+
+    // THEN the job IS completed (status = 'fired')
+    const rowAfterSecond = getRawDb()
+      .query("SELECT status FROM cron_jobs WHERE id = ?")
+      .get(schedule.id) as { status: string } | null;
+    expect(rowAfterSecond?.status).toBe("fired");
+
+    // AND wakeAgentForOpportunity was called twice total
+    expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(2);
+  });
+
+  test("fails wake after max retries on persistent timeout", async () => {
+    // GIVEN wakeAgentForOpportunity always returns timeout
+    mockWakeAgentForOpportunity.mockResolvedValue({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "timeout",
+    });
+
+    const schedule = createSchedule({
+      name: "Wake Max Retry",
+      message: "Always busy",
+      mode: "wake",
+      wakeConversationId: "conv-busy",
+      nextRunAt: Date.now() - 1000,
+    });
+    forceScheduleDue(schedule.id);
+
+    // Simulate having already retried up to the max (set retry_count = 20)
+    getRawDb().run("UPDATE cron_jobs SET retry_count = 20 WHERE id = ?", [
+      schedule.id,
+    ]);
+
+    // WHEN the scheduler fires (first tick runs immediately from startScheduler)
+    const scheduler = startScheduler(
+      mock(() => Promise.resolve()),
+      () => {},
+    );
+    await new Promise((resolve) => origSetTimeout(resolve, 600));
+    scheduler.stop();
+
+    // THEN the job is permanently failed (status = 'cancelled', enabled = false)
+    const row = getRawDb()
+      .query("SELECT status, enabled FROM cron_jobs WHERE id = ?")
+      .get(schedule.id) as { status: string; enabled: number } | null;
+    expect(row?.status).toBe("cancelled");
+    expect(row?.enabled).toBe(0);
+  });
 });
