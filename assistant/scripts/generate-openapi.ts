@@ -259,7 +259,6 @@ const INLINE_ROUTES: RouteEntry[] = [
  * not part of the declarative route table.
  */
 const PRE_AUTH_ROUTES: RouteEntry[] = [
-  { method: "GET", endpoint: "audio/:id" },
   { method: "POST", endpoint: "pairing/request" },
   { method: "GET", endpoint: "pairing/status" },
 ];

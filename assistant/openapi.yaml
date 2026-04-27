@@ -1192,14 +1192,20 @@ paths:
           required: true
           schema:
             type: string
-  /v1/audio/{id}:
+  /v1/audio/{audioId}:
     get:
-      operationId: audio_by_id_get
+      operationId: audio_by_audioId_get
+      summary: Get audio segment
+      description:
+        Retrieve a previously stored audio segment by ID. Unauthenticated — the audioId is an unguessable UUID
+        capability token.
+      tags:
+        - audio
       responses:
         "200":
           description: Successful response
       parameters:
-        - name: id
+        - name: audioId
           in: path
           required: true
           schema:

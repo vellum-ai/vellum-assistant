@@ -966,7 +966,7 @@ export class RuntimeHttpServer {
             headers,
           });
         }
-        return new Response(result as Uint8Array, { headers });
+        return new Response(result as BodyInit, { headers });
       } catch (err) {
         if (err instanceof RouteError) {
           return httpError(
