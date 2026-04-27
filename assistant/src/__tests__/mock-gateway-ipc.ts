@@ -33,6 +33,8 @@
 import { EventEmitter } from "node:events";
 import { mock } from "bun:test";
 
+import { createGuardianBinding } from "../contacts/contacts-write.js";
+
 // ---------------------------------------------------------------------------
 // Configurable state
 // ---------------------------------------------------------------------------
@@ -44,18 +46,37 @@ let ipcResults: Record<string, unknown> = {};
 let simulateError = false;
 
 // ---------------------------------------------------------------------------
+// Built-in IPC handlers — mirror gateway behavior using assistant-local DB
+// ---------------------------------------------------------------------------
+
+type IpcHandler = (params?: Record<string, unknown>) => unknown;
+
+const builtinHandlers: Record<string, IpcHandler> = {
+  create_guardian_binding: (params) => {
+    if (!params) return undefined;
+    return createGuardianBinding({
+      channel: params.channel as string,
+      guardianExternalUserId: params.externalUserId as string,
+      guardianDeliveryChatId: params.deliveryChatId as string,
+      guardianPrincipalId: params.guardianPrincipalId as string,
+      verifiedVia: (params.verifiedVia as string) ?? "challenge",
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
 // FakePersistentIpcClient — mirrors PersistentIpcClient API
 // ---------------------------------------------------------------------------
 
 class FakePersistentIpcClient extends EventEmitter {
   async call(
     method: string,
-    _params?: Record<string, unknown>,
+    params?: Record<string, unknown>,
   ): Promise<unknown> {
     if (simulateError) {
       throw new Error("Mock IPC socket error");
     }
-    return method in ipcResults ? ipcResults[method] : undefined;
+    return resolveIpcCall(method, params);
   }
 
   destroy(): void {
@@ -67,19 +88,23 @@ class FakePersistentIpcClient extends EventEmitter {
 // Register the mock (called once from test-preload.ts)
 // ---------------------------------------------------------------------------
 
+function resolveIpcCall(
+  method: string,
+  params?: Record<string, unknown>,
+): unknown {
+  if (simulateError) return undefined;
+  if (method in ipcResults) return ipcResults[method];
+  if (method in builtinHandlers) return builtinHandlers[method](params);
+  return undefined;
+}
+
 export function installGatewayIpcMock(): void {
   mock.module("@vellumai/gateway-client/ipc-client", () => ({
     ipcCall: async (
       _socketPath: string,
       method: string,
-      _params?: Record<string, unknown>,
-    ): Promise<unknown> => {
-      if (simulateError) {
-        // Real ipcCall returns undefined on failure — mirror that behavior.
-        return undefined;
-      }
-      return method in ipcResults ? ipcResults[method] : undefined;
-    },
+      params?: Record<string, unknown>,
+    ): Promise<unknown> => resolveIpcCall(method, params),
     PersistentIpcClient: FakePersistentIpcClient,
   }));
 }
