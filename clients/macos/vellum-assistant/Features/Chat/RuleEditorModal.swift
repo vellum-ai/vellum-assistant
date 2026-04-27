@@ -63,7 +63,7 @@ struct RuleEditorModal: View {
     private var riskLevelHint: String {
         switch selectedRiskLevel.lowercased() {
         case "low":
-            return "Auto-approved at Default tolerance or higher"
+            return "Auto-approved at Conservative tolerance or higher"
         case "medium":
             return "Auto-approved at Relaxed tolerance or higher"
         case "high":

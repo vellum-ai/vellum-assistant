@@ -15,11 +15,11 @@ struct RiskToleranceSection: View {
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     /// Current selection for the interactive ("Conversations") threshold.
-    /// Defaults to `.medium` to match the gateway schema default.
+    /// Pre-load placeholder; reconciled with the gateway on appearance.
     @State private var interactiveSelection: RiskThreshold = .medium
 
     /// Current selection for the autonomous threshold.
-    /// Defaults to `.low` to match the gateway schema default.
+    /// Pre-load placeholder; reconciled with the gateway on appearance.
     @State private var autonomousSelection: RiskThreshold = .low
 
     /// In-flight sync task. Writes are serialized so rapid picker changes

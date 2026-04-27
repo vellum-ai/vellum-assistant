@@ -17,7 +17,7 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
     public var label: String {
         switch self {
         case .none: return "Strict"
-        case .low: return "Default"
+        case .low: return "Conservative"
         case .medium: return "Relaxed"
         case .high: return "Full access"
         }
@@ -27,7 +27,7 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .none: return .lock
         case .low: return .shieldCheck
-        case .medium: return .triangleAlert
+        case .medium: return .shield
         case .high: return .shieldOff
         }
     }

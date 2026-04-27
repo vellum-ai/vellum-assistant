@@ -23,7 +23,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     var label: String {
         switch self {
         case .strict: return "Strict"
-        case .default: return "Default"
+        case .default: return "Conservative"
         case .relaxed: return "Relaxed"
         case .fullAccess: return "Full access"
         }
@@ -42,7 +42,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         switch self {
         case .strict: return .lock
         case .default: return .shieldCheck
-        case .relaxed: return .triangleAlert
+        case .relaxed: return .shield
         case .fullAccess: return .shieldOff
         }
     }
@@ -180,7 +180,7 @@ struct ComposerThresholdPicker: View {
     @State private var currentPreset: ThresholdPreset = .default
 
     /// The global interactive threshold raw value, fetched on load.
-    @State private var globalInteractive: String = RiskThreshold.low.rawValue
+    @State private var globalInteractive: String = RiskThreshold.medium.rawValue
 
     /// In-flight write task. Writes are serialized so the final selection wins
     /// even when the user changes options rapidly.
@@ -286,7 +286,7 @@ struct ComposerThresholdPicker: View {
                     // During first-send bootstrap, the client can receive a
                     // conversation ID before the server has persisted the new
                     // override row. Fall back to the staged draft value to
-                    // avoid a one-frame "Default" flash.
+                    // avoid a one-frame flash to the global default.
                     override = conversationOverride ?? draftInteractiveOverride
                 } else {
                     override = draftInteractiveOverride
