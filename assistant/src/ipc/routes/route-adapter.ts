@@ -2,24 +2,42 @@
  * Adapts transport-agnostic RouteDefinitions into IpcRoutes for the
  * AssistantIpcServer.
  *
- * Currently passes the IPC params bag as both pathParams and body since
- * existing CLI consumers send a flat params object. As routes are cut over
- * to IPC, their CLI callers will likely need updating to send structured
- * `{ pathParams, queryParams, body }` payloads instead.
+ * IPC callers can send either:
+ *   - Structured: `{ pathParams, queryParams, body }` → passed through as-is
+ *   - Flat: `{ key: value, ... }` → treated as both pathParams and body
+ *     for backward compatibility with existing CLI consumers
+ *
+ * As CLI callers are updated to send structured payloads, the flat
+ * fallback can be removed.
  */
 
-import type { RouteDefinition } from "../../runtime/routes/types.js";
+import type {
+  RouteDefinition,
+  RouteHandlerArgs,
+} from "../../runtime/routes/types.js";
 import type { IpcRoute } from "../assistant-server.js";
+
+function isStructuredArgs(
+  params: Record<string, unknown>,
+): params is RouteHandlerArgs {
+  return (
+    "pathParams" in params || "queryParams" in params || "body" in params
+  );
+}
 
 export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
 ): IpcRoute[] {
   return routes.map((r) => ({
     method: r.operationId,
-    handler: (params?: Record<string, unknown>) =>
-      r.handler({
+    handler: (params?: Record<string, unknown>) => {
+      if (params && isStructuredArgs(params)) {
+        return r.handler(params);
+      }
+      return r.handler({
         pathParams: params as Record<string, string>,
         body: params,
-      }),
+      });
+    },
   }));
 }

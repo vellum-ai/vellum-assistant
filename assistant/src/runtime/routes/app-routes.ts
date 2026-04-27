@@ -1,5 +1,9 @@
 /**
  * Route handlers for shareable app pages and cloud sharing.
+ *
+ * Transport-agnostic handlers (metadata, delete) are exported as ROUTES.
+ * HTTP-only handlers (binary downloads, HTML pages, raw body uploads) remain
+ * as HTTPRouteDefinitions via appRouteDefinitions().
  */
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -23,8 +27,14 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import { NotFoundError, RouteError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 const HTML_ESCAPE_MAP: Record<string, string> = {
   "<": "&lt;",
@@ -50,13 +60,83 @@ function loadDesignSystemCss(): string {
   return designSystemCssCache;
 }
 
+// ---------------------------------------------------------------------------
+// Transport-agnostic handlers (shared ROUTES)
+// ---------------------------------------------------------------------------
+
+function handleGetSharedAppMetadata({ pathParams }: RouteHandlerArgs) {
+  const token = pathParams?.token as string;
+  const record = getSharedAppLink(token);
+  if (!record) {
+    throw new NotFoundError("Shared app not found");
+  }
+
+  let manifest: AppManifest;
+  try {
+    manifest = JSON.parse(record.manifestJson) as AppManifest;
+  } catch {
+    throw new RouteError("Corrupted manifest data", "INTERNAL_ERROR", 500);
+  }
+
+  return {
+    name: manifest.name,
+    description: manifest.description,
+    icon: manifest.icon,
+    bundleSizeBytes: record.bundleSizeBytes,
+  };
+}
+
+function handleDeleteSharedApp({ pathParams }: RouteHandlerArgs) {
+  const token = pathParams?.token as string;
+  const deleted = deleteSharedAppLinkByToken(token);
+  if (!deleted) {
+    throw new NotFoundError("Shared app not found");
+  }
+  return { success: true };
+}
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "apps_shared_metadata",
+    endpoint: "apps/shared/:token/metadata",
+    method: "GET",
+    policyKey: "apps/shared/metadata",
+    handler: handleGetSharedAppMetadata,
+    summary: "Get shared app metadata",
+    description: "Return metadata for a shared app bundle.",
+    tags: ["apps"],
+    responseBody: z.object({
+      name: z.string(),
+      description: z.string(),
+      icon: z.string(),
+      bundleSizeBytes: z.number(),
+    }),
+  },
+  {
+    operationId: "apps_shared_delete",
+    endpoint: "apps/shared/:token",
+    method: "DELETE",
+    policyKey: "apps/shared",
+    handler: handleDeleteSharedApp,
+    summary: "Delete shared app",
+    description: "Remove a shared app link.",
+    tags: ["apps"],
+    responseBody: z.object({
+      success: z.boolean(),
+    }),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// HTTP-only handlers (binary content, raw request body, HTML pages)
+// ---------------------------------------------------------------------------
+
 export function handleServePage(appId: string): Response {
   const app = getApp(appId);
   if (!app) {
     return httpError("NOT_FOUND", "App not found", 404);
   }
 
-  // Multifile apps serve the compiled dist/index.html directly.
   if (isMultifileApp(app)) {
     return serveMultifileApp(appId, app.name);
   }
@@ -67,11 +147,8 @@ export function handleServePage(appId: string): Response {
     (c) => HTML_ESCAPE_MAP[c] ?? c,
   );
 
-  // Per-response nonce for inline <style> and <script> tags.
   const nonce = randomBytes(16).toString("base64");
 
-  // Inject the nonce into any inline <script> tags from the app HTML definition
-  // so they are allowed by the nonce-based CSP without 'unsafe-inline'.
   const noncedHtml = app.htmlDefinition.replace(
     /<script(?=[\s>])/gi,
     `<script nonce="${nonce}"`,
@@ -90,10 +167,6 @@ ${noncedHtml}
 </body>
 </html>`;
 
-  // App HTML is user- or LLM-generated and commonly contains inline event
-  // handlers (onclick, onkeydown, etc.). Nonce-only script-src blocks those
-  // because CSP nonces only authorize <script> blocks, not handler attributes.
-  // We keep 'unsafe-inline' so arbitrary app content works.
   const csp = [
     "default-src 'self'",
     "style-src 'self' 'unsafe-inline'",
@@ -114,10 +187,6 @@ ${noncedHtml}
   });
 }
 
-/**
- * Serve compiled output for multifile TSX apps.
- * Falls back to a "not compiled yet" message if dist/index.html is missing.
- */
 function serveMultifileApp(appId: string, appName: string): Response {
   const distDir = join(getAppDirPath(appId), "dist");
   const indexPath = join(distDir, "index.html");
@@ -136,10 +205,6 @@ function serveMultifileApp(appId: string, appName: string): Response {
     );
   }
 
-  // Rewrite relative asset paths to absolute HTTP routes so browsers and
-  // HTTP-based consumers (e.g. /pages/:appId) can resolve them. The macOS
-  // WebView uses the vellumapp:// scheme handler which resolves on disk,
-  // but HTTP clients need the /v1/apps/:appId/dist/ route.
   let html = readFileSync(indexPath, "utf-8");
   html = html.replace(
     /(?:src|href)="(\.?\/?main\.(js|css))"/g,
@@ -149,9 +214,6 @@ function serveMultifileApp(appId: string, appName: string): Response {
     },
   );
 
-  // Compiled apps use external scripts so 'unsafe-inline' is not needed for
-  // script-src; however we keep it for style-src since the app HTML may use
-  // inline styles.
   const csp = [
     "default-src 'self'",
     "style-src 'self' 'unsafe-inline'",
@@ -172,7 +234,6 @@ function serveMultifileApp(appId: string, appName: string): Response {
   });
 }
 
-/** Content-Type map for static dist/ assets. */
 const DIST_CONTENT_TYPES: Record<string, string> = {
   ".js": "application/javascript",
   ".css": "text/css",
@@ -186,12 +247,7 @@ const DIST_CONTENT_TYPES: Record<string, string> = {
   ".woff": "font/woff",
 };
 
-/**
- * Serve a static file from an app's dist/ directory.
- * Validates the filename to prevent path traversal.
- */
 export function handleServeDistFile(appId: string, filename: string): Response {
-  // Reject any traversal attempts on appId
   if (
     !appId ||
     appId.includes("..") ||
@@ -202,7 +258,6 @@ export function handleServeDistFile(appId: string, filename: string): Response {
     return httpError("BAD_REQUEST", "Invalid appId", 400);
   }
 
-  // Reject any traversal attempts on filename
   if (
     !filename ||
     filename.includes("..") ||
@@ -230,7 +285,6 @@ export function handleServeDistFile(appId: string, filename: string): Response {
   });
 }
 
-/** 50 MB — generous cap for zip app bundles. */
 const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 
 async function handleShareApp(req: Request): Promise<Response> {
@@ -249,7 +303,6 @@ async function handleShareApp(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "Empty body", 400);
   }
 
-  // Validate it's a valid zip with a manifest.json
   let manifest: AppManifest;
   try {
     const zip = await JSZip.loadAsync(bundleData);
@@ -300,37 +353,8 @@ function handleDownloadSharedApp(shareToken: string): Response {
   });
 }
 
-function handleGetSharedAppMetadata(shareToken: string): Response {
-  const record = getSharedAppLink(shareToken);
-  if (!record) {
-    return httpError("NOT_FOUND", "Shared app not found", 404);
-  }
-
-  let manifest: AppManifest;
-  try {
-    manifest = JSON.parse(record.manifestJson) as AppManifest;
-  } catch {
-    return httpError("INTERNAL_ERROR", "Corrupted manifest data", 500);
-  }
-
-  return Response.json({
-    name: manifest.name,
-    description: manifest.description,
-    icon: manifest.icon,
-    bundleSizeBytes: record.bundleSizeBytes,
-  });
-}
-
-function handleDeleteSharedApp(shareToken: string): Response {
-  const deleted = deleteSharedAppLinkByToken(shareToken);
-  if (!deleted) {
-    return httpError("NOT_FOUND", "Shared app not found", 404);
-  }
-  return Response.json({ success: true });
-}
-
 // ---------------------------------------------------------------------------
-// Route definitions
+// HTTP-only route definitions (binary/HTML responses, raw request body)
 // ---------------------------------------------------------------------------
 
 export function appRouteDefinitions(): HTTPRouteDefinition[] {
@@ -360,21 +384,6 @@ export function appRouteDefinitions(): HTTPRouteDefinition[] {
       handler: async ({ req }) => handleShareApp(req),
     },
     {
-      endpoint: "apps/shared/:token/metadata",
-      method: "GET",
-      policyKey: "apps/shared/metadata",
-      summary: "Get shared app metadata",
-      description: "Return metadata for a shared app bundle.",
-      tags: ["apps"],
-      responseBody: z.object({
-        name: z.string(),
-        description: z.string(),
-        icon: z.string(),
-        bundleSizeBytes: z.number(),
-      }),
-      handler: ({ params }) => handleGetSharedAppMetadata(params.token),
-    },
-    {
       endpoint: "apps/shared/:token",
       method: "GET",
       policyKey: "apps/shared",
@@ -382,18 +391,6 @@ export function appRouteDefinitions(): HTTPRouteDefinition[] {
       description: "Download a shared app bundle as a zip file.",
       tags: ["apps"],
       handler: ({ params }) => handleDownloadSharedApp(params.token),
-    },
-    {
-      endpoint: "apps/shared/:token",
-      method: "DELETE",
-      policyKey: "apps/shared",
-      summary: "Delete shared app",
-      description: "Remove a shared app link.",
-      tags: ["apps"],
-      responseBody: z.object({
-        success: z.boolean(),
-      }),
-      handler: ({ params }) => handleDeleteSharedApp(params.token),
     },
   ];
 }

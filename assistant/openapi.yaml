@@ -544,7 +544,6 @@ paths:
           required: false
           schema:
             type: string
-          description: Must be 'query' for GET requests
     post:
       operationId: apps_by_id_data_post
       summary: Mutate app data

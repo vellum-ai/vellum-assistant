@@ -690,7 +690,6 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "method",
         type: "string",
-        description: "Must be 'query' for GET requests",
       },
     ],
   },
