@@ -238,7 +238,7 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
     // MARK: - alwaysAllow()
 
-    func testAlwaysAllow_sendsAddTrustRuleAndResimulates() {
+    func testAlwaysAllow_sendsCreateRuleAndResimulates() {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "Matched trust rule",
@@ -254,23 +254,22 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "echo *", scope: "project")
 
-        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.createRuleCalls.count >= 1 }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        XCTAssertEqual(mockTrustRuleClient.addTrustRuleCalls.count, 1)
-        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
-        XCTAssertEqual(trustCall.toolName, "host_bash")
+        XCTAssertEqual(mockTrustRuleClient.createRuleCalls.count, 1)
+        let trustCall = mockTrustRuleClient.createRuleCalls[0]
+        XCTAssertEqual(trustCall.tool, "host_bash")
         XCTAssertEqual(trustCall.pattern, "echo *")
         XCTAssertEqual(trustCall.scope, "project")
-        XCTAssertEqual(trustCall.decision, "allow")
-        XCTAssertEqual(trustCall.executionTarget, "host")
+        XCTAssertEqual(trustCall.risk, "low")
 
         // Re-simulate should have been called.
         XCTAssertGreaterThanOrEqual(mockToolClient.simulateToolPermissionCalls.count, 1)
     }
 
-    func testAlwaysAllow_highRisk_usesAlwaysAllowHighRiskDecision() {
+    func testAlwaysAllow_highRisk_usesLowRiskRule() {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "ok",
@@ -286,15 +285,15 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "rm -rf *", scope: "global")
 
-        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.createRuleCalls.count >= 1 }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
-        XCTAssertEqual(trustCall.decision, "allow")
+        let trustCall = mockTrustRuleClient.createRuleCalls[0]
+        XCTAssertEqual(trustCall.risk, "low")
     }
 
-    func testAlwaysAllow_emptyMetadata_doesNotPassNilFields() {
+    func testAlwaysAllow_createsRuleWithRequiredFields() {
         mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
             type: "tool_permission_simulate_response",
             success: true, decision: "allow", riskLevel: "low", reason: "ok",
@@ -310,12 +309,13 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         model.alwaysAllow(pattern: "*", scope: "global")
 
-        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
+        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.createRuleCalls.count >= 1 }
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         wait(for: [expectation], timeout: 2.0)
 
-        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
-        XCTAssertNil(trustCall.executionTarget)
+        let trustCall = mockTrustRuleClient.createRuleCalls[0]
+        XCTAssertEqual(trustCall.scope, "global")
+        XCTAssertEqual(trustCall.risk, "low")
     }
 
     // MARK: - Initial State

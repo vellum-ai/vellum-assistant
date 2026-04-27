@@ -377,12 +377,12 @@ final class ToolPermissionTesterModel: ObservableObject {
 
         Task {
             do {
-                try await trustRuleClient.addTrustRule(
-                    toolName: snapshot.snapshotToolName,
+                try await trustRuleClient.createRule(
+                    tool: snapshot.snapshotToolName,
                     pattern: pattern,
-                    scope: scope,
-                    decision: "allow",
-                    executionTarget: snapshot.snapshotExecutionTarget
+                    risk: "low",
+                    description: "",
+                    scope: scope
                 )
                 // Re-simulate to show the updated outcome with the new rule in effect.
                 simulate()
