@@ -49,14 +49,14 @@ import {
   updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { PermissionPrompter } from "../permissions/prompter.js";
-import { SecretPrompter } from "../permissions/secret-prompter.js";
-import type { UserDecision } from "../permissions/types.js";
 import {
   isConversationHostAccessDecision,
   isConversationHostAccessEnabled,
   isConversationHostAccessEnablePrompt,
 } from "../permissions/host-access-policy.js";
+import { PermissionPrompter } from "../permissions/prompter.js";
+import { SecretPrompter } from "../permissions/secret-prompter.js";
+import type { UserDecision } from "../permissions/types.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
