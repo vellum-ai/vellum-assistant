@@ -60,6 +60,7 @@ import {
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
+import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -456,6 +457,8 @@ async function processJob(
       await embedConceptPageJob(job, config);
       return;
     case "memory_v2_sweep":
+      await memoryV2SweepJob(job, config);
+      return;
     case "memory_v2_consolidate":
     case "memory_v2_migrate":
     case "memory_v2_rebuild_edges":
