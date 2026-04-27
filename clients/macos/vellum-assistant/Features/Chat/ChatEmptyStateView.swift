@@ -36,7 +36,6 @@ struct ChatEmptyStateView: View {
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onRemoveStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
-    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
     var showThresholdPicker: Bool = false
     var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
@@ -189,7 +188,6 @@ struct ChatEmptyStateView: View {
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: fallbackPlaceholder,
                 conversationId: conversationId,
-                conversationHostAccessControl: conversationHostAccessControl,
                 showThresholdPicker: showThresholdPicker,
                 inferenceProfilePicker: inferenceProfilePicker
             )

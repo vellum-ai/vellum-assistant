@@ -162,10 +162,7 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import {
-  createConversation,
-  updateConversationHostAccess,
-} from "../memory/conversation-crud.js";
+import { createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
@@ -255,46 +252,6 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
       guardianPrincipalId: "test-principal-id",
       status: "active",
     };
-  });
-
-  test("trusted contact requests tool with host_access enabled, tool executes immediately", async () => {
-    // In PR3, trusted_contact + host tool is allowed when conversation host_access is enabled.
-    // The guardian enables host_access at the conversation level (not per-invocation grants).
-    const conv = createConversation("trusted contact host access target flow");
-    updateConversationHostAccess(conv.id, true);
-
-    const toolName = "bash";
-    const input = { command: "echo hello" };
-    const context = makeToolContext({
-      trustClass: "trusted_contact",
-      conversationId: conv.id,
-    });
-
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    // With host_access enabled, trusted_contact is allowed immediately.
-    // No grant escalation or inline wait needed.
-    expect(result.allowed).toBe(true);
-    if (!result.allowed) return;
-    expect(result.grantConsumed).toBeUndefined();
-
-    // No canonical requests created — no escalation
-    const requests = listCanonicalGuardianRequests({ kind: "tool_grant_request" });
-    expect(requests.length).toBe(0);
-
-    // No guardian.question notification needed when host_access already enabled
-    const questionSignals = emittedSignals.filter(
-      (s) => s.sourceEventName === "guardian.question",
-    );
-    expect(questionSignals.length).toBe(0);
   });
 
   test("complete flow: routing state allows interactive + inline grant wait works via waitForInlineGrant", async () => {
@@ -478,45 +435,6 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     expect(state.canBeInteractive).toBe(true);
     expect(state.guardianRouteResolvable).toBe(false);
     expect(state.promptWaitingAllowed).toBe(false);
-  });
-
-  test("trusted_contact host tool without host_access is denied immediately (no binding irrelevant)", async () => {
-    // In PR3, trusted_contact + host tool without conversation host_access is denied
-    // immediately by the host_access gate. The guardian binding is never consulted.
-    const toolName = "bash";
-    const input = { command: "ls" };
-    const context = makeToolContext({
-      trustClass: "trusted_contact",
-      executionChannel: "telegram",
-    });
-
-    const start = Date.now();
-    const result = await shortHandler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-    const elapsed = Date.now() - start;
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-
-    // Denied by conversation host_access gate, not inline wait
-    expect(result.result.content).toContain("computer access is not enabled");
-
-    // No canonical tool_grant_request should have been created
-    const requests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-    });
-    expect(requests.length).toBe(0);
-
-    // Should complete nearly instantly — no inline wait entered
-    expect(elapsed).toBeLessThan(500);
   });
 
   test("bridge skips when no guardian binding exists for channel", () => {
@@ -1183,74 +1101,3 @@ describe("cross-milestone integration checks", () => {
   });
 });
 
-describe("(g) trusted-contact host-access gate", () => {
-  const handler = new ToolApprovalHandler({
-    inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
-  });
-
-  beforeEach(() => {
-    resetTables();
-    events.length = 0;
-    emittedSignals.length = 0;
-    deliveredReplies.length = 0;
-    mockGuardianBinding = {
-      id: "binding-1",
-      assistantId: "self",
-      channel: "telegram",
-      guardianExternalUserId: "guardian-1",
-      guardianDeliveryChatId: "guardian-chat-1",
-      guardianPrincipalId: "test-principal-id",
-      status: "active",
-    };
-  });
-
-  test("trusted-contact host tools do not create tool_grant_request rows when host access not enabled", async () => {
-    const conv = createConversation("trusted contact v2 host gate");
-    const result = await handler.checkPreExecutionGates(
-      "bash",
-      { command: "ls" },
-      makeToolContext({
-        trustClass: "trusted_contact",
-        conversationId: conv.id,
-      }),
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    expect(result.result.content).toContain(
-      "computer access is not enabled for this conversation",
-    );
-
-    const requests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-    });
-    expect(requests).toHaveLength(0);
-    expect(emittedSignals).toHaveLength(0);
-  });
-
-  test("trusted-contact host tools run inline once the guardian has already enabled computer access for the conversation", async () => {
-    const conv = createConversation("trusted contact v2 host access enabled");
-    updateConversationHostAccess(conv.id, true);
-
-    const result = await handler.checkPreExecutionGates(
-      "bash",
-      { command: "ls" },
-      makeToolContext({
-        trustClass: "trusted_contact",
-        conversationId: conv.id,
-      }),
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(true);
-  });
-
-});

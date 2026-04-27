@@ -75,9 +75,7 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationHostAccess: () => false,
-  createConversation: (title: string) => ({ id: "conversation-1", title, hostAccess: 0 }),
-  updateConversationHostAccess: () => {},
+  createConversation: (title: string) => ({ id: "conversation-1", title }),
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -706,8 +704,6 @@ describe("ToolExecutor verification control-plane policy gate", () => {
   });
 
   test("non-guardian invocation of unrelated bash command is allowed (sandbox bash is auto-approved)", async () => {
-    // In PR3, trusted_contact sandbox bash is auto-allowed by evaluateV2ConsentDisposition.
-    // Only host tools (host_bash, host_file_*) require explicit host_access or grant approval.
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
@@ -795,19 +791,6 @@ describe("ToolExecutor verification control-plane policy gate", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("restricted to guardian users");
     }
-  });
-
-  test("non-guardian actor is blocked from host read tools when host_access is not enabled", async () => {
-    // In PR3, trusted_contact + host tool requires conversation-level host_access.
-    // Without host_access enabled, the tool is denied with a "computer access" message.
-    const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute(
-      "host_file_read",
-      { path: "/Users/noaflaherty/.ssh/config" },
-      makeContext({ trustClass: "trusted_contact" }),
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("computer access is not enabled");
   });
 
   test("unverified channel actor is blocked from side-effect tools", async () => {

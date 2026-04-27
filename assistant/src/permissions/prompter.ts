@@ -20,7 +20,6 @@ interface PendingPrompt {
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   toolUseId?: string;
-  hostAccessEnablePrompt?: boolean;
 }
 
 export type ConfirmationStateCallback = (
@@ -64,7 +63,6 @@ export class PermissionPrompter {
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
     toolUseId?: string,
-    hostAccessEnablePrompt?: boolean,
     riskReason?: string,
     isContainerized?: boolean,
     directoryScopeOptions?: readonly { scope: string; label: string }[],
@@ -98,7 +96,6 @@ export class PermissionPrompter {
         reject,
         timer,
         toolUseId,
-        hostAccessEnablePrompt,
       });
 
       if (signal) {
@@ -155,10 +152,6 @@ export class PermissionPrompter {
   /** Returns the toolUseId associated with a pending request, if any. */
   getToolUseId(requestId: string): string | undefined {
     return this.pending.get(requestId)?.toolUseId;
-  }
-
-  isHostAccessEnablePrompt(requestId: string): boolean {
-    return this.pending.get(requestId)?.hostAccessEnablePrompt === true;
   }
 
   resolveConfirmation(

@@ -68,10 +68,7 @@ const HOST_TOOLS = new Set([
   "computer_use_run_applescript",
 ]);
 
-/**
- * Check whether a tool name is a host-level tool that requires the
- * `hostAccess` permission to execute.
- */
+/** Check whether a tool name is a host-level tool. */
 export function isHostTool(toolName: string): boolean {
   return HOST_TOOLS.has(toolName);
 }

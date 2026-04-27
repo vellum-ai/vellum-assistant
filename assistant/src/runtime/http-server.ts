@@ -1670,7 +1670,6 @@ export class RuntimeHttpServer {
         conversation.conversationType,
       ),
       source: conversation.source ?? "user",
-      hostAccess: conversation.hostAccess === 1,
       ...(conversation.scheduleJobId
         ? { scheduleJobId: conversation.scheduleJobId }
         : {}),

@@ -1162,9 +1162,6 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(text).toContain(
       "confirming the guardian's intent conversationally",
     );
-    expect(text).toContain(
-      "ask the guardian to enable computer access for this conversation",
-    );
     expect(text).not.toContain(
       "tool execution layer will automatically deny it and escalate",
     );

@@ -29,10 +29,8 @@ import {
   countConversationsByScheduleJobId,
   deleteConversation,
   getConversation,
-  getConversationHostAccess,
   setConversationInferenceProfile,
   unarchiveConversation,
-  updateConversationHostAccess,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { updateConversationTitle } from "../../memory/conversation-crud.js";
@@ -67,7 +65,6 @@ export interface ConversationManagementDeps {
     conversationId: string;
     title: string;
     conversationType: string;
-    hostAccess: boolean;
     inferenceProfile?: string;
   } | null>;
   renameConversation: (conversationId: string, name: string) => boolean;
@@ -233,7 +230,6 @@ export function conversationManagementRouteDefinitions(
         conversationId: z.string(),
         title: z.string(),
         conversationType: z.string(),
-        hostAccess: z.boolean(),
         inferenceProfile: z.string().optional(),
       }),
       handler: async ({ req }) => {
@@ -262,107 +258,9 @@ export function conversationManagementRouteDefinitions(
           conversationId: result.conversationId,
           title: result.title,
           conversationType: normalizeConversationType(result.conversationType),
-          hostAccess: result.hostAccess,
           ...(result.inferenceProfile != null
             ? { inferenceProfile: result.inferenceProfile }
             : {}),
-        });
-      },
-    },
-    {
-      endpoint: "conversations/:id/host-access",
-      method: "GET",
-      policyKey: "conversations/host-access:GET",
-      summary: "Get conversation host access",
-      description: "Return whether the conversation can use host tools.",
-      tags: ["conversations"],
-      responseBody: z.object({
-        conversationId: z.string(),
-        hostAccess: z.boolean(),
-      }),
-      handler: ({ params }) => {
-        const resolvedId = resolveConversationId(params.id) ?? params.id;
-        const conversation = getConversation(resolvedId);
-        if (!conversation) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-        return Response.json({
-          conversationId: conversation.id,
-          hostAccess: getConversationHostAccess(conversation.id),
-        });
-      },
-    },
-    {
-      endpoint: "conversations/:id/host-access",
-      method: "PATCH",
-      policyKey: "conversations/host-access",
-      summary: "Update conversation host access",
-      description: "Enable or disable host access for a conversation.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        hostAccess: z.boolean(),
-      }),
-      responseBody: z.object({
-        conversationId: z.string(),
-        hostAccess: z.boolean(),
-      }),
-      handler: async ({ req, params, authContext }) => {
-        const guardianError = requireBoundGuardian(authContext);
-        if (guardianError) return guardianError;
-
-        const rawBody = (await req.json()) as unknown;
-        if (
-          rawBody == null ||
-          typeof rawBody !== "object" ||
-          Array.isArray(rawBody)
-        ) {
-          return httpError("BAD_REQUEST", "Invalid request body", 400);
-        }
-        const body = rawBody as { hostAccess?: unknown };
-        if (typeof body.hostAccess !== "boolean") {
-          return httpError("BAD_REQUEST", "Missing hostAccess boolean", 400);
-        }
-
-        const resolvedId = resolveConversationId(params.id) ?? params.id;
-        const conversation = getConversation(resolvedId);
-        if (!conversation) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-
-        const nextHostAccess = body.hostAccess;
-        if (conversation.hostAccess !== (nextHostAccess ? 1 : 0)) {
-          updateConversationHostAccess(resolvedId, nextHostAccess);
-          assistantEventHub
-            .publish(
-              buildAssistantEvent(
-                DAEMON_INTERNAL_ASSISTANT_ID,
-                {
-                  type: "conversation_host_access_updated",
-                  conversationId: resolvedId,
-                  hostAccess: nextHostAccess,
-                },
-                resolvedId,
-              ),
-            )
-            .catch((err) => {
-              log.warn(
-                { err, conversationId: resolvedId },
-                "Failed to publish conversation_host_access_updated event",
-              );
-            });
-        }
-
-        return Response.json({
-          conversationId: resolvedId,
-          hostAccess: nextHostAccess,
         });
       },
     },

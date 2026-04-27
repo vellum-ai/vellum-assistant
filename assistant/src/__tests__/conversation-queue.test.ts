@@ -113,8 +113,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-const mockedConversationHostAccess = new Map<string, boolean>();
-
 const capturedAddMessages: Array<{
   id: string;
   role: string;
@@ -158,14 +156,6 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
-  getConversationHostAccess: (conversationId: string) =>
-    mockedConversationHostAccess.get(conversationId) ?? false,
-  updateConversationHostAccess: (
-    conversationId: string,
-    hostAccess: boolean,
-  ) => {
-    mockedConversationHostAccess.set(conversationId, hostAccess);
-  },
   deleteMessageById: () => {},
   provenanceFromTrustContext: () => ({
     source: "user",
@@ -2197,7 +2187,6 @@ describe("Terminal trace events on rejection/failure", () => {
 describe("Conversation host attachment directives", () => {
   beforeEach(() => {
     pendingRuns = [];
-    mockedConversationHostAccess.clear();
   });
 
   test("host attachment prompts and resolves when user allows", async () => {
@@ -2256,7 +2245,6 @@ describe("Conversation host attachment directives", () => {
 
       await p1;
 
-      expect(mockedConversationHostAccess.get("conv-1")).toBe(true);
       expect(conversation.lastAssistantAttachments).toHaveLength(1);
       expect(conversation.lastAssistantAttachments[0].sourceType).toBe(
         "host_file",

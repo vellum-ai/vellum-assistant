@@ -42,7 +42,6 @@ public struct ConversationDetailClient: ConversationDetailClientProtocol {
             updatedAt: conversation.updatedAt,
             conversationType: conversation.conversationType,
             source: conversation.source,
-            hostAccess: conversation.hostAccess,
             scheduleJobId: conversation.scheduleJobId,
             channelBinding: conversation.channelBinding,
             conversationOriginChannel: conversation.conversationOriginChannel,

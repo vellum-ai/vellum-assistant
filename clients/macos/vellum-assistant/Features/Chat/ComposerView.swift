@@ -42,14 +42,6 @@ struct ComposerView: View, Equatable {
             && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
             && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
             && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
-            // ConversationHostAccessControlConfiguration contains a closure
-            // so it can't be Equatable; compare nil/non-nil plus the
-            // value-type fields that drive rendering.
-            && lhs.conversationHostAccessControl?.isEnabled == rhs.conversationHostAccessControl?.isEnabled
-            && lhs.conversationHostAccessControl?.canToggle == rhs.conversationHostAccessControl?.canToggle
-            && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
-            && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
-            && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
             && lhs.showThresholdPicker == rhs.showThresholdPicker
             // Closure prevents Equatable conformance on the configuration; compare
             // the value-type fields that drive rendering plus nil/non-nil parity.
@@ -110,7 +102,6 @@ struct ComposerView: View, Equatable {
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
-    var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
     var showThresholdPicker: Bool = false
     var inferenceProfilePicker: ChatProfilePickerConfiguration? = nil
 
@@ -456,25 +447,6 @@ struct ComposerView: View, Equatable {
                     action: { onAttach() }
                 )
                 .vTooltip("Attach file")
-            }
-
-            if let hostAccess = conversationHostAccessControl {
-                Button(action: hostAccess.onToggle) {
-                    VIconView(hostAccess.isEnabled ? .terminal : .lock, size: 14)
-                        .foregroundStyle(
-                            hostAccess.isEnabled
-                                ? VColor.systemPositiveStrong
-                                : VColor.contentSecondary
-                        )
-                        .frame(width: composerActionButtonSize, height: composerActionButtonSize)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!hostAccess.canToggle || hostAccess.isUpdating)
-                .vTooltip(hostAccess.errorMessage ?? "Computer access — \(hostAccess.subtitle)")
-                .accessibilityLabel("Computer access")
-                .accessibilityValue(hostAccess.isEnabled ? "Enabled" : "Disabled")
-                .animation(.easeInOut(duration: 0.15), value: hostAccess.isEnabled)
             }
 
             if showThresholdPicker {

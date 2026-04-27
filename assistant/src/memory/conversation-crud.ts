@@ -180,7 +180,6 @@ export interface ConversationRow {
   originInterface: string | null;
   forkParentConversationId: string | null;
   forkParentMessageId: string | null;
-  hostAccess: number;
   isAutoTitle: number;
   scheduleJobId: string | null;
   lastMessageAt: number | null;
@@ -209,7 +208,6 @@ export const parseConversation = createRowMapper<
   originInterface: "originInterface",
   forkParentConversationId: "forkParentConversationId",
   forkParentMessageId: "forkParentMessageId",
-  hostAccess: "hostAccess",
   isAutoTitle: "isAutoTitle",
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
@@ -263,7 +261,6 @@ export function createConversation(
         source?: string;
         scheduleJobId?: string;
         groupId?: string;
-        hostAccess?: boolean;
         forkParentConversationId?: string;
       },
 ) {
@@ -297,7 +294,6 @@ export function createConversation(
     contextSummary: null as string | null,
     contextCompactedMessageCount: 0,
     contextCompactedAt: null as number | null,
-    hostAccess: opts.hostAccess ? 1 : 0,
     conversationType,
     source,
     memoryScopeId,
@@ -447,11 +443,6 @@ export function getConversationSource(conversationId: string): string | null {
 export function getConversationMemoryScopeId(conversationId: string): string {
   const conv = getConversation(conversationId);
   return conv?.memoryScopeId ?? "default";
-}
-
-export function getConversationHostAccess(conversationId: string): boolean {
-  const conv = getConversation(conversationId);
-  return conv?.hostAccess === 1;
 }
 
 /**
@@ -1182,20 +1173,6 @@ export function updateConversationContextWindow(
       contextSummary,
       contextCompactedMessageCount,
       contextCompactedAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-    .where(eq(conversations.id, id))
-    .run();
-}
-
-export function updateConversationHostAccess(
-  id: string,
-  hostAccess: boolean,
-): void {
-  const db = getDb();
-  db.update(conversations)
-    .set({
-      hostAccess: hostAccess ? 1 : 0,
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, id))
