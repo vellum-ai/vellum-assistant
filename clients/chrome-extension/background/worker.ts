@@ -638,6 +638,7 @@ function createSseConnection(mode: SseMode): SseConnection {
     mode,
     onOpen: () => {
       console.log('[vellum-sse] Connected to cloud assistant');
+      recoveryAttempts = 0;
       setConnectionHealth('connected');
       void clearRelayAuthError();
     },
@@ -675,14 +676,30 @@ function createSseConnection(mode: SseMode): SseConnection {
 /**
  * Recovery handler for when the selected assistant returns 404.
  *
- * Re-fetches the assistants list. If exactly one assistant exists and
- * it's different from the stored one, auto-switch and reconnect.
- * Otherwise, tear down and surface `assistant_gone` so the popup can
- * show the assistant picker.
+ * Re-fetches the assistants list. If exactly one assistant exists,
+ * auto-switch and reconnect (handles rehatch where the ID is reused).
+ * Otherwise, surface `assistant_gone` so the popup shows the picker.
+ *
+ * A retry counter prevents infinite loops if the sole assistant keeps
+ * 404ing (e.g. propagation delay). After MAX_RECOVERY_ATTEMPTS the
+ * extension gives up and shows the picker.
  */
+const MAX_RECOVERY_ATTEMPTS = 3;
+let recoveryAttempts = 0;
+
 async function handleAssistantGone(): Promise<void> {
   teardownConnections();
   shouldConnect = false;
+  recoveryAttempts++;
+
+  if (recoveryAttempts > MAX_RECOVERY_ATTEMPTS) {
+    console.warn(`[vellum-sse] 404 recovery exhausted (${MAX_RECOVERY_ATTEMPTS} attempts)`);
+    recoveryAttempts = 0;
+    setConnectionHealth('assistant_gone', {
+      lastErrorMessage: 'The selected assistant no longer exists.',
+    });
+    return;
+  }
 
   let assistants: Array<{ id: string; name: string }> = [];
   try {
@@ -690,23 +707,25 @@ async function handleAssistantGone(): Promise<void> {
     assistants = await fetchAssistants(env);
   } catch (err) {
     console.error('[vellum-sse] Failed to fetch assistants during 404 recovery', err);
+    recoveryAttempts = 0;
     setConnectionHealth('error', {
       lastErrorMessage: 'Assistant not found and could not refresh the list.',
     });
     return;
   }
 
-  const current = await getSelectedAssistant();
-
-  if (assistants.length === 1 && assistants[0]!.id !== current?.id) {
-    // A different sole assistant is available — auto-switch and reconnect.
+  if (assistants.length === 1) {
+    // Exactly one assistant available — switch to it (or re-confirm it
+    // if the ID matches, e.g. after a retire-and-rehatch that reuses
+    // the same ID) and reconnect.
     const only = assistants[0]!;
-    console.log(`[vellum-sse] Auto-switching to sole assistant: ${only.name} (${only.id})`);
+    console.log(`[vellum-sse] Auto-switching to assistant: ${only.name} (${only.id}) [attempt ${recoveryAttempts}/${MAX_RECOVERY_ATTEMPTS}]`);
     await storeSelectedAssistant({ id: only.id, name: only.name });
     shouldConnect = true;
     await connect({ interactive: false });
   } else {
-    // Same assistant still 404ing, 0 assistants, or 2+ — user must pick.
+    // 0 or 2+ assistants — the user needs to pick.
+    recoveryAttempts = 0;
     setConnectionHealth('assistant_gone', {
       lastErrorMessage: 'The selected assistant no longer exists.',
     });
