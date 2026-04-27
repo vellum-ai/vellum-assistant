@@ -5,14 +5,15 @@
  * prompt in the user's app. The handler sends the prompt to connected
  * clients, stores the credential and its metadata on success.
  *
- * This route uses the factory pattern — the daemon server passes deps when
- * registering the route via `AssistantIpcServer.registerRoute()`.
+ * No daemon-level wiring needed — uses `requestSecretStandalone` directly
+ * with the global broadcast function set at daemon startup.
  */
 
 import { z } from "zod";
 
+import { broadcastToAllClients } from "../../acp/index.js";
+import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
-import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -56,37 +57,23 @@ export type CredentialPromptResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Deps interface
+// Route
 // ---------------------------------------------------------------------------
 
-export interface CredentialPromptDeps {
-  /** Request a secret from the user, using the standalone (non-conversation) path. */
-  requestSecretStandalone: (params: {
-    service: string;
-    field: string;
-    label: string;
-    description?: string;
-    placeholder?: string;
-    allowedTools?: string[];
-    allowedDomains?: string[];
-  }) => Promise<SecretPromptResult>;
-}
+export const credentialPromptRoute: IpcRoute = {
+  method: "credentials/prompt",
+  handler: async (params) => {
+    const validated = CredentialPromptParams.parse(params);
 
-// ---------------------------------------------------------------------------
-// Route factory
-// ---------------------------------------------------------------------------
+    assertMetadataWritable();
 
-export function createCredentialPromptRoute(
-  deps: CredentialPromptDeps,
-): IpcRoute {
-  return {
-    method: "credentials/prompt",
-    handler: async (params) => {
-      const validated = CredentialPromptParams.parse(params);
+    if (!broadcastToAllClients) {
+      return { ok: false, error: "Assistant not fully initialized" };
+    }
 
-      assertMetadataWritable();
-
-      const result = await deps.requestSecretStandalone({
+    const result = await requestSecretStandalone(
+      { send: broadcastToAllClients },
+      {
         service: validated.service,
         field: validated.field,
         label: validated.label,
@@ -94,36 +81,36 @@ export function createCredentialPromptRoute(
         placeholder: validated.placeholder,
         allowedTools: validated.allowedTools,
         allowedDomains: validated.allowedDomains,
-      });
+      },
+    );
 
-      if (!result.value) {
-        const reason =
-          result.error === "unsupported_channel"
-            ? "No connected client supports secure credential entry"
-            : "User cancelled the credential prompt";
-        return { ok: false, error: reason };
-      }
+    if (!result.value) {
+      const reason =
+        result.error === "unsupported_channel"
+          ? "No connected client supports secure credential entry"
+          : "User cancelled the credential prompt";
+      return { ok: false, error: reason };
+    }
 
-      // Store the secret
-      const key = credentialKey(validated.service, validated.field);
-      const stored = await setSecureKeyAsync(key, result.value);
-      if (!stored) {
-        return { ok: false, error: "Failed to store credential" };
-      }
+    // Store the secret
+    const key = credentialKey(validated.service, validated.field);
+    const stored = await setSecureKeyAsync(key, result.value);
+    if (!stored) {
+      return { ok: false, error: "Failed to store credential" };
+    }
 
-      // Write metadata and sync provider connection state
-      upsertCredentialMetadata(validated.service, validated.field, {
-        allowedTools: validated.allowedTools,
-        allowedDomains: validated.allowedDomains,
-        injectionTemplates: validated.injectionTemplates,
-      });
-      await syncManualTokenConnection(validated.service);
+    // Write metadata and sync provider connection state
+    upsertCredentialMetadata(validated.service, validated.field, {
+      allowedTools: validated.allowedTools,
+      allowedDomains: validated.allowedDomains,
+      injectionTemplates: validated.injectionTemplates,
+    });
+    await syncManualTokenConnection(validated.service);
 
-      return {
-        ok: true,
-        service: validated.service,
-        field: validated.field,
-      };
-    },
-  };
-}
+    return {
+      ok: true,
+      service: validated.service,
+      field: validated.field,
+    };
+  },
+};

@@ -524,7 +524,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
  * outside of a conversation context (e.g. from handler-level code like publish_page).
  */
 export function requestSecretStandalone(
-  ctx: HandlerContext,
+  ctx: Pick<HandlerContext, "send">,
   params: {
     service: string;
     field: string;
