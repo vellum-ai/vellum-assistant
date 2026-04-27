@@ -6,24 +6,37 @@
  */
 import { z } from "zod";
 
-import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
-import type { AuthContext } from "../auth/types.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-/**
- * POST /v1/host-cu-result — resolve a pending host CU request by requestId.
- * Requires AuthContext with guardian-bound actor.
- */
-async function handleHostCuResult(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  const authError = requireBoundGuardian(authContext);
-  if (authError) return authError;
+// ---------------------------------------------------------------------------
+// POST /v1/host-cu-result
+// ---------------------------------------------------------------------------
 
-  const body = (await req.json()) as {
+function handleHostCuResult({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const {
+    requestId,
+    axTree,
+    axDiff,
+    screenshot,
+    screenshotWidthPx,
+    screenshotHeightPx,
+    screenWidthPt,
+    screenHeightPt,
+    executionResult,
+    executionError,
+    secondaryWindows,
+    userGuidance,
+  } = body as {
     requestId?: string;
     axTree?: string;
     axDiff?: string;
@@ -38,82 +51,73 @@ async function handleHostCuResult(
     userGuidance?: string;
   };
 
-  const { requestId } = body;
-
   if (!requestId || typeof requestId !== "string") {
-    return httpError("BAD_REQUEST", "requestId is required", 400);
+    throw new BadRequestError("requestId is required");
   }
 
-  // Peek first (non-destructive) so we can validate the interaction kind
-  // without accidentally consuming a confirmation or secret interaction.
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    return httpError(
-      "NOT_FOUND",
+    throw new NotFoundError(
       "No pending interaction found for this requestId",
-      404,
     );
   }
 
   if (peeked.kind !== "host_cu") {
-    return httpError(
-      "CONFLICT",
+    throw new ConflictError(
       `Pending interaction is of kind "${peeked.kind}", expected "host_cu"`,
-      409,
     );
   }
 
-  // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
   interaction.conversation!.resolveHostCu(requestId, {
-    axTree: body.axTree,
-    axDiff: body.axDiff,
-    screenshot: body.screenshot,
-    screenshotWidthPx: body.screenshotWidthPx,
-    screenshotHeightPx: body.screenshotHeightPx,
-    screenWidthPt: body.screenWidthPt,
-    screenHeightPt: body.screenHeightPt,
-    executionResult: body.executionResult,
-    executionError: body.executionError,
-    secondaryWindows: body.secondaryWindows,
-    userGuidance: body.userGuidance,
+    axTree,
+    axDiff,
+    screenshot,
+    screenshotWidthPx,
+    screenshotHeightPx,
+    screenWidthPt,
+    screenHeightPt,
+    executionResult,
+    executionError,
+    secondaryWindows,
+    userGuidance,
   });
 
-  return Response.json({ accepted: true });
+  return { accepted: true };
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
 
-export function hostCuRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "host-cu-result",
-      method: "POST",
-      summary: "Submit host CU result",
-      description: "Resolve a pending host computer-use request by requestId.",
-      tags: ["host"],
-      requestBody: z.object({
-        requestId: z.string().describe("Pending CU request ID"),
-        axTree: z.string().describe("Accessibility tree").optional(),
-        axDiff: z.string().describe("Accessibility tree diff").optional(),
-        screenshot: z.string().describe("Base64 screenshot").optional(),
-        screenshotWidthPx: z.number().optional(),
-        screenshotHeightPx: z.number().optional(),
-        screenWidthPt: z.number().optional(),
-        screenHeightPt: z.number().optional(),
-        executionResult: z.string().optional(),
-        executionError: z.string().optional(),
-        secondaryWindows: z.string().optional(),
-        userGuidance: z.string().optional(),
-      }),
-      responseBody: z.object({
-        accepted: z.boolean(),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleHostCuResult(req, authContext),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "host_cu_result",
+    endpoint: "host-cu-result",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Submit host CU result",
+    description:
+      "Resolve a pending host computer-use request by requestId.",
+    tags: ["host"],
+    requestBody: z.object({
+      requestId: z.string().describe("Pending CU request ID"),
+      axTree: z.string().describe("Accessibility tree").optional(),
+      axDiff: z.string().describe("Accessibility tree diff").optional(),
+      screenshot: z.string().describe("Base64 screenshot").optional(),
+      screenshotWidthPx: z.number().optional(),
+      screenshotHeightPx: z.number().optional(),
+      screenWidthPt: z.number().optional(),
+      screenHeightPt: z.number().optional(),
+      executionResult: z.string().optional(),
+      executionError: z.string().optional(),
+      secondaryWindows: z.string().optional(),
+      userGuidance: z.string().optional(),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+    handler: handleHostCuResult,
+  },
+];

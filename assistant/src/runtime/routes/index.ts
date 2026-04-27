@@ -37,6 +37,11 @@ import { ROUTES as GUARDIAN_ACTION_ROUTES } from "./guardian-action-routes.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
+import { ROUTES as HOST_BASH_ROUTES } from "./host-bash-routes.js";
+import { ROUTES as HOST_BROWSER_ROUTES } from "./host-browser-routes.js";
+import { ROUTES as HOST_CU_ROUTES } from "./host-cu-routes.js";
+import { ROUTES as HOST_FILE_ROUTES } from "./host-file-routes.js";
+import { ROUTES as HOST_TRANSFER_ROUTES } from "./host-transfer-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
@@ -101,6 +106,11 @@ export const ROUTES: RouteDefinition[] = [
   ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,
+  ...HOST_BASH_ROUTES,
+  ...HOST_BROWSER_ROUTES,
+  ...HOST_CU_ROUTES,
+  ...HOST_FILE_ROUTES,
+  ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...MEMORY_ITEM_ROUTES,
