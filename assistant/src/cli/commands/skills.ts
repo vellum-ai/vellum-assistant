@@ -59,13 +59,13 @@ Examples:
 
   skills
     .command("list")
-    .description("List all skills (bundled, installed, and catalog)")
+    .description("List bundled and installed skills")
     .option("--json", "Machine-readable JSON output")
     .addHelpText(
       "after",
       `
-Lists all skills: bundled (compiled-in), installed (user-added), and
-available catalog skills with their ID, name, and description.
+Lists all bundled and installed skills with their source, state, and
+description. Use 'assistant skills search' to discover catalog skills.
 
 Examples:
   $ assistant skills list
@@ -73,104 +73,48 @@ Examples:
     )
     .action(async (opts: { json?: boolean }) => {
       try {
-        // ── Bundled + installed skills (from loadSkillCatalog) ────────
         const localCatalog = loadSkillCatalog();
         const config = getConfig();
         const resolved = resolveSkillStates(localCatalog, config);
-        const bundled = resolved.filter(
-          (r) =>
-            r.summary.source === "bundled" || r.summary.source === "plugin",
-        );
-        const installed = resolved.filter(
-          (r) =>
-            r.summary.source === "managed" ||
-            r.summary.source === "workspace" ||
-            r.summary.source === "extra",
-        );
 
-        // ── Remote catalog skills ────────────────────────────────────
-        const repoSkillsDir = getRepoSkillsDir();
-        let remoteCatalog: CatalogSkill[];
-        if (repoSkillsDir) {
-          remoteCatalog = readLocalCatalog(repoSkillsDir);
-        } else {
-          remoteCatalog = await fetchCatalog();
-        }
-        // Exclude catalog skills that are already installed/bundled
-        const localIds = new Set(localCatalog.map((s) => s.id));
-        const availableCatalog = remoteCatalog.filter(
-          (s) => !localIds.has(s.id),
-        );
-
-        const totalCount =
-          bundled.length + installed.length + availableCatalog.length;
+        // Flat alphabetical list — source is a property, not a section
+        const allSkills = resolved
+          .map((r) => {
+            const s = r.summary;
+            const source =
+              s.source === "bundled" || s.source === "plugin"
+                ? "bundled"
+                : s.source; // managed, workspace, extra
+            return {
+              id: s.id,
+              name: s.displayName,
+              description: s.description,
+              emoji: s.emoji,
+              source,
+              state: r.state,
+            };
+          })
+          .sort((a, b) => a.id.localeCompare(b.id));
 
         if (opts.json) {
-          const bundledJson = bundled.map((r) => ({
-            id: r.summary.id,
-            name: r.summary.displayName,
-            description: r.summary.description,
-            emoji: r.summary.emoji,
-            state: r.state,
-          }));
-          const installedJson = installed.map((r) => ({
-            id: r.summary.id,
-            name: r.summary.displayName,
-            description: r.summary.description,
-            emoji: r.summary.emoji,
-            state: r.state,
-          }));
-          console.log(
-            JSON.stringify({
-              ok: true,
-              skills: [...bundledJson, ...installedJson, ...availableCatalog],
-              bundled: bundledJson,
-              installed: installedJson,
-              catalog: availableCatalog,
-            }),
-          );
+          console.log(JSON.stringify({ ok: true, skills: allSkills }));
           return;
         }
 
-        if (totalCount === 0) {
+        if (allSkills.length === 0) {
           log.info("No skills available.");
           return;
         }
 
-        if (bundled.length > 0) {
-          log.info(`Bundled skills (${bundled.length}):\n`);
-          for (const r of bundled) {
-            const s = r.summary;
-            const emoji = s.emoji ? `${s.emoji} ` : "";
-            const state = r.state === "disabled" ? " [disabled]" : "";
-            log.info(`  ${emoji}${s.id}${state}`);
-            log.info(`    ${s.displayName} — ${s.description}`);
-          }
-          log.info("");
-        }
-
-        if (installed.length > 0) {
-          log.info(`Installed skills (${installed.length}):\n`);
-          for (const r of installed) {
-            const s = r.summary;
-            const emoji = s.emoji ? `${s.emoji} ` : "";
-            const state = r.state === "disabled" ? " [disabled]" : "";
-            log.info(`  ${emoji}${s.id}${state}`);
-            log.info(`    ${s.displayName} — ${s.description}`);
-          }
-          log.info("");
-        }
-
-        if (availableCatalog.length > 0) {
-          log.info(`Available catalog skills (${availableCatalog.length}):\n`);
-          for (const s of availableCatalog) {
-            const emoji = s.emoji ? `${s.emoji} ` : "";
-            const deps = s.includes?.length
-              ? ` (requires: ${s.includes.join(", ")})`
-              : "";
-            log.info(`  ${emoji}${s.id}`);
-            log.info(`    ${s.name} — ${s.description}${deps}`);
-          }
+        log.info(`Skills (${allSkills.length}):\n`);
+        for (const s of allSkills) {
+          const emoji = s.emoji ? `${s.emoji} ` : "";
+          const tags = [
+            s.source,
+            ...(s.state === "disabled" ? ["disabled"] : []),
+          ];
+          log.info(`  ${emoji}${s.id} [${tags.join(", ")}]`);
+          log.info(`    ${s.name} — ${s.description}`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

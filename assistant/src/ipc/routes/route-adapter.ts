@@ -33,14 +33,16 @@ function resolveResponseHeaders(
   return spec;
 }
 
+function isIpcEligible(r: RouteDefinition): boolean {
+  return !r.requireGuardian && !r.isPublic && !r.requirePolicyEnforcement;
+}
+
 export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
 ): IpcRoute[] {
-  return routes
-    .filter(
-      (r) => !r.requireGuardian && !r.isPublic && !r.requirePolicyEnforcement,
-    )
-    .map((r) => ({
+  const eligible = routes.filter(isIpcEligible);
+
+  const converted: IpcRoute[] = eligible.map((r) => ({
       method: r.operationId,
       handler: async (params?: Record<string, unknown>) => {
         const stringParams: Record<string, string> = {};
@@ -88,4 +90,20 @@ export function routeDefinitionsToIpcRoutes(
       // Structured handler — direct pass-through to the route handler
       structuredHandler: r.handler,
     }));
+
+  // Append the meta-route that exposes the route schema to the gateway.
+  // IPC-only: the gateway calls this on startup to discover which HTTP
+  // requests can be proxied over IPC. Lives here (not in ROUTES) because
+  // it describes the ROUTES array itself.
+  converted.push({
+    method: "get_route_schema",
+    handler: async (_params?: Record<string, unknown>) =>
+      eligible.map((r) => ({
+        operationId: r.operationId,
+        endpoint: r.endpoint,
+        method: r.method,
+      })),
+  });
+
+  return converted;
 }
