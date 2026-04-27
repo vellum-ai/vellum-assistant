@@ -31,15 +31,14 @@ struct AssistantProgressView: View {
     /// expansion, override, and rehydration tracking survive view recycling.
     @Binding var progressUIState: ProgressCardUIState
 
+    @Binding var suggestRuleToolCall: ToolCallData?
+    @Binding var suggestRuleSuggestion: TrustRuleSuggestion?
+
     @State private var isExpanded: Bool
     @State private var startDate: Date
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
     @State private var suppressNextExpand: Bool = false
-    /// Tool call that triggered the suggestion-driven rule editor (from "Allow & Create Rule").
-    @State private var suggestRuleToolCall: ToolCallData?
-    /// LLM-generated suggestion returned from the suggest API.
-    @State private var suggestRuleSuggestion: TrustRuleSuggestion?
     /// When the post-tool-completion thinking phase started (typically the last
     /// tool's `completedAt`). Nil until all tools complete and the card remains active.
     @State private var thinkingAfterToolsStartDate: Date?
@@ -69,7 +68,9 @@ struct AssistantProgressView: View {
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
         onTemporaryAllow: ((String, String) -> Void)? = nil,
         activeConfirmationRequestId: String? = nil,
-        progressUIState: Binding<ProgressCardUIState>
+        progressUIState: Binding<ProgressCardUIState>,
+        suggestRuleToolCall: Binding<ToolCallData?> = .constant(nil),
+        suggestRuleSuggestion: Binding<TrustRuleSuggestion?> = .constant(nil)
     ) {
         self.toolCalls = toolCalls
         self.isStreaming = isStreaming
@@ -86,6 +87,8 @@ struct AssistantProgressView: View {
         self.onTemporaryAllow = onTemporaryAllow
         self.activeConfirmationRequestId = activeConfirmationRequestId
         self._progressUIState = progressUIState
+        self._suggestRuleToolCall = suggestRuleToolCall
+        self._suggestRuleSuggestion = suggestRuleSuggestion
         let model = ProgressCardPresentationModel.build(
             toolCalls: toolCalls,
             decidedConfirmations: decidedConfirmations,
@@ -299,35 +302,6 @@ struct AssistantProgressView: View {
         }
         .onAppear {
             handleOnAppear()
-        }
-        .sheet(item: $suggestRuleToolCall) { tc in
-            V3RuleEditorModal(
-                toolName: tc.toolName,
-                commandText: tc.inputSummary,
-                commandDescription: tc.reasonDescription ?? "",
-                riskLevel: tc.riskLevel ?? "medium",
-                scopeOptions: ToolCallStepDetailRow.v3ScopeOptions(from: tc),
-                directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
-                suggestion: suggestRuleSuggestion,
-                onSave: { rule in
-                    Task {
-                        try? await TrustRuleV3Client().createRule(
-                            tool: rule.toolName,
-                            pattern: rule.pattern,
-                            risk: rule.riskLevel,
-                            description: {
-                                let desc = tc.reasonDescription ?? ""
-                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
-                            }(),
-                            scope: rule.scope
-                        )
-                    }
-                },
-                onDismiss: {
-                    suggestRuleToolCall = nil
-                    suggestRuleSuggestion = nil
-                }
-            )
         }
     }
 
