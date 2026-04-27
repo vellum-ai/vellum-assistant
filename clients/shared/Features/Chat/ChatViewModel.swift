@@ -1895,13 +1895,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
 
     /// Respond to a tool confirmation request displayed inline in the chat.
-    public func respondToConfirmation(requestId: String, decision: String) {
+    public func respondToConfirmation(requestId: String, decision: String, selectedPattern: String? = nil, selectedScope: String? = nil) {
         log.info("[confirm-flow] respondToConfirmation called: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
         markConfirmationInFlight(requestId: requestId, decision: decision)
         inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let result = await performConfirmationResponse(
-                requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
+                requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
             )
             switch result {
             case .success:

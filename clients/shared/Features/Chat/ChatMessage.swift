@@ -44,6 +44,9 @@ public struct ToolConfirmationData: Equatable {
     public let scopeOptions: [ConfirmationRequestScopeOption]
     public let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
     public let executionTarget: String?
+    /// Whether persistent decisions (always allow) are offered. Used as a discriminator
+    /// for host-access enable prompts (which set this to false).
+    public let persistentDecisionsAllowed: Bool
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
     public var state: ToolConfirmationState = .pending
@@ -68,7 +71,8 @@ public struct ToolConfirmationData: Equatable {
         isConversationHostAccessPromptShape(
             toolName: toolName,
             allowlistOptionsCount: allowlistOptions.count,
-            scopeOptionsCount: scopeOptions.count
+            scopeOptionsCount: scopeOptions.count,
+            persistentDecisionsAllowed: persistentDecisionsAllowed
         )
     }
 
@@ -573,7 +577,7 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption] = [], executionTarget: String? = nil, toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -584,6 +588,7 @@ public struct ToolConfirmationData: Equatable {
         self.scopeOptions = scopeOptions
         self.directoryScopeOptions = directoryScopeOptions
         self.executionTarget = executionTarget
+        self.persistentDecisionsAllowed = persistentDecisionsAllowed
         self.toolUseId = toolUseId
         self.state = state
     }
@@ -810,12 +815,14 @@ public func confirmationHumanDescription(
 public func isConversationHostAccessPromptShape(
     toolName: String,
     allowlistOptionsCount: Int,
-    scopeOptionsCount: Int
+    scopeOptionsCount: Int,
+    persistentDecisionsAllowed: Bool
 ) -> Bool {
     let isHostTool = toolName.hasPrefix("host_") || toolName == "computer_use_run_applescript"
     guard isHostTool else { return false }
     return allowlistOptionsCount == 0
         && scopeOptionsCount == 0
+        && !persistentDecisionsAllowed
 }
 
 /// Data for a tool call displayed inline in an assistant message.
