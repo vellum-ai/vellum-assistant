@@ -56,6 +56,7 @@ export interface MigrationResult {
   threadsLines: number;
   archiveLines: number;
   embedsEnqueued: number;
+  rebuildEdgesJobId: string;
   sentinelWritten: boolean;
 }
 
@@ -557,6 +558,16 @@ export async function runMemoryV2Migration(
   await writeEdges(workspaceDir, edgesIdx);
 
   const embedsEnqueued = enqueueEmbeds(pages.map((p) => p.slug));
+
+  // Page bodies are written with empty `edges:` frontmatter (the schema is a
+  // derived view of `edges.json`). Without this enqueue the frontmatter would
+  // stay empty until the next consolidation run, but consolidation bails on an
+  // empty buffer — so a freshly-migrated workspace can sit indefinitely with
+  // out-of-date frontmatter. The rebuild-edges job propagates `edges.json` into
+  // every page's frontmatter and is idempotent, so pairing it with the
+  // migration is safe even when nothing else has run yet.
+  const rebuildEdgesJobId = enqueueMemoryJob("memory_v2_rebuild_edges", {});
+
   await writeSentinel(workspaceDir);
 
   // Re-read after writeEdges so the count reflects post-canonicalization
@@ -571,6 +582,7 @@ export async function runMemoryV2Migration(
     threadsLines: promotions.threads.length,
     archiveLines: promotions.archive.length,
     embedsEnqueued,
+    rebuildEdgesJobId,
     sentinelWritten: true,
   };
 }
