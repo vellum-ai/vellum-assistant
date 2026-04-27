@@ -133,7 +133,6 @@ import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
-import { channelReadinessRouteDefinitions } from "./routes/channel-readiness-routes.js";
 import {
   channelRouteDefinitions,
   startGuardianExpirySweep,
@@ -2169,7 +2168,6 @@ export class RuntimeHttpServer {
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...vercelRouteDefinitions(),
-      ...channelReadinessRouteDefinitions(),
       ...oauthProvidersRouteDefinitions(),
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),

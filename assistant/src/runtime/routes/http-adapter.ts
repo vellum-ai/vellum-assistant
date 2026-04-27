@@ -25,7 +25,9 @@ export function routeDefinitionsToHTTPRoutes(
   return routes.map((r) => ({
     endpoint: r.endpoint,
     method: r.method,
-    policyKey: r.policyKey ?? r.endpoint,
+    policyKey:
+      r.policyKey ??
+      r.endpoint.replace(/\/:[^/]+/g, "").replace(/^:/, ""),
     summary: r.summary,
     description: r.description,
     tags: r.tags,
