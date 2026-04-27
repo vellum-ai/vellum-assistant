@@ -89,7 +89,7 @@ The `normalizeFilePath()` function walks up the directory tree to find the neare
 
 ## Strict Threshold (`autoApproveUpTo: "none"`)
 
-When `permissions.autoApproveUpTo` is set to `"none"`, **all** tool actions require a matching trust rule or explicit approval. There is no implicit auto-allow for any risk level. This means:
+When the gateway threshold is set to `"none"`, **all** tool actions require a matching trust rule or explicit approval. There is no implicit auto-allow for any risk level. This means:
 
 - Low-risk tools that would normally auto-execute at the default threshold (e.g., `file_read`, `web_search`) will prompt unless a trust rule allows them.
 - `skill_load` requires an explicit rule match, even though it is classified as low risk.

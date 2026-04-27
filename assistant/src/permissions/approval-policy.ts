@@ -34,25 +34,14 @@ export interface ApprovalContext {
 // ── Threshold resolution ─────────────────────────────────────────────────────
 
 /**
- * Resolve the `autoApproveUpTo` config value to a scalar threshold for
- * the given execution context.
+ * Per-context defaults when no threshold is provided by the gateway. These
+ * mirror the gateway's own defaults and serve as defense-in-depth for tests /
+ * direct callers that bypass the IPC path.
  *
- * - Scalar string → returned as-is for all contexts
- * - Object with per-context overrides → returns the value for the context
- *
- * When `executionContext` is omitted, defaults to `"conversation"`.
- */
-/**
- * Per-context defaults when `autoApproveUpTo` is omitted from config entirely.
- *
- * In production the Zod schema defaults to the equivalent object form, so this
- * map acts as defense-in-depth for test configs / direct callers that bypass
- * schema validation.
- *
- * Note: when the user sets a scalar value (e.g. `"low"`), it applies uniformly
- * to ALL contexts — including headless, whose default here is `"none"`. A scalar
+ * Note: when a scalar value (e.g. `"low"`) is passed, it applies uniformly to
+ * ALL contexts — including headless, whose default here is `"none"`. A scalar
  * `"low"` is therefore *less strict* than the headless default. This is
- * intentional: the user explicitly chose a uniform threshold.
+ * intentional: the caller explicitly chose a uniform threshold.
  */
 const CONTEXT_DEFAULTS: Record<
   ExecutionContext,
@@ -68,6 +57,15 @@ type ThresholdConfig =
   | ThresholdScalar
   | { conversation: ThresholdScalar; background: ThresholdScalar; headless: ThresholdScalar };
 
+/**
+ * Resolve a threshold config to a scalar threshold for the given execution
+ * context.
+ *
+ * - Scalar string → returned as-is for all contexts
+ * - Object with per-context overrides → returns the value for the context
+ *
+ * When `executionContext` is omitted, defaults to `"conversation"`.
+ */
 export function resolveThreshold(
   configValue: ThresholdConfig | undefined,
   executionContext?: ExecutionContext,

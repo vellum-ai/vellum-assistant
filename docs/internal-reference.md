@@ -162,24 +162,15 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 
 ### Auto-Approve Threshold and Trust Rules
 
-The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.autoApproveUpTo`:
+The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database, not in config.json. The assistant reads them via IPC (`get_global_thresholds`, `get_conversation_threshold`). When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
-| Threshold | Default? | Behavior |
+Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. The three execution contexts each have their own default:
+
+| Context | Default threshold | Behavior |
 |---|---|---|
-| `"low"` | Yes (conversation) | Tools classified as Low risk are auto-approved. Medium and High risk tools prompt. |
-| `"medium"` | Yes (background) | Tools classified as Low or Medium risk are auto-approved. High risk tools prompt. |
-| `"none"` | Yes (headless) | All tool invocations prompt — no implicit auto-allow for any risk level. |
-| `"high"` | No | All risk levels auto-approved (use with caution). |
-
-The threshold can be a scalar or per-context object:
-
-```bash
-# Set a single threshold for all contexts
-assistant config set permissions.autoApproveUpTo '"low"'
-
-# Set per-context thresholds (conversation, background, headless)
-assistant config set permissions.autoApproveUpTo '{"conversation": "low", "background": "medium", "headless": "none"}'
-```
+| `conversation` (interactive) | `"low"` | Low-risk tools auto-approved; Medium and High risk prompt. |
+| `background` (scheduled/guardian) | `"medium"` | Low and Medium risk auto-approved; High risk prompts. |
+| `headless` (non-guardian automated) | `"none"` | All tool invocations prompt — no implicit auto-allow. |
 
 #### Trust rules
 

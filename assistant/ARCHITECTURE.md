@@ -1603,7 +1603,7 @@ graph TB
 
 ### Auto-Approve Threshold
 
-The `permissions.autoApproveUpTo` config option controls which risk levels are auto-approved without prompting. It accepts a scalar (`"none"`, `"low"`, `"medium"`, `"high"`) or per-context overrides (`{ conversation, background, headless }`).
+Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
 | `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
 | ------------------ | -------------- | ----------------- | --------------- |
@@ -1612,9 +1612,7 @@ The `permissions.autoApproveUpTo` config option controls which risk levels are a
 | `"medium"`         | Auto-allowed   | Auto-allowed      | Prompted        |
 | `"high"`           | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
-When set to `"none"`, every tool invocation requires explicit approval — equivalent to the former "strict" permission mode. Explicit deny and ask rules always take precedence over the threshold.
-
-> **Migration note:** Existing config files with the removed `permissions.mode = "strict"` are automatically migrated to `autoApproveUpTo: "none"` during config loading to preserve strict behavior. The `permissions.mode` field is no longer recognized.
+When set to `"none"`, every tool invocation requires explicit approval. Explicit deny and ask rules always take precedence over the threshold.
 
 ### Trust Rules (v3 Schema)
 
@@ -1740,7 +1738,6 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.autoApproveUpTo` (`none` / `low` / `medium` / `high` or per-context object)                                                                |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 
