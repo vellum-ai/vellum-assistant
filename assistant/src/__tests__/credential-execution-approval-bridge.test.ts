@@ -93,7 +93,7 @@ function makePrompter(
       sessionId: string | undefined,
       executionTarget: unknown,
       persistentDecisionsAllowed: unknown,
-      signal: AbortSignal | undefined,
+      _signal: AbortSignal | undefined,
     ) => {
       promptCalls.push({
         toolName,

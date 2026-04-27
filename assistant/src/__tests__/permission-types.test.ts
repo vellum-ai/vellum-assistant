@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import type { UserDecision } from "../permissions/types.js";
 import { isAllowDecision } from "../permissions/types.js";
 
 // ---------------------------------------------------------------------------
