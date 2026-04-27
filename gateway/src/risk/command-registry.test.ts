@@ -544,8 +544,10 @@ describe("command-registry", () => {
       const trustSubs = Object.keys(
         assistantSpec.subcommands!.trust.subcommands!,
       );
+      expect(trustSubs).toContain("list");
+      expect(trustSubs).toContain("add");
+      expect(trustSubs).toContain("update");
       expect(trustSubs).toContain("remove");
-      expect(trustSubs).toContain("clear");
     });
 
     test("covers expanded top-level assistant command groups", () => {
