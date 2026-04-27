@@ -9,9 +9,6 @@ import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 describe("parseCallbackData", () => {
   test.each([
     ["apr:req-123:approve_once", "approve_once"],
-    ["apr:req-123:approve_10m", "approve_10m"],
-    ["apr:req-123:approve_conversation", "approve_conversation"],
-    ["apr:req-123:approve_always", "approve_always"],
     ["apr:req-123:reject", "reject"],
   ] as const)('parses "%s" as action "%s"', (data, expectedAction) => {
     const result = parseCallbackData(data);
@@ -21,11 +18,12 @@ describe("parseCallbackData", () => {
     expect(result!.source).toBe("telegram_button");
   });
 
-  test("parses whatsapp source channel", () => {
-    const result = parseCallbackData("apr:req-456:approve_10m", "whatsapp");
-    expect(result).not.toBeNull();
-    expect(result!.action).toBe("approve_10m");
-    expect(result!.source).toBe("whatsapp_button");
+  test.each([
+    "apr:req-123:approve_10m",
+    "apr:req-123:approve_conversation",
+    "apr:req-123:approve_always",
+  ])('returns null for removed action "%s"', (data) => {
+    expect(parseCallbackData(data)).toBeNull();
   });
 
   test("parses slack source channel", () => {

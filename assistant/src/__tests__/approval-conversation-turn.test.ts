@@ -16,7 +16,7 @@ function makeContext(
 ): ApprovalConversationContext {
   return {
     toolName: "execute_shell",
-    allowedActions: ["approve_once", "approve_always", "reject"],
+    allowedActions: ["approve_once", "reject"],
     role: "guardian",
     pendingApprovals: [{ requestId: "run-1", toolName: "execute_shell" }],
     userMessage: "yes, go ahead",
@@ -119,15 +119,10 @@ describe("runApprovalConversationTurn", () => {
   });
 
   test("fail-closed when disposition is not in allowedActions", async () => {
-    // Context only allows approve_once and reject (no approve_always)
-    const restrictedContext = makeContext({
-      allowedActions: ["approve_once", "reject"],
-    });
-
     const result = await runApprovalConversationTurn(
-      restrictedContext,
+      makeContext(),
       makeGenerator({
-        disposition: "approve_always",
+        disposition: "unknown_action" as "approve_once",
         replyText: "Approved permanently!",
         targetRequestId: "run-1",
       }),

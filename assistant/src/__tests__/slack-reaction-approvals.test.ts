@@ -39,20 +39,14 @@ describe("parseReactionCallbackData", () => {
     });
   });
 
-  test("maps alarm_clock emoji to approve_10m", () => {
+  test("returns null for alarm_clock emoji (removed action)", () => {
     const result = parseReactionCallbackData("reaction:alarm_clock");
-    expect(result).toEqual({
-      action: "approve_10m",
-      source: "slack_reaction",
-    });
+    expect(result).toBeNull();
   });
 
-  test("maps white_check_mark emoji to approve_always", () => {
+  test("returns null for white_check_mark emoji (removed action)", () => {
     const result = parseReactionCallbackData("reaction:white_check_mark");
-    expect(result).toEqual({
-      action: "approve_always",
-      source: "slack_reaction",
-    });
+    expect(result).toBeNull();
   });
 
   test("returns null for unknown emoji", () => {

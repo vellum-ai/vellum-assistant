@@ -336,8 +336,7 @@ async function handleCallbackDecision(params: {
   }
 
   // Apply the decision through the unified guardian decision primitive.
-  // The primitive handles approve_always downgrade, approval info capture,
-  // record update, and scoped grant minting.
+  // The primitive handles approval info capture, record update, and scoped grant minting.
   const result = await applyGuardianDecision({
     approval: guardianApproval,
     decision: callbackDecision,
@@ -348,12 +347,8 @@ async function handleCallbackDecision(params: {
 
   if (result.applied) {
     // Notify the requester's chat about the outcome with the tool name
-    const effectiveAction =
-      callbackDecision.action === "approve_always"
-        ? "approve_once"
-        : callbackDecision.action;
     const decisionOutcome: "approved" | "denied" =
-      effectiveAction === "reject" ? "denied" : "approved";
+      callbackDecision.action === "reject" ? "denied" : "approved";
     const outcomeText = await composeApprovalMessageGenerative(
       {
         scenario: "guardian_decision_outcome",
@@ -523,18 +518,7 @@ async function handleConversationalDecision(params: {
   }
 
   // Decision-bearing disposition from the engine
-  let decisionAction = engineResult.disposition as ApprovalAction;
-
-  // Belt-and-suspenders: guardians cannot use broad allow modes even if
-  // the engine returns them (the engine's allowedActions validation should
-  // already prevent this, but enforce it here too).
-  if (
-    decisionAction === "approve_always" ||
-    decisionAction === "approve_10m" ||
-    decisionAction === "approve_conversation"
-  ) {
-    decisionAction = "approve_once";
-  }
+  const decisionAction = engineResult.disposition as ApprovalAction;
 
   // Resolve the target approval: use targetRequestId from the engine if
   // provided, otherwise use the single guardian approval.

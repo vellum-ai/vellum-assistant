@@ -51,9 +51,6 @@ export type ApprovalCopyGenerator = (
 export type ApprovalConversationDisposition =
   | "keep_pending"
   | "approve_once"
-  | "approve_10m"
-  | "approve_conversation"
-  | "approve_always"
   | "reject";
 
 /** Structured result from a single turn of the approval conversation. */

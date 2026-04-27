@@ -30,7 +30,6 @@ export interface PendingApprovalInfo {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
-  persistentDecisionsAllowed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,18 +68,15 @@ export function getApprovalInfoByConversation(
       toolName: i.confirmationDetails!.toolName,
       input: i.confirmationDetails!.input,
       riskLevel: i.confirmationDetails!.riskLevel,
-      persistentDecisionsAllowed:
-        i.confirmationDetails!.persistentDecisionsAllowed,
     }));
 }
 
 /**
  * Internal helper: turn a PendingApprovalInfo into a ChannelApprovalPrompt.
  *
- * Derives actions from the shared `buildDecisionActions` builder defined in
- * guardian-decision-types.ts, then maps them to the channel-facing
- * `ApprovalActionOption` shape. This ensures channel button sets are always
- * consistent with the unified `GuardianDecisionPrompt` type.
+ * Derives actions from `buildOneTimeDecisionActions`, then maps them to the
+ * channel-facing `ApprovalActionOption` shape. This ensures channel button sets
+ * are always consistent with the unified `GuardianDecisionPrompt` type.
  */
 function buildPromptFromApprovalInfo(
   info: PendingApprovalInfo,
@@ -129,9 +125,7 @@ export function buildApprovalUIMetadata(
 
 /**
  * Map a channel-level `ApprovalAction` to the permission system's
- * `UserDecision` type. Temporary approval modes (`approve_10m`,
- * `approve_conversation`) map directly to their `allow_*` counterparts so
- * the permission pipeline can activate the appropriate override.
+ * `UserDecision` type.
  */
 function mapApprovalActionToUserDecision(action: ApprovalAction): UserDecision {
   return action === "reject" ? "deny" : "allow";
@@ -149,10 +143,6 @@ export interface HandleDecisionResult {
 /**
  * Find the pending interaction for a conversation, map the user's decision to the
  * permission system's vocabulary, and apply it via session.handleConfirmationResponse().
- *
- * For `approve_always`, a trust rule is persisted using the first allowlist
- * option and first scope option from the pending confirmation (narrow
- * default). The current invocation is also approved.
  */
 export function handleChannelDecision(
   conversationId: string,
@@ -204,10 +194,6 @@ export function handleChannelDecision(
  * Build an approval prompt that includes context about which non-guardian
  * user is requesting the action. Sent to the guardian's chat so they
  * can approve or deny on behalf of the requester.
- *
- * Uses the shared `buildDecisionActions` builder with `forGuardianOnBehalf`
- * set to true, which excludes `approve_always` since guardians cannot
- * permanently allowlist tools on behalf of requesters.
  */
 export function buildGuardianApprovalPrompt(
   info: PendingApprovalInfo,

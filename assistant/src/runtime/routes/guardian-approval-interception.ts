@@ -641,12 +641,7 @@ export async function handleApprovalInterception(
     const nlIntent = parseApprovalIntent(content);
     if (nlIntent && nlIntent.confidence >= 0.9) {
       const nlDecision: ApprovalDecisionResult = {
-        action:
-          nlIntent.decision === "approve"
-            ? "approve_once"
-            : nlIntent.decision === "approve_10m"
-              ? "approve_10m"
-              : "reject",
+        action: nlIntent.decision === "approve" ? "approve_once" : "reject",
         source: "plain_text",
       };
       const nlResult = await handleChannelDecision(conversationId, nlDecision);

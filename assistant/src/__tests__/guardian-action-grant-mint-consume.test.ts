@@ -533,7 +533,7 @@ describe("guardian-action grant minter: conversational engine classification", (
     expect(grants.length).toBe(0);
   });
 
-  test("allowedActions excludes approve_always (guardian invariant)", async () => {
+  test("invalid disposition from generator does not produce a grant (fail-closed)", async () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
@@ -555,12 +555,11 @@ describe("guardian-action grant minter: conversational engine classification", (
     );
     expect(resolved).not.toBeNull();
 
-    // Generator returns approve_always -- but the allowedActions constraint
-    // in the minter restricts to approve_once/reject, so the approval-
-    // conversation-turn layer will normalize this to keep_pending.
+    // Generator returns an unknown/invalid disposition — the approval-
+    // conversation-turn layer will fail-closed and return keep_pending.
     const mockGenerator: ApprovalConversationGenerator = async () => ({
-      disposition: "approve_always",
-      replyText: "Approved permanently.",
+      disposition: "approve_always" as "approve_once",
+      replyText: "Approved.",
     });
 
     await tryMintGuardianActionGrant({
@@ -570,8 +569,8 @@ describe("guardian-action grant minter: conversational engine classification", (
       approvalConversationGenerator: mockGenerator,
     });
 
-    // No grant -- approve_always is not in allowedActions,
-    // so the disposition gets normalized to keep_pending (fail-closed).
+    // No grant -- invalid disposition causes fail-closed (keep_pending),
+    // so isApproval is false and no grant is minted.
     const db = getDb();
     const grants = db.select().from(scopedApprovalGrants).all();
     expect(grants.length).toBe(0);
