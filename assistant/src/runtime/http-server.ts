@@ -158,7 +158,6 @@ import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
-import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
   hostBrowserRouteDefinitions,
@@ -1800,7 +1799,6 @@ export class RuntimeHttpServer {
       ...filingRouteDefinitions({
         getFilingService: this.getFilingService,
       }),
-      ...homeFeedRouteDefinitions(),
       ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...profilerRouteDefinitions(),

@@ -87,13 +87,81 @@ const {
   __resetOnVisitRefreshStateForTests,
   computeGreeting,
   formatRelativeTime,
-  handleGetHomeFeed,
-  handlePatchFeedItem,
-  handlePostFeedAction,
-  homeFeedRouteDefinitions,
+  handleGetHomeFeed: _handleGetHomeFeed,
+  handlePatchFeedItem: _handlePatchFeedItem,
+  handlePostFeedAction: _handlePostFeedAction,
+  ROUTES,
 } = await import("../home-feed-routes.js");
+const { RouteError } = await import("../errors.js");
 const { appendFeedItem, getHomeFeedPath } =
   await import("../../../home/feed-writer.js");
+
+/**
+ * Compatibility wrappers: translate old handler call signatures
+ * (Request, ...args) into the new RouteHandlerArgs pattern and wrap
+ * the result in a Response-like object so existing test assertions
+ * (res.status / res.json()) keep working.
+ */
+function fakeResponse(body: unknown, status = 200) {
+  return { status, json: async () => body };
+}
+
+async function handleGetHomeFeed(req: Request) {
+  const url = new URL(req.url);
+  const queryParams: Record<string, string> = {};
+  for (const [key, value] of url.searchParams.entries()) {
+    queryParams[key] = value;
+  }
+  try {
+    const result = await _handleGetHomeFeed({ queryParams });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+async function handlePatchFeedItem(req: Request, itemId: string) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return fakeResponse({ error: "Invalid JSON body" }, 400);
+  }
+  try {
+    const result = await _handlePatchFeedItem({
+      pathParams: { id: itemId },
+      body: body as Record<string, unknown>,
+    });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+async function handlePostFeedAction(
+  _req: Request,
+  itemId: string,
+  actionId: string,
+) {
+  try {
+    const result = await _handlePostFeedAction({
+      pathParams: { id: itemId, actionId },
+    });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+function homeFeedRouteDefinitions() {
+  return ROUTES;
+}
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────
 

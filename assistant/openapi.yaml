@@ -4786,6 +4786,10 @@ paths:
                   - author
                   - createdAt
                 additionalProperties: false
+        "404":
+          description: Feed item not found
+        "500":
+          description: Failed to persist feed item status
       parameters:
         - name: id
           in: path
@@ -4831,6 +4835,10 @@ paths:
                 required:
                   - conversationId
                 additionalProperties: false
+        "404":
+          description: Feed item or action not found
+        "500":
+          description: Failed to create conversation
       parameters:
         - name: id
           in: path
