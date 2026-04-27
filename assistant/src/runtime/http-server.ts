@@ -197,7 +197,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
+import { workItemHttpOnlyRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
@@ -1811,7 +1811,7 @@ export class RuntimeHttpServer {
       ...logExportRouteDefinitions(),
       ...profilerRouteDefinitions(),
       ...documentRouteDefinitions(),
-      ...workItemRouteDefinitions(
+      ...workItemHttpOnlyRouteDefinitions(
         this.sendMessageDeps
           ? {
               getOrCreateConversation: (conversationId) =>

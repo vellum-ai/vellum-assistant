@@ -9492,6 +9492,21 @@ paths:
                 required:
                   - items
                 additionalProperties: false
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - running
+              - awaiting_review
+              - done
+              - failed
+              - cancelled
+              - archived
+          description: Filter by work item status
   /v1/work-items/{id}:
     delete:
       operationId: workitems_by_id_delete

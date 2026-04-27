@@ -34,6 +34,7 @@ import type { RouteDefinition } from "./types.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
+import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
 import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 
@@ -62,6 +63,7 @@ export const ROUTES: RouteDefinition[] = [
   ...TRACE_EVENT_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
   ...USAGE_ROUTES,
+  ...WORK_ITEM_ROUTES,
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,
