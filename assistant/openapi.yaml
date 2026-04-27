@@ -4837,6 +4837,8 @@ paths:
                   - assistantName
                   - updatedAt
                 additionalProperties: false
+        "500":
+          description: Failed to compute relationship state
   /v1/host-bash-result:
     post:
       operationId: hostbashresult_post
