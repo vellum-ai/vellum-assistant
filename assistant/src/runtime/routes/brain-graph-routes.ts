@@ -14,7 +14,7 @@ import { z } from "zod";
 import { getDb } from "../../memory/db.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 function getMemoryKindColor(kind: string): string {
   switch (kind) {
@@ -118,7 +118,7 @@ function handleServeBrainGraphUI(): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function brainGraphRouteDefinitions(): RouteDefinition[] {
+export function brainGraphRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "brain-graph",

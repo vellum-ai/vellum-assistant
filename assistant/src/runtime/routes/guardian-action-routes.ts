@@ -25,7 +25,7 @@ import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
@@ -266,7 +266,7 @@ function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function guardianActionRouteDefinitions(): RouteDefinition[] {
+export function guardianActionRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "guardian-actions/pending",

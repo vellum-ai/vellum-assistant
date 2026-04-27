@@ -36,7 +36,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
 const MANAGED_PROXY_CREDENTIALS = [
@@ -582,7 +582,7 @@ async function refreshProvidersAfterSecretChange(
 
 export function secretRouteDefinitions(
   deps?: SecretRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "secrets",

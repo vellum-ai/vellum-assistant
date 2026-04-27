@@ -82,11 +82,14 @@ export interface RouteRequestBodyVariant {
  * - `policyKey`: Override the policy lookup key. When omitted the router
  *   derives it from the endpoint pattern (stripping param segments).
  */
-export interface RouteDefinition {
+export interface HTTPRouteDefinition {
   endpoint: string;
   method: string;
   handler: (ctx: RouteContext) => Promise<Response> | Response;
   policyKey?: string;
+
+  /** Stable identifier used as the IPC method name when served over both transports. */
+  operationId?: string;
 
   // -- OpenAPI metadata (optional) ------------------------------------------
   /** Short summary shown next to the operation in generated docs. */
@@ -124,7 +127,7 @@ export interface RouteDefinition {
 // ---------------------------------------------------------------------------
 
 interface CompiledRoute {
-  def: RouteDefinition;
+  def: HTTPRouteDefinition;
   regex: RegExp;
   paramNames: string[];
   /** Policy key used for enforcePolicy() lookups. */
@@ -138,7 +141,7 @@ interface CompiledRoute {
 export class HttpRouter {
   private compiledRoutes: CompiledRoute[] = [];
 
-  constructor(routes: RouteDefinition[]) {
+  constructor(routes: HTTPRouteDefinition[]) {
     for (const def of routes) {
       this.compiledRoutes.push(compileRoute(def));
     }
@@ -214,7 +217,7 @@ export class HttpRouter {
  *   paramNames: ["id"]
  *   resolvedPolicyKey: "calls/cancel" (params stripped)
  */
-function compileRoute(def: RouteDefinition): CompiledRoute {
+function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
   const paramNames: string[] = [];
   const policySegments: string[] = [];
 

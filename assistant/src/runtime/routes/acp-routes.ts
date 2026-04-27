@@ -18,7 +18,7 @@ import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 /**
  * Terminal-state values for `acp_session_history.status`. The bulk-delete
@@ -57,7 +57,7 @@ const sessionEntrySchema = z.object({
 
 type SessionEntry = z.infer<typeof sessionEntrySchema>;
 
-export function acpRouteDefinitions(): RouteDefinition[] {
+export function acpRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "acp/spawn",

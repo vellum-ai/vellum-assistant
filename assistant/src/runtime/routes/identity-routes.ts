@@ -18,9 +18,8 @@ import {
 import { APP_VERSION } from "../../version.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
-import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
 import { getCachedIntro } from "./identity-intro-cache.js";
+import type { RouteDefinition } from "./types.js";
 
 interface DiskSpaceInfo {
   path: string;
@@ -373,7 +372,7 @@ export function handleHealth(): Response {
   return Response.json({ status: "ok" });
 }
 
-export function handleDetailedHealth(): Response {
+function getDetailedHealth() {
   let profiler: ReturnType<typeof getProfilerRuntimeStatus> | undefined;
   try {
     profiler = getProfilerRuntimeStatus();
@@ -381,7 +380,7 @@ export function handleDetailedHealth(): Response {
     // Profiler status is non-critical — omit on error
   }
 
-  return Response.json({
+  return {
     status: "healthy",
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
@@ -394,17 +393,21 @@ export function handleDetailedHealth(): Response {
         getLastWorkspaceMigrationId(WORKSPACE_MIGRATIONS),
     },
     ...(profiler ? { profiler } : {}),
-  });
+  };
+}
+
+export function handleDetailedHealth(): Response {
+  return Response.json(getDetailedHealth());
 }
 
 export function handleReadyz(): Response {
   return Response.json({ status: "ok" });
 }
 
-function handleGetIdentity(): Response {
+function getIdentity() {
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (!existsSync(identityPath)) {
-    return httpError("NOT_FOUND", "IDENTITY.md not found", 404);
+    throw new Error("IDENTITY.md not found");
   }
 
   const content = readFileSync(identityPath, "utf-8");
@@ -412,7 +415,6 @@ function handleGetIdentity(): Response {
 
   const version = APP_VERSION;
 
-  // Read createdAt from IDENTITY.md file birthtime
   let createdAt: string | undefined;
   try {
     const stats = statSync(identityPath);
@@ -421,7 +423,7 @@ function handleGetIdentity(): Response {
     // ignore
   }
 
-  return Response.json({
+  return {
     name: fields.name ?? "",
     role: fields.role ?? "",
     personality: fields.personality ?? "",
@@ -429,7 +431,20 @@ function handleGetIdentity(): Response {
     home: fields.home ?? "",
     version,
     createdAt,
-  });
+  };
+}
+
+function getIdentityIntro() {
+  const soulIntro = readSoulIdentityIntro();
+  if (soulIntro) {
+    return { text: soulIntro };
+  }
+
+  const cached = getCachedIntro();
+  if (!cached) {
+    throw new Error("No cached identity intro available");
+  }
+  return { text: cached.text };
 }
 
 // ---------------------------------------------------------------------------
@@ -461,20 +476,6 @@ function readSoulIdentityIntro(): string | null {
     // Fall through to cache/fallback
   }
   return null;
-}
-
-function handleGetIdentityIntro(): Response {
-  // Prefer SOUL.md persisted intro over LLM-generated cache
-  const soulIntro = readSoulIdentityIntro();
-  if (soulIntro) {
-    return Response.json({ text: soulIntro });
-  }
-
-  const cached = getCachedIntro();
-  if (!cached) {
-    return httpError("NOT_FOUND", "No cached identity intro available", 404);
-  }
-  return Response.json({ text: cached.text });
 }
 
 // ---------------------------------------------------------------------------
@@ -523,58 +524,60 @@ const detailedHealthSchema = z.object({
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function identityRouteDefinitions(): RouteDefinition[] {
-  return [
-    {
-      endpoint: "health",
-      method: "GET",
-      handler: () => handleDetailedHealth(),
-      summary: "Detailed health check",
-      description:
-        "Returns runtime health including version, disk, memory, CPU, and migration status.",
-      tags: ["system"],
-      responseBody: detailedHealthSchema,
-    },
-    {
-      endpoint: "healthz",
-      method: "GET",
-      handler: () => handleDetailedHealth(),
-      policyKey: "health",
-      summary: "Detailed health check (alias)",
-      description:
-        "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
-      tags: ["system"],
-      responseBody: detailedHealthSchema,
-    },
-    {
-      endpoint: "identity",
-      method: "GET",
-      handler: () => handleGetIdentity(),
-      summary: "Get assistant identity",
-      description:
-        "Returns the assistant's identity fields parsed from IDENTITY.md.",
-      tags: ["identity"],
-      responseBody: z.object({
-        name: z.string(),
-        role: z.string(),
-        personality: z.string(),
-        emoji: z.string(),
-        home: z.string(),
-        version: z.string(),
-        createdAt: z.string(),
-      }),
-    },
-    {
-      endpoint: "identity/intro",
-      method: "GET",
-      handler: () => handleGetIdentityIntro(),
-      summary: "Get identity intro text",
-      description:
-        "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
-      tags: ["identity"],
-      responseBody: z.object({
-        text: z.string(),
-      }),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "health",
+    endpoint: "health",
+    method: "GET",
+    handler: getDetailedHealth,
+    summary: "Detailed health check",
+    description:
+      "Returns runtime health including version, disk, memory, CPU, and migration status.",
+    tags: ["system"],
+    responseBody: detailedHealthSchema,
+  },
+  {
+    operationId: "healthz",
+    endpoint: "healthz",
+    method: "GET",
+    handler: getDetailedHealth,
+    policyKey: "health",
+    summary: "Detailed health check (alias)",
+    description:
+      "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
+    tags: ["system"],
+    responseBody: detailedHealthSchema,
+  },
+  {
+    operationId: "identity",
+    endpoint: "identity",
+    method: "GET",
+    handler: getIdentity,
+    summary: "Get assistant identity",
+    description:
+      "Returns the assistant's identity fields parsed from IDENTITY.md.",
+    tags: ["identity"],
+    responseBody: z.object({
+      name: z.string(),
+      role: z.string(),
+      personality: z.string(),
+      emoji: z.string(),
+      home: z.string(),
+      version: z.string(),
+      createdAt: z.string(),
+    }),
+  },
+  {
+    operationId: "identity_intro",
+    endpoint: "identity/intro",
+    method: "GET",
+    handler: getIdentityIntro,
+    summary: "Get identity intro text",
+    description:
+      "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
+    tags: ["identity"],
+    responseBody: z.object({
+      text: z.string(),
+    }),
+  },
+];

@@ -23,7 +23,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("diagnostics-routes");
 
@@ -433,7 +433,7 @@ async function handleCommandMode(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function diagnosticsRouteDefinitions(): RouteDefinition[] {
+export function diagnosticsRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "dictation",

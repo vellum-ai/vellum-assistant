@@ -16,7 +16,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import { truncate } from "../../util/truncate.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 function handleListConversationAttention(url: URL): Response {
   const stateParam = url.searchParams.get("state") ?? "all";
@@ -131,7 +131,7 @@ function handleListConversationAttention(url: URL): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function conversationAttentionRouteDefinitions(): RouteDefinition[] {
+export function conversationAttentionRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversations/attention",

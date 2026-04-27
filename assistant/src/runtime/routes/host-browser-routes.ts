@@ -13,7 +13,7 @@ import {
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
 
 /**
@@ -245,7 +245,7 @@ export async function handleHostBrowserResult(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function hostBrowserRouteDefinitions(): RouteDefinition[] {
+export function hostBrowserRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "host-browser-result",

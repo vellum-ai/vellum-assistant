@@ -27,7 +27,7 @@ import type {
 } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("recording-routes");
 
@@ -287,7 +287,7 @@ async function handlePostRecordingStatus(
 
 export function recordingRouteDefinitions(deps: {
   getRecordingDeps?: () => RecordingDeps;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   const getDeps = (): RecordingDeps => {
     if (!deps.getRecordingDeps) {
       throw new Error("Recording deps not available");

@@ -24,7 +24,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
 import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
 
@@ -246,7 +246,7 @@ async function handleBtw(
 
 export function btwRouteDefinitions(deps: {
   sendMessageDeps?: SendMessageDeps;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "btw",

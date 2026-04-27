@@ -50,7 +50,7 @@ import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("conversation-management-routes");
 
@@ -89,7 +89,7 @@ export interface ConversationManagementDeps {
 
 export function conversationManagementRouteDefinitions(
   deps: ConversationManagementDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversations",

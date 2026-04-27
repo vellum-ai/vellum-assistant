@@ -19,7 +19,7 @@ import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import type { RouteContext, RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition,RouteContext } from "../http-router.js";
 import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
@@ -385,7 +385,7 @@ async function handleWorkspaceDelete(ctx: RouteContext): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function workspaceRouteDefinitions(): RouteDefinition[] {
+export function workspaceRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "workspace/tree",

@@ -34,7 +34,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("work-items-routes");
 
@@ -414,7 +414,7 @@ export interface WorkItemRouteDeps {
 
 export function workItemRouteDefinitions(
   deps?: WorkItemRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     // GET /v1/work-items — list work items
     {

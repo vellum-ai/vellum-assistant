@@ -21,7 +21,7 @@ import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
 import { httpError } from "../../http-errors.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 import { conversationNotFoundResponse } from "./conversation-not-found.js";
 import type { PlaygroundRouteDeps } from "./deps.js";
 import { assertPlaygroundEnabled } from "./guard.js";
@@ -38,7 +38,7 @@ const InjectBodySchema = z.object({
 
 export function injectFailuresRouteDefinitions(
   deps: PlaygroundRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversations/:id/playground/inject-compaction-failures",

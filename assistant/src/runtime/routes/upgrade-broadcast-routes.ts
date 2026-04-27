@@ -20,9 +20,9 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
-export function upgradeBroadcastRouteDefinitions(): RouteDefinition[] {
+export function upgradeBroadcastRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "admin/upgrade-broadcast",

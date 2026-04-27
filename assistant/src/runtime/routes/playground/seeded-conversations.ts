@@ -6,13 +6,13 @@
  */
 
 import { httpError } from "../../http-errors.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
 import { PLAYGROUND_TITLE_PREFIX } from "./seed-conversation.js";
 
 export function seededConversationsRouteDefinitions(
   deps: PlaygroundRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "playground/seeded-conversations",

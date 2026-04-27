@@ -13,7 +13,7 @@
 
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
 
 const dispatcher = new UserRouteDispatcher({
@@ -40,7 +40,7 @@ const METHODS = [
   "OPTIONS",
 ] as const;
 
-export function userRouteDefinitions(): RouteDefinition[] {
+export function userRouteDefinitions(): HTTPRouteDefinition[] {
   return METHODS.map((method) => ({
     endpoint: "x/:path*",
     method,

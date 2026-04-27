@@ -46,7 +46,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { getClientRegistry } from "../client-registry.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("events-routes");
 
@@ -288,7 +288,7 @@ export function handleSubscribeAssistantEvents(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function eventsRouteDefinitions(): RouteDefinition[] {
+export function eventsRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "events",

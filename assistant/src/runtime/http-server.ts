@@ -99,7 +99,7 @@ import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
-import type { RouteDefinition } from "./http-router.js";
+import type { HTTPRouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
 import {
@@ -182,11 +182,9 @@ import {
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import { hostTransferRouteDefinitions } from "./routes/host-transfer-routes.js";
-import {
-  handleHealth,
-  handleReadyz,
-  identityRouteDefinitions,
-} from "./routes/identity-routes.js";
+import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
+import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import { ROUTES } from "./routes/index.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
@@ -1772,19 +1770,19 @@ export class RuntimeHttpServer {
    * `./routes/` and composed here via spread. The composition order
    * preserves the original top-to-bottom matching semantics.
    */
-  private buildRouteTable(): RouteDefinition[] {
+  private buildRouteTable(): HTTPRouteDefinition[] {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const conversationManagementDeps =
       this.getConversationManagementRouteDeps();
 
     return [
+      ...routeDefinitionsToHTTPRoutes(ROUTES),
       ...appRouteDefinitions(),
       ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions({
         getCesClient: this.getCesClient,
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
-      ...identityRouteDefinitions(),
       ...psRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),
       ...workspaceCommitRouteDefinitions(),
@@ -1905,7 +1903,7 @@ export class RuntimeHttpServer {
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
 
-      ...((): RouteDefinition[] => {
+      ...((): HTTPRouteDefinition[] => {
         const sendMessageDeps = this.sendMessageDeps;
         if (!sendMessageDeps) return [];
         const analysisDeps = {

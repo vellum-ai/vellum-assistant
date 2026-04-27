@@ -15,7 +15,7 @@ import {
   setTelegramConfig,
   setupTelegram,
 } from "../../../daemon/handlers/config-telegram.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 
 /**
  * GET /v1/integrations/telegram/config
@@ -78,7 +78,7 @@ async function handleSetupTelegram(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function telegramRouteDefinitions(): RouteDefinition[] {
+export function telegramRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "integrations/telegram/config",

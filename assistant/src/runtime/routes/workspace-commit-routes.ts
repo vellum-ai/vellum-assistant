@@ -12,9 +12,9 @@ import { z } from "zod";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getWorkspaceGitService } from "../../workspace/git-service.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
-export function workspaceCommitRouteDefinitions(): RouteDefinition[] {
+export function workspaceCommitRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "admin/workspace-commit",
