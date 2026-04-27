@@ -307,6 +307,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
   { endpoint: "apps/dist", scopes: ["settings.read"] },
+  { endpoint: "pages", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
   { endpoint: "usage/totals", scopes: ["settings.read"] },
