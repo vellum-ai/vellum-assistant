@@ -461,7 +461,7 @@ struct ChatBubble: View, Equatable {
                 commandText: tc.inputSummary,
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
-                scopeOptions: ToolCallStepDetailRow.v3ScopeOptions(from: tc),
+                scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
                 directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                 suggestion: suggestRuleSuggestion,
                 onSave: { rule in
