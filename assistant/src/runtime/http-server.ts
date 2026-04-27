@@ -173,7 +173,6 @@ import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
-import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
@@ -2145,7 +2144,6 @@ export class RuntimeHttpServer {
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...vercelRouteDefinitions(),
-      ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
       {

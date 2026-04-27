@@ -37,6 +37,7 @@ import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
+import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
 import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
@@ -87,6 +88,7 @@ export const ROUTES: RouteDefinition[] = [
   ...MEMORY_ITEM_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
   ...NOTIFICATION_ROUTES,
+  ...OAUTH_APPS_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
   ...PROFILER_ROUTES,
   ...PS_ROUTES,

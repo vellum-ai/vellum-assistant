@@ -6581,23 +6581,36 @@ paths:
   /v1/oauth/apps:
     get:
       operationId: oauth_apps_get
+      summary: List OAuth apps
+      description: List OAuth apps filtered by provider_key.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
+      parameters:
+        - name: provider_key
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth provider key to filter by
     post:
       operationId: oauth_apps_post
+      summary: Create OAuth app
+      description: Register a new OAuth app with client credentials.
       tags:
-        - oauth-apps
+        - oauth
       responses:
-        "200":
+        "201":
           description: Successful response
   /v1/oauth/apps/{appId}/connect:
     post:
       operationId: oauth_apps_by_appId_connect_post
+      summary: Start OAuth connect
+      description: Start an OAuth connect flow for an app.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6610,8 +6623,10 @@ paths:
   /v1/oauth/apps/{appId}/connections:
     get:
       operationId: oauth_apps_by_appId_connections_get
+      summary: List OAuth connections
+      description: List connections for an OAuth app.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6624,8 +6639,10 @@ paths:
   /v1/oauth/apps/{id}:
     delete:
       operationId: oauth_apps_by_id_delete
+      summary: Delete OAuth app
+      description: Delete an OAuth app and disconnect all its connections.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6638,8 +6655,10 @@ paths:
   /v1/oauth/connections/{id}:
     delete:
       operationId: oauth_connections_by_id_delete
+      summary: Disconnect OAuth connection
+      description: Disconnect a single OAuth connection.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
