@@ -1,8 +1,9 @@
 /**
- * Tests for workspace HTTP endpoints and utility functions.
+ * Tests for workspace route handlers and utility functions.
  *
  * Covers path resolution (traversal prevention), MIME type detection,
- * directory listing, file metadata, and raw content serving with range support.
+ * directory listing, file metadata, write/mkdir/rename/delete, and raw
+ * content serving with range support (HTTP-only).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,8 +15,12 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-// Mock platform module so getWorkspaceDir returns our temp dir
-import { workspaceRouteDefinitions } from "./workspace-routes.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import type { RouteDefinition } from "./types.js";
+import {
+  ROUTES,
+  workspaceHttpOnlyRouteDefinitions,
+} from "./workspace-routes.js";
 import { isTextMimeType, resolveWorkspacePath } from "./workspace-utils.js";
 
 // ---------------------------------------------------------------------------
@@ -49,12 +54,19 @@ beforeAll(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a RouteContext-like object for handler testing. */
+function getRoute(operationId: string): RouteDefinition {
+  const route = ROUTES.find((r) => r.operationId === operationId);
+  if (!route)
+    throw new Error(`No shared route found for operationId: ${operationId}`);
+  return route;
+}
+
+/** Build a RouteContext-like object for HTTP-only handler testing. */
 function makeCtx(
   searchParams: Record<string, string>,
   headers?: Record<string, string>,
 ) {
-  const url = new URL("http://localhost/v1/workspace/tree");
+  const url = new URL("http://localhost/v1/workspace/file/content");
   for (const [k, v] of Object.entries(searchParams)) {
     url.searchParams.set(k, v);
   }
@@ -65,31 +77,6 @@ function makeCtx(
     authContext: {} as never,
     params: {},
   };
-}
-
-/** Build a RouteContext-like object for POST handler testing with a JSON body. */
-function makePostCtx(endpoint: string, body: unknown) {
-  const url = new URL(`http://localhost/v1/${endpoint}`);
-  return {
-    url,
-    req: new Request(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-    server: {} as ReturnType<typeof Bun.serve>,
-    authContext: {} as never,
-    params: {},
-  };
-}
-
-function getHandler(endpoint: string, method?: string) {
-  const routes = workspaceRouteDefinitions();
-  const route = routes.find(
-    (r) => r.endpoint === endpoint && (!method || r.method === method),
-  );
-  if (!route) throw new Error(`No route found for endpoint: ${endpoint}`);
-  return route.handler;
 }
 
 // ===========================================================================
@@ -187,7 +174,6 @@ describe("isTextMimeType", () => {
   });
 
   test("extension fallback only applies to application/octet-stream", () => {
-    // A binary plist has a specific MIME type — extension should not override it
     expect(isTextMimeType("application/x-plist", "Info.plist")).toBe(false);
   });
 
@@ -219,76 +205,62 @@ describe("isTextMimeType", () => {
 // ===========================================================================
 
 describe("GET /v1/workspace/tree", () => {
-  const handler = getHandler("workspace/tree");
+  const { handler } = getRoute("workspace_tree");
 
-  test("root listing returns entries", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("root listing returns entries", () => {
+    const result = handler({ queryParams: {} }) as {
       path: string;
       entries: Array<{ name: string; type: string }>;
     };
-    expect(body.entries.length).toBeGreaterThan(0);
-    const names = body.entries.map((e) => e.name);
+    expect(result.entries.length).toBeGreaterThan(0);
+    const names = result.entries.map((e) => e.name);
     expect(names).toContain("hello.txt");
     expect(names).toContain("subdir");
   });
 
-  test("subdirectory listing returns child entries", async () => {
-    const ctx = makeCtx({ path: "subdir" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("subdirectory listing returns child entries", () => {
+    const result = handler({ queryParams: { path: "subdir" } }) as {
       path: string;
       entries: Array<{ name: string; type: string }>;
     };
-    expect(body.entries.length).toBe(1);
-    expect(body.entries[0].name).toBe("nested.txt");
-    expect(body.entries[0].type).toBe("file");
+    expect(result.entries.length).toBe(1);
+    expect(result.entries[0].name).toBe("nested.txt");
+    expect(result.entries[0].type).toBe("file");
   });
 
-  test("non-existent directory returns 404", async () => {
-    const ctx = makeCtx({ path: "nope" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(404);
+  test("non-existent directory throws NotFoundError", () => {
+    expect(() => handler({ queryParams: { path: "nope" } })).toThrow(
+      NotFoundError,
+    );
   });
 
-  test("path traversal attempt returns 400", async () => {
-    const ctx = makeCtx({ path: "../../etc" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("path traversal attempt throws BadRequestError", () => {
+    expect(() => handler({ queryParams: { path: "../../etc" } })).toThrow(
+      BadRequestError,
+    );
   });
 
-  test("entries have correct type field", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    const body = (await res.json()) as {
+  test("entries have correct type field", () => {
+    const result = handler({ queryParams: {} }) as {
       entries: Array<{ name: string; type: "file" | "directory" }>;
     };
-    const subdirEntry = body.entries.find((e) => e.name === "subdir");
-    const fileEntry = body.entries.find((e) => e.name === "hello.txt");
+    const subdirEntry = result.entries.find((e) => e.name === "subdir");
+    const fileEntry = result.entries.find((e) => e.name === "hello.txt");
     expect(subdirEntry?.type).toBe("directory");
     expect(fileEntry?.type).toBe("file");
   });
 
-  test("dotfiles and dot-directories are excluded", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("dotfiles and dot-directories are excluded", () => {
+    const result = handler({ queryParams: {} }) as {
       entries: Array<{ name: string }>;
     };
-    const names = body.entries.map((e) => e.name);
+    const names = result.entries.map((e) => e.name);
     expect(names).not.toContain(".env");
     expect(names).not.toContain(".hidden");
   });
 
-  test("directory entries have null size and mimeType", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("directory entries have null size and mimeType", () => {
+    const result = handler({ queryParams: {} }) as {
       entries: Array<{
         name: string;
         type: string;
@@ -296,28 +268,24 @@ describe("GET /v1/workspace/tree", () => {
         mimeType: string | null;
       }>;
     };
-    const dirEntry = body.entries.find((e) => e.type === "directory");
+    const dirEntry = result.entries.find((e) => e.type === "directory");
     expect(dirEntry).toBeDefined();
     expect(dirEntry!.size).toBeNull();
     expect(dirEntry!.mimeType).toBeNull();
   });
 
-  test("directories sorted before files", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    const body = (await res.json()) as {
+  test("directories sorted before files", () => {
+    const result = handler({ queryParams: {} }) as {
       entries: Array<{ type: string }>;
     };
-    const firstFileIdx = body.entries.findIndex((e) => e.type === "file");
-    // Find the last directory index by iterating
+    const firstFileIdx = result.entries.findIndex((e) => e.type === "file");
     let lastDirIdx = -1;
-    for (let i = body.entries.length - 1; i >= 0; i--) {
-      if (body.entries[i].type === "directory") {
+    for (let i = result.entries.length - 1; i >= 0; i--) {
+      if (result.entries[i].type === "directory") {
         lastDirIdx = i;
         break;
       }
     }
-    // All directories should come before any files
     if (lastDirIdx !== -1 && firstFileIdx !== -1) {
       expect(lastDirIdx).toBeLessThan(firstFileIdx);
     }
@@ -329,82 +297,78 @@ describe("GET /v1/workspace/tree", () => {
 // ===========================================================================
 
 describe("GET /v1/workspace/file", () => {
-  const handler = getHandler("workspace/file");
+  const { handler } = getRoute("workspace_file");
 
-  test("text file returns content inline", async () => {
-    const ctx = makeCtx({ path: "hello.txt" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("text file returns content inline", () => {
+    const result = handler({ queryParams: { path: "hello.txt" } }) as {
       path: string;
       name: string;
       content: string | null;
       isBinary: boolean;
       size: number;
     };
-    expect(body.path).toBe("hello.txt");
-    expect(body.name).toBe("hello.txt");
-    expect(body.content).toBe("Hello, world!");
-    expect(body.isBinary).toBe(false);
-    expect(body.size).toBe(13);
+    expect(result.path).toBe("hello.txt");
+    expect(result.name).toBe("hello.txt");
+    expect(result.content).toBe("Hello, world!");
+    expect(result.isBinary).toBe(false);
+    expect(result.size).toBe(13);
   });
 
-  test("missing path param returns 400", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("missing path param throws BadRequestError", () => {
+    expect(() => handler({ queryParams: {} })).toThrow(BadRequestError);
   });
 
-  test("non-existent file returns 404", async () => {
-    const ctx = makeCtx({ path: "nonexistent.txt" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(404);
+  test("non-existent file throws NotFoundError", () => {
+    expect(() => handler({ queryParams: { path: "nonexistent.txt" } })).toThrow(
+      NotFoundError,
+    );
   });
 
-  test("binary file returns isBinary true and content null", async () => {
-    const ctx = makeCtx({ path: "image.png" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("binary file returns isBinary true and content null", () => {
+    const result = handler({ queryParams: { path: "image.png" } }) as {
       isBinary: boolean;
       content: string | null;
     };
-    expect(body.isBinary).toBe(true);
-    expect(body.content).toBeNull();
+    expect(result.isBinary).toBe(true);
+    expect(result.content).toBeNull();
   });
 
-  test("path traversal attempt returns 400", async () => {
-    const ctx = makeCtx({ path: "../../etc/passwd" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("path traversal attempt throws BadRequestError", () => {
+    expect(() =>
+      handler({ queryParams: { path: "../../etc/passwd" } }),
+    ).toThrow(BadRequestError);
   });
 
-  test("json file returns content inline", async () => {
-    const ctx = makeCtx({ path: "data.json" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+  test("json file returns content inline", () => {
+    const result = handler({ queryParams: { path: "data.json" } }) as {
       content: string | null;
       isBinary: boolean;
       mimeType: string;
     };
-    expect(body.content).toBe('{"key":"value"}');
-    expect(body.isBinary).toBe(false);
+    expect(result.content).toBe('{"key":"value"}');
+    expect(result.isBinary).toBe(false);
   });
 
-  test("directory path returns 404", async () => {
-    const ctx = makeCtx({ path: "subdir" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(404);
+  test("directory path throws NotFoundError", () => {
+    expect(() => handler({ queryParams: { path: "subdir" } })).toThrow(
+      NotFoundError,
+    );
   });
 });
 
 // ===========================================================================
-// GET /v1/workspace/file/content
+// GET /v1/workspace/file/content (HTTP-only — range support)
 // ===========================================================================
 
 describe("GET /v1/workspace/file/content", () => {
-  const handler = getHandler("workspace/file/content");
+  function getHttpHandler() {
+    const routes = workspaceHttpOnlyRouteDefinitions();
+    const route = routes.find((r) => r.endpoint === "workspace/file/content");
+    if (!route) throw new Error("workspace/file/content HTTP route not found");
+    return route.handler;
+  }
+
+  const handler = getHttpHandler();
 
   test("returns raw bytes with correct Content-Type", async () => {
     const ctx = makeCtx({ path: "hello.txt" });
@@ -445,9 +409,6 @@ describe("GET /v1/workspace/file/content", () => {
   });
 
   test("suffix range (bytes=-N) works", async () => {
-    // "Hello, world!" -> indices 0-12, length 13
-    // bytes=-5: start = max(0, 13-5) = 8, end = 12
-    // chars at 8..12: "o", "r", "l", "d", "!"
     const ctx = makeCtx({ path: "hello.txt" }, { Range: "bytes=-5" });
     const res = await handler(ctx);
     expect(res.status).toBe(206);
@@ -473,18 +434,14 @@ describe("GET /v1/workspace/file/content", () => {
 // ===========================================================================
 
 describe("POST /v1/workspace/write", () => {
-  const handler = getHandler("workspace/write");
+  const { handler } = getRoute("workspace_write");
 
-  test("creates a new text file with UTF-8 content", async () => {
-    const ctx = makePostCtx("workspace/write", {
-      path: "new-file.txt",
-      content: "hello world",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { path: string; size: number };
-    expect(body.path).toBe("new-file.txt");
-    expect(body.size).toBe(11);
+  test("creates a new text file with UTF-8 content", () => {
+    const result = handler({
+      body: { path: "new-file.txt", content: "hello world" },
+    }) as { path: string; size: number };
+    expect(result.path).toBe("new-file.txt");
+    expect(result.size).toBe(11);
     const written = readFileSync(
       join(testWorkspaceDir, "new-file.txt"),
       "utf-8",
@@ -492,14 +449,12 @@ describe("POST /v1/workspace/write", () => {
     expect(written).toBe("hello world");
   });
 
-  test("overwrites an existing file", async () => {
+  test("overwrites an existing file", () => {
     writeFileSync(join(testWorkspaceDir, "overwrite-me.txt"), "old content");
-    const ctx = makePostCtx("workspace/write", {
-      path: "overwrite-me.txt",
-      content: "new content",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
+    const result = handler({
+      body: { path: "overwrite-me.txt", content: "new content" },
+    }) as { path: string; size: number };
+    expect(result.path).toBe("overwrite-me.txt");
     const written = readFileSync(
       join(testWorkspaceDir, "overwrite-me.txt"),
       "utf-8",
@@ -507,77 +462,60 @@ describe("POST /v1/workspace/write", () => {
     expect(written).toBe("new content");
   });
 
-  test("auto-creates parent directories for nested paths", async () => {
-    const ctx = makePostCtx("workspace/write", {
-      path: "write-dir/sub/file.txt",
-      content: "deep content",
+  test("auto-creates parent directories for nested paths", () => {
+    handler({
+      body: { path: "write-dir/sub/file.txt", content: "deep content" },
     });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
     const fullPath = join(testWorkspaceDir, "write-dir", "sub", "file.txt");
     expect(existsSync(fullPath)).toBe(true);
     const written = readFileSync(fullPath, "utf-8");
     expect(written).toBe("deep content");
   });
 
-  test("handles base64 encoding", async () => {
+  test("handles base64 encoding", () => {
     const original = "binary\x00data";
     const encoded = Buffer.from(original).toString("base64");
-    const ctx = makePostCtx("workspace/write", {
-      path: "img.bin",
-      content: encoded,
-      encoding: "base64",
+    handler({
+      body: { path: "img.bin", content: encoded, encoding: "base64" },
     });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
     const written = readFileSync(join(testWorkspaceDir, "img.bin"));
     expect(written.toString("binary")).toBe(original);
   });
 
-  test("rejects path traversal", async () => {
-    const ctx = makePostCtx("workspace/write", {
-      path: "../../etc/passwd",
-      content: "malicious",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects path traversal", () => {
+    expect(() =>
+      handler({
+        body: { path: "../../etc/passwd", content: "malicious" },
+      }),
+    ).toThrow(BadRequestError);
   });
 
-  test("rejects missing path", async () => {
-    const ctx = makePostCtx("workspace/write", { content: "no path" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects missing path", () => {
+    expect(() => handler({ body: { content: "no path" } })).toThrow(
+      BadRequestError,
+    );
   });
 
-  test("rejects dotfile segments", async () => {
-    const ctx = makePostCtx("workspace/write", {
-      path: ".hidden/file.txt",
-      content: "sneaky",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects dotfile segments", () => {
+    expect(() =>
+      handler({
+        body: { path: ".hidden/file.txt", content: "sneaky" },
+      }),
+    ).toThrow(BadRequestError);
   });
 
-  test("returns 201 with path and size in response", async () => {
-    const ctx = makePostCtx("workspace/write", {
-      path: "response-check.txt",
-      content: "abc",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { path: string; size: number };
-    expect(body.path).toBe("response-check.txt");
-    expect(body.size).toBe(3);
+  test("returns path and size in response", () => {
+    const result = handler({
+      body: { path: "response-check.txt", content: "abc" },
+    }) as { path: string; size: number };
+    expect(result.path).toBe("response-check.txt");
+    expect(result.size).toBe(3);
   });
 
-  test("returns 409 when writing to an existing directory path", async () => {
-    // subdir already exists as a directory from beforeAll
-    const ctx = makePostCtx("workspace/write", {
-      path: "subdir",
-      content: "should fail",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(409);
+  test("throws ConflictError when writing to an existing directory path", () => {
+    expect(() =>
+      handler({ body: { path: "subdir", content: "should fail" } }),
+    ).toThrow(ConflictError);
   });
 });
 
@@ -586,53 +524,45 @@ describe("POST /v1/workspace/write", () => {
 // ===========================================================================
 
 describe("POST /v1/workspace/mkdir", () => {
-  const handler = getHandler("workspace/mkdir", "POST");
+  const { handler } = getRoute("workspace_mkdir");
 
-  test("creates directory and returns 201", async () => {
-    const ctx = makePostCtx("workspace/mkdir", { path: "new-dir" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as { path: string };
-    expect(body.path).toBe("new-dir");
+  test("creates directory", () => {
+    const result = handler({ body: { path: "new-dir" } }) as {
+      path: string;
+    };
+    expect(result.path).toBe("new-dir");
     expect(existsSync(join(testWorkspaceDir, "new-dir"))).toBe(true);
   });
 
-  test("nested directory creation works", async () => {
-    const ctx = makePostCtx("workspace/mkdir", {
-      path: "deep/nested/dir",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(201);
+  test("nested directory creation works", () => {
+    const result = handler({ body: { path: "deep/nested/dir" } }) as {
+      path: string;
+    };
+    expect(result.path).toBe("deep/nested/dir");
     expect(existsSync(join(testWorkspaceDir, "deep/nested/dir"))).toBe(true);
   });
 
-  test("idempotent on existing directory returns 200", async () => {
-    // subdir already exists from beforeAll
-    const ctx = makePostCtx("workspace/mkdir", { path: "subdir" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { path: string };
-    expect(body.path).toBe("subdir");
+  test("idempotent on existing directory", () => {
+    const result = handler({ body: { path: "subdir" } }) as {
+      path: string;
+    };
+    expect(result.path).toBe("subdir");
   });
 
-  test("returns 409 if path exists as a file", async () => {
-    const ctx = makePostCtx("workspace/mkdir", { path: "hello.txt" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(409);
+  test("throws ConflictError if path exists as a file", () => {
+    expect(() => handler({ body: { path: "hello.txt" } })).toThrow(
+      ConflictError,
+    );
   });
 
-  test("rejects path traversal", async () => {
-    const ctx = makePostCtx("workspace/mkdir", {
-      path: "../../etc/evil",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects path traversal", () => {
+    expect(() => handler({ body: { path: "../../etc/evil" } })).toThrow(
+      BadRequestError,
+    );
   });
 
-  test("rejects missing path", async () => {
-    const ctx = makePostCtx("workspace/mkdir", {});
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects missing path", () => {
+    expect(() => handler({ body: {} })).toThrow(BadRequestError);
   });
 });
 
@@ -641,90 +571,75 @@ describe("POST /v1/workspace/mkdir", () => {
 // ===========================================================================
 
 describe("POST /v1/workspace/rename", () => {
-  const handler = getHandler("workspace/rename", "POST");
+  const { handler } = getRoute("workspace_rename");
 
-  test("renames file", async () => {
-    // Create a file to rename
+  test("renames file", () => {
     const srcPath = join(testWorkspaceDir, "rename-me.txt");
     writeFileSync(srcPath, "rename test");
 
-    const ctx = makePostCtx("workspace/rename", {
-      oldPath: "rename-me.txt",
-      newPath: "renamed.txt",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      oldPath: string;
-      newPath: string;
-    };
-    expect(body.oldPath).toBe("rename-me.txt");
-    expect(body.newPath).toBe("renamed.txt");
+    const result = handler({
+      body: { oldPath: "rename-me.txt", newPath: "renamed.txt" },
+    }) as { oldPath: string; newPath: string };
+    expect(result.oldPath).toBe("rename-me.txt");
+    expect(result.newPath).toBe("renamed.txt");
     expect(existsSync(srcPath)).toBe(false);
     expect(existsSync(join(testWorkspaceDir, "renamed.txt"))).toBe(true);
   });
 
-  test("renames directory", async () => {
+  test("renames directory", () => {
     const srcDir = join(testWorkspaceDir, "dir-to-rename");
     mkdirSync(srcDir, { recursive: true });
     writeFileSync(join(srcDir, "child.txt"), "child");
 
-    const ctx = makePostCtx("workspace/rename", {
-      oldPath: "dir-to-rename",
-      newPath: "dir-renamed",
+    handler({
+      body: { oldPath: "dir-to-rename", newPath: "dir-renamed" },
     });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
     expect(existsSync(srcDir)).toBe(false);
     expect(existsSync(join(testWorkspaceDir, "dir-renamed", "child.txt"))).toBe(
       true,
     );
   });
 
-  test("rejects missing source with 404", async () => {
-    const ctx = makePostCtx("workspace/rename", {
-      oldPath: "nonexistent.txt",
-      newPath: "dest.txt",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(404);
+  test("throws NotFoundError for missing source", () => {
+    expect(() =>
+      handler({
+        body: { oldPath: "nonexistent.txt", newPath: "dest.txt" },
+      }),
+    ).toThrow(NotFoundError);
   });
 
-  test("rejects existing destination with 409", async () => {
-    const ctx = makePostCtx("workspace/rename", {
-      oldPath: "hello.txt",
-      newPath: "data.json",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(409);
+  test("throws ConflictError for existing destination", () => {
+    expect(() =>
+      handler({
+        body: { oldPath: "hello.txt", newPath: "data.json" },
+      }),
+    ).toThrow(ConflictError);
   });
 
-  test("rejects path traversal on oldPath", async () => {
-    const ctx = makePostCtx("workspace/rename", {
-      oldPath: "../../etc/passwd",
-      newPath: "dest.txt",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects path traversal on oldPath", () => {
+    expect(() =>
+      handler({
+        body: { oldPath: "../../etc/passwd", newPath: "dest.txt" },
+      }),
+    ).toThrow(BadRequestError);
   });
 
-  test("rejects path traversal on newPath", async () => {
-    const ctx = makePostCtx("workspace/rename", {
-      oldPath: "hello.txt",
-      newPath: "../../etc/evil",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects path traversal on newPath", () => {
+    expect(() =>
+      handler({
+        body: { oldPath: "hello.txt", newPath: "../../etc/evil" },
+      }),
+    ).toThrow(BadRequestError);
   });
 
-  test("rejects missing fields", async () => {
-    const ctx1 = makePostCtx("workspace/rename", { oldPath: "hello.txt" });
-    const res1 = await handler(ctx1);
-    expect(res1.status).toBe(400);
+  test("rejects missing fields", () => {
+    expect(() => handler({ body: { oldPath: "hello.txt" } })).toThrow(
+      BadRequestError,
+    );
 
-    const ctx2 = makePostCtx("workspace/rename", { newPath: "dest.txt" });
-    const res2 = await handler(ctx2);
-    expect(res2.status).toBe(400);
+    expect(() => handler({ body: { newPath: "dest.txt" } })).toThrow(
+      BadRequestError,
+    );
   });
 });
 
@@ -733,65 +648,48 @@ describe("POST /v1/workspace/rename", () => {
 // ===========================================================================
 
 describe("POST /v1/workspace/delete", () => {
-  const handler = getHandler("workspace/delete", "POST");
+  const { handler } = getRoute("workspace_delete");
 
-  test("deletes file and returns 204", async () => {
+  test("deletes file", () => {
     const filePath = join(testWorkspaceDir, "delete-me.txt");
     writeFileSync(filePath, "delete me");
 
-    const ctx = makePostCtx("workspace/delete", { path: "delete-me.txt" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(204);
+    const result = handler({ body: { path: "delete-me.txt" } }) as {
+      success: boolean;
+    };
+    expect(result.success).toBe(true);
     expect(existsSync(filePath)).toBe(false);
   });
 
-  test("deletes directory recursively and returns 204", async () => {
+  test("deletes directory recursively", () => {
     const dirPath = join(testWorkspaceDir, "delete-dir");
     mkdirSync(dirPath, { recursive: true });
     writeFileSync(join(dirPath, "child.txt"), "child");
 
-    const ctx = makePostCtx("workspace/delete", { path: "delete-dir" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(204);
+    const result = handler({ body: { path: "delete-dir" } }) as {
+      success: boolean;
+    };
+    expect(result.success).toBe(true);
     expect(existsSync(dirPath)).toBe(false);
   });
 
-  test("rejects workspace root deletion with 400", async () => {
-    // Empty string is now rejected by the !path guard (consistent with other handlers).
-    // The workspace-root guard remains as defense-in-depth for non-empty paths that
-    // resolve to the workspace root (e.g. "." or "subdir/..").
-    const ctx = makePostCtx("workspace/delete", { path: "" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toBe("path is required");
+  test("rejects empty path with BadRequestError", () => {
+    expect(() => handler({ body: { path: "" } })).toThrow(BadRequestError);
   });
 
-  test("rejects path traversal", async () => {
-    const ctx = makePostCtx("workspace/delete", {
-      path: "../../etc/passwd",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects path traversal", () => {
+    expect(() => handler({ body: { path: "../../etc/passwd" } })).toThrow(
+      BadRequestError,
+    );
   });
 
-  test("returns 404 for missing path", async () => {
-    const ctx = makePostCtx("workspace/delete", {
-      path: "nonexistent.txt",
-    });
-    const res = await handler(ctx);
-    expect(res.status).toBe(404);
+  test("throws NotFoundError for missing path", () => {
+    expect(() => handler({ body: { path: "nonexistent.txt" } })).toThrow(
+      NotFoundError,
+    );
   });
 
-  test("rejects missing path field", async () => {
-    const ctx = makePostCtx("workspace/delete", {});
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
-  });
-
-  test("rejects empty string path with 400", async () => {
-    const ctx = makePostCtx("workspace/delete", { path: "" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("rejects missing path field", () => {
+    expect(() => handler({ body: {} })).toThrow(BadRequestError);
   });
 });

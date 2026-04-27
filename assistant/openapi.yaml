@@ -9598,6 +9598,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
       requestBody:
         required: true
         content:

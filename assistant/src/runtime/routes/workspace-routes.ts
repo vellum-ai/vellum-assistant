@@ -19,7 +19,9 @@ import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition,RouteContext } from "../http-router.js";
+import type { HTTPRouteDefinition, RouteContext } from "../http-router.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
@@ -35,14 +37,18 @@ interface TreeEntry {
   modifiedAt: string;
 }
 
-function handleWorkspaceTree(ctx: RouteContext): Response {
-  const requestedPath = ctx.url.searchParams.get("path") ?? "";
-  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+// ---------------------------------------------------------------------------
+// GET /v1/workspace/tree — list directory contents
+// ---------------------------------------------------------------------------
+
+function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
+  const requestedPath = queryParams?.path ?? "";
+  const showHidden = queryParams?.showHidden === "true";
   const resolved = resolveWorkspacePath(requestedPath, {
     allowHidden: showHidden,
   });
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   try {
@@ -51,7 +57,6 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
 
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
-      // Filter out dotfiles/directories (.env, .git, .private, etc.)
       if (!showHidden && entry.name.startsWith(".")) continue;
 
       const fullPath = join(resolved, entry.name);
@@ -60,12 +65,10 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
       try {
         stats = statSync(fullPath);
       } catch {
-        // Skip entries that can't be stat'd (broken symlinks, permission denied, etc.)
         continue;
       }
 
       const isDir = stats.isDirectory();
-
       const relativePath = fullPath.slice(workspaceDir.length + 1);
 
       entries.push({
@@ -78,7 +81,6 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
       });
     }
 
-    // Sort: directories first, then files, alphabetically within each group
     entries.sort((a, b) => {
       if (a.type !== b.type) {
         return a.type === "directory" ? -1 : 1;
@@ -86,9 +88,9 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
       return a.name.localeCompare(b.name);
     });
 
-    return Response.json({ path: requestedPath, entries });
+    return { path: requestedPath, entries };
   } catch {
-    return httpError("NOT_FOUND", "Directory not found", 404);
+    throw new NotFoundError("Directory not found");
   }
 }
 
@@ -96,34 +98,30 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
 // GET /v1/workspace/file — file metadata + inline text content
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceFile(ctx: RouteContext): Response {
-  const path = ctx.url.searchParams.get("path");
+function handleWorkspaceFile({ queryParams }: RouteHandlerArgs) {
+  const path = queryParams?.path;
   if (!path) {
-    return httpError("BAD_REQUEST", "path query parameter is required", 400);
+    throw new BadRequestError("path query parameter is required");
   }
 
-  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const showHidden = queryParams?.showHidden === "true";
   const resolved = resolveWorkspacePath(path, { allowHidden: showHidden });
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   let stat: ReturnType<typeof statSync>;
   try {
     stat = statSync(resolved);
   } catch {
-    return httpError("NOT_FOUND", "File not found", 404);
+    throw new NotFoundError("File not found");
   }
 
   if (!stat.isFile()) {
-    return httpError("NOT_FOUND", "File not found", 404);
+    throw new NotFoundError("File not found");
   }
 
   const mimeType = Bun.file(resolved).type;
-  // Empty files with unknown MIME type default to text — there is no binary
-  // content to protect, and files created via the UI "New File" action are
-  // always 0 bytes. Without this override, extensionless files (e.g. "Test")
-  // would be classified as binary and rendered in a non-editable fallback view.
   const isText =
     stat.size === 0 && mimeType === "application/octet-stream"
       ? true
@@ -135,7 +133,7 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
     content = readFileSync(resolved, "utf-8");
   }
 
-  return Response.json({
+  return {
     path,
     name: basename(resolved),
     size: stat.size,
@@ -143,11 +141,14 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
     modifiedAt: stat.mtime.toISOString(),
     content: content ?? null,
     isBinary,
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
 // GET /v1/workspace/file/content — raw file bytes with range support
+//
+// This route stays HTTP-only because range requests (206 Partial Content,
+// Content-Range headers, 416 status) are inherently HTTP transport semantics.
 // ---------------------------------------------------------------------------
 
 function handleWorkspaceFileContent(ctx: RouteContext): Response {
@@ -188,17 +189,14 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
     let start: number;
     let end: number;
 
-    // Parse suffix range: bytes=-N (last N bytes)
     const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
     if (suffixMatch) {
       const suffixLen = parseInt(suffixMatch[1]);
       start = Math.max(0, fileSize - suffixLen);
       end = fileSize - 1;
     } else {
-      // Parse standard range: bytes=start-end
       const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
       if (!match) {
-        // Unparseable range — return full file
         return new Response(file, {
           headers: {
             "Content-Type": mimeType,
@@ -211,10 +209,8 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
       end = match[2] ? parseInt(match[2]) : fileSize - 1;
     }
 
-    // Clamp end to file size
     end = Math.min(end, fileSize - 1);
 
-    // Reject invalid ranges
     if (start > end || start >= fileSize) {
       return new Response(null, {
         status: 416,
@@ -247,26 +243,22 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
 // POST /v1/workspace/write — create or overwrite a file
 // ---------------------------------------------------------------------------
 
-async function handleWorkspaceWrite(ctx: RouteContext): Promise<Response> {
-  const body = (await ctx.req.json()) as {
-    path?: string;
-    content?: string;
-    encoding?: string;
-  };
-
-  const { path, content, encoding } = body;
+function handleWorkspaceWrite({ body }: RouteHandlerArgs) {
+  const path = body?.path as string | undefined;
+  const content = body?.content as string | undefined;
+  const encoding = body?.encoding as string | undefined;
 
   if (!path || typeof path !== "string") {
-    return httpError("BAD_REQUEST", "path is required", 400);
+    throw new BadRequestError("path is required");
   }
 
   if (content !== undefined && typeof content !== "string") {
-    return httpError("BAD_REQUEST", "content must be a string", 400);
+    throw new BadRequestError("content must be a string");
   }
 
   const resolved = resolveWorkspacePath(path);
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   const buffer =
@@ -275,142 +267,243 @@ async function handleWorkspaceWrite(ctx: RouteContext): Promise<Response> {
       : Buffer.from(content ?? "", "utf-8");
 
   if (existsSync(resolved) && statSync(resolved).isDirectory()) {
-    return httpError("CONFLICT", "Path is a directory", 409);
+    throw new ConflictError("Path is a directory");
   }
 
   mkdirSync(dirname(resolved), { recursive: true });
   writeFileSync(resolved, buffer);
 
-  return Response.json({ path, size: buffer.byteLength }, { status: 201 });
+  return { path, size: buffer.byteLength };
 }
 
 // ---------------------------------------------------------------------------
 // POST /v1/workspace/mkdir — create directories
 // ---------------------------------------------------------------------------
 
-async function handleWorkspaceMkdir(ctx: RouteContext): Promise<Response> {
-  const body = (await ctx.req.json()) as { path?: string };
-  const path = body.path;
+function handleWorkspaceMkdir({ body }: RouteHandlerArgs) {
+  const path = body?.path as string | undefined;
   if (!path) {
-    return httpError("BAD_REQUEST", "path is required", 400);
+    throw new BadRequestError("path is required");
   }
 
   const resolved = resolveWorkspacePath(path);
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   if (existsSync(resolved)) {
     if (statSync(resolved).isDirectory()) {
-      return Response.json({ path }, { status: 200 });
+      return { path };
     }
-    return httpError("CONFLICT", "Path exists as a file", 409);
+    throw new ConflictError("Path exists as a file");
   }
 
   mkdirSync(resolved, { recursive: true });
-  return Response.json({ path }, { status: 201 });
+  return { path };
 }
 
 // ---------------------------------------------------------------------------
 // POST /v1/workspace/rename — rename/move files and directories
 // ---------------------------------------------------------------------------
 
-async function handleWorkspaceRename(ctx: RouteContext): Promise<Response> {
-  const body = (await ctx.req.json()) as {
-    oldPath?: string;
-    newPath?: string;
-  };
-  const { oldPath, newPath } = body;
+function handleWorkspaceRename({ body }: RouteHandlerArgs) {
+  const oldPath = body?.oldPath as string | undefined;
+  const newPath = body?.newPath as string | undefined;
   if (!oldPath || !newPath) {
-    return httpError("BAD_REQUEST", "oldPath and newPath are required", 400);
+    throw new BadRequestError("oldPath and newPath are required");
   }
 
   const resolvedOld = resolveWorkspacePath(oldPath);
   if (resolvedOld === undefined) {
-    return httpError("BAD_REQUEST", "Invalid oldPath", 400);
+    throw new BadRequestError("Invalid oldPath");
   }
 
   const resolvedNew = resolveWorkspacePath(newPath);
   if (resolvedNew === undefined) {
-    return httpError("BAD_REQUEST", "Invalid newPath", 400);
+    throw new BadRequestError("Invalid newPath");
   }
 
   const workspaceDir = getWorkspaceDir();
   if (resolvedOld === workspaceDir || resolvedNew === workspaceDir) {
-    return httpError("BAD_REQUEST", "Cannot rename workspace root", 400);
+    throw new BadRequestError("Cannot rename workspace root");
   }
 
   if (!existsSync(resolvedOld)) {
-    return httpError("NOT_FOUND", "Source path not found", 404);
+    throw new NotFoundError("Source path not found");
   }
 
   if (existsSync(resolvedNew)) {
-    return httpError("CONFLICT", "Destination already exists", 409);
+    throw new ConflictError("Destination already exists");
   }
 
   mkdirSync(dirname(resolvedNew), { recursive: true });
   renameSync(resolvedOld, resolvedNew);
-  return Response.json({ oldPath, newPath }, { status: 200 });
+  return { oldPath, newPath };
 }
 
 // ---------------------------------------------------------------------------
 // POST /v1/workspace/delete — delete files and directories
 // ---------------------------------------------------------------------------
 
-async function handleWorkspaceDelete(ctx: RouteContext): Promise<Response> {
-  const body = (await ctx.req.json()) as { path?: string };
-  const path = body.path;
+function handleWorkspaceDelete({ body }: RouteHandlerArgs) {
+  const path = body?.path as string | undefined;
   if (!path) {
-    return httpError("BAD_REQUEST", "path is required", 400);
+    throw new BadRequestError("path is required");
   }
 
   const resolved = resolveWorkspacePath(path);
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   if (resolved === getWorkspaceDir()) {
-    return httpError("BAD_REQUEST", "Cannot delete workspace root", 400);
+    throw new BadRequestError("Cannot delete workspace root");
   }
 
   if (!existsSync(resolved)) {
-    return httpError("NOT_FOUND", "Path not found", 404);
+    throw new NotFoundError("Path not found");
   }
 
   rmSync(resolved, { recursive: true, force: true });
-  return new Response(null, { status: 204 });
+  return { success: true };
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Transport-agnostic route definitions
 // ---------------------------------------------------------------------------
 
-export function workspaceRouteDefinitions(): HTTPRouteDefinition[] {
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "workspace_tree",
+    endpoint: "workspace/tree",
+    method: "GET",
+    summary: "List workspace directory",
+    description: "Return directory entries for a workspace path.",
+    tags: ["workspace"],
+    queryParams: [
+      {
+        name: "path",
+        description: "Relative path (default root)",
+      },
+      {
+        name: "showHidden",
+        description: "Include dotfiles (true/false)",
+      },
+    ],
+    responseBody: z.object({
+      path: z.string(),
+      entries: z.array(z.unknown()).describe("Directory entry objects"),
+    }),
+    handler: handleWorkspaceTree,
+  },
+  {
+    operationId: "workspace_file",
+    endpoint: "workspace/file",
+    method: "GET",
+    summary: "Get workspace file metadata",
+    description:
+      "Return file metadata and inline text content (if small enough).",
+    tags: ["workspace"],
+    queryParams: [
+      {
+        name: "path",
+        description: "Relative file path (required)",
+      },
+      {
+        name: "showHidden",
+        description: "Allow hidden files (true/false)",
+      },
+    ],
+    responseBody: z.object({
+      path: z.string(),
+      name: z.string(),
+      size: z.number(),
+      mimeType: z.string(),
+      modifiedAt: z.string(),
+      content: z.string().describe("Inline text content or null"),
+      isBinary: z.boolean(),
+    }),
+    handler: handleWorkspaceFile,
+  },
+  {
+    operationId: "workspace_write",
+    endpoint: "workspace/write",
+    method: "POST",
+    summary: "Write workspace file",
+    description: "Create or overwrite a file in the workspace.",
+    tags: ["workspace"],
+    requestBody: z.object({
+      path: z.string().describe("Relative file path"),
+      content: z.string().describe("File content").optional(),
+      encoding: z
+        .string()
+        .describe("Content encoding (base64 or utf-8)")
+        .optional(),
+    }),
+    responseBody: z.object({
+      path: z.string(),
+      size: z.number(),
+    }),
+    handler: handleWorkspaceWrite,
+  },
+  {
+    operationId: "workspace_mkdir",
+    endpoint: "workspace/mkdir",
+    method: "POST",
+    summary: "Create workspace directory",
+    description: "Create directories recursively in the workspace.",
+    tags: ["workspace"],
+    requestBody: z.object({
+      path: z.string().describe("Relative directory path"),
+    }),
+    responseBody: z.object({
+      path: z.string(),
+    }),
+    handler: handleWorkspaceMkdir,
+  },
+  {
+    operationId: "workspace_rename",
+    endpoint: "workspace/rename",
+    method: "POST",
+    summary: "Rename workspace entry",
+    description: "Rename or move a file or directory in the workspace.",
+    tags: ["workspace"],
+    requestBody: z.object({
+      oldPath: z.string().describe("Current relative path"),
+      newPath: z.string().describe("New relative path"),
+    }),
+    responseBody: z.object({
+      oldPath: z.string(),
+      newPath: z.string(),
+    }),
+    handler: handleWorkspaceRename,
+  },
+  {
+    operationId: "workspace_delete",
+    endpoint: "workspace/delete",
+    method: "POST",
+    summary: "Delete workspace entry",
+    description: "Delete a file or directory from the workspace.",
+    tags: ["workspace"],
+    requestBody: z.object({
+      path: z.string().describe("Relative path to delete"),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+    }),
+    handler: handleWorkspaceDelete,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// HTTP-only route definitions
+//
+// workspace/file/content uses HTTP range requests (206, Content-Range, 416)
+// which are inherently transport-specific.
+// ---------------------------------------------------------------------------
+
+export function workspaceHttpOnlyRouteDefinitions(): HTTPRouteDefinition[] {
   return [
-    {
-      endpoint: "workspace/tree",
-      method: "GET",
-      summary: "List workspace directory",
-      description: "Return directory entries for a workspace path.",
-      tags: ["workspace"],
-      queryParams: [
-        {
-          name: "path",
-          schema: { type: "string" },
-          description: "Relative path (default root)",
-        },
-        {
-          name: "showHidden",
-          schema: { type: "string" },
-          description: "Include dotfiles (true/false)",
-        },
-      ],
-      responseBody: z.object({
-        path: z.string(),
-        entries: z.array(z.unknown()).describe("Directory entry objects"),
-      }),
-      handler: (ctx) => handleWorkspaceTree(ctx),
-    },
     {
       endpoint: "workspace/file/content",
       method: "GET",
@@ -430,97 +523,6 @@ export function workspaceRouteDefinitions(): HTTPRouteDefinition[] {
         },
       ],
       handler: (ctx) => handleWorkspaceFileContent(ctx),
-    },
-    {
-      endpoint: "workspace/file",
-      method: "GET",
-      summary: "Get workspace file metadata",
-      description:
-        "Return file metadata and inline text content (if small enough).",
-      tags: ["workspace"],
-      queryParams: [
-        {
-          name: "path",
-          schema: { type: "string" },
-          description: "Relative file path (required)",
-        },
-        {
-          name: "showHidden",
-          schema: { type: "string" },
-          description: "Allow hidden files (true/false)",
-        },
-      ],
-      responseBody: z.object({
-        path: z.string(),
-        name: z.string(),
-        size: z.number(),
-        mimeType: z.string(),
-        modifiedAt: z.string(),
-        content: z.string().describe("Inline text content or null"),
-        isBinary: z.boolean(),
-      }),
-      handler: (ctx) => handleWorkspaceFile(ctx),
-    },
-    {
-      endpoint: "workspace/write",
-      method: "POST",
-      summary: "Write workspace file",
-      description: "Create or overwrite a file in the workspace.",
-      tags: ["workspace"],
-      requestBody: z.object({
-        path: z.string().describe("Relative file path"),
-        content: z.string().describe("File content").optional(),
-        encoding: z
-          .string()
-          .describe("Content encoding (base64 or utf-8)")
-          .optional(),
-      }),
-      responseBody: z.object({
-        path: z.string(),
-        size: z.number(),
-      }),
-      handler: (ctx) => handleWorkspaceWrite(ctx),
-    },
-    {
-      endpoint: "workspace/mkdir",
-      method: "POST",
-      summary: "Create workspace directory",
-      description: "Create directories recursively in the workspace.",
-      tags: ["workspace"],
-      requestBody: z.object({
-        path: z.string().describe("Relative directory path"),
-      }),
-      responseBody: z.object({
-        path: z.string(),
-      }),
-      handler: (ctx) => handleWorkspaceMkdir(ctx),
-    },
-    {
-      endpoint: "workspace/rename",
-      method: "POST",
-      summary: "Rename workspace entry",
-      description: "Rename or move a file or directory in the workspace.",
-      tags: ["workspace"],
-      requestBody: z.object({
-        oldPath: z.string().describe("Current relative path"),
-        newPath: z.string().describe("New relative path"),
-      }),
-      responseBody: z.object({
-        oldPath: z.string(),
-        newPath: z.string(),
-      }),
-      handler: (ctx) => handleWorkspaceRename(ctx),
-    },
-    {
-      endpoint: "workspace/delete",
-      method: "POST",
-      summary: "Delete workspace entry",
-      description: "Delete a file or directory from the workspace.",
-      tags: ["workspace"],
-      requestBody: z.object({
-        path: z.string().describe("Relative path to delete"),
-      }),
-      handler: (ctx) => handleWorkspaceDelete(ctx),
     },
   ];
 }
