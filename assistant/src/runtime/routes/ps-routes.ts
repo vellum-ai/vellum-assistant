@@ -15,7 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import { resolveQdrantUrl } from "../../memory/qdrant-client.js";
 import { getLogger } from "../../util/logger.js";
 import { getEmbedWorkerPidPath } from "../../util/platform.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("ps-routes");
 
@@ -69,11 +69,9 @@ function probeEmbedWorker(): ProcessStatus {
     const pid = parseInt(raw, 10);
     if (!Number.isFinite(pid) || pid <= 0) return "not_running";
 
-    // Check if the process is alive (signal 0 = existence check)
     process.kill(pid, 0);
     return "running";
   } catch (err: unknown) {
-    // ESRCH = no such process
     if (
       err &&
       typeof err === "object" &&
@@ -87,37 +85,36 @@ function probeEmbedWorker(): ProcessStatus {
   }
 }
 
-async function handlePs(): Promise<Response> {
+async function getProcessStatus() {
   const [qdrantStatus, embedWorkerStatus] = await Promise.all([
     probeQdrant(),
     Promise.resolve(probeEmbedWorker()),
   ]);
 
-  const processes: ProcessEntry[] = [
-    {
-      name: "assistant",
-      status: "running",
-      children: [
-        { name: "qdrant", status: qdrantStatus },
-        { name: "embed-worker", status: embedWorkerStatus },
-      ],
-    },
-  ];
-
-  return Response.json({ processes });
+  return {
+    processes: [
+      {
+        name: "assistant",
+        status: "running" as const,
+        children: [
+          { name: "qdrant", status: qdrantStatus },
+          { name: "embed-worker", status: embedWorkerStatus },
+        ],
+      },
+    ],
+  };
 }
 
-export function psRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "ps",
-      method: "GET",
-      handler: () => handlePs(),
-      summary: "Process status",
-      description:
-        "Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.",
-      tags: ["system"],
-      responseBody: psResponseSchema,
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "ps",
+    endpoint: "ps",
+    method: "GET",
+    handler: getProcessStatus,
+    summary: "Process status",
+    description:
+      "Returns a JSON summary of the assistant's process tree including qdrant and embed-worker status.",
+    tags: ["system"],
+    responseBody: psResponseSchema,
+  },
+];

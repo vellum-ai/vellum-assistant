@@ -9,6 +9,7 @@
  */
 
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import type { RouteDefinition } from "./types.js";
 
-export const ROUTES: RouteDefinition[] = [...IDENTITY_ROUTES];
+export const ROUTES: RouteDefinition[] = [...IDENTITY_ROUTES, ...PS_ROUTES];
