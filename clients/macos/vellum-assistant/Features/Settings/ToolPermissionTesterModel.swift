@@ -381,7 +381,7 @@ final class ToolPermissionTesterModel: ObservableObject {
                     tool: snapshot.snapshotToolName,
                     pattern: pattern,
                     risk: "low",
-                    description: "",
+                    description: "Allow \(snapshot.snapshotToolName)",
                     scope: scope
                 )
                 // Re-simulate to show the updated outcome with the new rule in effect.

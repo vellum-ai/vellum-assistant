@@ -1052,17 +1052,19 @@ export class Conversation {
    * host-access enable is approved, sibling host prompts resolve immediately.
    * Simple allow / deny decisions do not cascade.
    */
+  /**
+   * When host access is approved, cascade to sibling host-access prompts
+   * in the same conversation so the user isn't asked multiple times.
+   */
   private cascadePendingApprovals(
     primaryRequestId: string,
     decision: UserDecision,
-    selectedPattern?: string,
+    _selectedPattern?: string,
     hostAccessEnablePrompt = false,
   ): void {
-    // Single-action decisions don't cascade
-    if (decision === "allow" || decision === "deny") {
-      if (!hostAccessEnablePrompt || decision !== "allow") {
-        return;
-      }
+    // Only host-access approvals cascade — all other decisions are one-shot.
+    if (!hostAccessEnablePrompt || decision !== "allow") {
+      return;
     }
 
     const pendingRequestIds = this.prompter.getPendingRequestIds();
@@ -1077,9 +1079,8 @@ export class Conversation {
       if (interaction.kind !== "confirmation") continue;
 
       if (
-        hostAccessEnablePrompt &&
-        (this.prompter.isHostAccessEnablePrompt(candidateId) ||
-          isConversationHostAccessEnablePrompt(interaction.confirmationDetails))
+        this.prompter.isHostAccessEnablePrompt(candidateId) ||
+        isConversationHostAccessEnablePrompt(interaction.confirmationDetails)
       ) {
         // Enabling computer access is conversation-scoped, so sibling host
         // prompts should resolve immediately once the first approval lands.
@@ -1095,9 +1096,7 @@ export class Conversation {
             causedByRequestId: primaryRequestId,
           },
         );
-        continue;
       }
-
     }
   }
 

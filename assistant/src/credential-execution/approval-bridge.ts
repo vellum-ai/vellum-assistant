@@ -119,7 +119,7 @@ export type CesApprovalBridgeResult =
  */
 export async function bridgeCesApproval(
   approval: ApprovalRequired,
-  _prompter: PermissionPrompter,
+  prompter: PermissionPrompter,
   cesClient: CesClient,
   options?: {
     /** Whether an interactive client is connected. When false, auto-deny. */
@@ -130,7 +130,7 @@ export async function bridgeCesApproval(
     signal?: AbortSignal;
   },
 ): Promise<CesApprovalBridgeResult> {
-  const { proposal: _proposal, renderedProposal: _renderedProposal, proposalHash, sessionId } = approval;
+  const { proposal, renderedProposal, proposalHash, sessionId } = approval;
 
   // Non-interactive sessions have no client to respond — fail closed.
   if (options?.isInteractive === false) {
@@ -145,20 +145,78 @@ export async function bridgeCesApproval(
     return { outcome: "denied", userDecision: "deny" };
   }
 
+  // Build the tool name and input for the confirmation prompt. The tool
+  // name uses a `ces:` prefix so the client can distinguish CES approval
+  // requests from regular tool confirmation prompts.
+  const toolName = `ces:${proposal.type}`;
+  const input: Record<string, unknown> = {
+    credentialHandle: proposal.credentialHandle,
+    purpose: proposal.purpose,
+    renderedProposal,
+  };
+
+  if (proposal.type === "http") {
+    input.method = proposal.method;
+    input.url = proposal.url;
+  } else if (proposal.type === "command") {
+    input.command = proposal.command;
+  }
+
+  // Present the confirmation prompt to the guardian. The prompter handles
+  // timeouts and abort signals internally.
+  const response = await prompter.prompt(
+    toolName,
+    input,
+    "high", // CES approval requests are always high-risk
+    [], // No allowlist options — CES manages its own grant patterns
+    [], // No scope options — CES manages scope internally
+    undefined, // No file diff
+    options?.conversationId,
+    "host", // CES operations target the host
+    false, // Persistent decisions are managed by CES, not trust.json
+    options?.signal,
+  );
+
+  // Detect prompter timeout: the PermissionPrompter resolves timeouts as
+  // decision: "deny" with a decisionContext containing "timed out". Surface
+  // this as a distinct outcome so the executor shows a timeout-specific
+  // message that encourages retrying rather than implying explicit denial.
+  const isTimeout =
+    response.decision === "deny" &&
+    typeof response.decisionContext === "string" &&
+    response.decisionContext.includes("timed out");
+
+  if (isTimeout) {
+    log.info(
+      {
+        event: "ces_approval_bridge_timeout",
+        proposalHash,
+        sessionId,
+      },
+      "CES approval bridge: prompter timed out",
+    );
+    return { outcome: "timeout" };
+  }
+
+  const cesDecision = mapUserDecisionToCesDecision(response.decision);
+
   log.info(
     {
-      event: "ces_approval_bridge_auto_approved",
+      event: "ces_approval_bridge_decision",
       proposalHash,
       sessionId,
+      userDecision: response.decision,
+      grantDecision: cesDecision.grantDecision,
+      ttl: cesDecision.ttl,
     },
-    "CES approval request auto-approved without deterministic prompt",
+    `CES approval bridge: guardian decision is "${cesDecision.grantDecision}"`,
   );
-  const decision = mapUserDecisionToCesDecision("allow");
+
   return recordCesGrant({
     approval,
     cesClient,
-    decision,
-    reason: "auto_allow",
+    decision: cesDecision,
+    reason: response.decision === "allow" ? "guardian_approved" : "guardian_denied",
   });
 }
 

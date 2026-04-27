@@ -159,8 +159,8 @@ function makeCesClient(
 // ---------------------------------------------------------------------------
 
 describe("CES approval bridge", () => {
-  describe("auto-approval (interactive sessions)", () => {
-    test("auto-approves without prompting and commits grant to CES", async () => {
+  describe("guardian prompt (interactive sessions)", () => {
+    test("prompts guardian and commits approved grant to CES", async () => {
       const prompter = makePrompter("allow");
       const cesClient = makeCesClient();
 
@@ -176,8 +176,8 @@ describe("CES approval bridge", () => {
         expect(result.userDecision).toBe("allow");
         expect(result.grantId).toBe("grant-001");
       }
-      // Prompter should NOT have been called
-      expect(prompter.promptCalls).toHaveLength(0);
+      // Prompter should have been called for guardian approval
+      expect(prompter.promptCalls).toHaveLength(1);
       // record_grant RPC should have been called
       expect(cesClient.recordGrantCalls).toHaveLength(1);
       const call = cesClient.recordGrantCalls[0];
@@ -188,6 +188,24 @@ describe("CES approval bridge", () => {
       expect(call.decision.grantType).toBe("allow_once");
       // Single-use: no TTL
       expect(call.decision.ttl).toBeUndefined();
+    });
+
+    test("prompts guardian and commits denied grant to CES", async () => {
+      const prompter = makePrompter("deny");
+      const cesClient = makeCesClient();
+
+      const result = await bridgeCesApproval(
+        makeApprovalRequired(),
+        prompter,
+        cesClient,
+        { isInteractive: true, conversationId: "session-1" },
+      );
+
+      expect(result.outcome).toBe("denied");
+      if (result.outcome === "denied") {
+        expect(result.userDecision).toBe("deny");
+      }
+      expect(prompter.promptCalls).toHaveLength(1);
     });
   });
 

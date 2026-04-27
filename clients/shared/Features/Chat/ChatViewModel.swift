@@ -2058,7 +2058,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     tool: toolName,
                     pattern: pattern,
                     risk: risk,
-                    description: "",
+                    description: "\(decision == "deny" ? "Deny" : "Allow") \(toolName)",
                     scope: scope
                 )
             } catch {
