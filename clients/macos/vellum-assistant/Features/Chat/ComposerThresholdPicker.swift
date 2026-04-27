@@ -30,12 +30,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     }
 
     var description: String {
-        switch self {
-        case .strict: return "Prompt for everything"
-        case .default: return "Auto-approve low-risk tools"
-        case .relaxed: return "Auto-approve most tools"
-        case .fullAccess: return "Auto-approve all actions"
-        }
+        riskThreshold.settingsDescription
     }
 
     var icon: VIcon {

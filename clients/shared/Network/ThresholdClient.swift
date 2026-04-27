@@ -25,7 +25,7 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
 
     public var icon: VIcon {
         switch self {
-        case .none: return .lock
+        case .none: return .shieldAlert
         case .low: return .shieldCheck
         case .medium: return .shield
         case .high: return .shieldOff
