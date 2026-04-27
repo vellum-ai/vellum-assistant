@@ -35,7 +35,8 @@ mock.module("../calls/call-domain.js", () => ({
 }));
 
 import { upsertContact } from "../contacts/contact-store.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import {
   handleCreateInvite as _handleCreateInvite,

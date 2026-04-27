@@ -228,8 +228,10 @@ import {
   createVerificationSession,
 } from "../memory/channel-verification-sessions.js";
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { createInvite } from "../memory/invite-store.js";
+import { resetTestTables } from "../memory/raw-query.js";
 import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,

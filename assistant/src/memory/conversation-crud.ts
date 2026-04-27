@@ -45,8 +45,9 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { getDb, rawExec, rawGet, rawRun } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { indexMessageNow } from "./indexer.js";
+import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,

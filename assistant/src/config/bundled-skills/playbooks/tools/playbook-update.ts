@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db.js";
+import { getDb } from "../../../../memory/db-connection.js";
 import { getNode, updateNode } from "../../../../memory/graph/store.js";
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";

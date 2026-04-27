@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   llmRequestLogs,
   llmUsageEvents,

@@ -6,7 +6,7 @@ import type {
   UsageEvent,
   UsageEventInput,
 } from "../usage/types.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
 import { llmUsageEvents } from "./schema.js";
 import {

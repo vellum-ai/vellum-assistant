@@ -25,7 +25,7 @@ import {
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,

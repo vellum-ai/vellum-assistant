@@ -8,7 +8,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { notificationDeliveries } from "../../memory/schema.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";

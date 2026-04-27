@@ -38,12 +38,14 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import {
   createApprovalRequest,
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/guardian-approvals.js";
+import { resetTestTables } from "../memory/raw-query.js";
 import {
   conversations,
   externalConversationBindings,

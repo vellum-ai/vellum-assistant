@@ -23,8 +23,8 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { getDb, initializeDb } from "../memory/db.js";
-
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 // Initialize db once before all tests
 initializeDb();
 

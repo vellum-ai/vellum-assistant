@@ -19,7 +19,7 @@ mock.module("../../permissions/checker.js", () => ({
   classifyRisk: async () => ({ level: "high" }),
 }));
 
-import { initializeDb } from "../../memory/db.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { createTask } from "../../tasks/task-store.js";
 import { createWorkItem } from "../../work-items/work-item-store.js";
 import {

@@ -10,7 +10,7 @@ import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { UserError } from "../util/errors.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,

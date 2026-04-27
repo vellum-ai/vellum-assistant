@@ -28,7 +28,8 @@ mock.module("../home/emit-feed-event.js", () => ({
   emitFeedEvent: mockEmitFeedEvent,
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { createSchedule } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 

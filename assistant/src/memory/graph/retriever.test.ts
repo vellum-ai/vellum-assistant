@@ -73,7 +73,9 @@ mock.module("../../providers/provider-send-message.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { initializeDb, resetDb, resetTestTables } from "../db.js";
+import { resetDb } from "../db-connection.js";
+import { initializeDb } from "../db-init.js";
+import { resetTestTables } from "../raw-query.js";
 import { InContextTracker } from "./injection.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";
 import { createNode } from "./store.js";

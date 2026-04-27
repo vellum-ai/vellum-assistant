@@ -22,7 +22,7 @@ import {
   type SkillCapabilityInput,
 } from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
 import { memoryGraphNodes } from "../schema.js";
 import { createNode } from "./store.js";

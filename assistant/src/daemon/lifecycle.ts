@@ -50,7 +50,7 @@ import {
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,

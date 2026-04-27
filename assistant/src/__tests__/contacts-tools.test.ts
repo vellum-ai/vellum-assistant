@@ -64,7 +64,8 @@ import type { Database } from "bun:sqlite";
 import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
 import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   handleGetContact,
   handleListContacts,

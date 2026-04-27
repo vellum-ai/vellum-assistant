@@ -24,7 +24,7 @@ mock.module("../config/env.js", () => ({
   getAssistantDomain: () => "vellum.me",
 }));
 
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db-init.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleUploadAttachment } from "../runtime/routes/attachment-routes.js";
 

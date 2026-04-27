@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, or, sql } from "drizzle-orm";
 
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { messages } from "./schema.js";
 
 export interface TurnEvent {

@@ -12,8 +12,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { initializeDb, resetDb } from "../memory/db.js";
+import { resetDb } from "../memory/db-connection.js";
 import { getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,

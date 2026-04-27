@@ -14,7 +14,8 @@ import {
   findAnalysisConversationFor,
   getConversationSource,
 } from "../conversation-crud.js";
-import { getDb, initializeDb } from "../db.js";
+import { getDb } from "../db-connection.js";
+import { initializeDb } from "../db-init.js";
 import { conversations } from "../schema.js";
 
 initializeDb();

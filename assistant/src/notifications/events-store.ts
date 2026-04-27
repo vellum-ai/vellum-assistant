@@ -8,7 +8,7 @@
 
 import { and, desc, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { notificationEvents } from "../memory/schema.js";
 import type { AttentionHints } from "./signal.js";
 

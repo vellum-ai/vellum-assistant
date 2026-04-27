@@ -23,7 +23,8 @@ mock.module("../../config/env.js", () => ({
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb, initializeDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { contactChannels, contacts } from "../../memory/schema.js";
 import type { AuthContext } from "../auth/types.js";
 import { handleAddGuardianChannel } from "./contact-routes.js";

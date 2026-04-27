@@ -9,7 +9,7 @@ import { inArray } from "drizzle-orm";
 
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { acpSessionHistory } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";

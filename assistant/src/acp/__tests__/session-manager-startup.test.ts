@@ -15,8 +15,8 @@ mock.module("../../util/logger.js", () => ({
 }));
 
 import { AcpSessionManager } from "../../acp/session-manager.js";
-import { getSqlite, initializeDb } from "../../memory/db.js";
-
+import { getSqlite } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
 initializeDb();
 
 function clearHistory() {

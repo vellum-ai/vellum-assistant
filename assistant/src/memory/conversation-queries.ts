@@ -5,7 +5,8 @@ import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { getDb, rawAll } from "./db.js";
+import { getDb } from "./db-connection.js";
+import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema.js";
 
 const log = getLogger("conversation-store");

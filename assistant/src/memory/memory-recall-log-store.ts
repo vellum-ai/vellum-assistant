@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { memoryRecallLogs } from "./schema.js";
 
 export interface RecordMemoryRecallLogParams {

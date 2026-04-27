@@ -36,7 +36,7 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db-init.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/log-export-routes.js";
 

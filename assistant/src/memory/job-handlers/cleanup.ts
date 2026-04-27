@@ -1,7 +1,8 @@
 import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb, rawAll, rawChanges, rawRun } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { rawAll, rawChanges, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
 

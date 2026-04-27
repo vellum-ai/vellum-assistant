@@ -37,7 +37,9 @@ import {
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, rawGet, rawRun } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { rawGet, rawRun } from "../memory/raw-query.js";
 import { getConversationsDir } from "../util/platform.js";
 
 initializeDb();

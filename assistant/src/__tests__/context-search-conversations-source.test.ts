@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { searchConversationSource } from "../memory/context-search/sources/conversations.js";
 import type { RecallSearchContext } from "../memory/context-search/types.js";
-import { getDb, initializeDb, rawRun } from "../memory/db.js";
-
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { rawRun } from "../memory/raw-query.js";
 initializeDb();
 
 let seedId = 0;

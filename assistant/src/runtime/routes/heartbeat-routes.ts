@@ -10,7 +10,7 @@ import { z } from "zod";
 
 import { getConfig, saveConfig } from "../../config/loader.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { conversations } from "../../memory/schema/conversations.js";
 import { readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";

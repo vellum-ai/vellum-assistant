@@ -35,7 +35,8 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   createApprovalRequest,
   getApprovalRequestById,

@@ -9,7 +9,7 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { notificationEvents } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationSignal } from "./signal.js";

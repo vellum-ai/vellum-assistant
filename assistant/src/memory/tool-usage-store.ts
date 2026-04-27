@@ -2,7 +2,7 @@ import { count, desc, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { toolInvocations } from "./schema.js";
 
 export interface ToolInvocationRecord {

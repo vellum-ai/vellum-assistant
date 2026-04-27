@@ -17,7 +17,8 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();

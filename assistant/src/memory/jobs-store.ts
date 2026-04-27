@@ -3,11 +3,12 @@ import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
-import { getDb, rawAll, rawChanges } from "./db.js";
+import { getDb } from "./db-connection.js";
 import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./qdrant-circuit-breaker.js";
+import { rawAll, rawChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-jobs-store");

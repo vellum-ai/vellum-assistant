@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { initializeDb } from "../../memory/db.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { AssistantIpcServer } from "../assistant-server.js";
 import { cliIpcCall } from "../cli-client.js";

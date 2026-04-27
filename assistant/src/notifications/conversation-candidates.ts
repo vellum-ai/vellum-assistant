@@ -12,7 +12,7 @@
 
 import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import {
   channelGuardianApprovalRequests,
   conversations,

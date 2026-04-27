@@ -42,7 +42,8 @@ mock.module("../job-utils.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { getDb, initializeDb, resetDb } from "../db.js";
+import { getDb, resetDb } from "../db-connection.js";
+import { initializeDb } from "../db-init.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { mediaAssets } from "../schema.js";
 import { embedMediaJob } from "./embedding.js";

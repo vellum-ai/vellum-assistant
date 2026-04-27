@@ -44,7 +44,8 @@ mock.module("../../../acp/index.js", () => ({
   broadcastToAllClients: null,
 }));
 
-import { getSqlite, initializeDb } from "../../../memory/db.js";
+import { getSqlite } from "../../../memory/db-connection.js";
+import { initializeDb } from "../../../memory/db-init.js";
 import { ROUTES } from "../acp-routes.js";
 
 initializeDb();

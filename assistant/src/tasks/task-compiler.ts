@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { messages as messagesTable } from "../memory/schema.js";
 import { parseJsonSafe } from "../util/json.js";
 import { truncate } from "../util/truncate.js";

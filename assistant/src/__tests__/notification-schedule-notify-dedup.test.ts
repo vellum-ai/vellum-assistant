@@ -19,7 +19,8 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { notificationEvents } from "../memory/schema.js";
 import { runDeterministicChecks } from "../notifications/deterministic-checks.js";
 import { createEvent } from "../notifications/events-store.js";

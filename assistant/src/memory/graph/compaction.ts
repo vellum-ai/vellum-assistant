@@ -18,7 +18,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { memoryGraphNodes } from "../schema.js";
 import { recordNodeEdit, updateNode } from "./store.js";
 

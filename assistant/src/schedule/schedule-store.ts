@@ -2,7 +2,7 @@ import { Cron } from "croner";
 import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { rawChanges } from "../memory/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";

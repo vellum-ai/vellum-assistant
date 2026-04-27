@@ -35,7 +35,9 @@ import {
   createConversation,
   updateConversationTitle,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, rawRun, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { rawRun } from "../memory/raw-query.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 initializeDb();

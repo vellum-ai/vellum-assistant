@@ -143,7 +143,8 @@ mock.module("../runtime/services/analyze-deps-singleton.js", () => ({
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import { conversationAnalyzeJob } from "../memory/conversation-analyze-job.js";
 import { createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { indexMessageNow } from "../memory/indexer.js";
 import type { MemoryJob } from "../memory/jobs-store.js";
 import { conversations, memoryJobs, messages } from "../memory/schema.js";

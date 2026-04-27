@@ -15,7 +15,8 @@ mock.module("../config/loader.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   enqueueMemoryJob,
   upsertDebouncedJob,

@@ -64,7 +64,8 @@ mock.module("../../acp/index.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, getSqlite, initializeDb } from "../../memory/db.js";
+import { getDb, getSqlite } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 
 const { ROUTES } = await import("./acp-routes.js");

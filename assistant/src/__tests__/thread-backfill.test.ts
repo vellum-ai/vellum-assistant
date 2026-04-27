@@ -58,7 +58,8 @@ mock.module("../runtime/gateway-client.js", () => ({
 import { v4 as uuid } from "uuid";
 
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
