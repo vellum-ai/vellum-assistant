@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
+    "lint:circular": "bun run scripts/check-circular-deps.ts",
     "lint:unused:production": "knip --production --include exports",
     "typecheck": "bunx tsc --noEmit",
     "test": "bash scripts/test.sh",
@@ -90,6 +91,7 @@
     "eslint-plugin-simple-import-sort": "12.1.1",
     "fast-check": "4.6.0",
     "knip": "5.86.0",
+    "madge": "8.0.0",
     "prettier": "3.8.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.57.0"
