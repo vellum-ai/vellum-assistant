@@ -2009,15 +2009,15 @@ describe("relay-server", () => {
     // Verification should have succeeded
     expect(relay.isVerificationSessionActive()).toBe(false);
 
+    // Flush async post-verification side-effects (IPC + pointer write)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
     // Origin conversation should have a pointer message
     const originText = getLatestAssistantText("conv-gv-pointer-success-origin");
     expect(originText).not.toBeNull();
     expect(originText).toContain("Guardian verification");
     expect(originText).toContain("+15559999999");
     expect(originText).toContain("succeeded");
-
-    // Let the delayed endSession callback flush
-    await new Promise((resolve) => setTimeout(resolve, 10));
 
     relay.destroy();
   });
