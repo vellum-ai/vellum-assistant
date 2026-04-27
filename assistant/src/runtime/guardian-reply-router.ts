@@ -113,6 +113,12 @@ export interface GuardianReplyResult {
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set(["approve_once", "reject"]);
 
+const LEGACY_CALLBACK_MAP: Record<string, string> = {
+  approve_10m: "approve_once",
+  approve_conversation: "approve_once",
+  approve_always: "approve_once",
+};
+
 interface ParsedCallback {
   requestId: string;
   action: ApprovalAction;
@@ -122,7 +128,8 @@ function parseCallbackAction(data: string): ParsedCallback | null {
   const parts = data.split(":");
   if (parts.length < 3 || parts[0] !== "apr") return null;
   const requestId = parts[1];
-  const action = parts.slice(2).join(":");
+  const rawAction = parts.slice(2).join(":");
+  const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
   if (!requestId || !VALID_ACTIONS.has(action)) return null;
   return { requestId, action: action as ApprovalAction };
 }

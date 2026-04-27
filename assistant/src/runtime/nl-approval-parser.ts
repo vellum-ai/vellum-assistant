@@ -118,11 +118,12 @@ export function parseApprovalIntent(text: string): ApprovalIntent | null {
 
   // Legacy timed/persistent phrases — treat as simple approval.
   // These used to produce approve_10m / approve_always but now collapse to approve.
+  const LEGACY_TIMED_PATTERN =
+    /^(?:yes|ok|okay|sure|yep|yeah|go\s+ahead|approve|allow)\s+(?:(?:for\s+)?\d+\s*(?:m|min|minutes?)|for\s+now)$/i;
   if (
     /^always\s+allow$/i.test(normalized) ||
-    /^approve\s+(for\s+)?\d+\s*(m|min|minutes?)$/i.test(normalized) ||
-    /^allow\s+(for\s+)?\d+\s*(m|min|minutes?)$/i.test(normalized) ||
-    /^approve\s+always$/i.test(normalized)
+    /^approve\s+always$/i.test(normalized) ||
+    LEGACY_TIMED_PATTERN.test(normalized)
   ) {
     return { decision: "approve", confidence: 0.95 };
   }
