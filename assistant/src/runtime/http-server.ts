@@ -150,7 +150,6 @@ import {
 } from "./routes/conversation-management-routes.js";
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
-import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
@@ -1786,7 +1785,6 @@ export class RuntimeHttpServer {
       ...filingRouteDefinitions({
         getFilingService: this.getFilingService,
       }),
-      ...diagnosticsRouteDefinitions(),
       ...workItemHttpOnlyRouteDefinitions(
         this.sendMessageDeps
           ? {
