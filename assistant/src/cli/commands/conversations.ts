@@ -147,7 +147,9 @@ Examples:
 
       const ipcResult = await cliIpcCall<{ ok: boolean; error?: string }>(
         "rename_conversation",
-        { conversationId, title: trimmedTitle },
+        {
+          body: { conversationId, title: trimmedTitle },
+        },
       );
 
       if (!ipcResult.ok) {

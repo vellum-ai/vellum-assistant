@@ -3268,6 +3268,16 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/rename:
+    post:
+      operationId: conversations_rename_post
+      summary: Rename a conversation
+      description: Update the display title of a conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
