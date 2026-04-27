@@ -283,7 +283,18 @@ Examples:
         if (opts.risk) {
           const validRisks = ["low", "medium", "high"];
           if (!validRisks.includes(opts.risk)) {
-            log.error(`Invalid --risk "${opts.risk}". Must be one of: low, medium, high`);
+            if (opts.json) {
+              process.stdout.write(
+                JSON.stringify({
+                  ok: false,
+                  error: `Invalid --risk "${opts.risk}". Must be one of: low, medium, high`,
+                }) + "\n",
+              );
+            } else {
+              log.error(
+                `Invalid --risk "${opts.risk}". Must be one of: low, medium, high`,
+              );
+            }
             process.exitCode = 1;
             return;
           }
