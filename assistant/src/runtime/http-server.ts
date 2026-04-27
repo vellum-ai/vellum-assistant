@@ -200,14 +200,10 @@ import { sttRouteDefinitions } from "./routes/stt-routes.js";
 import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
-import { telemetryRouteDefinitions } from "./routes/telemetry-routes.js";
-import { traceEventRouteDefinitions } from "./routes/trace-event-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
-import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
-import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
@@ -1780,10 +1776,7 @@ export class RuntimeHttpServer {
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
       ...upgradeBroadcastRouteDefinitions(),
-      ...workspaceCommitRouteDefinitions(),
       ...migrationRollbackRouteDefinitions(),
-      ...usageRouteDefinitions(),
-      ...telemetryRouteDefinitions(),
       ...workspaceHttpOnlyRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
       ...settingsRouteDefinitions(),
@@ -2260,7 +2253,6 @@ export class RuntimeHttpServer {
 
       ...brainGraphRouteDefinitions(),
       ...eventsRouteDefinitions(),
-      ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
 
       // User-defined routes under /x/* — must be LAST so built-in routes

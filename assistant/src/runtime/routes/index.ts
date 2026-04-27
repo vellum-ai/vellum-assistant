@@ -19,7 +19,11 @@ import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-ro
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
+import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
+import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import type { RouteDefinition } from "./types.js";
+import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
+import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
 import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 
 export const ROUTES: RouteDefinition[] = [
@@ -34,5 +38,9 @@ export const ROUTES: RouteDefinition[] = [
   ...DEBUG_ROUTES,
   ...IDENTITY_ROUTES,
   ...PS_ROUTES,
+  ...TELEMETRY_ROUTES,
+  ...TRACE_EVENT_ROUTES,
+  ...USAGE_ROUTES,
+  ...WORKSPACE_COMMIT_ROUTES,
   ...WORKSPACE_ROUTES,
 ];

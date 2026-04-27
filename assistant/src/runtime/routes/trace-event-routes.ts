@@ -1,5 +1,5 @@
 /**
- * HTTP route handlers for trace event retrieval.
+ * Route handlers for trace event retrieval.
  *
  * GET /v1/trace-events — Returns persisted trace events for a conversation.
  */
@@ -7,84 +7,65 @@
 import { z } from "zod";
 
 import { getTraceEvents } from "../../memory/trace-event-store.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
+function handleListTraceEvents({ queryParams }: RouteHandlerArgs) {
+  const conversationId = queryParams?.conversationId;
+  if (!conversationId) {
+    throw new BadRequestError("conversationId query parameter is required");
+  }
 
-export function traceEventRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "trace-events",
-      method: "GET",
-      summary: "List trace events",
-      description: "Return persisted trace events for a conversation.",
-      tags: ["trace"],
-      queryParams: [
-        {
-          name: "conversationId",
-          schema: { type: "string" },
-          description: "Conversation ID (required)",
-        },
-        {
-          name: "limit",
-          schema: { type: "integer" },
-          description: "Max events to return",
-        },
-        {
-          name: "afterSequence",
-          schema: { type: "integer" },
-          description: "Return events after this sequence number",
-        },
-      ],
-      responseBody: z.object({
-        events: z.array(z.unknown()).describe("Trace event objects"),
-      }),
-      handler: ({ url }) => {
-        const conversationId = url.searchParams.get("conversationId");
-        if (!conversationId) {
-          return httpError(
-            "BAD_REQUEST",
-            "conversationId query parameter is required",
-            400,
-          );
-        }
+  const limitParam = queryParams?.limit;
+  const afterSequenceParam = queryParams?.afterSequence;
 
-        const limitParam = url.searchParams.get("limit");
-        const afterSequenceParam = url.searchParams.get("afterSequence");
+  const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+  if (limitParam && (isNaN(limit!) || limit! <= 0)) {
+    throw new BadRequestError("limit must be a positive integer");
+  }
 
-        const limit = limitParam ? parseInt(limitParam, 10) : undefined;
-        if (limitParam && (isNaN(limit!) || limit! <= 0)) {
-          return httpError(
-            "BAD_REQUEST",
-            "limit must be a positive integer",
-            400,
-          );
-        }
+  const afterSequence = afterSequenceParam
+    ? parseInt(afterSequenceParam, 10)
+    : undefined;
+  if (afterSequenceParam && (isNaN(afterSequence!) || afterSequence! < 0)) {
+    throw new BadRequestError("afterSequence must be a non-negative integer");
+  }
 
-        const afterSequence = afterSequenceParam
-          ? parseInt(afterSequenceParam, 10)
-          : undefined;
-        if (
-          afterSequenceParam &&
-          (isNaN(afterSequence!) || afterSequence! < 0)
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            "afterSequence must be a non-negative integer",
-            400,
-          );
-        }
+  const events = getTraceEvents(conversationId, {
+    limit,
+    afterSequence,
+  });
 
-        const events = getTraceEvents(conversationId, {
-          limit,
-          afterSequence,
-        });
-
-        return Response.json({ events });
-      },
-    },
-  ];
+  return { events };
 }
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "trace_events_list",
+    endpoint: "trace-events",
+    method: "GET",
+    summary: "List trace events",
+    description: "Return persisted trace events for a conversation.",
+    tags: ["trace"],
+    queryParams: [
+      {
+        name: "conversationId",
+        description: "Conversation ID (required)",
+      },
+      {
+        name: "limit",
+        type: "integer",
+        description: "Max events to return",
+      },
+      {
+        name: "afterSequence",
+        type: "integer",
+        description: "Return events after this sequence number",
+      },
+    ],
+    responseBody: z.object({
+      events: z.array(z.unknown()).describe("Trace event objects"),
+    }),
+    handler: handleListTraceEvents,
+  },
+];
