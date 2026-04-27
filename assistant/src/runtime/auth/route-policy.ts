@@ -610,6 +610,17 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Notification pipeline: local-only (CLI / IPC callers)
+registerPolicy("notifications/emit", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("notifications/events", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Defer operations: local-only (CLI / IPC callers)
 registerPolicy("defer/create", {
   requiredScopes: ["settings.write"],

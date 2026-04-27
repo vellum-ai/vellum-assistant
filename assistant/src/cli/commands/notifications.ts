@@ -212,25 +212,27 @@ Examples:
             deduplicated: boolean;
             reason: string;
           }>("emit_notification_signal", {
-            sourceChannel: opts.sourceChannel,
-            sourceEventName: opts.sourceEventName,
-            sourceContextId,
-            attentionHints: {
-              requiresAction: opts.requiresAction ?? true,
-              urgency,
-              deadlineAt,
-              isAsyncBackground: opts.isAsyncBackground ?? false,
-              visibleInSourceNow: opts.visibleInSourceNow ?? false,
+            body: {
+              sourceChannel: opts.sourceChannel,
+              sourceEventName: opts.sourceEventName,
+              sourceContextId,
+              attentionHints: {
+                requiresAction: opts.requiresAction ?? true,
+                urgency,
+                deadlineAt,
+                isAsyncBackground: opts.isAsyncBackground ?? false,
+                visibleInSourceNow: opts.visibleInSourceNow ?? false,
+              },
+              contextPayload: {
+                requestedMessage: message,
+                requestedBySource: opts.sourceChannel,
+                ...(opts.title ? { requestedTitle: opts.title } : {}),
+                ...(preferredChannels?.length ? { preferredChannels } : {}),
+                ...(deepLinkMetadata ? { deepLinkMetadata } : {}),
+              },
+              ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
+              throwOnError: true,
             },
-            contextPayload: {
-              requestedMessage: message,
-              requestedBySource: opts.sourceChannel,
-              ...(opts.title ? { requestedTitle: opts.title } : {}),
-              ...(preferredChannels?.length ? { preferredChannels } : {}),
-              ...(deepLinkMetadata ? { deepLinkMetadata } : {}),
-            },
-            ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
-            throwOnError: true,
           });
 
           if (!result.ok) {
@@ -339,8 +341,7 @@ Examples:
               createdAt: string;
             }>
           >("list_notification_events", {
-            limit,
-            sourceEventName: opts.sourceEventName,
+            body: { limit, sourceEventName: opts.sourceEventName },
           });
 
           if (!result.ok) {

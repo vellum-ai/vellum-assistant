@@ -135,9 +135,10 @@ describe("notifications send", () => {
     expect(ipcCalls).toHaveLength(1);
     const call = ipcCalls[0];
     expect(call.method).toBe("emit_notification_signal");
-    expect(call.params?.sourceChannel).toBe("assistant_tool");
-    expect(call.params?.sourceEventName).toBe("user.send_notification");
-    const payload = call.params?.contextPayload as Record<string, unknown>;
+    const callBody = call.params?.body as Record<string, unknown>;
+    expect(callBody?.sourceChannel).toBe("assistant_tool");
+    expect(callBody?.sourceEventName).toBe("user.send_notification");
+    const payload = callBody?.contextPayload as Record<string, unknown>;
     expect(payload.requestedMessage).toBe("Hello");
   });
 
@@ -160,7 +161,8 @@ describe("notifications send", () => {
     expect(parsed.ok).toBe(true);
 
     expect(ipcCalls).toHaveLength(1);
-    const hints = ipcCalls[0].params?.attentionHints as Record<string, unknown>;
+    const emitBody = ipcCalls[0].params?.body as Record<string, unknown>;
+    const hints = emitBody?.attentionHints as Record<string, unknown>;
     expect(hints.urgency).toBe("high");
     expect(hints.requiresAction).toBe(true);
     expect(hints.isAsyncBackground).toBe(true);
@@ -183,10 +185,8 @@ describe("notifications send", () => {
     expect(parsed.ok).toBe(true);
 
     expect(ipcCalls).toHaveLength(1);
-    const payload = ipcCalls[0].params?.contextPayload as Record<
-      string,
-      unknown
-    >;
+    const dlBody = ipcCalls[0].params?.body as Record<string, unknown>;
+    const payload = dlBody?.contextPayload as Record<string, unknown>;
     expect(payload.preferredChannels).toEqual(["telegram", "slack"]);
   });
 
@@ -288,7 +288,7 @@ describe("notifications list", () => {
     expect(parsed.ok).toBe(true);
 
     expect(ipcCalls).toHaveLength(1);
-    expect(ipcCalls[0].params?.limit).toBe(5);
+    expect((ipcCalls[0].params?.body as Record<string, unknown>)?.limit).toBe(5);
   });
 
   test("list passes --source-event-name to IPC", async () => {
@@ -304,7 +304,9 @@ describe("notifications list", () => {
     expect(parsed.ok).toBe(true);
 
     expect(ipcCalls).toHaveLength(1);
-    expect(ipcCalls[0].params?.sourceEventName).toBe("schedule.notify");
+    expect(
+      (ipcCalls[0].params?.body as Record<string, unknown>)?.sourceEventName,
+    ).toBe("schedule.notify");
   });
 
   test("list surfaces IPC error response", async () => {

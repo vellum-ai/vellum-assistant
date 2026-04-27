@@ -7147,6 +7147,158 @@ paths:
               required:
                 - deliveryId
               additionalProperties: false
+  /v1/notifications/emit:
+    post:
+      operationId: notifications_emit_post
+      summary: Emit a notification signal
+      description: Emit a notification signal into the pipeline for routing and delivery.
+      tags:
+        - notifications
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signalId:
+                    type: string
+                  dispatched:
+                    type: boolean
+                  deduplicated:
+                    type: boolean
+                  reason:
+                    type: string
+                required:
+                  - signalId
+                  - dispatched
+                  - deduplicated
+                  - reason
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourceEventName:
+                  type: string
+                  minLength: 1
+                sourceChannel:
+                  type: string
+                  enum:
+                    - assistant_tool
+                    - vellum
+                    - phone
+                    - telegram
+                    - slack
+                    - scheduler
+                    - watcher
+                sourceContextId:
+                  type: string
+                  minLength: 1
+                attentionHints:
+                  type: object
+                  properties:
+                    requiresAction:
+                      type: boolean
+                    urgency:
+                      type: string
+                      enum:
+                        - low
+                        - medium
+                        - high
+                    deadlineAt:
+                      type: number
+                    isAsyncBackground:
+                      type: boolean
+                    visibleInSourceNow:
+                      type: boolean
+                  required:
+                    - requiresAction
+                    - urgency
+                    - isAsyncBackground
+                    - visibleInSourceNow
+                  additionalProperties: false
+                contextPayload:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                routingIntent:
+                  type: string
+                  enum:
+                    - single_channel
+                    - multi_channel
+                    - all_channels
+                dedupeKey:
+                  type: string
+                throwOnError:
+                  type: boolean
+              required:
+                - sourceEventName
+                - sourceChannel
+                - sourceContextId
+                - attentionHints
+              additionalProperties: false
+  /v1/notifications/events:
+    post:
+      operationId: notifications_events_post
+      summary: List notification events
+      description: List recent notification events, optionally filtered by source event name.
+      tags:
+        - notifications
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    sourceEventName:
+                      type: string
+                    sourceChannel:
+                      type: string
+                    sourceContextId:
+                      type: string
+                    urgency:
+                      type: string
+                    dedupeKey:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    createdAt:
+                      type: string
+                  required:
+                    - id
+                    - sourceEventName
+                    - sourceChannel
+                    - sourceContextId
+                    - urgency
+                    - dedupeKey
+                    - createdAt
+                  additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                sourceEventName:
+                  type: string
+              additionalProperties: false
   /v1/oauth/apps:
     get:
       operationId: oauth_apps_get
