@@ -38,7 +38,8 @@ export function routeDefinitionsToHTTPRoutes(
         }
 
         const contentType = req.headers.get("content-type") ?? "";
-        let body: Record<string, unknown> | Uint8Array | undefined;
+        let body: Record<string, unknown> | undefined;
+        let rawBody: Uint8Array | undefined;
         if (
           r.method === "POST" ||
           r.method === "PUT" ||
@@ -58,7 +59,7 @@ export function routeDefinitionsToHTTPRoutes(
             }
           } else {
             // Binary body (e.g. application/zip, application/octet-stream)
-            body = new Uint8Array(await req.arrayBuffer());
+            rawBody = new Uint8Array(await req.arrayBuffer());
           }
         }
 
@@ -71,11 +72,14 @@ export function routeDefinitionsToHTTPRoutes(
           pathParams,
           queryParams,
           body,
+          rawBody,
           headers,
         });
 
         if (isRouteResponse(result)) {
-          return new Response(result.body, { headers: result.headers });
+          return new Response(result.body as BodyInit, {
+            headers: result.headers,
+          });
         }
         return Response.json(result);
       } catch (err) {

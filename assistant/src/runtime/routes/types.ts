@@ -14,7 +14,8 @@ export interface RouteQueryParam {
 export interface RouteHandlerArgs {
   pathParams?: Record<string, string>;
   queryParams?: Record<string, string>;
-  body?: Record<string, unknown> | Uint8Array;
+  body?: Record<string, unknown>;
+  rawBody?: Uint8Array;
   headers?: Record<string, string>;
 }
 

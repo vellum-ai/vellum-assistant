@@ -1005,7 +1005,9 @@ export class RuntimeHttpServer {
     if (pagesMatch && req.method === "GET") {
       return withErrorHandling("pages", async () => {
         const result = handleServePage({ pathParams: { appId: pagesMatch[1] } });
-        return new Response(result.body, { headers: result.headers });
+        return new Response(result.body as BodyInit, {
+          headers: result.headers,
+        });
       });
     }
 

@@ -246,23 +246,23 @@ function handleServeDistFile({
 const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 
 async function handleShareApp({
-  body,
+  rawBody,
 }: RouteHandlerArgs): Promise<{
   shareToken: string;
   shareUrl: string;
   bundleSizeBytes: number;
 }> {
-  if (!(body instanceof Uint8Array)) {
+  if (!rawBody) {
     throw new BadRequestError("Expected binary body");
   }
 
-  if (body.byteLength > MAX_SHARE_BODY_BYTES) {
+  if (rawBody.byteLength > MAX_SHARE_BODY_BYTES) {
     throw new BadRequestError(
       `Request body too large (limit: ${MAX_SHARE_BODY_BYTES} bytes)`,
     );
   }
 
-  const bundleData = Buffer.from(body);
+  const bundleData = Buffer.from(rawBody);
 
   if (bundleData.length === 0) {
     throw new BadRequestError("Empty body");
