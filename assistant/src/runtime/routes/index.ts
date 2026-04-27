@@ -17,6 +17,7 @@ import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import type { RouteDefinition } from "./types.js";
+import { ROUTES as WORKSPACE_ROUTES } from "./workspace-routes.js";
 
 export const ROUTES: RouteDefinition[] = [
   ...ACP_ROUTES,
@@ -27,4 +28,5 @@ export const ROUTES: RouteDefinition[] = [
   ...DEBUG_ROUTES,
   ...IDENTITY_ROUTES,
   ...PS_ROUTES,
+  ...WORKSPACE_ROUTES,
 ];

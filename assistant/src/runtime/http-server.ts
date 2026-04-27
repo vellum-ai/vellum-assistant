@@ -211,7 +211,7 @@ import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
-import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
+import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
@@ -1787,7 +1787,7 @@ export class RuntimeHttpServer {
       ...migrationRollbackRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),
-      ...workspaceRouteDefinitions(),
+      ...workspaceHttpOnlyRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
       ...conversationStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
