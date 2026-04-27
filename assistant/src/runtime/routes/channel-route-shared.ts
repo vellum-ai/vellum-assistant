@@ -78,6 +78,8 @@ export function parseCallbackData(
 const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
   ["+1", "approve_once"],
   ["thumbsup", "approve_once"],
+  ["white_check_mark", "approve_once"],
+  ["alarm_clock", "approve_once"],
   ["-1", "reject"],
   ["thumbsdown", "reject"],
 ]);
