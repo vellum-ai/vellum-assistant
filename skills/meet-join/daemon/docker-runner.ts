@@ -187,9 +187,9 @@ export interface DockerRunOptions {
    * Behavior is identical in bare-metal and Docker (DinD) modes: the Docker
    * Engine API's `Devices` field has the same semantics whether the target
    * is the host's engine or an inner nested `dockerd`. In Docker mode the
-   * device must also be bind-mounted into the assistant container
-   * (`cli/src/lib/docker.ts` handles that when `VELLUM_MEET_AVATAR=1` is
-   * set in the environment) so inner `dockerd` can see the node.
+   * device must also be bind-mounted into the assistant container (the CLI
+   * does this via `VELLUM_AVATAR_DEVICE`) so inner `dockerd` can see the
+   * node.
    *
    * Intentionally a run-time argument rather than a config-schema field:
    * the avatar config schema lands in a later PR, and threading it through

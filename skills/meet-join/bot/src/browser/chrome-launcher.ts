@@ -78,12 +78,7 @@ export interface LaunchChromeOptions {
   /**
    * Absolute path to the v4l2loopback character-device node consumed when
    * `avatarEnabled` is true. Defaults to {@link DEFAULT_AVATAR_DEVICE_PATH}
-   * (`/dev/video10`), which is the shared
-   * {@link ../../../shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT}
-   * — the same source of truth used by `src/media/video-device.ts` and the
-   * CLI's `VELLUM_MEET_AVATAR_DEVICE` default (see
-   * `cli/src/lib/docker.ts:resolveMeetAvatarDevicePath`). Only consulted
-   * when `avatarEnabled` is true.
+   * (`/dev/video10`). Only consulted when `avatarEnabled` is true.
    */
   avatarDevicePath?: string;
 }

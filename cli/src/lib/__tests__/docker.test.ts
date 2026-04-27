@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import {
   ASSISTANT_INTERNAL_PORT,
-  DEFAULT_MEET_AVATAR_DEVICE_PATH,
+  AVATAR_DEVICE_ENV_VAR,
   dockerResourceNames,
-  MEET_AVATAR_DEVICE_ENV_VAR,
-  MEET_AVATAR_ENV_VAR,
-  resolveMeetAvatarDevicePath,
+  resolveAvatarDevicePath,
   serviceDockerRunArgs,
   type ServiceName,
 } from "../docker.js";
@@ -114,88 +112,36 @@ describe("serviceDockerRunArgs — assistant", () => {
   });
 });
 
-describe("Meet avatar device passthrough (VELLUM_MEET_AVATAR opt-in)", () => {
-  // Snapshot + restore the process env so tests can flip the env-var
-  // without leaking state to later suites or other CLI tests.
-  const originalEnv: Record<string, string | undefined> = {};
+describe("VELLUM_AVATAR_DEVICE passthrough", () => {
+  const savedValue = process.env[AVATAR_DEVICE_ENV_VAR];
 
   beforeEach(() => {
-    for (const key of [MEET_AVATAR_ENV_VAR, MEET_AVATAR_DEVICE_ENV_VAR]) {
-      originalEnv[key] = process.env[key];
-      delete process.env[key];
-    }
+    delete process.env[AVATAR_DEVICE_ENV_VAR];
   });
 
   afterEach(() => {
-    for (const [key, value] of Object.entries(originalEnv)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
+    if (savedValue === undefined) delete process.env[AVATAR_DEVICE_ENV_VAR];
+    else process.env[AVATAR_DEVICE_ENV_VAR] = savedValue;
   });
 
-  test("resolveMeetAvatarDevicePath returns null when the env var is unset", () => {
-    expect(resolveMeetAvatarDevicePath({})).toBeNull();
+  test("resolveAvatarDevicePath returns default when env var is unset", () => {
+    expect(resolveAvatarDevicePath({})).toBe("/dev/video10");
   });
 
-  test("resolveMeetAvatarDevicePath treats 0/false/no as disabled", () => {
-    for (const value of ["", "0", "false", "FALSE", "no", " NO "]) {
-      expect(
-        resolveMeetAvatarDevicePath({ [MEET_AVATAR_ENV_VAR]: value }),
-      ).toBe(null);
-    }
-  });
-
-  test("resolveMeetAvatarDevicePath returns the default device path when enabled with a truthy value", () => {
-    for (const value of ["1", "true", "YES"]) {
-      expect(
-        resolveMeetAvatarDevicePath({ [MEET_AVATAR_ENV_VAR]: value }),
-      ).toBe(DEFAULT_MEET_AVATAR_DEVICE_PATH);
-    }
-  });
-
-  test("resolveMeetAvatarDevicePath honors the VELLUM_MEET_AVATAR_DEVICE override", () => {
+  test("resolveAvatarDevicePath honors override", () => {
     expect(
-      resolveMeetAvatarDevicePath({
-        [MEET_AVATAR_ENV_VAR]: "1",
-        [MEET_AVATAR_DEVICE_ENV_VAR]: "/dev/video11",
-      }),
+      resolveAvatarDevicePath({ [AVATAR_DEVICE_ENV_VAR]: "/dev/video11" }),
     ).toBe("/dev/video11");
   });
 
-  test("assistant args omit --device and the avatar env vars when VELLUM_MEET_AVATAR is unset", () => {
+  test("assistant args always include VELLUM_AVATAR_DEVICE env var", () => {
     const args = buildAssistantArgs();
-    expect(args).not.toContain("--device");
-    expect(args.some((a) => a.startsWith(`${MEET_AVATAR_ENV_VAR}=`))).toBe(
-      false,
-    );
-    expect(
-      args.some((a) => a.startsWith(`${MEET_AVATAR_DEVICE_ENV_VAR}=`)),
-    ).toBe(false);
+    expect(args).toContain(`${AVATAR_DEVICE_ENV_VAR}=/dev/video10`);
   });
 
-  test("assistant args include --device=/dev/video10:/dev/video10 when VELLUM_MEET_AVATAR=1", () => {
-    process.env[MEET_AVATAR_ENV_VAR] = "1";
+  test("assistant args use custom device path from VELLUM_AVATAR_DEVICE", () => {
+    process.env[AVATAR_DEVICE_ENV_VAR] = "/dev/video11";
     const args = buildAssistantArgs();
-    const deviceIdx = args.indexOf("--device");
-    expect(deviceIdx).toBeGreaterThan(0);
-    expect(args[deviceIdx + 1]).toBe(
-      `${DEFAULT_MEET_AVATAR_DEVICE_PATH}:${DEFAULT_MEET_AVATAR_DEVICE_PATH}`,
-    );
-    // The env var must also be propagated into the container so the daemon
-    // knows to turn on avatar passthrough when spawning the bot.
-    expect(args).toContain(`${MEET_AVATAR_ENV_VAR}=1`);
-    expect(args).toContain(
-      `${MEET_AVATAR_DEVICE_ENV_VAR}=${DEFAULT_MEET_AVATAR_DEVICE_PATH}`,
-    );
-  });
-
-  test("assistant args honor a custom device path from VELLUM_MEET_AVATAR_DEVICE", () => {
-    process.env[MEET_AVATAR_ENV_VAR] = "1";
-    process.env[MEET_AVATAR_DEVICE_ENV_VAR] = "/dev/video11";
-    const args = buildAssistantArgs();
-    const deviceIdx = args.indexOf("--device");
-    expect(deviceIdx).toBeGreaterThan(0);
-    expect(args[deviceIdx + 1]).toBe("/dev/video11:/dev/video11");
-    expect(args).toContain(`${MEET_AVATAR_DEVICE_ENV_VAR}=/dev/video11`);
+    expect(args).toContain(`${AVATAR_DEVICE_ENV_VAR}=/dev/video11`);
   });
 });

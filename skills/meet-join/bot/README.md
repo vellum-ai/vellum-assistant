@@ -142,12 +142,11 @@ container receives it as a bind-mount:
   `--device=/dev/video10:/dev/video10` to the bot container's `docker run`
   when the avatar feature is enabled. The assistant's `DockerRunner`
   accepts an opt-in `avatarDevicePath` option for this.
-- **Docker mode (DinD)** — the CLI must also pass
-  `--device=/dev/video10:/dev/video10` to the assistant container so the
-  device node exists inside the DinD environment. Set
-  `VELLUM_MEET_AVATAR=1` in the environment before `vellum` spawns the
-  assistant container to opt in. The `DockerRunner` then forwards the same
-  flag to the inner `dockerd` when spawning bot containers.
+- **Docker mode (DinD)** — the CLI automatically passes
+  `VELLUM_AVATAR_DEVICE` (default `/dev/video10`) to the assistant
+  container and bind-mounts the device node when it exists on the host.
+  The `DockerRunner` then forwards the device to the inner `dockerd`
+  when spawning bot containers.
 
 If `/dev/video10` is missing inside the bot container at runtime, the
 `openVideoDevice()` helper throws a clear error pointing operators back to

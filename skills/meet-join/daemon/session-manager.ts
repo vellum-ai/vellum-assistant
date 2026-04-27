@@ -318,13 +318,12 @@ export class MeetBotAvatarError extends Error {
  * enabled in `services.meet.avatar` but the configured v4l2loopback device
  * node is not present inside the daemon container.
  *
- * In Docker mode the CLI must bind-mount the host device into the assistant
- * container on hatch/wake — opt-in via `VELLUM_MEET_AVATAR=1`. If an
- * operator enables the avatar in config without setting the env var, the
- * daemon's Docker Engine API `--device` pass-through would otherwise fail
- * much later with a cryptic "device not found" error from the inner
- * `dockerd`. This class surfaces the root cause at meet-join time with an
- * actionable pointer at the CLI env-var.
+ * In Docker mode the CLI bind-mounts the host device into the assistant
+ * container via `VELLUM_AVATAR_DEVICE`. If the avatar is enabled in config
+ * but the device node is not present, the daemon's Docker Engine API
+ * `--device` pass-through would otherwise fail much later with a cryptic
+ * "device not found" error from the inner `dockerd`. This class surfaces
+ * the root cause at meet-join time with an actionable message.
  *
  * Bare-metal mode does not raise this error because the device is expected
  * to exist on the host — if it does not, the operator is missing the
@@ -338,8 +337,8 @@ export class MeetAvatarDeviceMissingError extends Error {
   constructor(devicePath: string) {
     super(
       `Meet avatar is enabled in services.meet.avatar but ${devicePath} is not present inside the assistant container. ` +
-        `In Docker mode, set VELLUM_MEET_AVATAR=1 in the CLI environment before spawning the instance so the CLI bind-mounts the device. ` +
-        `If you changed services.meet.avatar.devicePath from the default, also set VELLUM_MEET_AVATAR_DEVICE to the same path.`,
+        `The CLI passes VELLUM_AVATAR_DEVICE to the container and bind-mounts the device when it exists on the host. ` +
+        `Ensure the v4l2loopback module is loaded and the device path matches VELLUM_AVATAR_DEVICE (or services.meet.avatar.devicePath).`,
     );
     this.devicePath = devicePath;
   }
@@ -1088,13 +1087,11 @@ class MeetSessionManagerImpl {
    * Preflight check invoked from {@link join} when the avatar feature is
    * enabled. In Docker mode, verifies that the configured v4l2loopback
    * device node is present inside the daemon container — the CLI
-   * (`cli/src/lib/docker.ts`) is responsible for bind-mounting it, gated
-   * on `VELLUM_MEET_AVATAR=1`. If the config enables the avatar but the
-   * CLI opt-in is missing, the device will not exist inside the container
-   * and the downstream `DockerRunner.run()` would fail with a cryptic
-   * "device not found" error from the inner `dockerd`. This check moves
-   * the failure to a deterministic point (meet-join time) with a clear
-   * pointer at the env-var the operator forgot to set.
+   * (`cli/src/lib/docker.ts`) bind-mounts it via `VELLUM_AVATAR_DEVICE`.
+   * If the device is not present, the downstream `DockerRunner.run()`
+   * would fail with a cryptic "device not found" error from the inner
+   * `dockerd`. This check moves the failure to a deterministic point
+   * (meet-join time) with a clear message.
    *
    * In bare-metal mode the check is skipped — the device is expected to
    * exist on the host, and if it does not the operator is missing the
@@ -1154,11 +1151,9 @@ class MeetSessionManagerImpl {
       workspaceDir = this.deps.getWorkspaceDir();
       meet = getMeetConfig(workspaceDir);
 
-      // Preflight: in Docker mode, avatar config + CLI env-var opt-in are
-      // two orthogonal controls (see `cli/src/lib/docker.ts`'s
-      // `VELLUM_MEET_AVATAR` handling). Fail fast here with a pointer at
-      // the env-var rather than letting the inner `dockerd` reject the
-      // bot-container create with an opaque "device not found" error.
+      // Preflight: verify the avatar device node is present before
+      // letting the inner `dockerd` reject the bot-container create
+      // with an opaque "device not found" error.
       if (meet.avatar.enabled) {
         this.assertAvatarDeviceAvailable(meet.avatar.devicePath);
       }
