@@ -7,7 +7,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/usage-routes.js";

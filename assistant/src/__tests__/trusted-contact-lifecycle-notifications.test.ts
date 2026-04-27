@@ -70,7 +70,8 @@ import {
   createGuardianBinding,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { createApprovalRequest } from "../memory/guardian-approvals.js";
 import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";

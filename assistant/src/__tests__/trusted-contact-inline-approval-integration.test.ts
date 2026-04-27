@@ -162,7 +162,8 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";

@@ -10,7 +10,8 @@
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { rawChanges } from "../memory/raw-query.js";
 import { sequenceEnrollments, sequences } from "../memory/schema.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import {

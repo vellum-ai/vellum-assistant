@@ -16,7 +16,7 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { conversationKeys, conversations } from "./schema.js";
 
 const log = getLogger("conversation-key-store");

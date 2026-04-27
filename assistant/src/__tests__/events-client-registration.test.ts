@@ -30,7 +30,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   __resetClientRegistryForTests,

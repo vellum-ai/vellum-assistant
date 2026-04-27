@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db.js";
+import { getDb } from "../../../../memory/db-connection.js";
 import { createNode, updateNode } from "../../../../memory/graph/store.js";
 import type { NewNode } from "../../../../memory/graph/types.js";
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";

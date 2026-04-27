@@ -66,7 +66,8 @@ import {
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 

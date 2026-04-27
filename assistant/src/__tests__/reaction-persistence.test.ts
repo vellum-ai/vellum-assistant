@@ -44,7 +44,8 @@ import {
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   createApprovalRequest,
   getPendingApprovalForRequest,

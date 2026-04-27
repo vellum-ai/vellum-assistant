@@ -2,7 +2,7 @@ import { eq, isNotNull, like, ne } from "drizzle-orm";
 
 import { getConfig } from "../../config/loader.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
 import { asString, BackendUnavailableError } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";

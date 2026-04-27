@@ -12,7 +12,7 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
 import {

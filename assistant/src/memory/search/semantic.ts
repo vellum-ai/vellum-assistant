@@ -1,7 +1,7 @@
 import { inArray } from "drizzle-orm";
 
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import type {
   QdrantSearchResult,

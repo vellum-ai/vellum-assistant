@@ -19,7 +19,8 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { rawChanges } from "../memory/raw-query.js";
 import {
   oauthApps,
   oauthConnections,

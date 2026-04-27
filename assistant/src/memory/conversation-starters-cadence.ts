@@ -8,7 +8,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getLogger } from "../util/logger.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
 import { rawGet } from "./raw-query.js";
 import { memoryCheckpoints, memoryJobs } from "./schema.js";

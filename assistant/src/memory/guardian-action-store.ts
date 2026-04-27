@@ -11,7 +11,8 @@ import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getLogger } from "../util/logger.js";
-import { getDb, rawChanges } from "./db.js";
+import { getDb } from "./db-connection.js";
+import { rawChanges } from "./raw-query.js";
 import { guardianActionDeliveries, guardianActionRequests } from "./schema.js";
 
 const log = getLogger("guardian-action-store");

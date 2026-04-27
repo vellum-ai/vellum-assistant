@@ -25,7 +25,8 @@ import {
   createConversation,
   getConversation,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";

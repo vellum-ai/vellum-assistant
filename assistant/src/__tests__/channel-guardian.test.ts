@@ -75,7 +75,8 @@ import {
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as _storeUpdateSessionStatus,
 } from "../memory/channel-verification-sessions.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
   createApprovalRequest,

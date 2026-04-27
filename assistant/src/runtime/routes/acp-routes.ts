@@ -13,7 +13,7 @@ import {
 } from "../../acp/index.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
 import type { AcpSessionState } from "../../acp/types.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";

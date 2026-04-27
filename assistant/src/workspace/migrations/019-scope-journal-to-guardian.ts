@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { desc, eq } from "drizzle-orm";
 
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { contacts } from "../../memory/schema/contacts.js";
 import type { WorkspaceMigration } from "./types.js";
 

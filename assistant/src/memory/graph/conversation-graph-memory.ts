@@ -17,7 +17,7 @@ import type {
   Message,
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";

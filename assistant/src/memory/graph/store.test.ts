@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { initializeDb, resetTestTables } from "../db.js";
+import { initializeDb } from "../db-init.js";
+import { resetTestTables } from "../raw-query.js";
 import {
   applyDiff,
   countNodes,

@@ -10,7 +10,7 @@ import { v4 as uuid } from "uuid";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getOrCreateConversation } from "./conversation-key-store.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { channelInboundEvents, conversations } from "./schema.js";
 
 export interface InboundResult {

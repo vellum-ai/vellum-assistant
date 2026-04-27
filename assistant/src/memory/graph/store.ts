@@ -5,7 +5,7 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { enqueueMemoryJob } from "../jobs-store.js";
 import {
   memoryGraphEdges,

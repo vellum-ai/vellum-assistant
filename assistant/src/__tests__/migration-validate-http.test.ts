@@ -39,16 +39,15 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+const realEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...realEnv,
   isHttpAuthDisabled: () => true,
   hasUngatedHttpAuthDisabled: () => false,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
-  getGatewayPort: () => 7830,
   getRuntimeHttpPort: () => 7821,
   getRuntimeHttpHost: () => "127.0.0.1",
   getRuntimeGatewayOriginSecret: () => undefined,
-  getIngressPublicBaseUrl: () => undefined,
-  setIngressPublicBaseUrl: () => {},
 }));
 
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";

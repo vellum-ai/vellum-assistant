@@ -14,7 +14,7 @@ import {
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,

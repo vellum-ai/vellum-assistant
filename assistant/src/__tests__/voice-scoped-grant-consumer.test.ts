@@ -82,7 +82,8 @@ import {
 } from "../calls/voice-session-bridge.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import {
   _internal,

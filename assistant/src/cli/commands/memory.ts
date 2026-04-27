@@ -12,7 +12,7 @@ import {
   requestReextract,
 } from "../../memory/admin.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { log } from "../logger.js";
 
 export function registerMemoryCommand(program: Command): void {

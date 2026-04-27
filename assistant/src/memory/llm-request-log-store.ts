@@ -7,7 +7,7 @@ import {
   getTurnTimeBounds,
   messageMetadataSchema,
 } from "./conversation-crud.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema.js";
 
 type LogRow = {

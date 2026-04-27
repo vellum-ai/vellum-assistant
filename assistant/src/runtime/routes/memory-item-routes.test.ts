@@ -65,7 +65,8 @@ mock.module("../../memory/qdrant-circuit-breaker.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, initializeDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
 import type { RouteContext } from "../http-router.js";
 import { memoryItemRouteDefinitions } from "./memory-item-routes.js";

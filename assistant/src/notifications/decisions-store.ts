@@ -9,7 +9,7 @@
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { notificationDecisions } from "../memory/schema.js";
 
 export interface NotificationDecisionRow {

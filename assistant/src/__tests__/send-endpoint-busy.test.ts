@@ -94,7 +94,8 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";

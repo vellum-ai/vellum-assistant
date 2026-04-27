@@ -11,7 +11,8 @@ import { and, desc, eq, inArray, isNotNull, lt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { IntegrityError } from "../util/errors.js";
-import { getDb, rawChanges } from "./db.js";
+import { getDb } from "./db-connection.js";
+import { rawChanges } from "./raw-query.js";
 import {
   canonicalGuardianDeliveries,
   canonicalGuardianRequests,

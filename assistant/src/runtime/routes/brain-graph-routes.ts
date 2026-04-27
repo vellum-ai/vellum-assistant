@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { count } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
 import { RouteError } from "./errors.js";

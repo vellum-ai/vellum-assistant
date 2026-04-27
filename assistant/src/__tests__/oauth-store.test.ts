@@ -23,9 +23,11 @@ mock.module("../security/secure-keys.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { migrateOAuthProvidersTokenAuthMethodDefault } from "../memory/migrations/216-oauth-providers-token-auth-method.js";
+import { resetTestTables } from "../memory/raw-query.js";
 import { oauthProviders } from "../memory/schema/oauth.js";
 import {
   createConnection,

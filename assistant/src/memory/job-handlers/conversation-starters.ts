@@ -23,7 +23,7 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../conversation-starter-validation.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { asString } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { rawAll, rawGet } from "../raw-query.js";
