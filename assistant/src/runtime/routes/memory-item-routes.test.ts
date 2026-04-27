@@ -68,57 +68,67 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../memory/db-connection.js";
 import { initializeDb } from "../../memory/db-init.js";
 import { memoryGraphNodes, memoryJobs } from "../../memory/schema.js";
-import type { RouteContext } from "../http-router.js";
-import { memoryItemRouteDefinitions } from "./memory-item-routes.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "./errors.js";
+import { ROUTES } from "./memory-item-routes.js";
+import type { RouteDefinition } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getHandler(endpoint: string, method: string) {
-  const routes = memoryItemRouteDefinitions();
-  const route = routes.find(
-    (r) => r.endpoint === endpoint && r.method === method,
+function getRoute(endpoint: string, method: string): RouteDefinition {
+  const route = ROUTES.find(
+    (r: RouteDefinition) => r.endpoint === endpoint && r.method === method,
   );
   if (!route) throw new Error(`No route: ${method} ${endpoint}`);
-  return route.handler;
+  return route;
 }
 
-function makeCtx(
-  searchParams: Record<string, string> = {},
-  params: Record<string, string> = {},
-): RouteContext {
-  const url = new URL("http://localhost/v1/memory-items");
-  for (const [k, v] of Object.entries(searchParams)) {
-    url.searchParams.set(k, v);
+/**
+ * Call a route handler and return a Response-like object for backward compat
+ * with existing test assertions (res.status / res.json()).
+ */
+async function callHandler(
+  route: RouteDefinition,
+  opts: {
+    queryParams?: Record<string, string>;
+    pathParams?: Record<string, string>;
+    body?: unknown;
+  } = {},
+): Promise<{ status: number; json: () => Promise<unknown> }> {
+  try {
+    const result = await route.handler({
+      pathParams: opts.pathParams ?? {},
+      queryParams: opts.queryParams ?? {},
+      body: opts.body as Record<string, unknown>,
+      headers: {},
+    });
+    const statusCode =
+      route.responseStatus === "201"
+        ? 201
+        : route.responseStatus === "204"
+          ? 204
+          : 200;
+    return {
+      status: statusCode,
+      json: async () => result,
+    };
+  } catch (err) {
+    if (err instanceof BadRequestError) {
+      return { status: 400, json: async () => ({ error: err.message }) };
+    }
+    if (err instanceof NotFoundError) {
+      return { status: 404, json: async () => ({ error: err.message }) };
+    }
+    if (err instanceof ConflictError) {
+      return { status: 409, json: async () => ({ error: err.message }) };
+    }
+    throw err;
   }
-  return {
-    url,
-    req: new Request(url),
-    server: {} as ReturnType<typeof Bun.serve>,
-    authContext: {} as never,
-    params,
-  };
-}
-
-function makeJsonCtx(
-  endpoint: string,
-  method: string,
-  body: unknown,
-  params: Record<string, string> = {},
-): RouteContext {
-  const url = new URL(`http://localhost/v1/${endpoint}`);
-  return {
-    url,
-    req: new Request(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-    server: {} as ReturnType<typeof Bun.serve>,
-    authContext: {} as never,
-    params,
-  };
 }
 
 function insertItem(opts: {
@@ -187,11 +197,10 @@ describe("Memory Item Routes", () => {
   // =========================================================================
 
   describe("GET /v1/memory-items", () => {
-    const handler = getHandler("memory-items", "GET");
+    const route = getRoute("memory-items", "GET");
 
     test("returns empty list when no items", async () => {
-      const ctx = makeCtx();
-      const res = await handler(ctx);
+      const res = await callHandler(route);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { items: unknown[]; total: number };
       expect(body.items).toEqual([]);
@@ -211,8 +220,7 @@ describe("Memory Item Routes", () => {
         fidelity: "gone",
       });
 
-      const ctx = makeCtx();
-      const res = await handler(ctx);
+      const res = await callHandler(route);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
@@ -237,8 +245,7 @@ describe("Memory Item Routes", () => {
         fidelity: "gone",
       });
 
-      const ctx = makeCtx({ status: "all" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { status: "all" } });
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
@@ -262,8 +269,7 @@ describe("Memory Item Routes", () => {
         content: "s2\nst2",
       });
 
-      const ctx = makeCtx({ kind: "semantic" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { kind: "semantic" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -284,8 +290,7 @@ describe("Memory Item Routes", () => {
         content: "name\nUser name is Alice",
       });
 
-      const ctx = makeCtx({ search: "dark" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { search: "dark" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -314,8 +319,7 @@ describe("Memory Item Routes", () => {
         lastAccessed: 3000,
       });
 
-      const ctx = makeCtx({ limit: "1", offset: "1" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { limit: "1", offset: "1" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -340,8 +344,7 @@ describe("Memory Item Routes", () => {
         created: 1000,
       });
 
-      const ctx = makeCtx({ sort: "firstSeenAt", order: "asc" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { sort: "firstSeenAt", order: "asc" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
       };
@@ -363,8 +366,7 @@ describe("Memory Item Routes", () => {
         significance: 0.9,
       });
 
-      const ctx = makeCtx({ sort: "importance", order: "desc" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { sort: "importance", order: "desc" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
       };
@@ -373,14 +375,12 @@ describe("Memory Item Routes", () => {
     });
 
     test("rejects invalid kind filter", async () => {
-      const ctx = makeCtx({ kind: "bogus" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { kind: "bogus" } });
       expect(res.status).toBe(400);
     });
 
     test("rejects invalid sort field", async () => {
-      const ctx = makeCtx({ sort: "bogus" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { sort: "bogus" } });
       expect(res.status).toBe(400);
     });
 
@@ -418,8 +418,7 @@ describe("Memory Item Routes", () => {
         },
       ];
 
-      const ctx = makeCtx({ search: "alice" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { search: "alice" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -452,8 +451,7 @@ describe("Memory Item Routes", () => {
       mockBackendStatus = { enabled: false, provider: null, model: null };
       mockHybridSearchResults = [];
 
-      const ctx = makeCtx({ search: "dark" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { search: "dark" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -505,8 +503,7 @@ describe("Memory Item Routes", () => {
       ];
 
       // Request page 2 (offset=1, limit=1)
-      const ctx = makeCtx({ search: "item", limit: "1", offset: "1" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { search: "item", limit: "1", offset: "1" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -536,8 +533,7 @@ describe("Memory Item Routes", () => {
       // Qdrant returns nothing
       mockHybridSearchResults = [];
 
-      const ctx = makeCtx({ search: "dark" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: { search: "dark" } });
       const body = (await res.json()) as {
         items: Array<{ id: string }>;
         total: number;
@@ -558,7 +554,7 @@ describe("Memory Item Routes", () => {
   // =========================================================================
 
   describe("GET /v1/memory-items/:id", () => {
-    const handler = getHandler("memory-items/:id", "GET");
+    const route = getRoute("memory-items/:id", "GET");
 
     test("returns item by ID", async () => {
       insertItem({
@@ -567,8 +563,7 @@ describe("Memory Item Routes", () => {
         content: "dark mode\nPrefers dark mode",
       });
 
-      const ctx = makeCtx({}, { id: "i1" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: {}, pathParams: { id: "i1" } });
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         item: { id: string; subject: string };
@@ -578,8 +573,7 @@ describe("Memory Item Routes", () => {
     });
 
     test("returns 404 for non-existent item", async () => {
-      const ctx = makeCtx({}, { id: "nonexistent" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: {}, pathParams: { id: "nonexistent" } });
       expect(res.status).toBe(404);
     });
 
@@ -590,8 +584,7 @@ describe("Memory Item Routes", () => {
         content: "some content\nsome statement",
       });
 
-      const ctx = makeCtx({}, { id: "i1" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { queryParams: {}, pathParams: { id: "i1" } });
       const body = (await res.json()) as {
         item: { supersedes: unknown; supersededBy: unknown };
       };
@@ -605,15 +598,16 @@ describe("Memory Item Routes", () => {
   // =========================================================================
 
   describe("POST /v1/memory-items", () => {
-    const handler = getHandler("memory-items", "POST");
+    const route = getRoute("memory-items", "POST");
 
     test("creates a new memory item", async () => {
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        subject: "dark mode",
-        statement: "User prefers dark mode",
+      const res = await callHandler(route, {
+        body: {
+          kind: "semantic",
+          subject: "dark mode",
+          statement: "User prefers dark mode",
+        },
       });
-      const res = await handler(ctx);
       expect(res.status).toBe(201);
       const body = (await res.json()) as {
         item: { id: string; kind: string; subject: string; statement: string };
@@ -624,13 +618,14 @@ describe("Memory Item Routes", () => {
     });
 
     test("uses custom importance when provided", async () => {
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        subject: "importance test",
-        statement: "Testing custom importance",
-        importance: 0.5,
+      const res = await callHandler(route, {
+        body: {
+          kind: "semantic",
+          subject: "importance test",
+          statement: "Testing custom importance",
+          importance: 0.5,
+        },
       });
-      const res = await handler(ctx);
       expect(res.status).toBe(201);
       const body = (await res.json()) as {
         item: { importance: number };
@@ -644,31 +639,31 @@ describe("Memory Item Routes", () => {
         subject: "dark mode",
         statement: "User prefers dark mode",
       };
-      const ctx1 = makeJsonCtx("memory-items", "POST", payload);
-      const res1 = await handler(ctx1);
+      const res1 = await callHandler(route, { body: payload });
       expect(res1.status).toBe(201);
 
-      const ctx2 = makeJsonCtx("memory-items", "POST", payload);
-      const res2 = await handler(ctx2);
+      const res2 = await callHandler(route, { body: payload });
       expect(res2.status).toBe(409);
     });
 
     test("rejects invalid kind", async () => {
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "bogus",
-        subject: "test",
-        statement: "test",
+      const res = await callHandler(route, {
+        body: {
+          kind: "bogus",
+          subject: "test",
+          statement: "test",
+        },
       });
-      const res = await handler(ctx);
       expect(res.status).toBe(400);
     });
 
     test("accepts missing subject (optional)", async () => {
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        statement: "test content without subject",
+      const res = await callHandler(route, {
+        body: {
+          kind: "semantic",
+          statement: "test content without subject",
+        },
       });
-      const res = await handler(ctx);
       expect(res.status).toBe(201);
       const body = (await res.json()) as {
         item: { subject: string; statement: string };
@@ -679,23 +674,25 @@ describe("Memory Item Routes", () => {
     });
 
     test("rejects missing statement", async () => {
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        subject: "test",
+      const res = await callHandler(route, {
+        body: {
+          kind: "semantic",
+          subject: "test",
+        },
       });
-      const res = await handler(ctx);
       expect(res.status).toBe(400);
     });
 
     test("preserves long subject and statement without truncation", async () => {
       const longSubject = "a".repeat(200);
       const longStatement = "b".repeat(1000);
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        subject: longSubject,
-        statement: longStatement,
+      const res = await callHandler(route, {
+        body: {
+          kind: "semantic",
+          subject: longSubject,
+          statement: longStatement,
+        },
       });
-      const res = await handler(ctx);
       expect(res.status).toBe(201);
       const body = (await res.json()) as {
         item: { subject: string; statement: string };
@@ -705,12 +702,13 @@ describe("Memory Item Routes", () => {
     });
 
     test("enqueues embed job on create", async () => {
-      const ctx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        subject: "embed test",
-        statement: "Should enqueue embed job",
+      await callHandler(route, {
+        body: {
+          kind: "semantic",
+          subject: "embed test",
+          statement: "Should enqueue embed job",
+        },
       });
-      await handler(ctx);
 
       // Verify a memory job was enqueued
       const db = getDb();
@@ -727,7 +725,7 @@ describe("Memory Item Routes", () => {
   // =========================================================================
 
   describe("PATCH /v1/memory-items/:id", () => {
-    const handler = getHandler("memory-items/:id", "PATCH");
+    const route = getRoute("memory-items/:id", "PATCH");
 
     test("updates subject and statement", async () => {
       insertItem({
@@ -736,13 +734,10 @@ describe("Memory Item Routes", () => {
         content: "old subject\nold statement",
       });
 
-      const ctx = makeJsonCtx(
-        "memory-items/i1",
-        "PATCH",
-        { subject: "new subject", statement: "new statement" },
-        { id: "i1" },
-      );
-      const res = await handler(ctx);
+      const res = await callHandler(route, {
+        pathParams: { id: "i1" },
+        body: { subject: "new subject", statement: "new statement" },
+      });
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
         item: { subject: string; statement: string };
@@ -752,13 +747,10 @@ describe("Memory Item Routes", () => {
     });
 
     test("returns 404 for non-existent item", async () => {
-      const ctx = makeJsonCtx(
-        "memory-items/nonexistent",
-        "PATCH",
-        { subject: "test" },
-        { id: "nonexistent" },
-      );
-      const res = await handler(ctx);
+      const res = await callHandler(route, {
+        pathParams: { id: "nonexistent" },
+        body: { subject: "test" },
+      });
       expect(res.status).toBe(404);
     });
 
@@ -769,23 +761,21 @@ describe("Memory Item Routes", () => {
         content: "first\nfirst statement",
       });
       // Insert a second item using the create handler to get a real node
-      const createHandler = getHandler("memory-items", "POST");
-      const createCtx = makeJsonCtx("memory-items", "POST", {
-        kind: "semantic",
-        subject: "second",
-        statement: "second statement",
+      const createRoute = getRoute("memory-items", "POST");
+      await callHandler(createRoute, {
+        body: {
+          kind: "semantic",
+          subject: "second",
+          statement: "second statement",
+        },
       });
-      await createHandler(createCtx);
 
       // Now try to update i1 to match the second item's content
       // This should produce the same fingerprint as the second item
-      const ctx = makeJsonCtx(
-        "memory-items/i1",
-        "PATCH",
-        { subject: "second", statement: "second statement" },
-        { id: "i1" },
-      );
-      const res = await handler(ctx);
+      const res = await callHandler(route, {
+        pathParams: { id: "i1" },
+        body: { subject: "second", statement: "second statement" },
+      });
       expect(res.status).toBe(409);
     });
 
@@ -796,13 +786,10 @@ describe("Memory Item Routes", () => {
         content: "test\ntest",
       });
 
-      const ctx = makeJsonCtx(
-        "memory-items/i1",
-        "PATCH",
-        { kind: "episodic" },
-        { id: "i1" },
-      );
-      const res = await handler(ctx);
+      const res = await callHandler(route, {
+        pathParams: { id: "i1" },
+        body: { kind: "episodic" },
+      });
       expect(res.status).toBe(200);
       const body = (await res.json()) as { item: { kind: string } };
       expect(body.item.kind).toBe("episodic");
@@ -815,13 +802,10 @@ describe("Memory Item Routes", () => {
         content: "test\ntest",
       });
 
-      const ctx = makeJsonCtx(
-        "memory-items/i1",
-        "PATCH",
-        { kind: "bogus" },
-        { id: "i1" },
-      );
-      const res = await handler(ctx);
+      const res = await callHandler(route, {
+        pathParams: { id: "i1" },
+        body: { kind: "bogus" },
+      });
       expect(res.status).toBe(400);
     });
 
@@ -835,13 +819,10 @@ describe("Memory Item Routes", () => {
       // Clear jobs first
       getDb().run("DELETE FROM memory_jobs");
 
-      const ctx = makeJsonCtx(
-        "memory-items/i1",
-        "PATCH",
-        { statement: "new statement" },
-        { id: "i1" },
-      );
-      await handler(ctx);
+      await callHandler(route, {
+        pathParams: { id: "i1" },
+        body: { statement: "new statement" },
+      });
 
       const db = getDb();
       const jobs = db.select().from(memoryJobs).all();
@@ -857,7 +838,7 @@ describe("Memory Item Routes", () => {
   // =========================================================================
 
   describe("DELETE /v1/memory-items/:id", () => {
-    const handler = getHandler("memory-items/:id", "DELETE");
+    const route = getRoute("memory-items/:id", "DELETE");
 
     test("deletes item and returns 204", async () => {
       insertItem({
@@ -866,8 +847,7 @@ describe("Memory Item Routes", () => {
         content: "test\ntest",
       });
 
-      const ctx = makeJsonCtx("memory-items/i1", "DELETE", null, { id: "i1" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { pathParams: { id: "i1" } });
       expect(res.status).toBe(204);
 
       // Verify the node is soft-deleted (fidelity='gone')
@@ -882,10 +862,7 @@ describe("Memory Item Routes", () => {
     });
 
     test("returns 404 for non-existent item", async () => {
-      const ctx = makeJsonCtx("memory-items/nonexistent", "DELETE", null, {
-        id: "nonexistent",
-      });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { pathParams: { id: "nonexistent" } });
       expect(res.status).toBe(404);
     });
 
@@ -896,8 +873,7 @@ describe("Memory Item Routes", () => {
         content: "test\ntest",
       });
 
-      const ctx = makeJsonCtx("memory-items/i1", "DELETE", null, { id: "i1" });
-      const res = await handler(ctx);
+      const res = await callHandler(route, { pathParams: { id: "i1" } });
       expect(res.status).toBe(204);
 
       // Verify a delete_qdrant_vectors job was enqueued with graph_node targetType

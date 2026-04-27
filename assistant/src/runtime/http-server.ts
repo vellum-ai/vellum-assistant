@@ -174,7 +174,6 @@ import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
-import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
@@ -1783,7 +1782,6 @@ export class RuntimeHttpServer {
       }),
       ...migrationRollbackRouteDefinitions(),
       ...workspaceHttpOnlyRouteDefinitions(),
-      ...memoryItemRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,

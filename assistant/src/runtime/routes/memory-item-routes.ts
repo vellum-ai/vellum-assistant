@@ -49,8 +49,12 @@ import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition,RouteContext } from "../http-router.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -218,39 +222,68 @@ async function searchNodesSemantic(
 }
 
 // ---------------------------------------------------------------------------
-// GET /v1/memory-items
+// Row → MemoryNode helper (inline version of store's rowToNode)
 // ---------------------------------------------------------------------------
 
-async function handleListMemoryItems(url: URL): Promise<Response> {
-  const kindParam = url.searchParams.get("kind");
-  const statusParam = url.searchParams.get("status") ?? "active";
-  const searchParam = url.searchParams.get("search");
-  const sortParam = url.searchParams.get("sort") ?? "lastSeenAt";
-  const orderParam = url.searchParams.get("order") ?? "desc";
-  const limitParam = Number(url.searchParams.get("limit") ?? 100);
-  const offsetParam = Number(url.searchParams.get("offset") ?? 0);
+function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
+  return {
+    id: row.id,
+    content: row.content,
+    type: row.type as MemoryType,
+    created: row.created,
+    lastAccessed: row.lastAccessed,
+    lastConsolidated: row.lastConsolidated,
+    eventDate: row.eventDate ?? null,
+    emotionalCharge: JSON.parse(row.emotionalCharge),
+    fidelity: row.fidelity as Fidelity,
+    confidence: row.confidence,
+    significance: row.significance,
+    stability: row.stability,
+    reinforcementCount: row.reinforcementCount,
+    lastReinforced: row.lastReinforced,
+    sourceConversations: JSON.parse(row.sourceConversations) as string[],
+    sourceType: row.sourceType as
+      | "direct"
+      | "inferred"
+      | "observed"
+      | "told-by-other",
+    narrativeRole: row.narrativeRole as MemoryNode["narrativeRole"],
+    partOfStory: row.partOfStory,
+    imageRefs: row.imageRefs
+      ? (JSON.parse(row.imageRefs) as ImageRef[])
+      : null,
+    scopeId: row.scopeId ?? "default",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Handler implementations
+// ---------------------------------------------------------------------------
+
+async function handleListMemoryItems(queryParams: Record<string, string>) {
+  const kindParam = queryParams.kind ?? undefined;
+  const statusParam = queryParams.status ?? "active";
+  const searchParam = queryParams.search ?? undefined;
+  const sortParam = queryParams.sort ?? "lastSeenAt";
+  const orderParam = queryParams.order ?? "desc";
+  const limitParam = Number(queryParams.limit ?? 100);
+  const offsetParam = Number(queryParams.offset ?? 0);
 
   if (kindParam && !isValidType(kindParam)) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid kind "${kindParam}". Must be one of: ${VALID_TYPES.join(", ")}`,
-      400,
     );
   }
 
   if (!isValidSortField(sortParam)) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid sort "${sortParam}". Must be one of: ${VALID_SORT_FIELDS.join(", ")}`,
-      400,
     );
   }
 
   if (orderParam !== "asc" && orderParam !== "desc") {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid order "${orderParam}". Must be "asc" or "desc"`,
-      400,
     );
   }
 
@@ -318,11 +351,11 @@ async function handleListMemoryItems(url: URL): Promise<Response> {
       const pageIds = filteredIds.slice(offsetParam, offsetParam + limitParam);
 
       if (pageIds.length === 0) {
-        return Response.json({
+        return {
           items: [],
           total,
           kindCounts: semanticKindCounts,
-        });
+        };
       }
 
       // Hydrate nodes from DB
@@ -346,7 +379,7 @@ async function handleListMemoryItems(url: URL): Promise<Response> {
         return nodeToPayload(node);
       });
 
-      return Response.json({ items, total, kindCounts: semanticKindCounts });
+      return { items, total, kindCounts: semanticKindCounts };
     }
     // Fall through to SQL path
   }
@@ -409,51 +442,34 @@ async function handleListMemoryItems(url: URL): Promise<Response> {
     return nodeToPayload(node);
   });
 
-  return Response.json({ items, total, kindCounts });
+  return { items, total, kindCounts };
 }
 
-// ---------------------------------------------------------------------------
-// GET /v1/memory-items/:id
-// ---------------------------------------------------------------------------
-
-function handleGetMemoryItem(ctx: RouteContext): Response {
-  const { id } = ctx.params;
-
+function handleGetMemoryItem(id: string) {
   const node = getNode(id);
   if (!node) {
-    return httpError("NOT_FOUND", "Memory item not found", 404);
+    throw new NotFoundError("Memory item not found");
   }
-
-  return Response.json({ item: nodeToPayload(node) });
+  return { item: nodeToPayload(node) };
 }
 
-// ---------------------------------------------------------------------------
-// POST /v1/memory-items
-// ---------------------------------------------------------------------------
-
-async function handleCreateMemoryItem(ctx: RouteContext): Promise<Response> {
-  const body = (await ctx.req.json()) as {
+async function handleCreateMemoryItem(body: Record<string, unknown>) {
+  const { kind, subject, statement, importance } = body as {
     kind?: string;
     subject?: string;
     statement?: string;
     importance?: number;
   };
 
-  const { kind, subject, statement, importance } = body;
-
   if (typeof kind !== "string" || !isValidType(kind)) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `kind is required and must be one of: ${VALID_TYPES.join(", ")}`,
-      400,
     );
   }
 
   if (typeof statement !== "string" || statement.trim().length === 0) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "statement is required and must be a non-empty string",
-      400,
     );
   }
 
@@ -477,11 +493,7 @@ async function handleCreateMemoryItem(ctx: RouteContext): Promise<Response> {
     .get();
 
   if (existing) {
-    return httpError(
-      "CONFLICT",
-      "A memory with this content already exists",
-      409,
-    );
+    throw new ConflictError("A memory with this content already exists");
   }
 
   const now = Date.now();
@@ -516,22 +528,19 @@ async function handleCreateMemoryItem(ctx: RouteContext): Promise<Response> {
   const created = createNode(newNode);
   enqueueMemoryJob("embed_graph_node", { nodeId: created.id });
 
-  return Response.json({ item: nodeToPayload(created) }, { status: 201 });
+  return { item: nodeToPayload(created) };
 }
 
-// ---------------------------------------------------------------------------
-// PATCH /v1/memory-items/:id
-// ---------------------------------------------------------------------------
-
-async function handleUpdateMemoryItem(ctx: RouteContext): Promise<Response> {
-  const { id } = ctx.params;
-
+async function handleUpdateMemoryItem(
+  id: string,
+  body: Record<string, unknown>,
+) {
   const existing = getNode(id);
   if (!existing) {
-    return httpError("NOT_FOUND", "Memory item not found", 404);
+    throw new NotFoundError("Memory item not found");
   }
 
-  const body = (await ctx.req.json()) as {
+  const { subject, statement, kind, status, importance } = body as {
     subject?: string;
     statement?: string;
     kind?: string;
@@ -547,12 +556,12 @@ async function handleUpdateMemoryItem(ctx: RouteContext): Promise<Response> {
   const { subject: existingSubject, statement: existingStatement } =
     splitContent(existing.content);
   const newSubject =
-    body.subject !== undefined ? body.subject.trim() : existingSubject;
+    subject !== undefined ? subject.trim() : existingSubject;
   const newStatement =
-    body.statement !== undefined ? body.statement.trim() : existingStatement;
+    statement !== undefined ? statement.trim() : existingStatement;
 
   let contentChanged = false;
-  if (body.subject !== undefined || body.statement !== undefined) {
+  if (subject !== undefined || statement !== undefined) {
     const newContent = newSubject
       ? `${newSubject}\n${newStatement}`
       : newStatement;
@@ -562,28 +571,26 @@ async function handleUpdateMemoryItem(ctx: RouteContext): Promise<Response> {
     }
   }
 
-  if (body.kind !== undefined) {
-    if (!isValidType(body.kind)) {
-      return httpError(
-        "BAD_REQUEST",
-        `Invalid kind "${body.kind}". Must be one of: ${VALID_TYPES.join(", ")}`,
-        400,
+  if (kind !== undefined) {
+    if (!isValidType(kind)) {
+      throw new BadRequestError(
+        `Invalid kind "${kind}". Must be one of: ${VALID_TYPES.join(", ")}`,
       );
     }
-    changes.type = body.kind as MemoryType;
+    changes.type = kind as MemoryType;
   }
 
-  if (body.status !== undefined) {
+  if (status !== undefined) {
     // Map client status to fidelity
-    if (body.status === "superseded" || body.status === "inactive") {
+    if (status === "superseded" || status === "inactive") {
       changes.fidelity = "gone";
-    } else if (body.status === "active") {
+    } else if (status === "active") {
       changes.fidelity = "vivid";
     }
   }
 
-  if (body.importance !== undefined) {
-    changes.significance = body.importance;
+  if (importance !== undefined) {
+    changes.significance = importance;
   }
 
   // Check for content collision when content changed OR when reactivating a
@@ -606,10 +613,8 @@ async function handleUpdateMemoryItem(ctx: RouteContext): Promise<Response> {
       .get();
 
     if (collision) {
-      return httpError(
-        "CONFLICT",
+      throw new ConflictError(
         "Another memory item with this content already exists",
-        409,
       );
     }
   }
@@ -623,189 +628,175 @@ async function handleUpdateMemoryItem(ctx: RouteContext): Promise<Response> {
   // Fetch updated node
   const updated = getNode(id);
   if (!updated) {
-    return httpError("NOT_FOUND", "Memory item not found after update", 404);
+    throw new NotFoundError("Memory item not found after update");
   }
 
-  return Response.json({ item: nodeToPayload(updated) });
+  return { item: nodeToPayload(updated) };
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /v1/memory-items/:id
-// ---------------------------------------------------------------------------
-
-async function handleDeleteMemoryItem(ctx: RouteContext): Promise<Response> {
-  const { id } = ctx.params;
-
+function handleDeleteMemoryItem(id: string) {
   const existing = getNode(id);
   if (!existing) {
-    return httpError("NOT_FOUND", "Memory item not found", 404);
+    throw new NotFoundError("Memory item not found");
   }
 
   // Soft-delete the node (deleteNode sets fidelity='gone' and enqueues Qdrant cleanup)
   deleteNode(id);
 
-  return new Response(null, { status: 204 });
-}
-
-// ---------------------------------------------------------------------------
-// Row → MemoryNode helper (inline version of store's rowToNode)
-// ---------------------------------------------------------------------------
-
-function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
-  return {
-    id: row.id,
-    content: row.content,
-    type: row.type as MemoryType,
-    created: row.created,
-    lastAccessed: row.lastAccessed,
-    lastConsolidated: row.lastConsolidated,
-    eventDate: row.eventDate ?? null,
-    emotionalCharge: JSON.parse(row.emotionalCharge),
-    fidelity: row.fidelity as Fidelity,
-    confidence: row.confidence,
-    significance: row.significance,
-    stability: row.stability,
-    reinforcementCount: row.reinforcementCount,
-    lastReinforced: row.lastReinforced,
-    sourceConversations: JSON.parse(row.sourceConversations) as string[],
-    sourceType: row.sourceType as
-      | "direct"
-      | "inferred"
-      | "observed"
-      | "told-by-other",
-    narrativeRole: row.narrativeRole,
-    partOfStory: row.partOfStory,
-    imageRefs: row.imageRefs ? (JSON.parse(row.imageRefs) as ImageRef[]) : null,
-    scopeId: row.scopeId,
-  };
+  return null;
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function memoryItemRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "memory-items",
-      method: "GET",
-      summary: "List memory items",
-      description:
-        "Return memory items with filtering, search, sorting, and pagination.",
-      tags: ["memory"],
-      queryParams: [
-        {
-          name: "kind",
-          schema: { type: "string" },
-          description: "Filter by kind",
-        },
-        {
-          name: "status",
-          schema: { type: "string" },
-          description: "Filter by status (default active)",
-        },
-        {
-          name: "search",
-          schema: { type: "string" },
-          description: "Full-text search query",
-        },
-        {
-          name: "sort",
-          schema: { type: "string" },
-          description: "Sort field (default lastSeenAt)",
-        },
-        {
-          name: "order",
-          schema: { type: "string" },
-          description: "asc or desc (default desc)",
-        },
-        {
-          name: "limit",
-          schema: { type: "integer" },
-          description: "Max results (default 100)",
-        },
-        {
-          name: "offset",
-          schema: { type: "integer" },
-          description: "Pagination offset",
-        },
-      ],
-      responseBody: z.object({
-        items: z.array(z.unknown()).describe("Memory item objects"),
-        total: z.number(),
-      }),
-      handler: (ctx) => handleListMemoryItems(ctx.url),
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listMemoryItems",
+    endpoint: "memory-items",
+    method: "GET",
+    policyKey: "memory-items",
+    requirePolicyEnforcement: true,
+    summary: "List memory items",
+    description:
+      "Return memory items with filtering, search, sorting, and pagination.",
+    tags: ["memory"],
+    queryParams: [
+      {
+        name: "kind",
+        schema: { type: "string" },
+        description: "Filter by kind",
+      },
+      {
+        name: "status",
+        schema: { type: "string" },
+        description: "Filter by status (default active)",
+      },
+      {
+        name: "search",
+        schema: { type: "string" },
+        description: "Full-text search query",
+      },
+      {
+        name: "sort",
+        schema: { type: "string" },
+        description: "Sort field (default lastSeenAt)",
+      },
+      {
+        name: "order",
+        schema: { type: "string" },
+        description: "asc or desc (default desc)",
+      },
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max results (default 100)",
+      },
+      {
+        name: "offset",
+        schema: { type: "integer" },
+        description: "Pagination offset",
+      },
+    ],
+    responseBody: z.object({
+      items: z.array(z.unknown()).describe("Memory item objects"),
+      total: z.number(),
+    }),
+    handler: ({ queryParams }) =>
+      handleListMemoryItems(queryParams ?? {}),
+  },
+
+  {
+    operationId: "getMemoryItem",
+    endpoint: "memory-items/:id",
+    method: "GET",
+    policyKey: "memory-items",
+    requirePolicyEnforcement: true,
+    summary: "Get a memory item",
+    description: "Return a single memory item by ID with graph metadata.",
+    tags: ["memory"],
+    responseBody: z.object({
+      item: z
+        .object({})
+        .passthrough()
+        .describe("Memory item with scopeLabel and graph metadata"),
+    }),
+    handler: ({ pathParams }) => handleGetMemoryItem(pathParams!.id),
+  },
+
+  {
+    operationId: "createMemoryItem",
+    endpoint: "memory-items",
+    method: "POST",
+    policyKey: "memory-items",
+    requirePolicyEnforcement: true,
+    responseStatus: "201",
+    summary: "Create a memory item",
+    description: "Create a new memory graph node and enqueue embedding.",
+    tags: ["memory"],
+    requestBody: z.object({
+      kind: z
+        .string()
+        .describe("Memory type (episodic, semantic, procedural, etc.)"),
+      subject: z
+        .string()
+        .describe("Subject line (first line of content)")
+        .optional(),
+      statement: z.string().describe("Statement content"),
+      importance: z
+        .number()
+        .describe("Importance score (default 0.8)")
+        .optional(),
+    }),
+    additionalResponses: {
+      409: {
+        description: "A memory with this content already exists",
+      },
     },
-    {
-      endpoint: "memory-items/:id",
-      method: "GET",
-      policyKey: "memory-items",
-      summary: "Get a memory item",
-      description: "Return a single memory item by ID with graph metadata.",
-      tags: ["memory"],
-      responseBody: z.object({
-        item: z
-          .object({})
-          .passthrough()
-          .describe("Memory item with scopeLabel and graph metadata"),
-      }),
-      handler: (ctx) => handleGetMemoryItem(ctx),
+    responseBody: z.object({
+      item: z.object({}).passthrough().describe("Created memory item"),
+    }),
+    handler: ({ body }) => handleCreateMemoryItem(body ?? {}),
+  },
+
+  {
+    operationId: "updateMemoryItem",
+    endpoint: "memory-items/:id",
+    method: "PATCH",
+    policyKey: "memory-items",
+    requirePolicyEnforcement: true,
+    summary: "Update a memory item",
+    description: "Partially update fields on an existing memory graph node.",
+    tags: ["memory"],
+    requestBody: z.object({
+      subject: z.string().optional(),
+      statement: z.string().optional(),
+      kind: z.string().optional(),
+      status: z.string().optional(),
+      importance: z.number().optional(),
+    }),
+    additionalResponses: {
+      409: {
+        description: "Another memory item with this content already exists",
+      },
     },
-    {
-      endpoint: "memory-items",
-      method: "POST",
-      summary: "Create a memory item",
-      description: "Create a new memory graph node and enqueue embedding.",
-      tags: ["memory"],
-      requestBody: z.object({
-        kind: z
-          .string()
-          .describe("Memory type (episodic, semantic, procedural, etc.)"),
-        subject: z
-          .string()
-          .describe("Subject line (first line of content)")
-          .optional(),
-        statement: z.string().describe("Statement content"),
-        importance: z
-          .number()
-          .describe("Importance score (default 0.8)")
-          .optional(),
-      }),
-      responseBody: z.object({
-        item: z.object({}).passthrough().describe("Created memory item"),
-      }),
-      handler: (ctx) => handleCreateMemoryItem(ctx),
-    },
-    {
-      endpoint: "memory-items/:id",
-      method: "PATCH",
-      policyKey: "memory-items",
-      summary: "Update a memory item",
-      description: "Partially update fields on an existing memory graph node.",
-      tags: ["memory"],
-      requestBody: z.object({
-        subject: z.string().optional(),
-        statement: z.string().optional(),
-        kind: z.string().optional(),
-        status: z.string().optional(),
-        importance: z.number().optional(),
-      }),
-      responseBody: z.object({
-        item: z.object({}).passthrough().describe("Updated memory item"),
-      }),
-      handler: (ctx) => handleUpdateMemoryItem(ctx),
-    },
-    {
-      endpoint: "memory-items/:id",
-      method: "DELETE",
-      policyKey: "memory-items",
-      summary: "Delete a memory item",
-      description: "Delete a memory graph node and its embeddings.",
-      tags: ["memory"],
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: (ctx) => handleDeleteMemoryItem(ctx),
-    },
-  ];
-}
+    responseBody: z.object({
+      item: z.object({}).passthrough().describe("Updated memory item"),
+    }),
+    handler: ({ pathParams, body }) =>
+      handleUpdateMemoryItem(pathParams!.id, body ?? {}),
+  },
+
+  {
+    operationId: "deleteMemoryItem",
+    endpoint: "memory-items/:id",
+    method: "DELETE",
+    policyKey: "memory-items",
+    requirePolicyEnforcement: true,
+    responseStatus: "204",
+    summary: "Delete a memory item",
+    description: "Delete a memory graph node and its embeddings.",
+    tags: ["memory"],
+    handler: ({ pathParams }) => handleDeleteMemoryItem(pathParams!.id),
+  },
+];

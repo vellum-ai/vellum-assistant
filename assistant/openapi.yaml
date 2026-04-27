@@ -5650,7 +5650,7 @@ paths:
       tags:
         - memory
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -5665,6 +5665,8 @@ paths:
                 required:
                   - item
                 additionalProperties: false
+        "409":
+          description: A memory with this content already exists
       requestBody:
         required: true
         content:
@@ -5696,18 +5698,8 @@ paths:
       tags:
         - memory
       responses:
-        "200":
+        "204":
           description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5764,6 +5756,8 @@ paths:
                 required:
                   - item
                 additionalProperties: false
+        "409":
+          description: Another memory item with this content already exists
       parameters:
         - name: id
           in: path
