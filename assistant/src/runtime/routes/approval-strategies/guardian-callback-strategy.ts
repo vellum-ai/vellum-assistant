@@ -518,7 +518,7 @@ async function handleConversationalDecision(params: {
   }
 
   // Decision-bearing disposition from the engine
-  let decisionAction = engineResult.disposition as ApprovalAction;
+  const decisionAction = engineResult.disposition as ApprovalAction;
 
   // Resolve the target approval: use targetRequestId from the engine if
   // provided, otherwise use the single guardian approval.

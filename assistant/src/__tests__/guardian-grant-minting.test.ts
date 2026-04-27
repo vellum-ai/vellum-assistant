@@ -25,7 +25,6 @@ import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import {
   createApprovalRequest,
-  getPendingApprovalForRequest,
   type GuardianApprovalRequest,
 } from "../memory/guardian-approvals.js";
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
