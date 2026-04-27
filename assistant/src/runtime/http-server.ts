@@ -167,9 +167,6 @@ import { hostTransferRouteDefinitions } from "./routes/host-transfer-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
-import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
-import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
-import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
@@ -2137,10 +2134,7 @@ export class RuntimeHttpServer {
 
       ...contactHttpOnlyRouteDefinitions(),
 
-      ...telegramRouteDefinitions(),
       ...channelVerificationRouteDefinitions(),
-      ...slackChannelRouteDefinitions(),
-      ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 

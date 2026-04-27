@@ -5464,68 +5464,86 @@ paths:
   /v1/integrations/slack/channel/config:
     delete:
       operationId: integrations_slack_channel_config_delete
+      summary: Clear Slack channel config
+      description: Clear stored Slack channel credentials.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
     get:
       operationId: integrations_slack_channel_config_get
+      summary: Get Slack channel config
+      description: Check current Slack channel configuration status.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_slack_channel_config_post
+      summary: Set Slack channel config
+      description: Validate and store Slack channel credentials.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/slack/channel/oauth-install:
     post:
       operationId: integrations_slack_channel_oauthinstall_post
+      summary: Run Slack OAuth install
+      description: Run an OAuth2 loopback flow to install the Slack app and capture bot + user tokens.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/telegram/commands:
     post:
       operationId: integrations_telegram_commands_post
+      summary: Register Telegram commands
+      description: Register bot commands with the Telegram API.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/telegram/config:
     delete:
       operationId: integrations_telegram_config_delete
+      summary: Clear Telegram config
+      description: Clear credentials and deregister webhook.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
     get:
       operationId: integrations_telegram_config_get
+      summary: Get Telegram config
+      description: Check current Telegram bot configuration status.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_telegram_config_post
+      summary: Set Telegram config
+      description: Set bot token and configure webhook.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/telegram/setup:
     post:
       operationId: integrations_telegram_setup_post
+      summary: Setup Telegram
+      description: "Composite: set config + register commands."
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
@@ -9007,16 +9025,20 @@ paths:
   /v1/slack/channels:
     get:
       operationId: slack_channels_get
+      summary: List Slack channels
+      description: List Slack channels, groups, and DMs for the channel picker.
       tags:
-        - share
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/slack/share:
     post:
       operationId: slack_share_post
+      summary: Share to Slack channel
+      description: Post an app link directly to a Slack channel.
       tags:
-        - share
+        - integrations
       responses:
         "200":
           description: Successful response

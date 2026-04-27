@@ -13,90 +13,93 @@ import {
   setSlackChannelConfig,
 } from "../../../../daemon/handlers/config-slack-channel.js";
 import { runSlackChannelOAuthInstall } from "../../../../daemon/handlers/slack-channel-oauth-install.js";
-import type { HTTPRouteDefinition } from "../../../http-router.js";
+import { BadRequestError } from "../../errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
 
 // ---------------------------------------------------------------------------
-// Slack channel config
+// Handlers
 // ---------------------------------------------------------------------------
 
-/**
- * GET /v1/integrations/slack/channel/config
- */
-async function handleGetSlackChannelConfig(): Promise<Response> {
-  const result = await getSlackChannelConfig();
-  return Response.json(result);
+async function handleGetSlackChannelConfig() {
+  return getSlackChannelConfig();
 }
 
-/**
- * POST /v1/integrations/slack/channel/config
- *
- * Body: { botToken?: string, appToken?: string, userToken?: string }
- */
-export async function handleSetSlackChannelConfig(
-  req: Request,
-): Promise<Response> {
-  const body = (await req.json()) as {
+export async function handleSetSlackChannelConfig({
+  body = {},
+}: RouteHandlerArgs) {
+  const { botToken, appToken, userToken } = body as {
     botToken?: string;
     appToken?: string;
     userToken?: string;
   };
-  const result = await setSlackChannelConfig(
-    body.botToken,
-    body.appToken,
-    body.userToken,
-  );
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+  const result = await setSlackChannelConfig(botToken, appToken, userToken);
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { error?: string }).error ?? "Failed to set Slack config",
+    );
+  }
+  return result;
 }
 
-/**
- * DELETE /v1/integrations/slack/channel/config
- */
-async function handleClearSlackChannelConfig(): Promise<Response> {
-  const result = await clearSlackChannelConfig();
-  return Response.json(result);
+async function handleClearSlackChannelConfig() {
+  return clearSlackChannelConfig();
 }
 
-/**
- * POST /v1/integrations/slack/channel/oauth-install
- *
- * Runs an OAuth2 loopback flow to install the Slack app and capture
- * bot + user tokens. Requires client_id, client_secret, and app_token
- * to be pre-stored in the credential vault.
- *
- * Blocks until the user completes the OAuth flow or the 5-minute timeout.
- */
-async function handleSlackChannelOAuthInstall(): Promise<Response> {
+async function handleSlackChannelOAuthInstall() {
   const result = await runSlackChannelOAuthInstall();
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { error?: string }).error ??
+        "Slack OAuth install failed",
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function slackChannelRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "integrations/slack/channel/config",
-      method: "GET",
-      handler: () => handleGetSlackChannelConfig(),
-    },
-    {
-      endpoint: "integrations/slack/channel/config",
-      method: "POST",
-      handler: async ({ req }) => handleSetSlackChannelConfig(req),
-    },
-    {
-      endpoint: "integrations/slack/channel/config",
-      method: "DELETE",
-      handler: () => handleClearSlackChannelConfig(),
-    },
-    {
-      endpoint: "integrations/slack/channel/oauth-install",
-      method: "POST",
-      handler: () => handleSlackChannelOAuthInstall(),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "integrations_slack_channel_config_get",
+    endpoint: "integrations/slack/channel/config",
+    method: "GET",
+    summary: "Get Slack channel config",
+    description: "Check current Slack channel configuration status.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleGetSlackChannelConfig(),
+  },
+  {
+    operationId: "integrations_slack_channel_config_post",
+    endpoint: "integrations/slack/channel/config",
+    method: "POST",
+    summary: "Set Slack channel config",
+    description: "Validate and store Slack channel credentials.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleSetSlackChannelConfig,
+  },
+  {
+    operationId: "integrations_slack_channel_config_delete",
+    endpoint: "integrations/slack/channel/config",
+    method: "DELETE",
+    summary: "Clear Slack channel config",
+    description: "Clear stored Slack channel credentials.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleClearSlackChannelConfig(),
+  },
+  {
+    operationId: "integrations_slack_channel_oauth_install_post",
+    endpoint: "integrations/slack/channel/oauth-install",
+    method: "POST",
+    summary: "Run Slack OAuth install",
+    description:
+      "Run an OAuth2 loopback flow to install the Slack app and capture bot + user tokens.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleSlackChannelOAuthInstall(),
+  },
+];

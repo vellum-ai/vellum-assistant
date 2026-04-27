@@ -16,8 +16,13 @@ import { getConnectionByProvider } from "../../../../oauth/oauth-store.js";
 import { credentialKey } from "../../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../../security/secure-keys.js";
 import { getLogger } from "../../../../util/logger.js";
-import { httpError } from "../../../http-errors.js";
-import type { HTTPRouteDefinition } from "../../../http-router.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "../../errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
 
 const log = getLogger("slack-share");
 
@@ -44,7 +49,6 @@ const log = getLogger("slack-share");
 async function resolveSlackToken(
   mode: "read" | "write",
 ): Promise<string | undefined> {
-  // Socket Mode path — tokens stored directly in the credential vault.
   const botToken = await getSecureKeyAsync(
     credentialKey("slack_channel", "bot_token"),
   );
@@ -55,14 +59,9 @@ async function resolveSlackToken(
       );
       return userToken ?? botToken;
     }
-    // SAFETY: writes must use the bot token. Using the user token here would
-    // post as the user rather than the bot.
     return botToken;
   }
 
-  // Legacy OAuth path. Slack's OAuth v2 access_token is the bot token; there
-  // is no separate user token stored for this install, so reads and writes
-  // both use access_token.
   const conn = getConnectionByProvider("slack");
   if (!conn) return undefined;
   return await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`);
@@ -94,15 +93,12 @@ const TYPE_SORT_ORDER: Record<string, number> = {
   dm: 2,
 };
 
-export async function handleListSlackChannels(): Promise<Response> {
-  // Channel enumeration is a read path — prefer user_token when present so
-  // the picker surfaces channels the user is in but the bot isn't.
+export async function handleListSlackChannels() {
   const token = await resolveSlackToken("read");
   if (!token) {
-    return httpError("SERVICE_UNAVAILABLE", "No Slack token configured", 503);
+    throw new ServiceUnavailableError("No Slack token configured");
   }
 
-  // Paginate through all results (follows the pattern in adapter.ts)
   const allChannels: SlackConversation[] = [];
   let cursor: string | undefined;
   do {
@@ -117,7 +113,6 @@ export async function handleListSlackChannels(): Promise<Response> {
     cursor = resp.response_metadata?.next_cursor || undefined;
   } while (cursor);
 
-  // Resolve DM display names in parallel, tolerating individual failures.
   const dmUserIds = allChannels
     .filter((c) => c.is_im && c.user)
     .map((c) => c.user!);
@@ -155,7 +150,6 @@ export async function handleListSlackChannels(): Promise<Response> {
     };
   });
 
-  // Sort: channels first, then groups, then DMs — alphabetical within each.
   channels.sort((a, b) => {
     const typeOrder =
       (TYPE_SORT_ORDER[a.type] ?? 9) - (TYPE_SORT_ORDER[b.type] ?? 9);
@@ -163,60 +157,48 @@ export async function handleListSlackChannels(): Promise<Response> {
     return a.name.localeCompare(b.name);
   });
 
-  return Response.json({ channels });
+  return { channels };
 }
 
 // ---------------------------------------------------------------------------
 // POST /v1/slack/share
 // ---------------------------------------------------------------------------
 
-export async function handleShareToSlackChannel(
-  req: Request,
-): Promise<Response> {
-  // Posting a message is a write path — must use the bot token so the message
-  // comes from the bot identity, never the user.
+export async function handleShareToSlackChannel({
+  body = {},
+}: RouteHandlerArgs) {
   const token = await resolveSlackToken("write");
   if (!token) {
-    return httpError("SERVICE_UNAVAILABLE", "No Slack token configured", 503);
+    throw new ServiceUnavailableError("No Slack token configured");
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return httpError("BAD_REQUEST", "Malformed JSON body", 400);
-  }
-
-  const appId = body.appId;
-  const channelId = body.channelId;
-  const message = body.message;
+  const { appId, channelId, message } = body as {
+    appId?: string;
+    channelId?: string;
+    message?: string;
+  };
 
   if (!appId || !channelId) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "Missing required fields: appId, channelId",
-      400,
     );
   }
 
   if (typeof appId !== "string" || typeof channelId !== "string") {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "Fields appId and channelId must be strings",
-      400,
     );
   }
 
   if (message !== undefined && typeof message !== "string") {
-    return httpError("BAD_REQUEST", "Field message must be a string", 400);
+    throw new BadRequestError("Field message must be a string");
   }
 
   const app = getApp(appId);
   if (!app) {
-    return httpError("NOT_FOUND", "App not found", 404);
+    throw new NotFoundError("App not found");
   }
 
-  // Build a Block Kit message with a deterministic fallback text.
   const fallbackText = message
     ? `${message} — ${app.name}`
     : `Shared app: ${app.name}`;
@@ -242,14 +224,14 @@ export async function handleShareToSlackChannel(
     const result = await postMessage(token, channelId, fallbackText, {
       blocks,
     });
-    return Response.json({
+    return {
       ok: true,
       ts: result.ts,
       channel: result.channel,
-    });
+    };
   } catch (err) {
     log.error({ err, appId, channelId }, "Failed to share app to Slack");
-    return httpError("INTERNAL_ERROR", "Failed to post message to Slack", 500);
+    throw new InternalError("Failed to post message to Slack");
   }
 }
 
@@ -257,17 +239,26 @@ export async function handleShareToSlackChannel(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function slackShareRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "slack/channels",
-      method: "GET",
-      handler: () => handleListSlackChannels(),
-    },
-    {
-      endpoint: "slack/share",
-      method: "POST",
-      handler: async ({ req }) => handleShareToSlackChannel(req),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "slack_channels_get",
+    endpoint: "slack/channels",
+    method: "GET",
+    summary: "List Slack channels",
+    description:
+      "List Slack channels, groups, and DMs for the channel picker.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleListSlackChannels(),
+  },
+  {
+    operationId: "slack_share_post",
+    endpoint: "slack/share",
+    method: "POST",
+    summary: "Share to Slack channel",
+    description: "Post an app link directly to a Slack channel.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleShareToSlackChannel,
+  },
+];
