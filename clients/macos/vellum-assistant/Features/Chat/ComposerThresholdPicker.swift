@@ -47,12 +47,14 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         }
     }
 
-    var iconColor: Color {
+    /// The ``RiskThreshold`` value represented by this preset.
+    /// `.default` maps to `.low` for surfaces that persist explicit globals.
+    var riskThreshold: RiskThreshold {
         switch self {
-        case .strict: return VColor.contentSecondary
-        case .default: return VColor.contentSecondary
-        case .relaxed: return VColor.systemMidStrong
-        case .fullAccess: return VColor.systemNegativeStrong
+        case .strict: return .none
+        case .default: return .low
+        case .relaxed: return .medium
+        case .fullAccess: return .high
         }
     }
 
@@ -67,8 +69,18 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         }
     }
 
-    /// Determines the preset that best describes a conversation override value
-    /// relative to the global interactive default.
+    /// Converts a concrete risk threshold into the matching preset label.
+    static func from(riskThreshold: RiskThreshold) -> ThresholdPreset {
+        switch riskThreshold {
+        case .none: return .strict
+        case .low: return .default
+        case .medium: return .relaxed
+        case .high: return .fullAccess
+        }
+    }
+
+    /// Determines the preset to display for a conversation threshold override,
+    /// falling back to the global interactive default when no override exists.
     ///
     /// - Parameters:
     ///   - override: The conversation-level threshold string, or `nil` when no
@@ -76,29 +88,78 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     ///   - globalInteractive: The global interactive threshold raw value.
     /// - Returns: The matching preset.
     static func from(override: String?, globalInteractive: String) -> ThresholdPreset {
-        guard let override else { return .default }
-        if override == globalInteractive { return .default }
+        let globalPreset = presetForGlobalInteractive(globalInteractive)
+        guard let override else { return globalPreset }
+        if override == globalInteractive { return globalPreset }
 
-        // Check for exact matches to named presets first
-        if override == RiskThreshold.high.rawValue { return .fullAccess }
+        // Overrides are absolute threshold values, not relative deltas from
+        // the global default. Map directly to the corresponding preset.
+        guard let overrideThreshold = RiskThreshold(rawValue: override) else {
+            return globalPreset
+        }
+        return from(riskThreshold: overrideThreshold)
+    }
 
-        // Compare by risk level ordering: none < low < medium < high
-        let order: [String] = [
-            RiskThreshold.none.rawValue,
-            RiskThreshold.low.rawValue,
-            RiskThreshold.medium.rawValue,
-            RiskThreshold.high.rawValue,
-        ]
-        let overrideIndex = order.firstIndex(of: override) ?? 0
-        let globalIndex = order.firstIndex(of: globalInteractive) ?? 0
-
-        if overrideIndex < globalIndex {
+    /// Maps a global interactive threshold value to the preset that should be
+    /// displayed when no conversation override is set.
+    private static func presetForGlobalInteractive(
+        _ globalInteractive: String
+    ) -> ThresholdPreset {
+        switch globalInteractive {
+        case RiskThreshold.none.rawValue:
             return .strict
-        } else if overrideIndex > globalIndex {
+        case RiskThreshold.medium.rawValue:
             return .relaxed
-        } else {
+        case RiskThreshold.high.rawValue:
+            return .fullAccess
+        default:
             return .default
         }
+    }
+}
+
+// MARK: - ThresholdPresetDropdown
+
+/// Shared dropdown for selecting one of the four risk-threshold presets.
+/// Uses the same composer pill + `VMenu` treatment across chat and settings.
+@MainActor
+struct ThresholdPresetDropdown: View {
+    let preset: ThresholdPreset
+    let accessibilityLabel: String
+    var onSelect: (ThresholdPreset) -> Void
+
+    var body: some View {
+        #if os(macOS)
+        ComposerPillMenu(
+            accessibilityLabel: accessibilityLabel,
+            accessibilityValue: preset.label,
+            tooltip: preset.description
+        ) {
+            VIconView(preset.icon, size: 14)
+                .foregroundStyle(VColor.contentSecondary)
+            Text(preset.label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+        } menu: {
+            ForEach(ThresholdPreset.allCases) { option in
+                VMenuItem(
+                    icon: option.icon.rawValue,
+                    label: option.label,
+                    isActive: preset == option,
+                    size: .regular
+                ) {
+                    onSelect(option)
+                } trailing: {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        if preset == option {
+                            VIconView(.check, size: 12)
+                                .foregroundStyle(VColor.primaryBase)
+                        }
+                    }
+                }
+            }
+        }
+        #endif
     }
 }
 
@@ -121,58 +182,41 @@ struct ComposerThresholdPicker: View {
     /// The global interactive threshold raw value, fetched on load.
     @State private var globalInteractive: String = RiskThreshold.low.rawValue
 
-    /// In-flight write task, cancelled on rapid re-selection.
+    /// In-flight write task. Writes are serialized so the final selection wins
+    /// even when the user changes options rapidly.
     @State private var writeTask: Task<Void, Never>?
+    /// Monotonic selection version used to drop superseded queued writes.
+    @State private var writeVersion: UInt64 = 0
 
     /// In-flight load task, cancelled on re-appearance.
     @State private var loadTask: Task<Void, Never>?
 
-    /// Tracks whether the user has actively picked since last load so stale
-    /// GET responses don't overwrite an optimistic selection.
-    @State private var hasUserInteracted: Bool = false
-
-    private var pillLabelColor: Color {
-        switch currentPreset {
-        case .fullAccess: return VColor.systemNegativeStrong
-        case .relaxed: return VColor.systemMidStrong
-        default: return VColor.contentSecondary
-        }
-    }
+    /// Monotonic selection version used by load reconciliation. A load only
+    /// applies if the user has not changed selection since that load started.
+    @State private var selectionVersion: UInt64 = 0
 
     var body: some View {
         #if os(macOS)
-        ComposerPillMenu(
-            accessibilityLabel: "Risk tolerance",
-            accessibilityValue: currentPreset.label,
-            tooltip: currentPreset.description
-        ) {
-            VIconView(currentPreset.icon, size: 14)
-                .foregroundStyle(currentPreset.iconColor)
-            Text(currentPreset.label)
-                .font(VFont.labelDefault)
-                .foregroundStyle(pillLabelColor)
-        } menu: {
-            ForEach(ThresholdPreset.allCases) { preset in
-                VMenuItem(
-                    icon: preset.icon.rawValue,
-                    label: preset.label,
-                    isActive: currentPreset == preset,
-                    size: .regular
-                ) {
-                    selectPreset(preset)
-                } trailing: {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        if currentPreset == preset {
-                            VIconView(.check, size: 12)
-                                .foregroundStyle(VColor.primaryBase)
-                        }
-                    }
-                }
-            }
+        ThresholdPresetDropdown(
+            preset: currentPreset,
+            accessibilityLabel: "Risk tolerance"
+        ) { preset in
+            selectPreset(preset)
         }
-        .task(id: assistantConversationId ?? "draft:\(draftInteractiveOverride ?? "nil")") {
-            hasUserInteracted = false
+        .task(id: assistantConversationId ?? "draft") {
             await loadState()
+        }
+        .onChange(of: draftInteractiveOverride) { _, newValue in
+            guard assistantConversationId == nil else { return }
+            currentPreset = ThresholdPreset.from(
+                override: newValue,
+                globalInteractive: globalInteractive
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .globalRiskThresholdsDidChange)) { _ in
+            Task { @MainActor in
+                await loadState()
+            }
         }
         #endif
     }
@@ -180,20 +224,30 @@ struct ComposerThresholdPicker: View {
     // MARK: - Selection
 
     private func selectPreset(_ preset: ThresholdPreset) {
-        hasUserInteracted = true
+        selectionVersion &+= 1
         withAnimation(VAnimation.fast) {
             currentPreset = preset
         }
 
-        writeTask?.cancel()
+        // Keep draft state in sync immediately so first-send bootstrap carries
+        // the current selection even before any network write completes.
+        onDraftInteractiveOverrideChange?(
+            Self.stagedDraftOverride(
+                for: preset,
+                globalInteractive: globalInteractive
+            )
+        )
+
+        // Serialize writes instead of canceling in-flight network calls.
+        // Cancellation doesn't guarantee the underlying HTTP request stops,
+        // which can produce out-of-order "higher than selected" outcomes.
+        writeVersion &+= 1
+        let selectionVersion = writeVersion
+        let previousWrite = writeTask
         writeTask = Task { @MainActor in
+            await previousWrite?.value
+            guard selectionVersion == writeVersion else { return }
             do {
-                onDraftInteractiveOverrideChange?(
-                    Self.stagedDraftOverride(
-                        for: preset,
-                        globalInteractive: globalInteractive
-                    )
-                )
                 if assistantConversationId == nil {
                     return
                 } else {
@@ -217,6 +271,7 @@ struct ComposerThresholdPicker: View {
     /// override, then reconciles `currentPreset`.
     private func loadState() async {
         loadTask?.cancel()
+        let selectionVersionAtLoadStart = selectionVersion
         let task = Task { @MainActor in
             do {
                 let globals = try await thresholdClient.getGlobalThresholds()
@@ -237,7 +292,8 @@ struct ComposerThresholdPicker: View {
                     override = draftInteractiveOverride
                 }
 
-                guard !Task.isCancelled, !hasUserInteracted else { return }
+                guard !Task.isCancelled else { return }
+                guard selectionVersionAtLoadStart == selectionVersion else { return }
                 currentPreset = ThresholdPreset.from(
                     override: override,
                     globalInteractive: globals.interactive
