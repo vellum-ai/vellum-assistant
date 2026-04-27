@@ -9,7 +9,8 @@ final class ToolConfirmationDataTests: XCTestCase {
             input: [
                 "path": AnyCodable("/Users/example/Desktop/report.txt"),
             ],
-            riskLevel: "medium"
+            riskLevel: "medium",
+            persistentDecisionsAllowed: false
         )
 
         XCTAssertTrue(confirmation.isConversationHostAccessPrompt)

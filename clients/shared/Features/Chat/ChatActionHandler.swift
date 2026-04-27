@@ -1185,6 +1185,7 @@ final class ChatActionHandler {
             scopeOptions: msg.scopeOptions,
             directoryScopeOptions: msg.directoryScopeOptions ?? [],
             executionTarget: msg.executionTarget,
+            persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true,
             toolUseId: msg.toolUseId
         )
         // Attach confirmation to matching tool call if toolUseId is available
