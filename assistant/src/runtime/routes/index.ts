@@ -24,6 +24,7 @@ import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as INVITE_ROUTES } from "./invite-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
@@ -50,6 +51,7 @@ export const ROUTES: RouteDefinition[] = [
   ...GROUP_ROUTES,
   ...HOME_STATE_ROUTES,
   ...IDENTITY_ROUTES,
+  ...INVITE_ROUTES,
   ...PS_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,

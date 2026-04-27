@@ -2496,7 +2496,7 @@ paths:
       tags:
         - contacts
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -2514,6 +2514,8 @@ paths:
                   - ok
                   - invite
                 additionalProperties: false
+        "400":
+          description: Invalid invite parameters
       requestBody:
         required: true
         content:
@@ -2561,6 +2563,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "404":
+          description: Invite not found
       parameters:
         - name: id
           in: path
@@ -2591,6 +2595,8 @@ paths:
                   - ok
                   - callSid
                 additionalProperties: false
+        "400":
+          description: Invite not eligible for outbound call
       parameters:
         - name: id
           in: path
@@ -2631,6 +2637,8 @@ paths:
                   - type
                   - memberId
                 additionalProperties: false
+        "400":
+          description: Invalid redemption parameters or failed redemption
       requestBody:
         required: true
         content:

@@ -461,7 +461,3 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-export function getAssistantSocketPath(): string {
-  return resolveIpcSocketPath("assistant").path;
-}
