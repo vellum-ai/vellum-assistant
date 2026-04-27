@@ -79,7 +79,7 @@ export function registerConversationsDeferCommand(parent: Command): void {
     .description("Create a deferred wake for a conversation")
     .option("--in <duration>", "Delay before firing (e.g. 60, 60s, 5m, 1h)")
     .option("--at <iso8601>", "Absolute ISO 8601 fire time")
-    .requiredOption("--hint <text>", "Hint message for the wake")
+    .option("--hint <text>", "Hint message for the wake")
     .option("--name <text>", "Name for the deferred wake", "Deferred wake")
     .option("--json", "Output result as JSON")
     .addHelpText(
@@ -103,7 +103,7 @@ Examples:
         opts: {
           in?: string;
           at?: string;
-          hint: string;
+          hint?: string;
           name: string;
           json?: boolean;
         },
@@ -124,6 +124,17 @@ Examples:
 
         if (!opts.in && !opts.at) {
           const msg = "Either --in or --at must be provided";
+          if (opts.json) {
+            log.info(JSON.stringify({ ok: false, error: msg }));
+          } else {
+            log.error(`Error: ${msg}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        if (!opts.hint) {
+          const msg = "--hint is required when creating a deferred wake";
           if (opts.json) {
             log.info(JSON.stringify({ ok: false, error: msg }));
           } else {
@@ -328,10 +339,9 @@ Examples:
           }
         }
 
-        const result = await cliIpcCall<{ cancelled: number }>(
-          "defer_cancel",
-          { body: ipcParams },
-        );
+        const result = await cliIpcCall<{ cancelled: number }>("defer_cancel", {
+          body: ipcParams,
+        });
 
         if (!result.ok) {
           if (opts.json) {
