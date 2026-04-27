@@ -1970,7 +1970,7 @@ describe("guardian conversational approval via conversation engine", () => {
     deliverSpy.mockRestore();
   });
 
-  test("guardian callback button approve_always is ignored (removed action)", async () => {
+  test("guardian callback button approve_always is mapped to approve_once (backward compat)", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-dg-user",
@@ -2004,8 +2004,8 @@ describe("guardian conversational approval via conversation engine", () => {
       expiresAt: Date.now() + 300_000,
     });
 
-    // Guardian sends an approve_always callback — this action is no longer valid
-    // so the callback data will be rejected by parseCallbackData.
+    // Guardian sends an approve_always callback — legacy action is mapped to
+    // approve_once by LEGACY_CALLBACK_MAP for backward compat with in-flight buttons.
     const req = makeInboundRequest({
       content: "",
       conversationExternalId: "guardian-dg-chat",
@@ -2016,10 +2016,10 @@ describe("guardian conversational approval via conversation engine", () => {
     const res = await handleChannelInbound(req, noopProcessMessage, "self");
     const body = (await res.json()) as Record<string, unknown>;
 
-    // The request is accepted (HTTP 200) but approve_always is now an unknown
-    // action — the pending interaction is not resolved.
+    // The legacy action is canonicalized to approve_once — the pending
+    // interaction IS resolved (backward compat).
     expect(body.accepted).toBe(true);
-    expect(sessionMock).not.toHaveBeenCalled();
+    expect(sessionMock).toHaveBeenCalled();
 
     deliverSpy.mockRestore();
   });

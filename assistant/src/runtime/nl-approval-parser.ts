@@ -124,7 +124,7 @@ export function parseApprovalIntent(text: string): ApprovalIntent | null {
     /^allow\s+(for\s+)?\d+\s*(m|min|minutes?)$/i.test(normalized) ||
     /^approve\s+always$/i.test(normalized)
   ) {
-    return { decision: "approve", confidence: 0.85 };
+    return { decision: "approve", confidence: 0.95 };
   }
 
   return null;

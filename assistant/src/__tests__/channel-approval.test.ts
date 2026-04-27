@@ -19,11 +19,14 @@ describe("parseCallbackData", () => {
   });
 
   test.each([
-    "apr:req-123:approve_10m",
-    "apr:req-123:approve_conversation",
-    "apr:req-123:approve_always",
-  ])('returns null for removed action "%s"', (data) => {
-    expect(parseCallbackData(data)).toBeNull();
+    ["apr:req-123:approve_10m", "approve_once"],
+    ["apr:req-123:approve_conversation", "approve_once"],
+    ["apr:req-123:approve_always", "approve_once"],
+  ])('maps legacy action "%s" to %s (backward compat)', (data, expectedAction) => {
+    const result = parseCallbackData(data);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe(expectedAction);
+    expect(result!.requestId).toBe("req-123");
   });
 
   test("parses slack source channel", () => {

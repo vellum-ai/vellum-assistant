@@ -218,13 +218,14 @@ describe("guardian grant minting on tool-approval decisions", () => {
     composeSpy.mockRestore();
   });
 
-  test("guardian reaction white_check_mark is ignored (removed action)", async () => {
+  test("guardian reaction white_check_mark maps to approve_once (legacy compat)", async () => {
     const requestId = "req-grant-reaction-1";
     createTestGuardianApproval(requestId, {
       conversationId: CONVERSATION_ID,
       channel: "slack",
       guardianChatId: GUARDIAN_CHAT,
     });
+    registerPendingInteraction(requestId, CONVERSATION_ID, TOOL_NAME);
     const approvalMessageTs = "1700000000.000100";
     trackApprovalPromptTs("slack", GUARDIAN_CHAT, approvalMessageTs);
 
@@ -241,11 +242,11 @@ describe("guardian grant minting on tool-approval decisions", () => {
       approvalMessageTs,
     });
 
-    // white_check_mark is no longer mapped to approve_always — it's an unknown
-    // emoji and should be silently ignored.
+    // white_check_mark is mapped to approve_once (backward compat) — the
+    // pending approval is resolved and a grant is minted.
     expect(result.handled).toBe(true);
-    expect(result.type).toBe("stale_ignored");
-    expect(countGrants()).toBe(0);
+    expect(result.type).toBe("guardian_decision_applied");
+    expect(countGrants()).toBe(1);
   });
 
   // ── 2. approve_once for non-tool-approval does NOT mint a grant ──
