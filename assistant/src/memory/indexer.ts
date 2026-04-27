@@ -193,14 +193,48 @@ export async function indexMessageNow(
       // Routing both paths through `upsertDebouncedJob` ensures the
       // row's `runAfter` reflects whichever trigger ran last, so a
       // batch crossing always takes effect immediately.
+      const extractRunAfter = graphBatchFired
+        ? Date.now()
+        : Date.now() + idleTimeoutMs;
       upsertDebouncedJob(
         "graph_extract",
         {
           conversationId: input.conversationId,
           scopeId: input.scopeId ?? "default",
         },
-        graphBatchFired ? Date.now() : Date.now() + idleTimeoutMs,
+        extractRunAfter,
       );
+
+      // Reading config here is best-effort: feature-gated triggers below
+      // (memory v2 sweep, auto-analyze batch) skip when it fails — the
+      // idle-debounced enqueues above are unaffected.
+      let triggerConfig: ReturnType<typeof getConfig> | null = null;
+      try {
+        triggerConfig = getConfig();
+      } catch (err) {
+        log.debug(
+          { err, conversationId: input.conversationId },
+          "Skipping feature-gated extraction triggers: failed to load config",
+        );
+      }
+
+      // Memory v2 sweep mirrors graph_extract's debounce: when the v2
+      // flag + config are on, every extraction trigger also enqueues a
+      // sweep. The sweep itself reads recent messages globally, so the
+      // `conversationId` here is just the dedup key — one pending row
+      // per active conversation. Both gates ensure the job remains a
+      // no-op when v2 is off.
+      if (
+        triggerConfig != null &&
+        isAssistantFeatureFlagEnabled("memory-v2-enabled", triggerConfig) &&
+        triggerConfig.memory.v2.enabled
+      ) {
+        upsertDebouncedJob(
+          "memory_v2_sweep",
+          { conversationId: input.conversationId },
+          extractRunAfter,
+        );
+      }
 
       // ── Auto-analysis triggers ─────────────────────────────────────
       // Immediate triggers (batch, compaction) and debounced triggers
@@ -218,23 +252,12 @@ export async function indexMessageNow(
       // Gated behind the `auto-analyze` feature flag so the counter
       // does not accumulate stale counts while the flag is off — if it
       // did, flipping the flag on would trigger an immediate batch from
-      // messages buffered during the disabled period. Reading config
-      // here is best-effort: if it fails we skip the batch trigger
-      // (the idle-debounced enqueue above still runs).
-      let analysisConfig: ReturnType<typeof getConfig> | null = null;
-      try {
-        analysisConfig = getConfig();
-      } catch (err) {
-        log.debug(
-          { err, conversationId: input.conversationId },
-          "Skipping auto-analysis batch trigger: failed to load config",
-        );
-      }
+      // messages buffered during the disabled period.
       if (
-        analysisConfig != null &&
-        isAssistantFeatureFlagEnabled("auto-analyze", analysisConfig)
+        triggerConfig != null &&
+        isAssistantFeatureFlagEnabled("auto-analyze", triggerConfig)
       ) {
-        const analysisBatchSize = analysisConfig.analysis.batchSize;
+        const analysisBatchSize = triggerConfig.analysis.batchSize;
         const analysisPendingKey = `conversation_analyze:${input.conversationId}:pending_count`;
         const analysisCurrentVal = getMemoryCheckpoint(analysisPendingKey);
         const analysisPendingCount =
