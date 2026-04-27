@@ -16,7 +16,7 @@ import { gunzipSync } from "node:zlib";
 import { getPlatformBaseUrl } from "../config/env.js";
 import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceSkillsDir, readPlatformToken } from "../util/platform.js";
+import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("catalog-install");
@@ -97,12 +97,7 @@ export function getRepoSkillsDir(): string | undefined {
 // ─── Platform API ────────────────────────────────────────────────────────────
 
 function buildHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const token = readPlatformToken();
-  if (token) {
-    headers["X-Conversation-Token"] = token;
-  }
-  return headers;
+  return {};
 }
 
 // ─── Catalog operations ──────────────────────────────────────────────────────

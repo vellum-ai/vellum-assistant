@@ -255,11 +255,9 @@ mock.module("../providers/provider-send-message.js", () => ({
 
 mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => "/tmp/test-skills",
-  readPlatformToken: () => null,
 }));
 mock.module("../util/platform.ts", () => ({
   getWorkspaceSkillsDir: () => "/tmp/test-skills",
-  readPlatformToken: () => null,
 }));
 
 let mockPlatformBaseUrl = "https://platform.test";

@@ -35,7 +35,6 @@ import {
   MAX_INLINE_TEXT_SIZE,
 } from "../runtime/routes/workspace-utils.js";
 import { getLogger } from "../util/logger.js";
-import { readPlatformToken } from "../util/platform.js";
 import { getCachedCatalogSync, getCatalog } from "./catalog-cache.js";
 import { type CatalogSkill, getRepoSkillsDir } from "./catalog-install.js";
 import type { SkillFileProvider } from "./skill-file-provider.js";
@@ -243,10 +242,6 @@ async function fetchPlatformJson<T>(
   }
 
   const headers: Record<string, string> = { Accept: "application/json" };
-  const token = readPlatformToken();
-  if (token) {
-    headers["X-Conversation-Token"] = token;
-  }
 
   try {
     const response = await fetch(url.toString(), {
