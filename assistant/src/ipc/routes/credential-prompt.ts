@@ -5,13 +5,12 @@
  * prompt in the user's app. The handler sends the prompt to connected
  * clients, stores the credential and its metadata on success.
  *
- * No daemon-level wiring needed — uses `requestSecretStandalone` directly
- * with the global broadcast function set at daemon startup.
+ * No daemon-level wiring needed — `requestSecretStandalone` handles
+ * broadcasting internally.
  */
 
 import { z } from "zod";
 
-import { broadcastToAllClients } from "../../acp/index.js";
 import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -67,22 +66,15 @@ export const credentialPromptRoute: IpcRoute = {
 
     assertMetadataWritable();
 
-    if (!broadcastToAllClients) {
-      return { ok: false, error: "Assistant not fully initialized" };
-    }
-
-    const result = await requestSecretStandalone(
-      { send: broadcastToAllClients },
-      {
-        service: validated.service,
-        field: validated.field,
-        label: validated.label,
-        description: validated.description,
-        placeholder: validated.placeholder,
-        allowedTools: validated.allowedTools,
-        allowedDomains: validated.allowedDomains,
-      },
-    );
+    const result = await requestSecretStandalone({
+      service: validated.service,
+      field: validated.field,
+      label: validated.label,
+      description: validated.description,
+      placeholder: validated.placeholder,
+      allowedTools: validated.allowedTools,
+      allowedDomains: validated.allowedDomains,
+    });
 
     if (!result.value) {
       const reason =
