@@ -31,6 +31,7 @@ import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as INVITE_ROUTES } from "./invite-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
+import { ROUTES as PROFILER_ROUTES } from "./profiler-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
@@ -71,6 +72,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INVITE_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...NOTIFICATION_ROUTES,
+  ...PROFILER_ROUTES,
   ...PS_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,

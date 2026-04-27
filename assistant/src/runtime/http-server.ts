@@ -180,7 +180,6 @@ import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
-import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
@@ -1795,7 +1794,6 @@ export class RuntimeHttpServer {
         getFilingService: this.getFilingService,
       }),
       ...diagnosticsRouteDefinitions(),
-      ...profilerRouteDefinitions(),
       ...workItemHttpOnlyRouteDefinitions(
         this.sendMessageDeps
           ? {
