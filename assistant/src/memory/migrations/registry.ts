@@ -43,6 +43,7 @@ import { migrateRenameMemoryGraphTypeValuesDown } from "./204-rename-memory-grap
 import { migrateScrubCorruptedImageAttachmentsDown } from "./206-scrub-corrupted-image-attachments.js";
 import { downConversationHostAccess } from "./217-conversation-host-access.js";
 import { downNormalizeUserFileByPrincipal } from "./220-normalize-user-file-by-principal.js";
+import { downActivationState } from "./232-activation-state.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -372,6 +373,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Normalize contacts.user_file across rows sharing the same principal_id so every channel for one principal loads the same users/<slug>.md persona and journal directory",
     down: downNormalizeUserFileByPrincipal,
+  },
+  {
+    key: "migration_activation_state_v1",
+    version: 43,
+    description: "Create activation_state table for memory v2",
+    down: downActivationState,
   },
 ];
 
