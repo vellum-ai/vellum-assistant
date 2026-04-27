@@ -80,7 +80,7 @@ struct RiskToleranceSection: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            DisclosureGroup(isExpanded: $isAdvancedExpanded) {
+            VDisclosureSection(title: "Advanced", isExpanded: $isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     SettingsDivider()
 
@@ -142,15 +142,6 @@ struct RiskToleranceSection: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } label: {
-                Button {
-                    withAnimation {
-                        isAdvancedExpanded.toggle()
-                    }
-                } label: {
-                    Text("Advanced")
-                }
-                .buttonStyle(.plain)
             }
         }
         .task { await loadThresholds() }
