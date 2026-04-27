@@ -47,7 +47,7 @@ Options:
 
 The table shows each client's ID, interface type, capabilities,
 connection timestamps, and host environment (when available).
-Clients are sorted by most recently active first.
+Clients are sorted by most recently connected first.
 
 Examples:
   $ assistant clients list
@@ -70,6 +70,13 @@ Examples:
         const response = result.result!;
         const { clients: entries } = response;
 
+        // Sort by most recently connected first
+        entries.sort(
+          (a, b) =>
+            new Date(b.connectedAt).getTime() -
+            new Date(a.connectedAt).getTime(),
+        );
+
         if (opts.json) {
           writeOutput(cmd, response);
           return;
@@ -89,7 +96,7 @@ Examples:
           "LAST ACTIVE",
         ];
         const rows: string[][] = entries.map((e: ClientEntryJSON) => [
-          e.clientId.length > 20 ? `${e.clientId.slice(0, 17)}...` : e.clientId,
+          e.clientId,
           e.interfaceId,
           e.capabilities.length > 0 ? e.capabilities.join(", ") : "—",
           formatRelativeTime(e.connectedAt),
