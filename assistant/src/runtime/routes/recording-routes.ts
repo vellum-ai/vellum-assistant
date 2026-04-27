@@ -1,9 +1,12 @@
 /**
- * HTTP route handlers for screen recording lifecycle.
+ * Transport-agnostic route definitions for screen recording lifecycle.
  *
- * These endpoints expose recording start/stop/pause/resume/status
- * functionality over HTTP. Recording commands are broadcast to connected
- * clients via the assistant event hub (SSE).
+ * POST /v1/recordings/start   — start a screen recording
+ * POST /v1/recordings/stop    — stop the active recording
+ * POST /v1/recordings/pause   — pause the active recording
+ * POST /v1/recordings/resume  — resume a paused recording
+ * GET  /v1/recordings/status  — get current recording state
+ * POST /v1/recordings/status  — recording lifecycle callback from the client
  *
  * Recording write operations require `settings.write`; status queries
  * require `settings.read`.
@@ -11,6 +14,7 @@
 
 import { z } from "zod";
 
+import { broadcastToAllClients } from "../../acp/index.js";
 import {
   getActiveRestartToken,
   handleRecordingPause,
@@ -26,64 +30,51 @@ import type {
   RecordingStatus,
 } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("recording-routes");
 
 // ---------------------------------------------------------------------------
-// Dependency injection interface
+// Broadcast shim — recording handlers only use ctx.broadcast()
 // ---------------------------------------------------------------------------
 
-/**
- * Minimal interface for recording operations.
- * The daemon wires a concrete HandlerContext at startup.
- */
-export interface RecordingDeps {
-  /** The daemon's handler context for recording operations. */
-  getHandlerContext: () => HandlerContext;
+function getBroadcastCtx(): HandlerContext {
+  if (!broadcastToAllClients) {
+    throw new InternalError("Broadcast not initialized");
+  }
+  return { broadcast: broadcastToAllClients } as HandlerContext;
 }
 
 // ---------------------------------------------------------------------------
-// Route handlers
+// Handlers
 // ---------------------------------------------------------------------------
 
-/**
- * POST /v1/recordings/start — start a screen recording.
- *
- * Body: { conversationId, options? }
- * options: { captureScope?, displayId?, windowId?, includeAudio?,
- *            includeMicrophone?, promptForSource? }
- */
-async function handleStartRecording(
-  req: Request,
-  deps: RecordingDeps,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    conversationId?: string;
-    options?: RecordingOptions;
-  };
-
-  if (!body.conversationId || typeof body.conversationId !== "string") {
-    return httpError("BAD_REQUEST", "conversationId is required", 400);
+async function handleStartRecording({ body }: RouteHandlerArgs) {
+  if (!body?.conversationId || typeof body.conversationId !== "string") {
+    throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = deps.getHandlerContext();
-
+  const ctx = getBroadcastCtx();
   const recordingId = handleRecordingStart(
     body.conversationId,
-    body.options,
+    body.options as RecordingOptions | undefined,
     ctx,
   );
 
   if (!recordingId) {
-    const isIdle = isRecordingIdle();
-    const reason = isIdle ? "unknown" : "A recording is already active";
+    const idle = isRecordingIdle();
+    const reason = idle ? "unknown" : "A recording is already active";
     log.warn(
-      { conversationId: body.conversationId, isIdle },
+      { conversationId: body.conversationId, isIdle: idle },
       "Recording start failed via HTTP",
     );
-    return httpError("CONFLICT", reason, 409);
+    throw new ConflictError(reason);
   }
 
   log.info(
@@ -91,27 +82,15 @@ async function handleStartRecording(
     "Recording started via HTTP",
   );
 
-  return Response.json({ recordingId }, { status: 201 });
+  return { recordingId };
 }
 
-/**
- * POST /v1/recordings/stop — stop the active recording.
- *
- * Body: { conversationId }
- */
-async function handleStopRecording(
-  req: Request,
-  deps: RecordingDeps,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    conversationId?: string;
-  };
-
-  if (!body.conversationId || typeof body.conversationId !== "string") {
-    return httpError("BAD_REQUEST", "conversationId is required", 400);
+async function handleStopRecording({ body }: RouteHandlerArgs) {
+  if (!body?.conversationId || typeof body.conversationId !== "string") {
+    throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = deps.getHandlerContext();
+  const ctx = getBroadcastCtx();
   const recordingId = handleRecordingStop(body.conversationId, ctx);
 
   if (!recordingId) {
@@ -119,7 +98,7 @@ async function handleStopRecording(
       { conversationId: body.conversationId },
       "No active recording to stop via HTTP",
     );
-    return httpError("NOT_FOUND", "No active recording to stop", 404);
+    throw new NotFoundError("No active recording to stop");
   }
 
   log.info(
@@ -127,27 +106,15 @@ async function handleStopRecording(
     "Recording stop sent via HTTP",
   );
 
-  return Response.json({ recordingId, stopped: true });
+  return { recordingId, stopped: true };
 }
 
-/**
- * POST /v1/recordings/pause — pause the active recording.
- *
- * Body: { conversationId }
- */
-async function handlePauseRecording(
-  req: Request,
-  deps: RecordingDeps,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    conversationId?: string;
-  };
-
-  if (!body.conversationId || typeof body.conversationId !== "string") {
-    return httpError("BAD_REQUEST", "conversationId is required", 400);
+async function handlePauseRecording({ body }: RouteHandlerArgs) {
+  if (!body?.conversationId || typeof body.conversationId !== "string") {
+    throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = deps.getHandlerContext();
+  const ctx = getBroadcastCtx();
   const recordingId = handleRecordingPause(body.conversationId, ctx);
 
   if (!recordingId) {
@@ -155,7 +122,7 @@ async function handlePauseRecording(
       { conversationId: body.conversationId },
       "No active recording to pause via HTTP",
     );
-    return httpError("NOT_FOUND", "No active recording to pause", 404);
+    throw new NotFoundError("No active recording to pause");
   }
 
   log.info(
@@ -163,27 +130,15 @@ async function handlePauseRecording(
     "Recording pause sent via HTTP",
   );
 
-  return Response.json({ recordingId, paused: true });
+  return { recordingId, paused: true };
 }
 
-/**
- * POST /v1/recordings/resume — resume a paused recording.
- *
- * Body: { conversationId }
- */
-async function handleResumeRecording(
-  req: Request,
-  deps: RecordingDeps,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    conversationId?: string;
-  };
-
-  if (!body.conversationId || typeof body.conversationId !== "string") {
-    return httpError("BAD_REQUEST", "conversationId is required", 400);
+async function handleResumeRecording({ body }: RouteHandlerArgs) {
+  if (!body?.conversationId || typeof body.conversationId !== "string") {
+    throw new BadRequestError("conversationId is required");
   }
 
-  const ctx = deps.getHandlerContext();
+  const ctx = getBroadcastCtx();
   const recordingId = handleRecordingResume(body.conversationId, ctx);
 
   if (!recordingId) {
@@ -191,7 +146,7 @@ async function handleResumeRecording(
       { conversationId: body.conversationId },
       "No active recording to resume via HTTP",
     );
-    return httpError("NOT_FOUND", "No active recording to resume", 404);
+    throw new NotFoundError("No active recording to resume");
   }
 
   log.info(
@@ -199,65 +154,51 @@ async function handleResumeRecording(
     "Recording resume sent via HTTP",
   );
 
-  return Response.json({ recordingId, resumed: true });
+  return { recordingId, resumed: true };
 }
 
-/**
- * GET /v1/recordings/status — get current recording status.
- */
-function handleGetRecordingStatus(): Response {
+function handleGetRecordingStatus() {
   const idle = isRecordingIdle();
   const activeRestartToken = getActiveRestartToken();
 
-  return Response.json({
+  return {
     idle,
     restartInProgress: Boolean(activeRestartToken),
-  });
+  };
 }
 
-/**
- * POST /v1/recordings/status — recording lifecycle callback from the client.
- *
- * Body: RecordingStatus fields (conversationId, status, filePath?, durationMs?,
- *       error?, attachToConversationId?, operationToken?)
- *
- * The client sends this when a recording transitions state (started, stopped,
- * paused, resumed, failed, restart_cancelled). The handler performs conversation
- * ID resolution, operation token validation, file attachment after stop,
- * broadcasting lifecycle events, and triggering deferred recording restarts.
- */
-async function handlePostRecordingStatus(
-  req: Request,
-  deps: RecordingDeps,
-): Promise<Response> {
-  const body = (await req.json()) as Omit<RecordingStatus, "type">;
+const VALID_RECORDING_STATUSES = [
+  "started",
+  "stopped",
+  "failed",
+  "restart_cancelled",
+  "paused",
+  "resumed",
+] as const;
 
-  if (!body.conversationId || typeof body.conversationId !== "string") {
-    return httpError("BAD_REQUEST", "conversationId is required", 400);
+async function handlePostRecordingStatus({ body }: RouteHandlerArgs) {
+  if (!body?.conversationId || typeof body.conversationId !== "string") {
+    throw new BadRequestError("conversationId is required");
   }
 
   if (!body.status || typeof body.status !== "string") {
-    return httpError("BAD_REQUEST", "status is required", 400);
+    throw new BadRequestError("status is required");
   }
 
-  const validStatuses = [
-    "started",
-    "stopped",
-    "failed",
-    "restart_cancelled",
-    "paused",
-    "resumed",
-  ];
-  if (!validStatuses.includes(body.status)) {
-    return httpError("BAD_REQUEST", `Invalid status: ${body.status}`, 400);
+  if (
+    !VALID_RECORDING_STATUSES.includes(
+      body.status as (typeof VALID_RECORDING_STATUSES)[number],
+    )
+  ) {
+    throw new BadRequestError(`Invalid status: ${body.status}`);
   }
 
   const msg: RecordingStatus = {
-    ...body,
+    ...(body as Omit<RecordingStatus, "type">),
     type: "recording_status",
   };
 
-  const ctx = deps.getHandlerContext();
+  const ctx = getBroadcastCtx();
 
   try {
     await handleRecordingStatusCore(msg, ctx);
@@ -266,11 +207,7 @@ async function handlePostRecordingStatus(
       { err, conversationId: body.conversationId, status: body.status },
       "Recording status handler failed",
     );
-    return httpError(
-      "INTERNAL_ERROR",
-      "Recording status processing failed",
-      500,
-    );
+    throw new InternalError("Recording status processing failed");
   }
 
   log.info(
@@ -278,129 +215,131 @@ async function handlePostRecordingStatus(
     "Recording status processed via HTTP",
   );
 
-  return Response.json({ ok: true });
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function recordingRouteDefinitions(deps: {
-  getRecordingDeps?: () => RecordingDeps;
-}): HTTPRouteDefinition[] {
-  const getDeps = (): RecordingDeps => {
-    if (!deps.getRecordingDeps) {
-      throw new Error("Recording deps not available");
-    }
-    return deps.getRecordingDeps();
-  };
-
-  return [
-    {
-      endpoint: "recordings/start",
-      method: "POST",
-      policyKey: "recordings/start",
-      summary: "Start recording",
-      description: "Start a screen recording for a conversation.",
-      tags: ["recordings"],
-      requestBody: z.object({
-        conversationId: z.string(),
-        options: z
-          .object({})
-          .passthrough()
-          .describe("Recording options")
-          .optional(),
-      }),
-      responseBody: z.object({
-        recordingId: z.string(),
-      }),
-      handler: async ({ req }) => handleStartRecording(req, getDeps()),
-    },
-    {
-      endpoint: "recordings/stop",
-      method: "POST",
-      policyKey: "recordings/stop",
-      summary: "Stop recording",
-      description: "Stop the active screen recording.",
-      tags: ["recordings"],
-      requestBody: z.object({
-        conversationId: z.string(),
-      }),
-      responseBody: z.object({
-        recordingId: z.string(),
-        stopped: z.boolean(),
-      }),
-      handler: async ({ req }) => handleStopRecording(req, getDeps()),
-    },
-    {
-      endpoint: "recordings/pause",
-      method: "POST",
-      policyKey: "recordings/pause",
-      summary: "Pause recording",
-      description: "Pause the active screen recording.",
-      tags: ["recordings"],
-      requestBody: z.object({
-        conversationId: z.string(),
-      }),
-      responseBody: z.object({
-        recordingId: z.string(),
-        paused: z.boolean(),
-      }),
-      handler: async ({ req }) => handlePauseRecording(req, getDeps()),
-    },
-    {
-      endpoint: "recordings/resume",
-      method: "POST",
-      policyKey: "recordings/resume",
-      summary: "Resume recording",
-      description: "Resume a paused screen recording.",
-      tags: ["recordings"],
-      requestBody: z.object({
-        conversationId: z.string(),
-      }),
-      responseBody: z.object({
-        recordingId: z.string(),
-        resumed: z.boolean(),
-      }),
-      handler: async ({ req }) => handleResumeRecording(req, getDeps()),
-    },
-    {
-      endpoint: "recordings/status",
-      method: "GET",
-      policyKey: "recordings/status",
-      summary: "Get recording status",
-      description: "Return the current recording state.",
-      tags: ["recordings"],
-      responseBody: z.object({
-        idle: z.boolean(),
-        restartInProgress: z.boolean(),
-      }),
-      handler: () => handleGetRecordingStatus(),
-    },
-    {
-      endpoint: "recordings/status",
-      method: "POST",
-      policyKey: "recordings/status:POST",
-      summary: "Post recording status",
-      description: "Recording lifecycle callback from the client.",
-      tags: ["recordings"],
-      requestBody: z.object({
-        conversationId: z.string(),
-        status: z
-          .string()
-          .describe(
-            "started, stopped, failed, restart_cancelled, paused, resumed",
-          ),
-        filePath: z.string().optional(),
-        durationMs: z.number().optional(),
-        error: z.string().optional(),
-        attachToConversationId: z.string().optional(),
-        operationToken: z.string().optional(),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ req }) => handlePostRecordingStatus(req, getDeps()),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "recordings_start",
+    endpoint: "recordings/start",
+    method: "POST",
+    policyKey: "recordings/start",
+    requirePolicyEnforcement: true,
+    summary: "Start recording",
+    description: "Start a screen recording for a conversation.",
+    tags: ["recordings"],
+    responseStatus: "201",
+    requestBody: z.object({
+      conversationId: z.string(),
+      options: z
+        .object({})
+        .passthrough()
+        .describe("Recording options")
+        .optional(),
+    }),
+    responseBody: z.object({
+      recordingId: z.string(),
+    }),
+    handler: handleStartRecording,
+  },
+  {
+    operationId: "recordings_stop",
+    endpoint: "recordings/stop",
+    method: "POST",
+    policyKey: "recordings/stop",
+    requirePolicyEnforcement: true,
+    summary: "Stop recording",
+    description: "Stop the active screen recording.",
+    tags: ["recordings"],
+    requestBody: z.object({
+      conversationId: z.string(),
+    }),
+    responseBody: z.object({
+      recordingId: z.string(),
+      stopped: z.boolean(),
+    }),
+    handler: handleStopRecording,
+  },
+  {
+    operationId: "recordings_pause",
+    endpoint: "recordings/pause",
+    method: "POST",
+    policyKey: "recordings/pause",
+    requirePolicyEnforcement: true,
+    summary: "Pause recording",
+    description: "Pause the active screen recording.",
+    tags: ["recordings"],
+    requestBody: z.object({
+      conversationId: z.string(),
+    }),
+    responseBody: z.object({
+      recordingId: z.string(),
+      paused: z.boolean(),
+    }),
+    handler: handlePauseRecording,
+  },
+  {
+    operationId: "recordings_resume",
+    endpoint: "recordings/resume",
+    method: "POST",
+    policyKey: "recordings/resume",
+    requirePolicyEnforcement: true,
+    summary: "Resume recording",
+    description: "Resume a paused screen recording.",
+    tags: ["recordings"],
+    requestBody: z.object({
+      conversationId: z.string(),
+    }),
+    responseBody: z.object({
+      recordingId: z.string(),
+      resumed: z.boolean(),
+    }),
+    handler: handleResumeRecording,
+  },
+  {
+    operationId: "recordings_status_get",
+    endpoint: "recordings/status",
+    method: "GET",
+    policyKey: "recordings/status",
+    requirePolicyEnforcement: true,
+    summary: "Get recording status",
+    description: "Return the current recording state.",
+    tags: ["recordings"],
+    responseBody: z.object({
+      idle: z.boolean(),
+      restartInProgress: z.boolean(),
+    }),
+    handler: handleGetRecordingStatus,
+  },
+  {
+    operationId: "recordings_status_post",
+    endpoint: "recordings/status",
+    method: "POST",
+    policyKey: "recordings/status:POST",
+    requirePolicyEnforcement: true,
+    summary: "Post recording status",
+    description: "Recording lifecycle callback from the client.",
+    tags: ["recordings"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      status: z
+        .string()
+        .describe(
+          "started, stopped, failed, restart_cancelled, paused, resumed",
+        ),
+      filePath: z.string().optional(),
+      durationMs: z.number().optional(),
+      error: z.string().optional(),
+      attachToConversationId: z.string().optional(),
+      operationToken: z.string().optional(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+    handler: handlePostRecordingStatus,
+  },
+];

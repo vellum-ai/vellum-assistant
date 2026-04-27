@@ -186,7 +186,6 @@ import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
-import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
@@ -336,7 +335,6 @@ export class RuntimeHttpServer {
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
@@ -360,7 +358,6 @@ export class RuntimeHttpServer {
     this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
-    this.getRecordingDeps = options.getRecordingDeps;
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
@@ -2182,12 +2179,6 @@ export class RuntimeHttpServer {
       ...oauthProvidersRouteDefinitions(),
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
-
-      ...(this.getRecordingDeps
-        ? recordingRouteDefinitions({
-            getRecordingDeps: this.getRecordingDeps,
-          })
-        : []),
 
       {
         endpoint: "interfaces/:path*",

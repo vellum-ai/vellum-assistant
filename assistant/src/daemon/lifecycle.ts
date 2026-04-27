@@ -1023,9 +1023,6 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
-      getRecordingDeps: () => ({
-        getHandlerContext: () => server.getHandlerContext(),
-      }),
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),

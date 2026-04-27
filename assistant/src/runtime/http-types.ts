@@ -33,7 +33,6 @@ import type {
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
 import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
-import type { RecordingDeps } from "./routes/recording-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -247,8 +246,6 @@ export interface RuntimeHttpServerOptions {
   conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
   getModelSetContext?: () => ModelSetContext;
-  /** Provider for recording dependencies (recording routes). */
-  getRecordingDeps?: () => RecordingDeps;
   /** Accessor for the CES client, used to push API key updates to CES after hatch. */
   getCesClient?: () => CesClient | undefined;
   /**
