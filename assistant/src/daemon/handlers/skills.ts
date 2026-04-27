@@ -352,13 +352,6 @@ function deriveOrigin(
   return meta?.origin ?? "custom";
 }
 
-/** Sort rank by kind: bundled first, then catalog, then installed. */
-function kindSortRank(kind: SlimSkillResponse["kind"]): number {
-  if (kind === "bundled") return 0;
-  if (kind === "catalog") return 1;
-  return 2; // installed
-}
-
 /** Convert a resolved skill to a SlimSkillResponse. */
 function toSlimSkillResponse(
   summary: SkillSummary,
@@ -425,12 +418,9 @@ export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
 
   const items = resolved.map((r) => toSlimSkillResponse(r.summary, r.state));
 
-  // Sort by kind rank, then alphabetical by name within each tier.
-  items.sort((a, b) => {
-    const rankDiff = kindSortRank(a.kind) - kindSortRank(b.kind);
-    if (rankDiff !== 0) return rankDiff;
-    return a.name.localeCompare(b.name);
-  });
+  // Alphabetical by name — kind/source is a property on each skill, not a
+  // grouping axis. Keeps output stable as the catalog grows.
+  items.sort((a, b) => a.name.localeCompare(b.name));
 
   return items;
 }
@@ -461,12 +451,8 @@ async function listSkillsWithCatalog(
 
   const merged = [...installed, ...available];
 
-  // Sort by kind rank, then alphabetical by name
-  merged.sort((a, b) => {
-    const rankDiff = kindSortRank(a.kind) - kindSortRank(b.kind);
-    if (rankDiff !== 0) return rankDiff;
-    return a.name.localeCompare(b.name);
-  });
+  // Alphabetical by name — kind is a property on each skill, not a grouping axis.
+  merged.sort((a, b) => a.name.localeCompare(b.name));
 
   return merged;
 }
