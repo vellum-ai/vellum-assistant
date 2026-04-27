@@ -351,6 +351,7 @@ public enum VMenuItemSize {
 public struct VMenuItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
+    public let tooltipText: String?
     public let isActive: Bool
     public let variant: VMenuItemVariant
     public let size: VMenuItemSize
@@ -378,6 +379,7 @@ public struct VMenuItem<Trailing: View>: View {
     public init(
         icon: String? = nil,
         label: String,
+        tooltip: String? = nil,
         isActive: Bool = false,
         variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
@@ -387,6 +389,7 @@ public struct VMenuItem<Trailing: View>: View {
     ) {
         self.icon = icon
         self.label = label
+        self.tooltipText = tooltip
         self.isActive = isActive
         self.variant = variant
         self.size = size
@@ -425,6 +428,7 @@ public struct VMenuItem<Trailing: View>: View {
             VNavItem(
                 icon: icon,
                 label: label,
+                tooltip: tooltipText,
                 isActive: isActive,
                 isExpanded: true,
                 isKeyboardFocused: {

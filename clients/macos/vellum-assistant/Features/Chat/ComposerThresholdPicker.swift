@@ -140,6 +140,7 @@ struct ThresholdPresetDropdown: View {
                 VMenuItem(
                     icon: option.icon.rawValue,
                     label: option.label,
+                    tooltip: option.description,
                     isActive: preset == option,
                     size: .regular
                 ) {
