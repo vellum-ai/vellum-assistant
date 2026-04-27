@@ -12,50 +12,95 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
-import { getLogger } from "../../logger.js";
-import { ipcCallAssistant } from "../../ipc/assistant-client.js";
+import { validateEdgeToken } from "../../auth/token-exchange.js";
+import type { GatewayConfig } from "../../config.js";
+import {
+  ipcCallAssistantStrict,
+  IpcHandlerError,
+  IpcTransportError,
+} from "../../ipc/assistant-client.js";
 import { matchRoute } from "../../ipc/route-schema-cache.js";
+import { getLogger } from "../../logger.js";
 
 const log = getLogger("ipc-runtime-proxy");
 
 const V1_PREFIX = "/v1/";
+const VELLUM_HEADER_PREFIX = "x-vellum-";
 
 /**
  * Attempt to serve a request via IPC.
  *
- * Returns `null` when:
- * - The request doesn't have the `X-Vellum-Proxy-Server: ipc` header
- * - The path doesn't match any cached route schema entry
- * - The IPC call fails (caller should fall through to HTTP proxy)
+ * Returns `null` when the request doesn't have the
+ * `X-Vellum-Proxy-Server: ipc` header — the caller should fall through
+ * to the HTTP proxy.
+ *
+ * Once the header is present, the proxy commits to serving the request
+ * over IPC: path mismatches return 404 and errors return proper status
+ * codes rather than falling through.
  */
-export async function tryIpcProxy(req: Request): Promise<Response | null> {
+export async function tryIpcProxy(
+  req: Request,
+  config: GatewayConfig,
+): Promise<Response | null> {
   if (req.headers.get("x-vellum-proxy-server") !== "ipc") {
     return null;
   }
 
+  // --- Auth: replicate the gateway's JWT validation -----------------------
+  if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const edgeJwt = authHeader.slice(7);
+    const result = validateEdgeToken(edgeJwt);
+    if (!result.ok) {
+      log.warn(
+        {
+          method: req.method,
+          path: new URL(req.url).pathname,
+          reason: result.reason,
+        },
+        "IPC proxy auth rejected",
+      );
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
+  // --- Route matching -----------------------------------------------------
   const url = new URL(req.url);
   const pathname = url.pathname;
 
   if (!pathname.startsWith(V1_PREFIX)) {
-    return null;
+    return Response.json(
+      { error: "Not found", source: "ipc-proxy" },
+      { status: 404 },
+    );
   }
 
   const routePath = pathname.slice(V1_PREFIX.length);
   const match = matchRoute(req.method, routePath);
   if (!match) {
-    return null;
+    return Response.json(
+      { error: "Not found", source: "ipc-proxy" },
+      { status: 404 },
+    );
   }
 
   const start = performance.now();
 
+  // --- Build structured IPC params ----------------------------------------
   const queryParams: Record<string, string> = {};
   for (const [key, value] of url.searchParams.entries()) {
     queryParams[key] = value;
   }
 
+  // Only forward X-Vellum-* headers to the daemon.
   const headers: Record<string, string> = {};
   req.headers.forEach((value, key) => {
-    headers[key] = value;
+    if (key.startsWith(VELLUM_HEADER_PREFIX)) {
+      headers[key] = value;
+    }
   });
 
   let body: Record<string, unknown> | undefined;
@@ -71,7 +116,6 @@ export async function tryIpcProxy(req: Request): Promise<Response | null> {
         // No body or invalid JSON — handler will validate
       }
     }
-    // TODO: binary body support (rawBody) for non-JSON content types
   }
 
   const params: Record<string, unknown> = {
@@ -81,8 +125,9 @@ export async function tryIpcProxy(req: Request): Promise<Response | null> {
     headers,
   };
 
+  // --- Call daemon via IPC ------------------------------------------------
   try {
-    const result = await ipcCallAssistant(match.operationId, params);
+    const result = await ipcCallAssistantStrict(match.operationId, params);
 
     const duration = Math.round(performance.now() - start);
     log.info(
@@ -103,17 +148,42 @@ export async function tryIpcProxy(req: Request): Promise<Response | null> {
       return new Response(result);
     }
 
-    if (result instanceof Uint8Array) {
-      return new Response(result as unknown as BodyInit);
-    }
-
-    if (result instanceof ArrayBuffer) {
-      return new Response(result);
-    }
-
     return Response.json(result);
   } catch (err) {
     const duration = Math.round(performance.now() - start);
+
+    if (err instanceof IpcHandlerError) {
+      log.warn(
+        {
+          method: req.method,
+          path: pathname,
+          operationId: match.operationId,
+          statusCode: err.statusCode,
+          errorCode: err.code,
+          duration,
+        },
+        "IPC proxy handler error",
+      );
+      return Response.json(
+        { error: err.message, code: err.code },
+        { status: err.statusCode },
+      );
+    }
+
+    if (err instanceof IpcTransportError) {
+      log.error(
+        {
+          err,
+          method: req.method,
+          path: pathname,
+          operationId: match.operationId,
+          duration,
+        },
+        "IPC proxy transport error",
+      );
+      return Response.json({ error: "Bad Gateway" }, { status: 502 });
+    }
+
     log.error(
       {
         err,
@@ -122,8 +192,8 @@ export async function tryIpcProxy(req: Request): Promise<Response | null> {
         operationId: match.operationId,
         duration,
       },
-      "IPC proxy request failed",
+      "IPC proxy unexpected error",
     );
-    return null;
+    return Response.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

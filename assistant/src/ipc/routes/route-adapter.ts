@@ -2,32 +2,22 @@
  * Adapts transport-agnostic RouteDefinitions into IpcRoutes for the
  * AssistantIpcServer.
  *
- * Supports two payload shapes:
+ * Generates two handlers per route:
  *
- * 1. **Structured** (gateway IPC proxy): params contain `pathParams`,
- *    `queryParams`, `body`, and/or `headers` keys — passed through to the
- *    handler as-is.
+ * - `handler` (legacy): receives a flat params bag, treats string values
+ *   as both pathParams and queryParams, full bag as body. Used by CLI
+ *   callers that haven't migrated to structured payloads yet.
  *
- * 2. **Flat** (legacy CLI callers): params is a flat bag of key-value
- *    pairs, treated as both pathParams and body for backward compat.
- *    This fallback will be removed once all callers migrate.
+ * - `structuredHandler`: receives separated { pathParams, queryParams,
+ *   body, headers } and passes them through to the route handler. Used
+ *   by the gateway IPC proxy.
+ *
+ * The IPC server detects the payload shape and dispatches accordingly —
+ * consumers can be migrated one at a time without breaking existing callers.
  */
 
-import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 import type { RouteDefinition } from "../../runtime/routes/types.js";
 import type { IpcRoute } from "../assistant-server.js";
-
-const STRUCTURED_KEYS = new Set([
-  "pathParams",
-  "queryParams",
-  "body",
-  "headers",
-]);
-
-function isStructuredPayload(params: Record<string, unknown>): boolean {
-  const keys = Object.keys(params);
-  return keys.length > 0 && keys.every((k) => STRUCTURED_KEYS.has(k));
-}
 
 export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
@@ -36,33 +26,28 @@ export function routeDefinitionsToIpcRoutes(
     .filter((r) => !r.requireGuardian)
     .map((r) => ({
       method: r.operationId,
+
+      // Legacy flat-params handler for CLI callers
       handler: (params?: Record<string, unknown>) => {
-        let args: RouteHandlerArgs;
-
-        if (params && isStructuredPayload(params)) {
-          args = {
-            pathParams: params.pathParams as Record<string, string> | undefined,
-            queryParams: params.queryParams as
-              | Record<string, string>
-              | undefined,
-            body: params.body as Record<string, unknown> | undefined,
-            headers: params.headers as Record<string, string> | undefined,
-          };
-        } else {
-          const stringParams: Record<string, string> = {};
-          if (params) {
-            for (const [k, v] of Object.entries(params)) {
-              if (typeof v === "string") stringParams[k] = v;
-            }
+        const stringParams: Record<string, string> = {};
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            if (typeof v === "string") stringParams[k] = v;
           }
-          args = {
-            pathParams: stringParams,
-            queryParams: stringParams,
-            body: params,
-          };
         }
-
-        return r.handler(args);
+        return r.handler({
+          pathParams: stringParams,
+          queryParams: stringParams,
+          body: params,
+        });
       },
+
+      // Structured handler for gateway IPC proxy
+      structuredHandler: (args: {
+        pathParams?: Record<string, string>;
+        queryParams?: Record<string, string>;
+        body?: Record<string, unknown>;
+        headers?: Record<string, string>;
+      }) => r.handler(args),
     }));
 }

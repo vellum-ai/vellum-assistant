@@ -28,6 +28,7 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
+import { RouteError } from "../runtime/routes/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { IpcEnvelope } from "./ipc-framing.js";
 import {
@@ -56,6 +57,10 @@ export type IpcResponse = {
   id: string;
   result?: unknown;
   error?: string;
+  /** HTTP-style status code for RouteError instances. */
+  errorStatusCode?: number;
+  /** Machine-readable error code (e.g. "NOT_FOUND") for RouteError instances. */
+  errorCode?: string;
   headers?: Record<string, string>;
 };
 
@@ -64,10 +69,23 @@ export type IpcMethodHandler = (
   connection?: unknown,
 ) => unknown | Promise<unknown>;
 
+/**
+ * Structured handler that receives separated pathParams/queryParams/body/headers.
+ * Used by the route adapter for transport-agnostic ROUTES entries.
+ * The IPC server prefers this over `handler` when present.
+ */
+export type IpcStructuredHandler = (args: {
+  pathParams?: Record<string, string>;
+  queryParams?: Record<string, string>;
+  body?: Record<string, unknown>;
+  headers?: Record<string, string>;
+}) => unknown | Promise<unknown>;
+
 /** A single IPC route definition — method name + handler function. */
 export type IpcRoute = {
   method: string;
   handler: IpcMethodHandler;
+  structuredHandler?: IpcStructuredHandler;
 };
 
 // ---------------------------------------------------------------------------
@@ -78,6 +96,7 @@ export class AssistantIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
   private methods = new Map<string, IpcMethodHandler>();
+  private structuredMethods = new Map<string, IpcStructuredHandler>();
   private socketPath: string;
 
   constructor() {
@@ -89,6 +108,9 @@ export class AssistantIpcServer {
     );
     for (const route of cliIpcRoutes) {
       this.methods.set(route.method, route.handler);
+      if (route.structuredHandler) {
+        this.structuredMethods.set(route.method, route.structuredHandler);
+      }
     }
   }
 
@@ -184,8 +206,8 @@ export class AssistantIpcServer {
       return;
     }
 
-    const handler = this.methods.get(req.method);
-    if (!handler) {
+    const legacyHandler = this.methods.get(req.method);
+    if (!legacyHandler) {
       this.sendResponse(socket, reader, {
         id: req.id,
         error: `Unknown method: ${req.method}`,
@@ -193,12 +215,35 @@ export class AssistantIpcServer {
       return;
     }
 
-    // TODO: pass binary + req.headers through to route handlers once
-    // IPC callers send structured RouteHandlerArgs payloads.
+    // Prefer the structured handler when available. The gateway IPC proxy
+    // sends separated { pathParams, queryParams, body, headers }; CLI
+    // callers send flat params and use the legacy handler.
+    const structuredHandler = this.structuredMethods.get(req.method);
+
+    // Detect structured payload shape: has at least one of the known keys.
+    const params = req.params;
+    const isStructured =
+      structuredHandler != null &&
+      params != null &&
+      ("pathParams" in params ||
+        "queryParams" in params ||
+        "body" in params ||
+        "headers" in params);
+
     void binary;
 
     try {
-      const result = handler(req.params);
+      const result = isStructured
+        ? structuredHandler(
+            params as {
+              pathParams?: Record<string, string>;
+              queryParams?: Record<string, string>;
+              body?: Record<string, unknown>;
+              headers?: Record<string, string>;
+            },
+          )
+        : legacyHandler(params);
+
       if (result instanceof Promise) {
         result
           .then((value) => {
@@ -206,21 +251,31 @@ export class AssistantIpcServer {
           })
           .catch((err) => {
             log.warn({ err, method: req.method }, "IPC handler error");
-            this.sendResponse(socket, reader, {
-              id: req.id,
-              error: String(err),
-            });
+            this.sendResponse(
+              socket,
+              reader,
+              this.buildErrorResponse(req.id, err),
+            );
           });
       } else {
         this.sendResponse(socket, reader, { id: req.id, result });
       }
     } catch (err) {
       log.warn({ err, method: req.method }, "IPC handler error");
-      this.sendResponse(socket, reader, {
-        id: req.id,
-        error: String(err),
-      });
+      this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
     }
+  }
+
+  private buildErrorResponse(id: string, err: unknown): IpcResponse {
+    if (err instanceof RouteError) {
+      return {
+        id,
+        error: err.message,
+        errorStatusCode: err.statusCode,
+        errorCode: err.code,
+      };
+    }
+    return { id, error: String(err) };
   }
 
   private sendResponse(

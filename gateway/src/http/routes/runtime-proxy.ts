@@ -46,7 +46,9 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
 
     // IPC fast-path: when the client sends X-Vellum-Proxy-Server: ipc and
     // the route is in the schema cache, serve via IPC instead of HTTP.
-    const ipcResponse = await tryIpcProxy(req);
+    // Auth is handled inside tryIpcProxy — it replicates the same JWT
+    // validation as the HTTP path below.
+    const ipcResponse = await tryIpcProxy(req, config);
     if (ipcResponse) return ipcResponse;
 
     // Validate the edge JWT (aud=vellum-gateway) when auth is required.
