@@ -81,8 +81,7 @@ export const contactRoutes: IpcRoute[] = [
     method: "create_guardian_binding",
     schema: CreateGuardianBindingParamsSchema,
     handler: (params?: Record<string, unknown>) => {
-      const p = params as CreateGuardianBindingParams;
-      return createGuardianBinding(p);
+      return createGuardianBinding(params as unknown as CreateGuardianBindingParams);
     },
   },
 ];
