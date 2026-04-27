@@ -17,9 +17,7 @@ import type {
 } from "../../runtime/routes/types.js";
 import type { IpcRoute } from "../assistant-server.js";
 
-function isStructuredArgs(
-  params: Record<string, unknown>,
-): params is RouteHandlerArgs {
+function isStructuredArgs(params: Record<string, unknown>): boolean {
   return (
     "pathParams" in params || "queryParams" in params || "body" in params
   );
@@ -32,10 +30,10 @@ export function routeDefinitionsToIpcRoutes(
     method: r.operationId,
     handler: (params?: Record<string, unknown>) => {
       if (params && isStructuredArgs(params)) {
-        return r.handler(params);
+        return r.handler(params as unknown as RouteHandlerArgs);
       }
       return r.handler({
-        pathParams: params as Record<string, string>,
+        pathParams: (params as Record<string, string> | undefined) ?? {},
         body: params,
       });
     },
