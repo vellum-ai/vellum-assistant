@@ -4476,7 +4476,7 @@ paths:
           required: false
           schema:
             type: integer
-          description: Max runs to return (default 20)
+          description: Max runs to return (default 20, max 100)
   /v1/home/feed:
     get:
       operationId: home_feed_get

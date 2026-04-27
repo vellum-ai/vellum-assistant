@@ -1,5 +1,9 @@
 /**
- * HTTP route handlers for heartbeat management.
+ * Route handlers for heartbeat management.
+ *
+ * Shared ROUTES are served by both the HTTP server and the IPC server.
+ * Routes that need HeartbeatService DI remain HTTP-only via
+ * heartbeatHttpOnlyRouteDefinitions().
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -17,14 +21,133 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, InternalError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("heartbeat-routes");
 
 // ---------------------------------------------------------------------------
-// Handlers
+// Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-function handleGetConfig(heartbeatService?: HeartbeatService): Response {
+function handleListRuns(queryParams: Record<string, string>) {
+  const rawLimit = Number(queryParams.limit ?? 20);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
+    : 20;
+  const db = getDb();
+  const rows = db
+    .select({
+      id: conversations.id,
+      title: conversations.title,
+      createdAt: conversations.createdAt,
+    })
+    .from(conversations)
+    .where(eq(conversations.source, "heartbeat"))
+    .orderBy(desc(conversations.createdAt))
+    .limit(limit)
+    .all();
+
+  return {
+    runs: rows.map((r) => ({
+      id: r.id,
+      title: r.title ?? "Heartbeat",
+      createdAt: r.createdAt,
+      result: "ok",
+    })),
+  };
+}
+
+function handleGetChecklist() {
+  const path = getWorkspacePromptPath("HEARTBEAT.md");
+  const content = readTextFileSync(path);
+  return {
+    content: content ?? "",
+    isDefault: content == null,
+  };
+}
+
+function handleWriteChecklist(body: Record<string, unknown>) {
+  const content = body.content;
+  if (typeof content !== "string") {
+    throw new BadRequestError("content is required");
+  }
+  const path = getWorkspacePromptPath("HEARTBEAT.md");
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, "utf-8");
+    log.info("Heartbeat checklist updated");
+    return { success: true };
+  } catch (err) {
+    log.error({ err }, "Failed to write heartbeat checklist");
+    throw new InternalError("Failed to write checklist");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared route definitions (HTTP + IPC)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listHeartbeatRuns",
+    endpoint: "heartbeat/runs",
+    method: "GET",
+    policyKey: "heartbeat",
+    summary: "List heartbeat runs",
+    description: "Return recent heartbeat conversation runs.",
+    tags: ["heartbeat"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max runs to return (default 20, max 100)",
+      },
+    ],
+    responseBody: z.object({
+      runs: z.array(z.unknown()).describe("Heartbeat run records"),
+    }),
+    handler: ({ queryParams }: RouteHandlerArgs) =>
+      handleListRuns(queryParams ?? {}),
+  },
+  {
+    operationId: "getHeartbeatChecklist",
+    endpoint: "heartbeat/checklist",
+    method: "GET",
+    policyKey: "heartbeat",
+    summary: "Get heartbeat checklist",
+    description: "Return the HEARTBEAT.md checklist content.",
+    tags: ["heartbeat"],
+    responseBody: z.object({
+      content: z.string().describe("Checklist markdown content"),
+      isDefault: z.boolean().describe("True when no custom checklist exists"),
+    }),
+    handler: () => handleGetChecklist(),
+  },
+  {
+    operationId: "writeHeartbeatChecklist",
+    endpoint: "heartbeat/checklist",
+    method: "PUT",
+    policyKey: "heartbeat",
+    summary: "Write heartbeat checklist",
+    description: "Overwrite the HEARTBEAT.md checklist content.",
+    tags: ["heartbeat"],
+    requestBody: z.object({
+      content: z.string().describe("Checklist markdown content"),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+    }),
+    handler: ({ body }: RouteHandlerArgs) =>
+      handleWriteChecklist(body ?? {}),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// HTTP-only route definitions (require HeartbeatService DI)
+// ---------------------------------------------------------------------------
+
+function handleGetConfig(heartbeatService?: HeartbeatService) {
   const config = getConfig().heartbeat;
   return Response.json({
     enabled: config.enabled,
@@ -71,30 +194,6 @@ function handleUpdateConfig(
   });
 }
 
-function handleListRuns(limit: number): Response {
-  const db = getDb();
-  const rows = db
-    .select({
-      id: conversations.id,
-      title: conversations.title,
-      createdAt: conversations.createdAt,
-    })
-    .from(conversations)
-    .where(eq(conversations.source, "heartbeat"))
-    .orderBy(desc(conversations.createdAt))
-    .limit(limit)
-    .all();
-
-  return Response.json({
-    runs: rows.map((r) => ({
-      id: r.id,
-      title: r.title ?? "Heartbeat",
-      createdAt: r.createdAt,
-      result: "ok",
-    })),
-  });
-}
-
 async function handleRunNow(
   heartbeatService?: HeartbeatService,
 ): Promise<Response> {
@@ -116,33 +215,7 @@ async function handleRunNow(
   }
 }
 
-function handleGetChecklist(): Response {
-  const path = getWorkspacePromptPath("HEARTBEAT.md");
-  const content = readTextFileSync(path);
-  return Response.json({
-    content: content ?? "",
-    isDefault: content == null,
-  });
-}
-
-function handleWriteChecklist(content: string): Response {
-  const path = getWorkspacePromptPath("HEARTBEAT.md");
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content, "utf-8");
-    log.info("Heartbeat checklist updated via HTTP");
-    return Response.json({ success: true });
-  } catch (err) {
-    log.error({ err }, "Failed to write heartbeat checklist");
-    return httpError("INTERNAL_ERROR", "Failed to write checklist", 500);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-export function heartbeatRouteDefinitions(deps: {
+export function heartbeatHttpOnlyRouteDefinitions(deps: {
   getHeartbeatService?: () => HeartbeatService | undefined;
 }): HTTPRouteDefinition[] {
   return [
@@ -200,28 +273,6 @@ export function heartbeatRouteDefinitions(deps: {
       },
     },
     {
-      endpoint: "heartbeat/runs",
-      method: "GET",
-      policyKey: "heartbeat",
-      summary: "List heartbeat runs",
-      description: "Return recent heartbeat conversation runs.",
-      tags: ["heartbeat"],
-      queryParams: [
-        {
-          name: "limit",
-          schema: { type: "integer" },
-          description: "Max runs to return (default 20)",
-        },
-      ],
-      responseBody: z.object({
-        runs: z.array(z.unknown()).describe("Heartbeat run records"),
-      }),
-      handler: ({ url }) => {
-        const limit = Number(url.searchParams.get("limit") ?? 20);
-        return handleListRuns(limit);
-      },
-    },
-    {
       endpoint: "heartbeat/run-now",
       method: "POST",
       policyKey: "heartbeat",
@@ -233,40 +284,6 @@ export function heartbeatRouteDefinitions(deps: {
         ran: z.boolean().describe("Whether the heartbeat actually ran"),
       }),
       handler: () => handleRunNow(deps.getHeartbeatService?.()),
-    },
-    {
-      endpoint: "heartbeat/checklist",
-      method: "GET",
-      policyKey: "heartbeat",
-      summary: "Get heartbeat checklist",
-      description: "Return the HEARTBEAT.md checklist content.",
-      tags: ["heartbeat"],
-      responseBody: z.object({
-        content: z.string().describe("Checklist markdown content"),
-        isDefault: z.boolean().describe("True when no custom checklist exists"),
-      }),
-      handler: () => handleGetChecklist(),
-    },
-    {
-      endpoint: "heartbeat/checklist",
-      method: "PUT",
-      policyKey: "heartbeat",
-      summary: "Write heartbeat checklist",
-      description: "Overwrite the HEARTBEAT.md checklist content.",
-      tags: ["heartbeat"],
-      requestBody: z.object({
-        content: z.string().describe("Checklist markdown content"),
-      }),
-      responseBody: z.object({
-        success: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as { content?: string };
-        if (typeof body.content !== "string") {
-          return httpError("BAD_REQUEST", "content is required", 400);
-        }
-        return handleWriteChecklist(body.content);
-      },
     },
   ];
 }

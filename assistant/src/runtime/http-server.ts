@@ -155,7 +155,7 @@ import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
-import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
+import { heartbeatHttpOnlyRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
   hostBrowserRouteDefinitions,
@@ -1783,7 +1783,7 @@ export class RuntimeHttpServer {
       ...scheduleHttpOnlyRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
-      ...heartbeatRouteDefinitions({
+      ...heartbeatHttpOnlyRouteDefinitions({
         getHeartbeatService: this.getHeartbeatService,
       }),
       ...filingRouteDefinitions({

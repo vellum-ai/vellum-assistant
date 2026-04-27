@@ -25,6 +25,7 @@ import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
+import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
@@ -69,6 +70,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DOCUMENT_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,
+  ...HEARTBEAT_ROUTES,
   ...HOME_FEED_ROUTES,
   ...HOME_STATE_ROUTES,
   ...IDENTITY_ROUTES,
