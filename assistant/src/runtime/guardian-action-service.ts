@@ -20,11 +20,18 @@ import type { ApprovalAction } from "./channel-approval-types.js";
 /** Canonical set of valid guardian actions, shared across all entrypoints. */
 const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
-  "approve_10m",
-  "approve_conversation",
-  "approve_always",
   "reject",
 ]);
+
+/**
+ * Legacy actions that map to canonical ones during client rollout.
+ * All temporal/persistent approval variants collapse to approve_once.
+ */
+const LEGACY_ACTION_MAP: Record<string, string> = {
+  approve_10m: "approve_once",
+  approve_conversation: "approve_once",
+  approve_always: "approve_once",
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,14 +73,15 @@ export type ProcessGuardianDecisionResult =
 export async function processGuardianDecision(
   params: ProcessGuardianDecisionParams,
 ): Promise<ProcessGuardianDecisionResult> {
-  const { requestId, action, conversationId, channel, actorContext } = params;
+  const { requestId, conversationId, channel, actorContext } = params;
 
-  // 1. Validate action
+  // 1. Canonicalize legacy actions, then validate
+  const action = LEGACY_ACTION_MAP[params.action] ?? params.action;
   if (!VALID_GUARDIAN_ACTIONS.has(action)) {
     return {
       ok: false,
       error: "invalid_action",
-      message: `Invalid action: ${action}. Must be one of: approve_once, approve_10m, approve_conversation, approve_always, reject`,
+      message: `Invalid action: ${params.action}. Must be one of: approve_once, reject`,
     };
   }
 
