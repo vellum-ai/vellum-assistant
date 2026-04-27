@@ -479,8 +479,12 @@ describe("command-registry", () => {
         expect(trustSpec.subcommands!.remove.baseRisk).toBe("high");
       });
 
-      test("assistant trust clear is high risk", () => {
-        expect(trustSpec.subcommands!.clear.baseRisk).toBe("high");
+      test("assistant trust add is high risk", () => {
+        expect(trustSpec.subcommands!.add.baseRisk).toBe("high");
+      });
+
+      test("assistant trust update is high risk", () => {
+        expect(trustSpec.subcommands!.update.baseRisk).toBe("high");
       });
     });
 
