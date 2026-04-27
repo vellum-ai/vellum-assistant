@@ -602,6 +602,11 @@ registerPolicy("attachments/lookup", {
   allowedPrincipalTypes: ["local"],
 });
 
+registerPolicy("avatar/notify-updated", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],

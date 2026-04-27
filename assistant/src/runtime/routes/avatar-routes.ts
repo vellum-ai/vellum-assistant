@@ -96,4 +96,20 @@ export const ROUTES: RouteDefinition[] = [
       ok: z.boolean(),
     }),
   },
+  {
+    operationId: "notify_avatar_updated",
+    endpoint: "avatar/notify-updated",
+    method: "POST",
+    handler: () => {
+      publishAvatarUpdated();
+      return { ok: true };
+    },
+    summary: "Notify avatar updated",
+    description:
+      "Publish an avatar_updated SSE event to connected clients.",
+    tags: ["avatar"],
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+  },
 ];

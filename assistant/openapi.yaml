@@ -1317,6 +1317,26 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/avatar/notify-updated:
+    post:
+      operationId: avatar_notifyupdated_post
+      summary: Notify avatar updated
+      description: Publish an avatar_updated SSE event to connected clients.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
   /v1/avatar/render-from-traits:
     post:
       operationId: avatar_renderfromtraits_post
