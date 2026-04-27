@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import type { Conversation } from "../../daemon/conversation.js";
+import { findConversation } from "../../daemon/conversation-store.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
@@ -35,11 +36,7 @@ import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("work-items-routes");
@@ -483,7 +480,8 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: ({ pathParams, body }) => {
       const id = pathParams!.id;
-      const { title, notes, status, priorityTier, sortIndex } = (body ?? {}) as {
+      const { title, notes, status, priorityTier, sortIndex } = (body ??
+        {}) as {
         title?: string;
         notes?: string;
         status?: string;
@@ -506,10 +504,8 @@ export const ROUTES: RouteDefinition[] = [
       if (sortIndex !== undefined) updates.sortIndex = sortIndex;
 
       const item =
-        updateWorkItem(
-          id,
-          updates as Parameters<typeof updateWorkItem>[1],
-        ) ?? null;
+        updateWorkItem(id, updates as Parameters<typeof updateWorkItem>[1]) ??
+        null;
 
       if (item) {
         broadcastWorkItemStatus(item.id);
@@ -659,7 +655,6 @@ export const ROUTES: RouteDefinition[] = [
 
 export interface WorkItemRouteDeps {
   getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
-  findConversation?: (conversationId: string) => Conversation | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -691,8 +686,8 @@ export function workItemHttpOnlyRouteDefinitions(
         }
 
         const conversationId = workItem.lastRunConversationId;
-        if (conversationId && deps?.findConversation) {
-          const conversation = deps.findConversation(conversationId);
+        if (conversationId) {
+          const conversation = findConversation(conversationId);
           if (conversation) {
             conversation.headlessLock = false;
             conversation.abort(

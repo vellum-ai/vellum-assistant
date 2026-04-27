@@ -16,10 +16,6 @@ export type { SlackInboundMessageMetadata };
 import type { ModelSetContext } from "../daemon/handlers/config-model.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-types/surfaces.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
@@ -75,8 +71,6 @@ export interface ApprovalConversationContext {
 export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
-
-
 
 // ---------------------------------------------------------------------------
 // Guardian follow-up conversation flow types
@@ -198,42 +192,6 @@ export interface RuntimeHttpServerOptions {
   sendMessageDeps?: SendMessageDeps;
   /** Context provider for skill management HTTP routes. */
   getSkillContext?: () => SkillOperationContext;
-  /** Lookup an active conversation by ID (for surface actions and content fetches). */
-  findConversation?: (conversationId: string) =>
-    | {
-        handleSurfaceAction(
-          surfaceId: string,
-          actionId: string,
-          data?: Record<string, unknown>,
-        ): void | Promise<unknown>;
-        surfaceState: Map<
-          string,
-          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-        >;
-        currentTurnSurfaces?: Array<{
-          surfaceId: string;
-          surfaceType: SurfaceType;
-          title?: string;
-          data: SurfaceData;
-          actions?: Array<{ id: string; label: string; style?: string }>;
-        }>;
-        removeQueuedMessage?: (requestId: string) => boolean;
-      }
-    | undefined;
-  /** Lookup an active conversation by surfaceId (fallback when conversationId is absent). */
-  findConversationBySurfaceId?: (surfaceId: string) =>
-    | {
-        handleSurfaceAction(
-          surfaceId: string,
-          actionId: string,
-          data?: Record<string, unknown>,
-        ): void | Promise<unknown>;
-        surfaceState: Map<
-          string,
-          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-        >;
-      }
-    | undefined;
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (conversation eviction, config reload suppression). */

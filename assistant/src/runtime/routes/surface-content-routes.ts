@@ -7,42 +7,18 @@
  */
 import { z } from "zod";
 
-import type {
-  SurfaceData,
-  SurfaceType,
-} from "../../daemon/message-types/surfaces.js";
+import { findConversation } from "../../daemon/conversation-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("surface-content-routes");
 
-/** Narrow interface for looking up surface state from a conversation. */
-interface SurfaceContentTarget {
-  surfaceState: Map<
-    string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-  >;
-  currentTurnSurfaces?: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
-  }>;
-}
-
-export type SurfaceContentConversationLookup = (
-  conversationId: string,
-) => SurfaceContentTarget | undefined;
-
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function surfaceContentRouteDefinitions(deps: {
-  findConversation?: SurfaceContentConversationLookup;
-}): HTTPRouteDefinition[] {
+export function surfaceContentRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "surfaces/:surfaceId",
@@ -66,14 +42,6 @@ export function surfaceContentRouteDefinitions(deps: {
         data: z.object({}).passthrough().describe("Surface data payload"),
       }),
       handler: ({ url, params }) => {
-        if (!deps.findConversation) {
-          return httpError(
-            "NOT_IMPLEMENTED",
-            "Surface content lookup not available",
-            501,
-          );
-        }
-
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) {
           return httpError(
@@ -92,7 +60,7 @@ export function surfaceContentRouteDefinitions(deps: {
           );
         }
 
-        const conversation = deps.findConversation(conversationId);
+        const conversation = findConversation(conversationId);
         if (!conversation) {
           return httpError(
             "NOT_FOUND",

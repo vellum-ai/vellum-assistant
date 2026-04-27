@@ -368,9 +368,6 @@ export async function regenerateResponse(
 export function deleteQueuedMessage(
   conversationId: string,
   requestId: string,
-  findConversation: (
-    id: string,
-  ) => { removeQueuedMessage(requestId: string): boolean } | undefined,
 ):
   | { removed: true }
   | { removed: false; reason: "conversation_not_found" | "message_not_found" } {

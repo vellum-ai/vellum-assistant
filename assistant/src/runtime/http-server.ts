@@ -139,9 +139,7 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
-import {
-  contactHttpOnlyRouteDefinitions,
-} from "./routes/contact-routes.js";
+import { contactHttpOnlyRouteDefinitions } from "./routes/contact-routes.js";
 import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import {
   type ConversationManagementDeps,
@@ -200,7 +198,7 @@ export type {
   SendMessageDeps,
 } from "./http-types.js";
 
-import type { Conversation } from "../daemon/conversation.js";
+import { findConversation } from "../daemon/conversation-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -313,8 +311,6 @@ export class RuntimeHttpServer {
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
   private sendMessageDeps?: SendMessageDeps;
-  private findConversation?: RuntimeHttpServerOptions["findConversation"];
-  private findConversationBySurfaceId?: RuntimeHttpServerOptions["findConversationBySurfaceId"];
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
@@ -336,8 +332,6 @@ export class RuntimeHttpServer {
       options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
-    this.findConversation = options.findConversation;
-    this.findConversationBySurfaceId = options.findConversationBySurfaceId;
     this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
@@ -1787,25 +1781,11 @@ export class RuntimeHttpServer {
           ? {
               getOrCreateConversation: (conversationId) =>
                 this.sendMessageDeps!.getOrCreateConversation(conversationId),
-              findConversation: this.findConversation
-                ? (conversationId) => {
-                    const s = this.findConversation!(conversationId);
-                    if (!s || !("abort" in s)) return undefined;
-                    return s as Conversation;
-                  }
-                : undefined,
             }
           : undefined,
       ),
       ...conversationQueryRouteDefinitions({
         getModelSetContext: this.getModelSetContext,
-        findConversationForQueue: this.findConversation
-          ? (id) => {
-              const s = this.findConversation!(id);
-              if (!s?.removeQueuedMessage) return undefined;
-              return { removeQueuedMessage: s.removeQueuedMessage.bind(s) };
-            }
-          : undefined,
       }),
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped
@@ -2061,9 +2041,7 @@ export class RuntimeHttpServer {
           if (!sendDeps) {
             // Fall back to the in-memory active map when the daemon hasn't
             // wired the hydration-capable accessor (e.g. unit tests).
-            const s = this.findConversation?.(id);
-            if (!s || !("abort" in s)) return undefined;
-            return s as Conversation;
+            return findConversation(id);
           }
           return sendDeps.getOrCreateConversation(id);
         },
@@ -2083,7 +2061,7 @@ export class RuntimeHttpServer {
           // then enqueue Qdrant vector cleanup for the returned segment
           // and summary IDs. Without this, seeded-then-deleted playground
           // conversations leak vectors and zombie Conversation objects.
-          if (this.findConversation?.(id)) {
+          if (findConversation(id)) {
             this.conversationManagementDeps?.destroyConversation(id);
           }
           const deleted = deleteConversation(id);
@@ -2126,13 +2104,8 @@ export class RuntimeHttpServer {
             getSkillContext: this.getSkillContext,
           })
         : []),
-      ...surfaceActionRouteDefinitions({
-        findConversation: this.findConversation,
-        findConversationBySurfaceId: this.findConversationBySurfaceId,
-      }),
-      ...surfaceContentRouteDefinitions({
-        findConversation: this.findConversation,
-      }),
+      ...surfaceActionRouteDefinitions(),
+      ...surfaceContentRouteDefinitions(),
       ...guardianActionRouteDefinitions(),
 
       ...contactHttpOnlyRouteDefinitions(),

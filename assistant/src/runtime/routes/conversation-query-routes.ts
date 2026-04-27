@@ -165,10 +165,6 @@ function applyStoredProviderToLlmContextResult(
 export interface ConversationQueryRouteDeps {
   /** Lazy factory for model set context (config reload suppression, conversation eviction). */
   getModelSetContext?: () => ModelSetContext;
-  /** Lookup an active conversation by ID for queued message deletion. */
-  findConversationForQueue?: (
-    id: string,
-  ) => { removeQueuedMessage(requestId: string): boolean } | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -651,13 +647,6 @@ export function conversationQueryRouteDefinitions(
         "Remove a pending message from the conversation queue before it is processed.",
       tags: ["messages"],
       handler: ({ url, params }) => {
-        if (!deps.findConversationForQueue) {
-          return httpError(
-            "INTERNAL_ERROR",
-            "Queued message deletion not available",
-            500,
-          );
-        }
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) {
           return httpError(
@@ -666,11 +655,7 @@ export function conversationQueryRouteDefinitions(
             400,
           );
         }
-        const result = deleteQueuedMessage(
-          conversationId,
-          params.id,
-          deps.findConversationForQueue,
-        );
+        const result = deleteQueuedMessage(conversationId, params.id);
         if (result.removed) {
           return Response.json({
             ok: true,

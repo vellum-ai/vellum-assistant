@@ -6,7 +6,12 @@
  */
 import { z } from "zod";
 
+import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import {
+  findConversation,
+  findConversationBySurfaceId,
+} from "../../daemon/conversation-store.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
@@ -31,18 +36,10 @@ interface SurfaceActionTarget {
   handleSurfaceUndo?(surfaceId: string): void;
   setTrustContext?(ctx: {
     trustClass: "guardian" | "trusted_contact" | "unknown";
-    sourceChannel: string;
+    sourceChannel: ChannelId;
   }): void;
   trustContext?: { trustClass: string } | null;
 }
-
-export type ConversationLookup = (
-  conversationId: string,
-) => SurfaceActionTarget | undefined;
-
-export type ConversationLookupBySurfaceId = (
-  surfaceId: string,
-) => SurfaceActionTarget | undefined;
 
 /**
  * Resolve trust context from the request's auth context and set it on the
@@ -105,8 +102,6 @@ function applyTrustContext(
  */
 async function handleSurfaceAction(
   req: Request,
-  findConversation: ConversationLookup,
-  findConversationBySurfaceId?: ConversationLookupBySurfaceId,
   authContext?: AuthContext,
 ): Promise<Response> {
   const body = (await req.json()) as {
@@ -203,8 +198,6 @@ async function handleSurfaceAction(
 async function handleSurfaceUndo(
   req: Request,
   surfaceId: string,
-  findConversation: ConversationLookup,
-  findConversationBySurfaceId?: ConversationLookupBySurfaceId,
 ): Promise<Response> {
   const body = (await req.json()) as {
     conversationId?: string | null;
@@ -245,10 +238,7 @@ async function handleSurfaceUndo(
   }
 }
 
-export function surfaceActionRouteDefinitions(deps: {
-  findConversation?: ConversationLookup;
-  findConversationBySurfaceId?: ConversationLookupBySurfaceId;
-}): HTTPRouteDefinition[] {
+export function surfaceActionRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "surface-actions",
@@ -280,19 +270,7 @@ export function surfaceActionRouteDefinitions(deps: {
           .optional(),
       }),
       handler: async ({ req, authContext }) => {
-        if (!deps.findConversation) {
-          return httpError(
-            "NOT_IMPLEMENTED",
-            "Surface actions not available",
-            501,
-          );
-        }
-        return handleSurfaceAction(
-          req,
-          deps.findConversation,
-          deps.findConversationBySurfaceId,
-          authContext,
-        );
+        return handleSurfaceAction(req, authContext);
       },
     },
     {
@@ -310,19 +288,7 @@ export function surfaceActionRouteDefinitions(deps: {
         ok: z.boolean(),
       }),
       handler: async ({ req, params }) => {
-        if (!deps.findConversation) {
-          return httpError(
-            "NOT_IMPLEMENTED",
-            "Surface undo not available",
-            501,
-          );
-        }
-        return handleSurfaceUndo(
-          req,
-          params.id,
-          deps.findConversation,
-          deps.findConversationBySurfaceId,
-        );
+        return handleSurfaceUndo(req, params.id);
       },
     },
   ];
