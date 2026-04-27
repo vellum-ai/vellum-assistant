@@ -535,7 +535,8 @@ export function requestSecretStandalone(params: {
   allowedTools?: string[];
   allowedDomains?: string[];
 }): Promise<SecretPromptResult> {
-  if (!broadcastToAllClients) {
+  const broadcast = broadcastToAllClients;
+  if (!broadcast) {
     return Promise.resolve({ value: null, delivery: "store" });
   }
   const requestId = uuid();
@@ -546,7 +547,7 @@ export function requestSecretStandalone(params: {
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
-    broadcastToAllClients({
+    broadcast({
       type: "secret_request",
       requestId,
       service: params.service,
