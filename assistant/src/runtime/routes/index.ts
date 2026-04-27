@@ -35,6 +35,7 @@ import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
+import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
@@ -71,6 +72,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SUBAGENT_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,
+  ...TTS_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
   ...USAGE_ROUTES,
   ...WORK_ITEM_ROUTES,

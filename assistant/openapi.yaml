@@ -5912,9 +5912,9 @@ paths:
           required: true
           schema:
             type: string
-  /v1/messages/{id}/tts:
+  /v1/messages/{messageId}/tts:
     post:
-      operationId: messages_by_id_tts_post
+      operationId: messages_by_messageId_tts_post
       summary: Synthesize message to speech
       description: Synthesize a message's text content to audio using the configured TTS provider.
       tags:
@@ -5923,7 +5923,7 @@ paths:
         "200":
           description: Successful response
       parameters:
-        - name: id
+        - name: messageId
           in: path
           required: true
           schema:
@@ -9380,9 +9380,7 @@ paths:
     post:
       operationId: tts_synthesize_post
       summary: Synthesize text to speech
-      description:
-        Synthesize arbitrary text to audio using the configured TTS provider. Provider selection is resolved
-        globally via config — callers do not specify a provider.
+      description: Synthesize arbitrary text to audio using the configured TTS provider.
       tags:
         - tts
       responses:
@@ -9399,9 +9397,7 @@ paths:
                   type: string
                   description: Text to synthesize into speech
                 context:
-                  description:
-                    Optional context hint for output policy or capability selection (e.g. voice-mode). Does not affect provider
-                    selection.
+                  description: Optional context hint for output policy or capability selection.
                   type: string
                 conversationId:
                   description: Optional conversation ID for scoping or analytics.
