@@ -1,6 +1,5 @@
 import { ROUTES } from "../../runtime/routes/index.js";
 import type { IpcRoute } from "../assistant-server.js";
-import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
@@ -21,7 +20,7 @@ export const cliIpcRoutes: IpcRoute[] = [
 
 
 
-  ...deferRoutes,
+
   getContactRoute,
   mergeContactsRoute,
   searchContactsRoute,

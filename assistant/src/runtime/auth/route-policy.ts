@@ -607,6 +607,22 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Defer operations: local-only (CLI / IPC callers)
+registerPolicy("defer/create", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("defer/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("defer/cancel", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Credential prompt: local-only (CLI / IPC callers)
 registerPolicy("credentials/prompt", {
   requiredScopes: ["settings.write"],

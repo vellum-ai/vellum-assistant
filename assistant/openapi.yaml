@@ -3930,6 +3930,147 @@ paths:
                   - schedules
                   - timestamp
                 additionalProperties: false
+  /v1/defer/cancel:
+    post:
+      operationId: defer_cancel_post
+      summary: Cancel deferred wakes
+      description: Cancel a specific deferred wake by ID, or all defers for a conversation.
+      tags:
+        - defer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - cancelled
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                all:
+                  type: boolean
+                conversationId:
+                  type: string
+              additionalProperties: false
+  /v1/defer/create:
+    post:
+      operationId: defer_create_post
+      summary: Create a deferred wake
+      description: Schedule a future wake-up on a conversation, optionally with a delay or absolute timestamp.
+      tags:
+        - defer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  fireAt:
+                    type: number
+                  conversationId:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - fireAt
+                  - conversationId
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                hint:
+                  type: string
+                  minLength: 1
+                delaySeconds:
+                  type: number
+                fireAt:
+                  type: number
+                name:
+                  type: string
+              required:
+                - conversationId
+                - hint
+              additionalProperties: false
+  /v1/defer/list:
+    post:
+      operationId: defer_list_post
+      summary: List active deferred wakes
+      description: List all active deferred wakes, optionally filtered by conversation.
+      tags:
+        - defer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        hint:
+                          type: string
+                        conversationId:
+                          type: string
+                        fireAt:
+                          type: number
+                        status:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - hint
+                        - conversationId
+                        - fireAt
+                        - status
+                      additionalProperties: false
+                required:
+                  - defers
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+              additionalProperties: false
   /v1/diagnostics/env-vars:
     get:
       operationId: diagnostics_envvars_get

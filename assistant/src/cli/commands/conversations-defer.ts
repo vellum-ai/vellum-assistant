@@ -181,11 +181,13 @@ Examples:
           fireAt: number;
           conversationId: string;
         }>("defer_create", {
-          conversationId,
-          hint: opts.hint,
-          delaySeconds,
-          fireAt,
-          name: opts.name,
+          body: {
+            conversationId,
+            hint: opts.hint,
+            delaySeconds,
+            fireAt,
+            name: opts.name,
+          },
         });
 
         if (!result.ok) {
@@ -242,7 +244,7 @@ Examples:
           status: string;
         }>;
       }>("defer_list", {
-        conversationId: opts.conversationId,
+        body: { conversationId: opts.conversationId },
       });
 
       if (!result.ok) {
@@ -328,7 +330,7 @@ Examples:
 
         const result = await cliIpcCall<{ cancelled: number }>(
           "defer_cancel",
-          ipcParams,
+          { body: ipcParams },
         );
 
         if (!result.ok) {
