@@ -377,7 +377,7 @@ final class ToolPermissionTesterModel: ObservableObject {
 
         Task {
             do {
-                try await trustRuleClient.createRule(
+                _ = try await trustRuleClient.createRule(
                     tool: snapshot.snapshotToolName,
                     pattern: pattern,
                     risk: "low",
