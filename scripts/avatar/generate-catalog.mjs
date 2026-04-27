@@ -21,7 +21,7 @@ const { getCharacterComponents } = await import(
   resolve(__dirname, "../../assistant/src/avatar/character-components.ts")
 );
 
-const CATALOG_PATH = resolve(__dirname, "../../avatar/character-components.json");
+const CATALOG_PATH = resolve(__dirname, "../../assets/character-components.json");
 
 const catalog = getCharacterComponents();
 const json = JSON.stringify(catalog, null, 2) + "\n";
