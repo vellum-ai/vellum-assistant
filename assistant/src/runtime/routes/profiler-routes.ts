@@ -43,6 +43,7 @@ import {
   ConflictError,
   InternalError,
   NotFoundError,
+  RouteError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -137,8 +138,8 @@ function handleExportRun({
   try {
     copyDirContents(runDir, staging);
 
-    const archiveBytes = createTarGz(staging);
-    if (!archiveBytes) {
+    const archiveBuf = createTarGz(staging);
+    if (!archiveBuf) {
       log.error(
         { runId },
         "Profiler run archive exceeds size limit or tar failed",
@@ -148,9 +149,9 @@ function handleExportRun({
       );
     }
 
-    return archiveBytes;
+    return new Uint8Array(archiveBuf);
   } catch (err) {
-    if (err instanceof InternalError) throw err;
+    if (err instanceof RouteError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, runId }, "Failed to export profiler run");
     throw new InternalError(`Failed to export profiler run: ${message}`);
