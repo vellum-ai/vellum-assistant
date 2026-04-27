@@ -56,6 +56,7 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   getIngressPublicBaseUrl: () => undefined,
   setIngressPublicBaseUrl: () => {},
+  getPlatformBaseUrl: () => "https://app.vellum.ai",
 }));
 
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";

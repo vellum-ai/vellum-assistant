@@ -1213,28 +1213,28 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
   });
 
   describe("default (undefined) resolves per-context defaults", () => {
-    test("undefined config → none threshold for background (maps to autonomous)", () => {
+    test("undefined config → low threshold for background", () => {
       const bgThreshold = resolveThreshold(undefined, "background");
-      expect(bgThreshold).toBe("none");
-      // Nothing auto-approves at the "none" threshold
-      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(false);
+      expect(bgThreshold).toBe("low");
+      // Low-risk auto-approves at the "low" threshold
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
       expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
     });
 
-    test("undefined config → low threshold for conversation", () => {
+    test("undefined config → medium threshold for conversation", () => {
       const convThreshold = resolveThreshold(undefined, "conversation");
-      expect(convThreshold).toBe("low");
+      expect(convThreshold).toBe("medium");
     });
 
-    test("undefined config → none threshold for headless (maps to autonomous)", () => {
+    test("undefined config → low threshold for headless", () => {
       const hlThreshold = resolveThreshold(undefined, "headless");
-      expect(hlThreshold).toBe("none");
+      expect(hlThreshold).toBe("low");
     });
 
-    test("undefined config + no context → low (conversation default)", () => {
+    test("undefined config + no context → medium (conversation default)", () => {
       const threshold = resolveThreshold(undefined);
-      expect(threshold).toBe("low");
+      expect(threshold).toBe("medium");
     });
   });
 });

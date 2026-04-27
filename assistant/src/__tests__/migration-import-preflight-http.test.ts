@@ -63,6 +63,7 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   getIngressPublicBaseUrl: () => undefined,
   setIngressPublicBaseUrl: () => {},
+  getPlatformBaseUrl: () => "https://app.vellum.ai",
 }));
 
 import {
