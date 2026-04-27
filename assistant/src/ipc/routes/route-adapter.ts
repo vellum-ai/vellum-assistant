@@ -21,8 +21,12 @@ export function routeDefinitionsToIpcRoutes(
     .map((r) => ({
       method: r.operationId,
       handler: (params?: Record<string, unknown>) => {
-        const stringParams =
-          (params as Record<string, string> | undefined) ?? {};
+        const stringParams: Record<string, string> = {};
+        if (params) {
+          for (const [k, v] of Object.entries(params)) {
+            if (typeof v === "string") stringParams[k] = v;
+          }
+        }
         return r.handler({
           pathParams: stringParams,
           queryParams: stringParams,
