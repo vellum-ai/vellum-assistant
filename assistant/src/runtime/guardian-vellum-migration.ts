@@ -1,9 +1,9 @@
 /**
  * Guardian binding drift healing for the vellum channel.
  *
- * The gateway now owns guardian binding creation at startup
+ * The gateway owns guardian binding creation at startup
  * (`ensureVellumGuardianBinding` in gateway/src/auth/guardian-bootstrap.ts).
- * This module retains the drift-healing logic which must remain
+ * This module provides drift-healing logic which must remain
  * assistant-side since it reacts to incoming JWT principals.
  */
 
