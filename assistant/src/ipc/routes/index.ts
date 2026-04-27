@@ -1,6 +1,5 @@
 import { ROUTES } from "../../runtime/routes/index.js";
 import type { IpcRoute } from "../assistant-server.js";
-import { credentialPromptRoute } from "./credential-prompt.js";
 import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
@@ -21,7 +20,7 @@ import { wipeConversationRoute } from "./wipe-conversation.js";
 export const cliIpcRoutes: IpcRoute[] = [
 
 
-  credentialPromptRoute,
+
   ...deferRoutes,
   getContactRoute,
   mergeContactsRoute,

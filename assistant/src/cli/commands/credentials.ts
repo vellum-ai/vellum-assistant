@@ -5,7 +5,6 @@ import {
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import type { CredentialPromptResult } from "../../ipc/routes/credential-prompt.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -13,6 +12,7 @@ import {
   listConnections,
   type OAuthConnectionRow,
 } from "../../oauth/oauth-store.js";
+import type { CredentialPromptResult } from "../../runtime/routes/credential-prompt-routes.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   getSecureKeyAsync,
@@ -874,16 +874,18 @@ Examples:
           // generous budget so it doesn't time out before the prompt resolves.
           const PROMPT_TIMEOUT_MS = 310_000; // 5 min + 10s buffer
           const ipc = await cliIpcCall<CredentialPromptResult>(
-            "credentials/prompt",
+            "credentials_prompt",
             {
-              service: opts.service,
-              field: opts.field,
-              label: opts.label,
-              description: opts.description,
-              placeholder: opts.placeholder,
-              allowedDomains,
-              allowedTools,
-              injectionTemplates,
+              body: {
+                service: opts.service,
+                field: opts.field,
+                label: opts.label,
+                description: opts.description,
+                placeholder: opts.placeholder,
+                allowedDomains,
+                allowedTools,
+                injectionTemplates,
+              },
             },
             { timeoutMs: PROMPT_TIMEOUT_MS },
           );

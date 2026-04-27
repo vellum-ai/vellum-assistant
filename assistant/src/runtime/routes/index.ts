@@ -25,6 +25,7 @@ import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
+import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
@@ -80,6 +81,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CLIENT_ROUTES,
   ...CONTACT_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
+  ...CREDENTIAL_PROMPT_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_ROUTES,
   ...DIAGNOSTICS_ROUTES,
