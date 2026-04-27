@@ -20,7 +20,7 @@ import {
 } from "../../oauth/oauth-store.js";
 import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 function parseGrantedScopes(
   grantedScopes: string | string[] | null | undefined,
@@ -53,7 +53,7 @@ function normalizeHasRefreshToken(
 /**
  * Build route definitions for OAuth app and connection CRUD endpoints.
  */
-export function oauthAppsRouteDefinitions(): RouteDefinition[] {
+export function oauthAppsRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     // GET /v1/oauth/apps — List apps filtered by provider_key query param.
     {

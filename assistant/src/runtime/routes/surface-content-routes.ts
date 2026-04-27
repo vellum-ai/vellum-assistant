@@ -13,7 +13,7 @@ import type {
 } from "../../daemon/message-types/surfaces.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("surface-content-routes");
 
@@ -42,7 +42,7 @@ export type SurfaceContentConversationLookup = (
 
 export function surfaceContentRouteDefinitions(deps: {
   findConversation?: SurfaceContentConversationLookup;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "surfaces/:surfaceId",

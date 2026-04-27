@@ -24,7 +24,7 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 // Import directly from the source modules (not ./index.js) — index.ts imports
 // this file's `resetCircuitRouteDefinitions`, so pulling its re-exports back
 // through the barrel would create a cycle.
@@ -34,7 +34,7 @@ import { assertPlaygroundEnabled } from "./guard.js";
 
 export function resetCircuitRouteDefinitions(
   deps: PlaygroundRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversations/:id/playground/reset-compaction-circuit",

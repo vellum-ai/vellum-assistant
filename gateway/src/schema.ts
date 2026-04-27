@@ -3912,6 +3912,94 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/inbound/register": {
+        post: {
+          summary: "Auto-verify guardian email (BYO provider)",
+          description:
+            "Called by the platform after registering a BYO email provider webhook. Validates the provider API key, cross-checks the guardian email (when provider supports it), and creates a guardian email channel binding.",
+          operationId: "inboundRegister",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["type", "guardian_email"],
+                  properties: {
+                    type: {
+                      type: "string",
+                      description:
+                        "Email provider type (e.g. resend, mailgun)",
+                    },
+                    guardian_email: {
+                      type: "string",
+                      format: "email",
+                      description: "Guardian email address to verify",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Guardian email channel verified and binding created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      ok: { type: "boolean" },
+                      verified_via: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid request body or unsupported provider type",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "404": {
+              description: "No guardian contact exists",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "409": {
+              description: "No API key configured for provider",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "422": {
+              description: "Email validation failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Failed to create guardian binding",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/{path}": {
         get: {
           summary: "Runtime proxy",

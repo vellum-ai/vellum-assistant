@@ -43,10 +43,6 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import {
-  createConversation,
-  updateConversationHostAccess,
-} from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
@@ -61,10 +57,9 @@ function clearTables(): void {
   db.delete(scopedApprovalGrants).run();
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
-  // Insert "conv-1" with host_access=1 so trusted_contact+host gate passes
   const now = Date.now();
   getSqlite().run(
-    "INSERT INTO conversations (id, created_at, updated_at, host_access) VALUES (?, ?, ?, 1)",
+    "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
     ["conv-1", now, now],
   );
 }
@@ -539,47 +534,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     );
   });
 
-  test("trusted contact host tools are denied until computer access is enabled for the conversation", async () => {
-    const conv = createConversation("trusted contact host gate");
-    const result = await handler.checkPreExecutionGates(
-      "bash",
-      { command: "ls -la" },
-      makeContext({
-        trustClass: "trusted_contact",
-        conversationId: conv.id,
-      }),
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    expect(result.result.content).toContain(
-      "computer access is not enabled for this conversation",
-    );
-  });
-
-  test("trusted contact host tools run once computer access is enabled for the conversation", async () => {
-    const conv = createConversation("trusted contact host access enabled");
-    updateConversationHostAccess(conv.id, true);
-
-    const result = await handler.checkPreExecutionGates(
-      "bash",
-      { command: "ls -la" },
-      makeContext({
-        trustClass: "trusted_contact",
-        conversationId: conv.id,
-      }),
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(true);
-  });
 });
 
 afterAll(() => {

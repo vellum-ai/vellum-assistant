@@ -19,7 +19,7 @@ import { getMessageContent } from "../../daemon/handlers/conversation-history.js
 import { synthesizeText } from "../../tts/synthesize-text.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("tts-routes");
 
@@ -29,7 +29,7 @@ const MESSAGE_TTS_FLAG = "message-tts" as const;
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function ttsRouteDefinitions(): RouteDefinition[] {
+export function ttsRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "messages/:id/tts",

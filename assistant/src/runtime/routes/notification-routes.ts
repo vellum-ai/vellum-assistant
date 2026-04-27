@@ -11,9 +11,9 @@ import { z } from "zod";
 import { getDb } from "../../memory/db.js";
 import { notificationDeliveries } from "../../memory/schema.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
-export function notificationRouteDefinitions(): RouteDefinition[] {
+export function notificationRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     // POST /v1/notification-intent-result — client ack for notification delivery
     {

@@ -264,6 +264,7 @@ export type ConnectionHealthState =
   | 'connected'
   | 'reconnecting'
   | 'auth_required'
+  | 'assistant_gone'
   | 'error';
 
 /**
@@ -664,7 +665,52 @@ function createSseConnection(mode: SseMode): SseConnection {
         setConnectionHealth('reconnecting');
       }
     },
+    onNotFound: () => {
+      console.warn('[vellum-sse] 404 — assistant not found, attempting recovery');
+      void handleAssistantGone();
+    },
   });
+}
+
+/**
+ * Recovery handler for when the selected assistant returns 404.
+ *
+ * Re-fetches the assistants list. If exactly one assistant exists and
+ * it's different from the stored one, auto-switch and reconnect.
+ * Otherwise, tear down and surface `assistant_gone` so the popup can
+ * show the assistant picker.
+ */
+async function handleAssistantGone(): Promise<void> {
+  teardownConnections();
+  shouldConnect = false;
+
+  let assistants: Array<{ id: string; name: string }> = [];
+  try {
+    const env = await getEffectiveEnvironment();
+    assistants = await fetchAssistants(env);
+  } catch (err) {
+    console.error('[vellum-sse] Failed to fetch assistants during 404 recovery', err);
+    setConnectionHealth('error', {
+      lastErrorMessage: 'Assistant not found and could not refresh the list.',
+    });
+    return;
+  }
+
+  const current = await getSelectedAssistant();
+
+  if (assistants.length === 1 && assistants[0]!.id !== current?.id) {
+    // A different sole assistant is available — auto-switch and reconnect.
+    const only = assistants[0]!;
+    console.log(`[vellum-sse] Auto-switching to sole assistant: ${only.name} (${only.id})`);
+    await storeSelectedAssistant({ id: only.id, name: only.name });
+    shouldConnect = true;
+    await connect({ interactive: false });
+  } else {
+    // Same assistant still 404ing, 0 assistants, or 2+ — user must pick.
+    setConnectionHealth('assistant_gone', {
+      lastErrorMessage: 'The selected assistant no longer exists.',
+    });
+  }
 }
 
 /**
@@ -1244,6 +1290,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       await clearStoredUserMode();
       sendResponseFn({ ok: true });
     })().catch(() => sendResponseFn({ ok: true }));
+    return true; // async
+  }
+
+  if (message.type === 'list-assistants') {
+    (async () => {
+      const env = await getEffectiveEnvironment();
+      const assistants = await fetchAssistants(env);
+      sendResponseFn({ ok: true, assistants });
+    })().catch((err) =>
+      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
     return true; // async
   }
 

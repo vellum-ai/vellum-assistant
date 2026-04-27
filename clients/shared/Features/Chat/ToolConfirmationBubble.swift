@@ -47,19 +47,6 @@ public struct ToolConfirmationBubble: View {
 
     /// Label shown in the collapsed state after a decision is made.
     private var collapsedLabel: String {
-        if confirmation.isConversationHostAccessPrompt {
-            switch confirmation.state {
-            case .approved:
-                return "Computer access enabled for this conversation"
-            case .denied:
-                return "Computer access not enabled for this conversation"
-            case .timedOut:
-                return "Timed out"
-            case .pending:
-                return ""
-            }
-        }
-
         switch confirmation.state {
         case .approved:
             return "\(confirmation.toolCategory) allowed"

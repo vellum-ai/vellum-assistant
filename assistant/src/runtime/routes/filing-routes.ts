@@ -8,7 +8,7 @@ import { getConfig } from "../../config/loader.js";
 import type { FilingService } from "../../filing/filing-service.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("filing-routes");
 
@@ -56,7 +56,7 @@ async function handleRunNow(
 
 export function filingRouteDefinitions(deps: {
   getFilingService?: () => FilingService | undefined;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "filing/config",

@@ -20,9 +20,9 @@ import {
   rollbackWorkspaceMigrations,
 } from "../../workspace/migrations/runner.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
-export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
+export function migrationRollbackRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "admin/rollback-migrations",

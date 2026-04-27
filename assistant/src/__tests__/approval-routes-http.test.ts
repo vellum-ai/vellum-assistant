@@ -115,7 +115,6 @@ mock.module("../permissions/trust-store.js", () => ({
 }));
 
 import { getDb, initializeDb } from "../memory/db.js";
-import { CONVERSATION_HOST_ACCESS_PROMPT } from "../permissions/host-access-policy.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -438,7 +437,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("rejects temporal approval decisions for conversation host-access prompts", async () => {
+    test("rejects temporal approval decisions (allow_10m is not a valid verb)", async () => {
       let confirmedDecision: string | undefined;
 
       const session = makeIdleSession({
@@ -457,7 +456,8 @@ describe("standalone approval endpoints — HTTP layer", () => {
           toolName: "host_bash",
           input: { command: "ls" },
           riskLevel: "medium",
-          ...CONVERSATION_HOST_ACCESS_PROMPT,
+          allowlistOptions: [],
+          scopeOptions: [],
         },
       });
 

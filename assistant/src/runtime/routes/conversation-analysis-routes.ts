@@ -10,7 +10,7 @@
  */
 
 import { httpError, type HttpErrorCode } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   analyzeConversation,
   type ConversationAnalysisDeps,
@@ -26,7 +26,7 @@ export type { ConversationAnalysisDeps };
 
 export function conversationAnalysisRouteDefinitions(
   deps: ConversationAnalysisDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversations/:id/analyze",

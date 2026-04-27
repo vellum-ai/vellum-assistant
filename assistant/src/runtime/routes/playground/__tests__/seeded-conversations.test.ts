@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Conversation } from "../../../../daemon/conversation.js";
-import type { RouteDefinition } from "../../../http-router.js";
+import type { HTTPRouteDefinition } from "../../../http-router.js";
 import type { PlaygroundRouteDeps } from "../deps.js";
 import { PLAYGROUND_TITLE_PREFIX } from "../seed-conversation.js";
 import { seededConversationsRouteDefinitions } from "../seeded-conversations.js";
@@ -48,10 +48,10 @@ function makeStub(opts: StubOpts = {}): Stub {
 }
 
 function findRoute(
-  routes: RouteDefinition[],
+  routes: HTTPRouteDefinition[],
   method: string,
   endpoint: string,
-): RouteDefinition {
+): HTTPRouteDefinition {
   const match = routes.find(
     (r) => r.method === method && r.endpoint === endpoint,
   );
@@ -64,7 +64,7 @@ function findRoute(
 // Minimal stand-in for the handler context — the seeded-conversation
 // handlers only read `params`, so we only populate that.
 function ctx(params: Record<string, string> = {}) {
-  return { params } as unknown as Parameters<RouteDefinition["handler"]>[0];
+  return { params } as unknown as Parameters<HTTPRouteDefinition["handler"]>[0];
 }
 
 describe("seededConversationsRouteDefinitions — flag disabled", () => {

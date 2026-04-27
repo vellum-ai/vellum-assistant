@@ -13,7 +13,7 @@ import { normalizeSttError } from "../../stt/daemon-batch-transcriber.js";
 import type { SttErrorCategory } from "../../stt/types.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("stt-routes");
 
@@ -59,7 +59,7 @@ const STT_ERROR_MAP: Record<
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function sttRouteDefinitions(): RouteDefinition[] {
+export function sttRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "stt/providers",

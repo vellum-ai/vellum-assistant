@@ -52,7 +52,7 @@ import {
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
@@ -177,7 +177,7 @@ export interface ConversationQueryRouteDeps {
 
 export function conversationQueryRouteDefinitions(
   deps: ConversationQueryRouteDeps = {},
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     // ── Model config ──────────────────────────────────────────────────
     {

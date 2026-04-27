@@ -18,6 +18,7 @@ export type ConnectionHealthState =
   | 'connected'
   | 'reconnecting'
   | 'auth_required'
+  | 'assistant_gone'
   | 'error';
 
 export interface ConnectionHealthDetail {
@@ -74,6 +75,8 @@ export function healthToPhase(health: ConnectionHealthState): ConnectionPhase {
       return 'paused';
     case 'auth_required':
       return 'disconnected';
+    case 'assistant_gone':
+      return 'disconnected';
     case 'error':
       return 'disconnected';
   }
@@ -106,6 +109,8 @@ export function deriveHealthStatusDisplay(
           ? `Action required: ${cleanErrorMessage(detail.lastErrorMessage, 'check gateway URL and re-pair')}`
           : 'Action required \u2014 check gateway URL and re-pair',
       };
+    case 'assistant_gone':
+      return { dotClass: 'disconnected', text: 'Assistant no longer available' };
     case 'error': {
       let text = detail?.lastErrorMessage
         ? cleanErrorMessage(detail.lastErrorMessage, 'Connection error')
@@ -119,7 +124,7 @@ export function deriveHealthStatusDisplay(
 // ── Troubleshooting visibility ──────────────────────────────────────
 
 export function shouldExpandTroubleshooting(health: ConnectionHealthState): boolean {
-  return health === 'auth_required' || health === 'error';
+  return health === 'auth_required' || health === 'error' || health === 'assistant_gone';
 }
 
 export function hasTroubleshootingControls(

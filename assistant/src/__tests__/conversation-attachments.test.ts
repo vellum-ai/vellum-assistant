@@ -53,7 +53,6 @@ import { getFilePathForAttachment } from "../memory/attachments-store.js";
 import {
   addMessage,
   createConversation,
-  updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 
@@ -215,7 +214,7 @@ describe("approveHostAttachmentRead", () => {
     addRuleSpy.mockClear();
   });
 
-  test("uses the conversation-scoped host-access prompt", async () => {
+  test("prompts and allows on allow decision", async () => {
     const conversation = createConversation("attachment-host-gate");
     const promptSpy = mock(() =>
       Promise.resolve({ decision: "allow" as const }),
@@ -238,16 +237,13 @@ describe("approveHostAttachmentRead", () => {
     const call = promptSpy.mock.calls[0] as unknown as unknown[];
     expect(call[3]).toEqual([]);
     expect(call[4]).toEqual([]);
-    expect(call[8]).toBe(false);
-    expect(call[10]).toBeUndefined(); // toolUseId
-    expect(call[11]).toBe(true); // hostAccessEnablePrompt
+    expect(call[8]).toBe(false); // persistentDecisionsAllowed
   });
 
-  test("auto-allows host attachment reads when the conversation already has host access", async () => {
-    const conversation = createConversation("attachment-host-allowed");
-    updateConversationHostAccess(conversation.id, true);
+  test("denies when hasNoClient is true without prompting", async () => {
+    const conversation = createConversation("attachment-no-client");
     const promptSpy = mock(() =>
-      Promise.resolve({ decision: "deny" as const }),
+      Promise.resolve({ decision: "allow" as const }),
     );
 
     const { approveHostAttachmentRead } =
@@ -258,11 +254,10 @@ describe("approveHostAttachmentRead", () => {
       "/tmp",
       { prompt: promptSpy } as never,
       conversation.id,
-      false,
+      true,
     );
 
-    expect(allowed).toBe(true);
+    expect(allowed).toBe(false);
     expect(promptSpy).not.toHaveBeenCalled();
-    expect(checkSpy).not.toHaveBeenCalled();
   });
 });

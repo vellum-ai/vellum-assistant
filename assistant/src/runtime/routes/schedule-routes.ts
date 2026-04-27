@@ -23,7 +23,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
 
 const log = getLogger("schedule-routes");
@@ -409,7 +409,7 @@ async function handleRunScheduleNow(
 
 export function scheduleRouteDefinitions(deps: {
   sendMessageDeps?: SendMessageDeps;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "schedules",

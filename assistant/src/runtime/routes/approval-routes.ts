@@ -12,16 +12,12 @@ import { z } from "zod";
 
 import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
-import {
-  isConversationHostAccessDecision,
-  isConversationHostAccessEnablePrompt,
-} from "../../permissions/host-access-policy.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
 
 const log = getLogger("approval-routes");
@@ -85,18 +81,6 @@ export async function handleConfirm(
       "BAD_REQUEST",
       "decision must resolve to allow or deny",
       400,
-    );
-  }
-
-  if (
-    peeked.confirmationDetails &&
-    isConversationHostAccessEnablePrompt(peeked.confirmationDetails) &&
-    !isConversationHostAccessDecision(effectiveDecision as UserDecision)
-  ) {
-    return httpError(
-      "FORBIDDEN",
-      "Conversation host-access prompts only accept allow or deny",
-      403,
     );
   }
 
@@ -280,7 +264,7 @@ export function handleListPendingInteractions(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function approvalRouteDefinitions(): RouteDefinition[] {
+export function approvalRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "confirm",

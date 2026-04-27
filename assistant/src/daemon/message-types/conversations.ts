@@ -211,7 +211,6 @@ export interface ConversationInfo {
   title: string;
   correlationId?: string;
   conversationType?: ConversationType;
-  hostAccess: boolean;
   /**
    * Per-conversation override for the LLM inference profile. `undefined`
    * means the conversation inherits the workspace `llm.activeProfile`.
@@ -258,7 +257,6 @@ export interface ConversationListResponse {
     updatedAt: number;
     conversationType?: ConversationType;
     source?: string;
-    hostAccess: boolean;
     scheduleJobId?: string;
     channelBinding?: ChannelBinding;
     conversationOriginChannel?: ChannelId;

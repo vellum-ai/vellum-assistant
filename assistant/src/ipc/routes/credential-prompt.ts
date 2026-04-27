@@ -2,14 +2,17 @@
  * IPC route for securely prompting the user for a credential via the UI.
  *
  * CLI commands and skill scripts call this route to trigger a secure input
- * prompt in the user's app. The handler broadcasts the prompt to all
- * connected clients, stores the credential and its metadata on success.
+ * prompt in the user's app. The handler sends the prompt to connected
+ * clients, stores the credential and its metadata on success.
+ *
+ * No daemon-level wiring needed — `requestSecretStandalone` handles
+ * broadcasting internally.
  */
 
 import { z } from "zod";
 
+import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
-import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import {
@@ -53,44 +56,17 @@ export type CredentialPromptResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Dependency injection
-// ---------------------------------------------------------------------------
-
-export interface CredentialPromptDeps {
-  /** Request a secret from the user, using the standalone (non-conversation) path. */
-  requestSecretStandalone: (params: {
-    service: string;
-    field: string;
-    label: string;
-    description?: string;
-    placeholder?: string;
-    allowedTools?: string[];
-    allowedDomains?: string[];
-  }) => Promise<SecretPromptResult>;
-}
-
-let deps: CredentialPromptDeps | null = null;
-
-export function registerCredentialPromptDeps(d: CredentialPromptDeps): void {
-  deps = d;
-}
-
-// ---------------------------------------------------------------------------
 // Route
 // ---------------------------------------------------------------------------
 
 export const credentialPromptRoute: IpcRoute = {
   method: "credentials/prompt",
   handler: async (params) => {
-    if (!deps) {
-      throw new Error("credentials/prompt: deps not registered");
-    }
-
     const validated = CredentialPromptParams.parse(params);
 
     assertMetadataWritable();
 
-    const result = await deps.requestSecretStandalone({
+    const result = await requestSecretStandalone({
       service: validated.service,
       field: validated.field,
       label: validated.label,

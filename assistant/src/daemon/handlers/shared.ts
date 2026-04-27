@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 
+import { broadcastToAllClients } from "../../acp/index.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
@@ -521,21 +522,23 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
 
 /**
  * Send a `secret_request` to the client and wait for the response,
- * outside of a conversation context (e.g. from handler-level code like publish_page).
+ * outside of a conversation context (e.g. from IPC routes like
+ * credentials/prompt).
  */
-export function requestSecretStandalone(
-  ctx: HandlerContext,
-  params: {
-    service: string;
-    field: string;
-    label: string;
-    description?: string;
-    placeholder?: string;
-    purpose?: string;
-    allowedTools?: string[];
-    allowedDomains?: string[];
-  },
-): Promise<SecretPromptResult> {
+export function requestSecretStandalone(params: {
+  service: string;
+  field: string;
+  label: string;
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+}): Promise<SecretPromptResult> {
+  const broadcast = broadcastToAllClients;
+  if (!broadcast) {
+    return Promise.resolve({ value: null, delivery: "store" });
+  }
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
@@ -544,7 +547,7 @@ export function requestSecretStandalone(
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
-    ctx.send({
+    broadcast({
       type: "secret_request",
       requestId,
       service: params.service,

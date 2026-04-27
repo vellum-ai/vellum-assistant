@@ -174,6 +174,8 @@ function statusBadgeDisplay(health: ConnectionHealthState): {
       return { text: 'Paused', className: 'paused' };
     case 'auth_required':
       return { text: 'Needs action', className: 'disconnected' };
+    case 'assistant_gone':
+      return { text: 'Assistant removed', className: 'disconnected' };
     case 'error':
       return { text: 'Issue detected', className: 'disconnected' };
   }
@@ -183,6 +185,14 @@ function updateHealthDisplay(
   health: ConnectionHealthState,
   detail: ConnectionHealthDetail,
 ): void {
+  // If the assistant was retired/deleted, show the picker screen so
+  // the user can select a new one. The worker already stopped the SSE
+  // loop — the popup just needs to navigate.
+  if (health === 'assistant_gone' && _currentHealthState !== 'assistant_gone') {
+    showScreen('picker');
+    refreshAssistantPicker();
+  }
+
   _currentHealthState = health;
   const phase = healthToPhase(health);
 
@@ -394,6 +404,37 @@ btnSelfHosted?.addEventListener('click', () => {
 pickerBack?.addEventListener('click', () => {
   showScreen('welcome');
 });
+
+/**
+ * Non-interactively refresh the assistants list and render the picker.
+ * Used when the worker reports assistant_gone — avoids the interactive
+ * OAuth flow that cloud-login would trigger.
+ */
+function refreshAssistantPicker(): void {
+  pickerLoading.style.display = 'block';
+  pickerError.style.display = 'none';
+  assistantList.innerHTML = '';
+
+  sendMessage<{
+    ok: boolean;
+    assistants?: Array<{ id: string; name: string }>;
+    error?: string;
+  }>({ type: 'list-assistants' }, (response) => {
+    pickerLoading.style.display = 'none';
+    if (!response?.ok || !response.assistants) {
+      pickerError.textContent = response?.error ?? 'Could not load assistants.';
+      pickerError.style.display = 'block';
+      return;
+    }
+    const assistants = response.assistants;
+    if (assistants.length === 0) {
+      pickerError.textContent = 'No assistants found.';
+      pickerError.style.display = 'block';
+      return;
+    }
+    renderAssistantList(assistants, currentAuthProfile === 'vellum-cloud' ? assistantAccountEl.textContent ?? undefined : undefined);
+  });
+}
 
 function renderAssistantList(
   assistants: Array<{ id: string; name: string }>,

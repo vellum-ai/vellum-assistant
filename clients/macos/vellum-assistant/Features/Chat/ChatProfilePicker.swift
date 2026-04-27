@@ -2,8 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Bundle of the per-conversation inference-profile state and the persistence
-/// callback the composer threads through to ``ChatProfilePicker``. Mirrors the
-/// `ConversationHostAccessControlConfiguration` pattern so a single optional
+/// callback the composer threads through to ``ChatProfilePicker``. A single optional
 /// parameter on ``ComposerView`` / ``ComposerSection`` toggles the pill.
 struct ChatProfilePickerConfiguration {
     /// The current per-conversation inference-profile override. `nil` means

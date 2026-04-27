@@ -57,7 +57,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
 
 const log = getLogger("settings-routes");
@@ -605,7 +605,7 @@ function handleEnvVars(): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function settingsRouteDefinitions(): RouteDefinition[] {
+export function settingsRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     // Voice config
     {

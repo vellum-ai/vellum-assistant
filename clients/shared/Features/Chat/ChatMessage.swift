@@ -65,23 +65,8 @@ public struct ToolConfirmationData: Equatable {
         return normalized
     }
 
-    /// v2 host prompts use the legacy confirmation transport, but semantically
-    /// they mean "enable computer access for this conversation".
-    public var isConversationHostAccessPrompt: Bool {
-        isConversationHostAccessPromptShape(
-            toolName: toolName,
-            allowlistOptionsCount: allowlistOptions.count,
-            scopeOptionsCount: scopeOptions.count,
-            persistentDecisionsAllowed: persistentDecisionsAllowed
-        )
-    }
-
     /// Short third-person summary shown above the code snippet in the details disclosure.
     public var detailsSummary: String {
-        if isConversationHostAccessPrompt {
-            return "The assistant needs computer access for this conversation"
-        }
-
         switch toolName {
         case "bash", "host_bash":
             return "The assistant wants to run a command"
@@ -572,8 +557,7 @@ public struct ToolConfirmationData: Equatable {
             toolName: toolName,
             input: input,
             toolCategory: toolCategory,
-            permissionFriendlyName: permissionFriendlyName,
-            isConversationHostAccessPrompt: isConversationHostAccessPrompt
+            permissionFriendlyName: permissionFriendlyName
         )
     }
 
@@ -633,8 +617,7 @@ public func confirmationHumanDescription(
     toolName: String,
     input: [String: AnyCodable],
     toolCategory: String? = nil,
-    permissionFriendlyName: String? = nil,
-    isConversationHostAccessPrompt: Bool = false
+    permissionFriendlyName: String? = nil
 ) -> String {
     // Use activity (or legacy reason), falling back to description/message for
     // tools that provide context via other fields.
@@ -690,45 +673,6 @@ public func confirmationHumanDescription(
                 .joined(separator: " ")
         }
     }()
-
-    if isConversationHostAccessPrompt {
-        switch toolName {
-        case "bash", "host_bash":
-            if !r.isEmpty {
-                return "Enable computer access for this conversation so the assistant can run a command on your computer \(r)?"
-            }
-            return "Enable computer access for this conversation so the assistant can run commands on your computer?"
-        case "file_write", "host_file_write":
-            let path = (input["path"]?.value as? String) ?? ""
-            if !r.isEmpty {
-                return "Enable computer access for this conversation so the assistant can write files on your computer \(r)?"
-            }
-            if path.isEmpty {
-                return "Enable computer access for this conversation so the assistant can write files on your computer?"
-            }
-            return "Enable computer access for this conversation so the assistant can write \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "file_edit", "host_file_edit":
-            let path = (input["path"]?.value as? String) ?? ""
-            if !r.isEmpty {
-                return "Enable computer access for this conversation so the assistant can edit files on your computer \(r)?"
-            }
-            if path.isEmpty {
-                return "Enable computer access for this conversation so the assistant can edit files on your computer?"
-            }
-            return "Enable computer access for this conversation so the assistant can edit \(URL(fileURLWithPath: path).lastPathComponent)?"
-        case "file_read", "host_file_read":
-            let path = (input["path"]?.value as? String) ?? ""
-            if !r.isEmpty {
-                return "Enable computer access for this conversation so the assistant can read files on your computer \(r)?"
-            }
-            if path.isEmpty {
-                return "Enable computer access for this conversation so the assistant can read files on your computer?"
-            }
-            return "Enable computer access for this conversation so the assistant can read \(URL(fileURLWithPath: path).lastPathComponent)?"
-        default:
-            return "Enable computer access for this conversation to continue?"
-        }
-    }
 
     switch toolName {
     case "request_system_permission":
@@ -810,19 +754,6 @@ public func confirmationHumanDescription(
         if !r.isEmpty { return "Allow using \(tc.lowercased()) \(r)?" }
         return "Allow using \(tc.lowercased())?"
     }
-}
-
-public func isConversationHostAccessPromptShape(
-    toolName: String,
-    allowlistOptionsCount: Int,
-    scopeOptionsCount: Int,
-    persistentDecisionsAllowed: Bool
-) -> Bool {
-    let isHostTool = toolName.hasPrefix("host_") || toolName == "computer_use_run_applescript"
-    guard isHostTool else { return false }
-    return allowlistOptionsCount == 0
-        && scopeOptionsCount == 0
-        && !persistentDecisionsAllowed
 }
 
 /// Data for a tool call displayed inline in an assistant message.

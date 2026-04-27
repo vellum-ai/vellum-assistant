@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ApprovalAction } from "../runtime/channel-approval-types.js";
 import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -18,14 +19,14 @@ describe("parseCallbackData", () => {
     expect(result!.source).toBe("telegram_button");
   });
 
-  test.each([
+  test.each<[string, string]>([
     ["apr:req-123:approve_10m", "approve_once"],
     ["apr:req-123:approve_conversation", "approve_once"],
     ["apr:req-123:approve_always", "approve_once"],
   ])('maps legacy action "%s" to %s (backward compat)', (data, expectedAction) => {
     const result = parseCallbackData(data);
     expect(result).not.toBeNull();
-    expect(result!.action).toBe(expectedAction);
+    expect(result!.action).toBe(expectedAction as ApprovalAction);
     expect(result!.requestId).toBe("req-123");
   });
 

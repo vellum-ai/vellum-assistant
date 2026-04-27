@@ -309,7 +309,7 @@ struct AssistantProgressView: View {
                 commandText: tc.inputSummary,
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
-                scopeOptions: ToolCallStepDetailRow.v3ScopeOptions(from: tc),
+                scopeOptions: ToolCallStepDetailRow.scopeOptions(from: tc),
                 directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                 suggestion: suggestRuleSuggestion,
                 onSave: { rule in
@@ -961,7 +961,7 @@ struct ToolCallStepDetailRow: View {
                 commandText: tc.inputSummary,
                 commandDescription: tc.reasonDescription ?? "",
                 riskLevel: tc.riskLevel ?? "medium",
-                scopeOptions: Self.v3ScopeOptions(from: tc),
+                scopeOptions: Self.scopeOptions(from: tc),
                 directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
                 suggestion: ruleEditorSuggestion,
                 onSave: { rule in
@@ -1106,19 +1106,19 @@ struct ToolCallStepDetailRow: View {
 
     // MARK: - Scope Options
 
-    /// Constructs the V3 scope option items from the tool call's risk scope options.
+    /// Constructs scope option items from the tool call's risk scope options.
     /// Falls back to a single exact command option when none are provided.
-    static func v3ScopeOptions(from toolCall: ToolCallData) -> [V3ScopeOptionItem] {
+    static func scopeOptions(from toolCall: ToolCallData) -> [ScopeOptionItem] {
         guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
             return [
-                V3ScopeOptionItem(
+                ScopeOptionItem(
                     label: toolCall.inputSummary,
                     pattern: toolCall.inputSummary
                 )
             ]
         }
         return options.map { option in
-            V3ScopeOptionItem(
+            ScopeOptionItem(
                 label: option.label,
                 pattern: option.pattern
             )

@@ -124,11 +124,9 @@ function resetTables(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversations");
-  // Insert conv-1 with host_access=0 (disabled) so trusted_contact host tools
-  // hit the "computer access not enabled" gate.
   const now = Date.now();
   getSqlite().run(
-    "INSERT INTO conversations (id, created_at, updated_at, host_access) VALUES (?, ?, ?, 0)",
+    "INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)",
     ["conv-1", now, now],
   );
 }
@@ -201,107 +199,6 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     deliveredReplies.length = 0;
   });
 
-  test("trusted_contact + host tool + no host_access is denied immediately (no escalation)", async () => {
-    const toolName = "bash";
-    const input = { command: "cat /etc/passwd" };
-
-    const context = makeContext({ trustClass: "trusted_contact" });
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-
-    // Message should mention computer access, not a grant escalation
-    expect(result.result.content).toContain("computer access is not enabled");
-
-    // No canonical tool_grant_request should have been created — the
-    // conversation-level host_access gate blocks before grant escalation.
-    const requests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-    });
-    expect(requests.length).toBe(0);
-
-    // No notification signal emitted (no escalation created)
-    expect(emittedSignals.length).toBe(0);
-  });
-
-  test("trusted_contact + host tool + no host_access: denial is immediate (no inline wait)", async () => {
-    const toolName = "bash";
-    const input = { command: "deploy" };
-
-    const context = makeContext({ trustClass: "trusted_contact" });
-    const start = Date.now();
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-    const elapsed = Date.now() - start;
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    // Should be denied immediately — no inline wait is performed because the
-    // host_access gate fires before any grant consumption attempt.
-    expect(result.result.content).toContain("computer access is not enabled");
-    expect(elapsed).toBeLessThan(500);
-  });
-
-  test("trusted_contact + host tool + no host_access: repeated calls all get immediate denial", async () => {
-    const toolName = "bash";
-    const input = { command: "rm -rf /" };
-
-    const context = makeContext({ trustClass: "trusted_contact" });
-
-    // First invocation
-    const result1 = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-    expect(result1.allowed).toBe(false);
-    if (result1.allowed) return;
-    expect(result1.result.content).toContain("computer access is not enabled");
-
-    // Second invocation — same immediate denial, no canonical requests
-    const result2 = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result2.allowed).toBe(false);
-    if (result2.allowed) return;
-    expect(result2.result.content).toContain("computer access is not enabled");
-
-    // No canonical requests created at any point
-    const requests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-    });
-    expect(requests.length).toBe(0);
-  });
-
   test("unverified_channel does NOT create escalation request", async () => {
     const toolName = "bash";
     const input = { command: "ls" };
@@ -334,35 +231,6 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     expect(requests.length).toBe(0);
   });
 
-  test("trusted_contact without executionChannel gets computer-access denial for host tools", async () => {
-    const toolName = "bash";
-    const input = { command: "deploy" };
-
-    const context = makeContext({
-      trustClass: "trusted_contact",
-      executionChannel: undefined, // no channel info
-    });
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-
-    expect(result.allowed).toBe(false);
-    if (result.allowed) return;
-    // Denied by conversation host_access gate — channel presence is irrelevant
-    expect(result.result.content).toContain("computer access is not enabled");
-
-    const requests = listCanonicalGuardianRequests({
-      kind: "tool_grant_request",
-      status: "pending",
-    });
-    expect(requests.length).toBe(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -469,55 +337,9 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
 // ---------------------------------------------------------------------------
 
 describe("end-to-end: tool grant escalation -> approval -> consume", () => {
-  // Use a wider wait window so the delayed guardian approval arrives in time
-  const handler = new ToolApprovalHandler({
-    inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
-  });
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
-
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
-  });
-
-  test("trusted_contact + host tool + host_access enabled -> allowed immediately", async () => {
-    const toolName = "bash";
-    const input = { command: "echo secret" };
-
-    // Enable host_access for conv-1
-    getSqlite().run(
-      "UPDATE conversations SET host_access = 1 WHERE id = ?",
-      ["conv-1"],
-    );
-
-    const context = makeContext({ trustClass: "trusted_contact" });
-    const start = Date.now();
-    const result = await handler.checkPreExecutionGates(
-      toolName,
-      input,
-      context,
-      "host",
-      "high",
-      Date.now(),
-      emitLifecycleEvent,
-    );
-    const elapsed = Date.now() - start;
-
-    // When host_access is enabled, trusted_contact is allowed immediately —
-    // no grant consumption, no inline wait.
-    expect(result.allowed).toBe(true);
-    if (!result.allowed) return;
-    // No grant was consumed (trusted_contact bypasses per-invocation grant check)
-    expect(result.grantConsumed).toBeUndefined();
-    // Should be nearly instant
-    expect(elapsed).toBeLessThan(500);
-
-    // No notification signal emitted (no escalation)
-    expect(emittedSignals.length).toBe(0);
   });
 
   test("waitForInlineGrant: approve-then-consume round-trip works correctly", async () => {

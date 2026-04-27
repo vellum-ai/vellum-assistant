@@ -76,7 +76,6 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationClient: ConversationClientProtocol
     private let conversationForkClient: any ConversationForkClientProtocol
     private let conversationDetailClient: any ConversationDetailClientProtocol
-    private let conversationHostAccessClient: any ConversationHostAccessClientProtocol
     private let conversationInferenceProfileClient: any ConversationInferenceProfileClientProtocol
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
@@ -203,7 +202,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationClient: ConversationClientProtocol = ConversationClient(),
         conversationForkClient: any ConversationForkClientProtocol = ConversationForkClient(),
         conversationDetailClient: any ConversationDetailClientProtocol = ConversationDetailClient(),
-        conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationInferenceProfileClient: any ConversationInferenceProfileClientProtocol = ConversationInferenceProfileClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
         acpSessionStore: ACPSessionStore? = nil,
@@ -216,7 +214,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationClient = conversationClient
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
-        self.conversationHostAccessClient = conversationHostAccessClient
         self.conversationInferenceProfileClient = conversationInferenceProfileClient
         self.conversationAnalysisClient = conversationAnalysisClient
         self.acpSessionStore = acpSessionStore
@@ -253,11 +250,6 @@ final class ConversationManager: ConversationRestorerDelegate {
                 switch message {
                 case .conversationIdResolved(let localId, let serverId):
                     self.resolveConversationId(from: localId, to: serverId)
-                case .conversationHostAccessUpdated(let message):
-                    self.applyConversationHostAccessUpdate(
-                        serverConversationId: message.conversationId,
-                        hostAccess: message.hostAccess
-                    )
                 case .conversationInferenceProfileUpdated(let message):
                     self.applyConversationInferenceProfileUpdate(
                         serverConversationId: message.conversationId,
@@ -1137,32 +1129,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         listStore.updateConversationTitle(id: id, title: title)
     }
 
-    func setConversationHostAccess(id localId: UUID, enabled: Bool) async -> Bool {
-        guard let index = listStore.conversations.firstIndex(where: { $0.id == localId }),
-              let conversationId = listStore.conversations[index].conversationId else {
-            return false
-        }
-
-        let previousHostAccess = listStore.conversations[index].hostAccess
-        guard previousHostAccess != enabled else { return true }
-
-        listStore.updateConversationHostAccess(id: localId, hostAccess: enabled)
-        let response = await conversationHostAccessClient.updateConversationHostAccess(
-            conversationId: conversationId,
-            hostAccess: enabled
-        )
-        guard let response else {
-            listStore.updateConversationHostAccess(id: localId, hostAccess: previousHostAccess)
-            return false
-        }
-
-        applyConversationHostAccessUpdate(
-            serverConversationId: response.conversationId,
-            hostAccess: response.hostAccess
-        )
-        return true
-    }
-
     /// Set the per-conversation inference-profile override. Pass `nil` to
     /// clear the override and fall back to the workspace `llm.activeProfile`.
     /// Returns `true` when the daemon accepted the change and the local
@@ -1495,13 +1461,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         if localId == selectionStore.activeConversationId {
             conversationRestorer.loadHistoryIfNeeded(conversationId: localId)
         }
-    }
-
-    private func applyConversationHostAccessUpdate(serverConversationId: String, hostAccess: Bool) {
-        guard let localId = listStore.conversations.first(where: { $0.conversationId == serverConversationId })?.id else {
-            return
-        }
-        listStore.updateConversationHostAccess(id: localId, hostAccess: hostAccess)
     }
 
     private func applyConversationInferenceProfileUpdate(serverConversationId: String, profile: String?) {

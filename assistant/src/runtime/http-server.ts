@@ -99,7 +99,7 @@ import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError } from "./http-errors.js";
-import type { RouteDefinition } from "./http-router.js";
+import type { HTTPRouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
 import {
@@ -161,7 +161,6 @@ import {
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
-import { debugRouteDefinitions } from "./routes/debug-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
@@ -182,11 +181,9 @@ import {
 import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
 import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
 import { hostTransferRouteDefinitions } from "./routes/host-transfer-routes.js";
-import {
-  handleHealth,
-  handleReadyz,
-  identityRouteDefinitions,
-} from "./routes/identity-routes.js";
+import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
+import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import { ROUTES } from "./routes/index.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
@@ -202,7 +199,6 @@ import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
-import { psRouteDefinitions } from "./routes/ps-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
@@ -1670,7 +1666,6 @@ export class RuntimeHttpServer {
         conversation.conversationType,
       ),
       source: conversation.source ?? "user",
-      hostAccess: conversation.hostAccess === 1,
       ...(conversation.scheduleJobId
         ? { scheduleJobId: conversation.scheduleJobId }
         : {}),
@@ -1772,24 +1767,22 @@ export class RuntimeHttpServer {
    * `./routes/` and composed here via spread. The composition order
    * preserves the original top-to-bottom matching semantics.
    */
-  private buildRouteTable(): RouteDefinition[] {
+  private buildRouteTable(): HTTPRouteDefinition[] {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const conversationManagementDeps =
       this.getConversationManagementRouteDeps();
 
     return [
+      ...routeDefinitionsToHTTPRoutes(ROUTES),
       ...appRouteDefinitions(),
       ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions({
         getCesClient: this.getCesClient,
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
-      ...identityRouteDefinitions(),
-      ...psRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),
       ...workspaceCommitRouteDefinitions(),
       ...migrationRollbackRouteDefinitions(),
-      ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),
       ...workspaceRouteDefinitions(),
@@ -1905,7 +1898,7 @@ export class RuntimeHttpServer {
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
 
-      ...((): RouteDefinition[] => {
+      ...((): HTTPRouteDefinition[] => {
         const sendMessageDeps = this.sendMessageDeps;
         if (!sendMessageDeps) return [];
         const analysisDeps = {

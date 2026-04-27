@@ -688,13 +688,11 @@ extension MainWindowView {
             let isVoiceModeEnabled = assistantFeatureFlagStore.isEnabled(
                 "voice-mode"
             )
-            let showsConversationHostAccessControl = true
             let showThresholdPicker = true
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
-                showsConversationHostAccessControl: showsConversationHostAccessControl,
                 showThresholdPicker: showThresholdPicker,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
@@ -908,7 +906,6 @@ struct ActiveChatViewWrapper: View {
     @Bindable var viewModel: ChatViewModel
     var windowState: MainWindowState
     let conversationStartersEnabled: Bool
-    let showsConversationHostAccessControl: Bool
     var showThresholdPicker: Bool = false
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
@@ -991,7 +988,6 @@ struct ActiveChatViewWrapper: View {
                 onVoiceModeToggle: onVoiceModeToggle,
                 watchSession: ambientAgent.activeWatchSession,
                 conversationManager: conversationManager,
-                showsConversationHostAccessControl: showsConversationHostAccessControl,
                 showThresholdPicker: showThresholdPicker
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)

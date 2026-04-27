@@ -459,7 +459,6 @@ final class ConversationListStore {
             lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(item.lastMessageAt ?? item.updatedAt) / 1000.0),
             source: item.source,
             conversationType: item.conversationType,
-            hostAccess: item.hostAccess ?? false,
             inferenceProfile: item.inferenceProfile,
             scheduleJobId: item.scheduleJobId,
             hasUnseenLatestAssistantMessage: (item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false),
@@ -487,11 +486,6 @@ final class ConversationListStore {
     func updateConversationTitle(id: UUID, title: String) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].title = title
-    }
-
-    func updateConversationHostAccess(id: UUID, hostAccess: Bool) {
-        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        conversations[index].hostAccess = hostAccess
     }
 
     func updateConversationInferenceProfile(id: UUID, profile: String?) {

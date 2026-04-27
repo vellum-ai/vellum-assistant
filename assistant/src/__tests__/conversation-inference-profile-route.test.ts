@@ -37,7 +37,6 @@ const routes = conversationManagementRouteDefinitions({
     conversationId,
     title: "Switched",
     conversationType: "standard",
-    hostAccess: false,
   }),
   renameConversation: () => true,
   clearAllConversations: () => 0,

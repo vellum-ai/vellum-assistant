@@ -1,3 +1,4 @@
+import { ROUTES } from "../../runtime/routes/index.js";
 import type { IpcRoute } from "../assistant-server.js";
 import { attachmentRoutes } from "./attachment.js";
 import { avatarNotifyRoute } from "./avatar-notify.js";
@@ -10,6 +11,7 @@ import { listClientsRoute } from "./list-clients.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
 import { renameConversationRoute } from "./rename-conversation.js";
+import { routeDefinitionsToIpcRoutes } from "./route-adapter.js";
 import { searchContactsRoute } from "./search-contacts.js";
 import { secretsRoutes } from "./secrets.js";
 import { suggestTrustRuleRoute } from "./suggest-trust-rule.js";
@@ -44,4 +46,5 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...taskTemplateRoutes,
   ...taskQueueRoutes,
   ...watcherRoutes,
+  ...routeDefinitionsToIpcRoutes(ROUTES),
 ];

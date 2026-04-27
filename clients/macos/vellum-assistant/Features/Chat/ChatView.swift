@@ -91,7 +91,6 @@ struct ChatView: View {
 
     var watchSession: WatchSession?
     var conversationManager: ConversationManager? = nil
-    var showsConversationHostAccessControl: Bool = false
     var showThresholdPicker: Bool = false
 
     @State private var isDropTargeted = false
@@ -105,8 +104,6 @@ struct ChatView: View {
     @State private var currentMatchIndex = 0
     @State private var showSkeleton = false
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
-    @State private var isUpdatingConversationHostAccess = false
-    @State private var conversationHostAccessError: String?
 
     private var isEmptyState: Bool {
         viewModel.paginatedVisibleMessages.isEmpty && viewModel.isHistoryLoaded
@@ -126,32 +123,6 @@ struct ChatView: View {
     private var currentConversation: ConversationModel? {
         guard let conversationManager, let conversationId else { return nil }
         return conversationManager.conversations.first(where: { $0.id == conversationId })
-    }
-
-    private var conversationHostAccessControl: ConversationHostAccessControlConfiguration? {
-        guard showsConversationHostAccessControl else { return nil }
-
-        let conversation = currentConversation
-        let hasPersistedConversation = conversation?.conversationId != nil
-        let isEnabled = conversation?.hostAccess ?? false
-        let subtitle: String
-
-        if hasPersistedConversation {
-            subtitle = isEnabled
-                ? "Enabled for this conversation only"
-                : "Off for this conversation"
-        } else {
-            subtitle = "Starts off for each conversation. Send a message to enable it here."
-        }
-
-        return ConversationHostAccessControlConfiguration(
-            isEnabled: isEnabled,
-            canToggle: hasPersistedConversation,
-            isUpdating: isUpdatingConversationHostAccess,
-            subtitle: subtitle,
-            errorMessage: conversationHostAccessError,
-            onToggle: toggleConversationHostAccess
-        )
     }
 
     var body: some View {
@@ -251,10 +222,6 @@ struct ChatView: View {
         .onDisappear {
             removeDragEndMonitors()
         }
-        .onChange(of: conversationId) { _, _ in
-            isUpdatingConversationHostAccess = false
-            conversationHostAccessError = nil
-        }
     }
 
     // MARK: - Body Subviews (extracted to help the Swift type checker)
@@ -311,7 +278,6 @@ struct ChatView: View {
                     onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                     onRemoveStarter: { starter in viewModel.removeConversationStarter(starter) },
                     onFetchConversationStarters: { viewModel.fetchConversationStarters() },
-                    conversationHostAccessControl: conversationHostAccessControl,
                     showThresholdPicker: showThresholdPicker,
                     inferenceProfilePicker: inferenceProfilePicker
                 )
@@ -517,7 +483,6 @@ struct ChatView: View {
                 contextWindowFillRatio: viewModel.contextWindowFillRatio,
                 contextWindowTokens: viewModel.contextWindowTokens,
                 contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
-                conversationHostAccessControl: conversationHostAccessControl,
                 showThresholdPicker: showThresholdPicker,
                 inferenceProfilePicker: inferenceProfilePicker
             )
@@ -548,29 +513,6 @@ struct ChatView: View {
                 }
             }
         )
-    }
-
-    private func toggleConversationHostAccess() {
-        guard let conversationManager, let conversationId, !isUpdatingConversationHostAccess else { return }
-
-        let requestConversationId = conversationId
-        let nextEnabled = !(currentConversation?.hostAccess ?? false)
-        isUpdatingConversationHostAccess = true
-        conversationHostAccessError = nil
-
-        Task { @MainActor in
-            let success = await conversationManager.setConversationHostAccess(
-                id: requestConversationId,
-                enabled: nextEnabled
-            )
-
-            guard conversationId == requestConversationId else { return }
-
-            isUpdatingConversationHostAccess = false
-            if !success {
-                conversationHostAccessError = "Couldn't update computer access for this conversation."
-            }
-        }
     }
 
     /// Centers chat chrome to the same fixed transcript width using _FrameLayout

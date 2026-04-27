@@ -21,7 +21,7 @@ import {
   memoryJobs,
 } from "../../memory/schema.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
 // Strongest-first ordering — maximize category diversity so the top four
@@ -304,7 +304,7 @@ function handleDeleteConversationStarter(starterId: string): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function conversationStarterRouteDefinitions(): RouteDefinition[] {
+export function conversationStarterRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversation-starters",

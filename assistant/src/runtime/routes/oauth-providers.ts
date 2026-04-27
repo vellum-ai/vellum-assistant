@@ -11,12 +11,12 @@ import { getProvider, listProviders } from "../../oauth/oauth-store.js";
 import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
 import { isProviderVisible } from "../../oauth/provider-visibility.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 /**
  * Build route definitions for OAuth provider list/get endpoints.
  */
-export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
+export function oauthProvidersRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     // GET /v1/oauth/providers — List all providers with optional filtering.
     {

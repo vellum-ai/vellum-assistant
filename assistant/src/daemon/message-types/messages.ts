@@ -336,13 +336,6 @@ export interface AssistantActivityState {
   statusText?: string;
 }
 
-/** Broadcast to clients when a conversation's host-access setting changes. */
-export interface ConversationHostAccessUpdated {
-  type: "conversation_host_access_updated";
-  conversationId: string;
-  hostAccess: boolean;
-}
-
 /**
  * Broadcast to clients when a conversation's inference-profile override
  * changes. `profile` is the profile name (a key in `llm.profiles`) or
@@ -417,5 +410,4 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityState
-  | ConversationHostAccessUpdated
   | ConversationInferenceProfileUpdated;

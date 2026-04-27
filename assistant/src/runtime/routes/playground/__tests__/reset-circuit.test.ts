@@ -35,7 +35,7 @@ mock.module("../../../../context/token-estimator.js", () => ({
 
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
-import type { RouteContext, RouteDefinition } from "../../../http-router.js";
+import type { HTTPRouteDefinition,RouteContext } from "../../../http-router.js";
 import type { PlaygroundRouteDeps } from "../deps.js";
 import { resetCircuitRouteDefinitions } from "../reset-circuit.js";
 
@@ -130,7 +130,7 @@ function makeRouteContext(conversationId: string): RouteContext {
   } as unknown as RouteContext;
 }
 
-function getHandler(deps: PlaygroundRouteDeps): RouteDefinition["handler"] {
+function getHandler(deps: PlaygroundRouteDeps): HTTPRouteDefinition["handler"] {
   const routes = resetCircuitRouteDefinitions(deps);
   expect(routes).toHaveLength(1);
   return routes[0].handler;

@@ -24,11 +24,21 @@ Do not coordinate hook behaviour by re-parsing the tool's JSON response to infer
 
 Shared mutable resources written by more than one caller (e.g. `dist/` directories produced by `compileApp()`) must be serialised per-resource so concurrent callers cannot race on `rm -rf` + write sequences.
 
-## IPC route registration
+## Route architecture: shared ROUTES array
 
-IPC routes belong to the IPC server, not to its consumers. When adding a new route, define it in `src/ipc/routes/` and register it in the route index (`src/ipc/routes/index.ts`). The server's constructor should be the single place that wires routes — callers that instantiate or start the server should not need to call separate `register*Deps()` functions.
+Routes in `src/runtime/routes/` are being migrated to a **shared `ROUTES` array** that serves as the single source of truth for both the HTTP server and the IPC server. Each route module exports `ROUTES: RouteDefinition[]` (from `routes/types.ts`), and the aggregator `routes/index.ts` collects them.
 
-Today, some routes (e.g. `secrets`, `credential-prompt`) use a module-level dependency-injection pattern where the daemon server calls `registerFooDeps()` at startup. This is a known antipattern — it forces consumers to know about route internals and creates implicit ordering requirements. New routes should avoid this pattern. Existing dep-injection routes should be migrated to accept deps through the server constructor or a server-level `configure()` call.
+- **Handlers are transport-agnostic.** They accept optional params and return plain data (objects/arrays/primitives). They never import HTTP types, return `Response` objects, or reference `Request`. Throw `RouteError` subclasses (from `routes/errors.ts`) for error cases — the adapters map these to wire-format errors.
+- **HTTP adapter** (`routes/http-adapter.ts`): wraps handlers in `Response.json()`, maps `RouteError` to HTTP status codes.
+- **IPC adapter** (`ipc/routes/route-adapter.ts`): maps `operationId` → IPC method name, passes handler through directly.
+- **Dual exposure is intentional.** Every route in the shared `ROUTES` array is served over both HTTP and IPC. This is by design — it enables the gateway to call the daemon over IPC instead of HTTP, eliminating JWT token exchange on those paths (ATL-309 → ATL-311). Do not flag IPC exposure of shared routes as unintentional surface area.
+- **`RouteDefinition` carries everything:** `operationId`, `endpoint`, `method`, `handler`, `policyKey?`, `summary?`, `description?`, `tags?`, `responseBody?`. The HTTP adapter reads all fields; the IPC adapter only needs `operationId` and `handler`.
+
+### IPC-only routes
+
+Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.
+
+The module-level dependency-injection pattern (`registerFooDeps()`) used by some IPC routes is a known antipattern. New IPC-only routes should avoid it.
 
 ## Code comments
 

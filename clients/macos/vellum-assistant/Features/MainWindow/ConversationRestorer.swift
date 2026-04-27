@@ -342,7 +342,6 @@ final class ConversationRestorer {
                 var existing = delegate.conversations[existingIdx]
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
-                existing.hostAccess = session.hostAccess ?? false
                 existing.forkParent = session.forkParent
                 // Refresh mutable fields from the server so invalidation refetches
                 // pick up renames, source changes, and interaction timestamps.
@@ -381,7 +380,6 @@ final class ConversationRestorer {
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.lastMessageAt ?? session.updatedAt) / 1000.0),
                 source: session.source,
                 conversationType: session.conversationType,
-                hostAccess: session.hostAccess ?? false,
                 inferenceProfile: session.inferenceProfile,
                 scheduleJobId: session.scheduleJobId,
                 hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
