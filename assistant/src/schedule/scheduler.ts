@@ -304,6 +304,7 @@ async function runScheduleOnce(
             },
             "Wake not invoked; skipping feed event",
           );
+          if (isOneShot) completeOneShot(job.id);
           processed += 1;
           continue;
         }
