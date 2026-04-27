@@ -23,24 +23,23 @@ import type {
 } from "../daemon/message-types/surfaces.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import type {
-  ApprovalMessageContext,
-  ComposeApprovalMessageGenerativeOptions,
-} from "./approval-message-composer.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
 import type {
-  ComposeGuardianActionMessageOptions,
-  GuardianActionMessageContext,
-} from "./guardian-action-message-composer.js";
+  ApprovalCopyGenerator,
+  GuardianActionCopyGenerator,
+} from "./message-composer-types.js";
 import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
-/**
- * Daemon-injected function that generates approval copy using a provider.
- * Returns generated text or `null` on failure (caller falls back to deterministic text).
- */
-export type ApprovalCopyGenerator = (
-  context: ApprovalMessageContext,
-  options?: ComposeApprovalMessageGenerativeOptions,
-) => Promise<string | null>;
+
+export type {
+  ApprovalCopyGenerator,
+  ApprovalMessageContext,
+  ApprovalMessageScenario,
+  ComposeApprovalMessageGenerativeOptions,
+  ComposeGuardianActionMessageOptions,
+  GuardianActionCopyGenerator,
+  GuardianActionMessageContext,
+  GuardianActionMessageScenario,
+} from "./message-composer-types.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation flow types
@@ -77,14 +76,7 @@ export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
 
-/**
- * Daemon-injected function that generates guardian action copy using a provider.
- * Returns generated text or `null` on failure (caller falls back to deterministic text).
- */
-export type GuardianActionCopyGenerator = (
-  context: GuardianActionMessageContext,
-  options?: ComposeGuardianActionMessageOptions,
-) => Promise<string | null>;
+
 
 // ---------------------------------------------------------------------------
 // Guardian follow-up conversation flow types

@@ -9,60 +9,19 @@
  * Follows the same pattern as approval-message-composer.ts.
  */
 import { getLogger } from "../util/logger.js";
-import type { GuardianActionCopyGenerator } from "./http-types.js";
+import type {
+  ComposeGuardianActionMessageOptions,
+  GuardianActionCopyGenerator,
+  GuardianActionMessageContext,
+} from "./message-composer-types.js";
+
+export type {
+  ComposeGuardianActionMessageOptions,
+  GuardianActionMessageContext,
+  GuardianActionMessageScenario,
+} from "./message-composer-types.js";
 
 const log = getLogger("guardian-action-message-composer");
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type GuardianActionMessageScenario =
-  | "caller_timeout_acknowledgment"
-  | "caller_timeout_continue"
-  | "guardian_late_answer_followup"
-  | "guardian_followup_dispatching"
-  | "guardian_followup_completed"
-  | "guardian_followup_failed"
-  | "guardian_followup_declined_ack"
-  | "guardian_followup_clarification"
-  | "guardian_pending_disambiguation"
-  | "guardian_expired_disambiguation"
-  | "guardian_followup_disambiguation"
-  | "guardian_stale_answered"
-  | "guardian_stale_expired"
-  | "guardian_stale_followup"
-  | "guardian_stale_superseded"
-  | "guardian_superseded_remap"
-  | "guardian_unknown_code"
-  | "guardian_auto_matched"
-  | "followup_call_started"
-  | "followup_action_failed"
-  | "guardian_answer_delivery_failed";
-
-export interface GuardianActionMessageContext {
-  scenario: GuardianActionMessageScenario;
-  channel?: string;
-  questionText?: string;
-  callerIdentifier?: string;
-  guardianIdentifier?: string;
-  lateAnswerText?: string;
-  followupAction?: string;
-  failureReason?: string;
-  counterpartyPhone?: string;
-  requestCodes?: string[];
-  /** The code the guardian provided that was not recognized. */
-  unknownCode?: string;
-  /** The code of the active request that supersedes the one the guardian targeted. */
-  activeRequestCode?: string;
-}
-
-export interface ComposeGuardianActionMessageOptions {
-  fallbackText?: string;
-  requiredKeywords?: string[];
-  maxTokens?: number;
-  timeoutMs?: number;
-}
 
 // ---------------------------------------------------------------------------
 // Constants (exported for the daemon-injected generator implementation)

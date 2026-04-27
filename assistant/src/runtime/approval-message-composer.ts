@@ -7,68 +7,19 @@
  *   3. Deterministic fallback templates (natural, scenario-specific messages)
  */
 import { getLogger } from "../util/logger.js";
-import type { ApprovalCopyGenerator } from "./http-types.js";
+import type {
+  ApprovalCopyGenerator,
+  ApprovalMessageContext,
+  ComposeApprovalMessageGenerativeOptions,
+} from "./message-composer-types.js";
+
+export type {
+  ApprovalMessageContext,
+  ApprovalMessageScenario,
+  ComposeApprovalMessageGenerativeOptions,
+} from "./message-composer-types.js";
 
 const log = getLogger("approval-message-composer");
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type ApprovalMessageScenario =
-  | "standard_prompt"
-  | "guardian_prompt"
-  | "reminder_prompt"
-  | "guardian_delivery_failed"
-  | "guardian_request_forwarded"
-  | "guardian_disambiguation"
-  | "guardian_identity_mismatch"
-  | "request_pending_guardian"
-  | "guardian_decision_outcome"
-  | "guardian_expired_requester"
-  | "guardian_expired_guardian"
-  | "guardian_verify_success"
-  | "guardian_verify_failed"
-  | "guardian_verify_challenge_setup"
-  | "guardian_verify_status_bound"
-  | "guardian_verify_status_unbound"
-  | "guardian_deny_no_identity"
-  | "guardian_deny_no_binding"
-  | "requester_cancel"
-  | "approval_already_resolved"
-  | "guardian_text_unavailable";
-
-export interface ApprovalMessageContext {
-  scenario: ApprovalMessageScenario;
-  channel?: string;
-  toolName?: string;
-  requesterIdentifier?: string;
-  guardianIdentifier?: string;
-  pendingCount?: number;
-  decision?: "approved" | "denied";
-  richUi?: boolean;
-  /** Pre-existing assistant text to reuse (macOS parity). */
-  assistantPreface?: string;
-  verifyCommand?: string;
-  ttlSeconds?: number;
-  failureReason?: string;
-}
-
-export interface ComposeApprovalMessageGenerativeOptions {
-  /**
-   * Optional fallback message to use when generation fails. If omitted,
-   * the deterministic scenario fallback is used.
-   */
-  fallbackText?: string;
-  /**
-   * Require these standalone words in the generated output (case-insensitive).
-   * Useful for plain-text decision flows where parser-compatible keywords
-   * like yes/no/always must be present.
-   */
-  requiredKeywords?: string[];
-  timeoutMs?: number;
-  maxTokens?: number;
-}
 
 // ---------------------------------------------------------------------------
 // Public API
