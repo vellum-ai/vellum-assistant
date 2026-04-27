@@ -147,7 +147,6 @@ import {
   contactRouteDefinitions,
 } from "./routes/contact-routes.js";
 import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
-import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import {
   type ConversationManagementDeps,
   conversationManagementRouteDefinitions,
@@ -1891,8 +1890,6 @@ export class RuntimeHttpServer {
           return Response.json(response);
         },
       },
-      ...conversationAttentionRouteDefinitions(),
-
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),

@@ -15,29 +15,28 @@ import {
   getMessageById,
 } from "../../memory/conversation-crud.js";
 import { truncate } from "../../util/truncate.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-function handleListConversationAttention(url: URL): Response {
-  const stateParam = url.searchParams.get("state") ?? "all";
-  const sourceParam = url.searchParams.get("source") ?? "all";
-  const channel = url.searchParams.get("channel") ?? undefined;
-  const rawLimit = Number(url.searchParams.get("limit") ?? 20);
+function handleListConversationAttention({
+  queryParams = {},
+}: RouteHandlerArgs) {
+  const stateParam = queryParams.state ?? "all";
+  const sourceParam = queryParams.source ?? "all";
+  const channel = queryParams.channel ?? undefined;
+  const rawLimit = Number(queryParams.limit ?? 20);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(rawLimit, 1), 100)
     : 20;
-  const beforeParam = url.searchParams.get("before");
-  const rawBefore = beforeParam ? Number(beforeParam) : undefined;
+  const rawBefore = queryParams.before ? Number(queryParams.before) : undefined;
   const before =
     rawBefore !== undefined && Number.isFinite(rawBefore)
       ? rawBefore
       : undefined;
 
   if (!["seen", "unseen", "all"].includes(stateParam)) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "Invalid state parameter. Must be seen, unseen, or all.",
-      400,
     );
   }
 
@@ -45,7 +44,7 @@ function handleListConversationAttention(url: URL): Response {
     state: stateParam as AttentionFilterState,
     sourceChannel: channel,
     source: sourceParam !== "all" ? sourceParam : undefined,
-    limit: limit + 1, // fetch one extra to determine hasMore
+    limit: limit + 1,
     before,
   });
 
@@ -54,13 +53,11 @@ function handleListConversationAttention(url: URL): Response {
     ? attentionStates.slice(0, limit)
     : attentionStates;
 
-  // Batch-fetch conversation metadata for title enrichment
-  const conversationIds = pageStates.map((s) => s.conversationId);
   const conversationMap = new Map<
     string,
     { title: string | null; source: string }
   >();
-  for (const id of conversationIds) {
+  for (const id of pageStates.map((s) => s.conversationId)) {
     const conv = getConversation(id);
     if (conv) {
       conversationMap.set(id, {
@@ -70,7 +67,6 @@ function handleListConversationAttention(url: URL): Response {
     }
   }
 
-  // Batch-fetch latest assistant message snippets
   const snippetMap = new Map<string, string>();
   for (const attn of pageStates) {
     if (attn.latestAssistantMessageId) {
@@ -121,57 +117,49 @@ function handleListConversationAttention(url: URL): Response {
     };
   });
 
-  return Response.json({
+  return {
     conversations: results,
     hasMore,
-  });
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-export function conversationAttentionRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversations/attention",
-      method: "GET",
-      summary: "List conversation attention states",
-      description:
-        "Return attention state (seen/unseen) for conversations, with pagination.",
-      tags: ["conversations"],
-      queryParams: [
-        {
-          name: "state",
-          schema: { type: "string" },
-          description: "Filter: seen, unseen, or all (default all)",
-        },
-        {
-          name: "source",
-          schema: { type: "string" },
-          description: "Filter by source (default all)",
-        },
-        {
-          name: "channel",
-          schema: { type: "string" },
-          description: "Filter by source channel",
-        },
-        {
-          name: "limit",
-          schema: { type: "integer" },
-          description: "Max results (1–100, default 20)",
-        },
-        {
-          name: "before",
-          schema: { type: "number" },
-          description: "Cursor for pagination (timestamp)",
-        },
-      ],
-      responseBody: z.object({
-        conversations: z.array(z.unknown()).describe("Attention state objects"),
-        hasMore: z.boolean(),
-      }),
-      handler: ({ url }) => handleListConversationAttention(url),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "conversations_attention_list",
+    endpoint: "conversations/attention",
+    method: "GET",
+    handler: handleListConversationAttention,
+    summary: "List conversation attention states",
+    description:
+      "Return attention state (seen/unseen) for conversations, with pagination.",
+    tags: ["conversations"],
+    queryParams: [
+      {
+        name: "state",
+        description: "Filter: seen, unseen, or all (default all)",
+      },
+      {
+        name: "source",
+        description: "Filter by source (default all)",
+      },
+      {
+        name: "channel",
+        description: "Filter by source channel",
+      },
+      {
+        name: "limit",
+        type: "integer",
+        description: "Max results (1–100, default 20)",
+      },
+      {
+        name: "before",
+        type: "number",
+        description: "Cursor for pagination (timestamp)",
+      },
+    ],
+    responseBody: z.object({
+      conversations: z.array(z.unknown()).describe("Attention state objects"),
+      hasMore: z.boolean(),
+    }),
+  },
+];
