@@ -11,7 +11,6 @@
 
 import { z } from "zod";
 
-import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -20,37 +19,26 @@ import {
   revokeIngressInvite,
   triggerInviteCall,
 } from "../invite-service.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Invites
+// Handlers
 // ---------------------------------------------------------------------------
 
-/**
- * GET /v1/contacts/invites?sourceChannel=&status=
- */
-export function handleListInvites(url: URL): Response {
+export function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
   const result = listIngressInvites({
-    sourceChannel: url.searchParams.get("sourceChannel") ?? undefined,
-    status: url.searchParams.get("status") ?? undefined,
+    sourceChannel: queryParams.sourceChannel,
+    status: queryParams.status,
   });
 
   if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 400 });
+    throw new BadRequestError(result.error);
   }
-  return Response.json({ ok: true, invites: result.data });
+  return { ok: true, invites: result.data };
 }
 
-/**
- * POST /v1/contacts/invites
- *
- * For voice invites, pass `sourceChannel: "phone"` with required
- * `expectedExternalUserId` (E.164 phone). Voice codes are always 6 digits.
- * The response will include a one-time `voiceCode` field that must be
- * communicated to the invited user out-of-band.
- */
-export async function handleCreateInvite(req: Request): Promise<Response> {
-  const body = (await req.json()) as Record<string, unknown>;
-
+export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
   const result = await createIngressInvite({
     sourceChannel: body.sourceChannel as string | undefined,
     note: body.note as string | undefined,
@@ -65,37 +53,21 @@ export async function handleCreateInvite(req: Request): Promise<Response> {
   });
 
   if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 400 });
+    throw new BadRequestError(result.error);
   }
-  return Response.json({ ok: true, invite: result.data }, { status: 201 });
+  return { ok: true, invite: result.data };
 }
 
-/**
- * DELETE /v1/contacts/invites/:id
- */
-export function handleRevokeInvite(inviteId: string): Response {
-  const result = revokeIngressInvite(inviteId);
+export function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
+  const result = revokeIngressInvite(pathParams.id);
 
   if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 404 });
+    throw new NotFoundError(result.error);
   }
-  return Response.json({ ok: true, invite: result.data });
+  return { ok: true, invite: result.data };
 }
 
-/**
- * POST /v1/contacts/invites/redeem
- *
- * Unified invite redemption endpoint. Supports two modes:
- *
- * 1. **Token-based** (existing): pass `token`, `sourceChannel`, `externalUserId`, etc.
- * 2. **Voice code** (new): pass `code` and `callerExternalUserId` (E.164 phone).
- *    Optionally pass `assistantId`.
- *
- * The presence of `code` in the body selects voice-code redemption.
- */
-export async function handleRedeemInvite(req: Request): Promise<Response> {
-  const body = (await req.json()) as Record<string, unknown>;
-
+export async function handleRedeemInvite({ body = {} }: RouteHandlerArgs) {
   // Voice-code redemption path: triggered when `code` is present
   if (body.code != null) {
     const callerExternalUserId = body.callerExternalUserId as
@@ -104,10 +76,7 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
     const code = body.code as string | undefined;
 
     if (!callerExternalUserId || !code) {
-      return Response.json(
-        { ok: false, error: "callerExternalUserId and code are required" },
-        { status: 400 },
-      );
+      throw new BadRequestError("callerExternalUserId and code are required");
     }
 
     const result = redeemVoiceInviteCode({
@@ -118,18 +87,15 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
     });
 
     if (!result.ok) {
-      return Response.json(
-        { ok: false, error: result.reason },
-        { status: 400 },
-      );
+      throw new BadRequestError(result.reason);
     }
 
-    return Response.json({
+    return {
       ok: true,
       type: result.type,
       memberId: result.memberId,
       ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-    });
+    };
   }
 
   // Token-based redemption path (default)
@@ -141,140 +107,153 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
   });
 
   if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 400 });
+    throw new BadRequestError(result.error);
   }
-  return Response.json({ ok: true, invite: result.data });
+  return { ok: true, invite: result.data };
 }
 
-/**
- * POST /v1/contacts/invites/:id/call
- *
- * Trigger an outbound call for a phone invite. The invite must be active and
- * have sourceChannel "phone" with the required voice metadata populated.
- */
-export async function handleTriggerInviteCall(
-  inviteId: string,
-): Promise<Response> {
-  const result = await triggerInviteCall(inviteId);
+export async function handleTriggerInviteCall({
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const result = await triggerInviteCall(pathParams.id);
   if (!result.ok) {
-    return Response.json({ ok: false, error: result.error }, { status: 400 });
+    throw new BadRequestError(result.error);
   }
-  return Response.json({ ok: true, callSid: result.data.callSid });
+  return { ok: true, callSid: result.data.callSid };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function inviteRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "contacts/invites",
-      method: "GET",
-      summary: "List invites",
-      description:
-        "Return all invites, optionally filtered by sourceChannel or status.",
-      tags: ["contacts"],
-      queryParams: [
-        {
-          name: "sourceChannel",
-          schema: { type: "string" },
-          description: "Filter by source channel",
-        },
-        {
-          name: "status",
-          schema: { type: "string" },
-          description: "Filter by invite status",
-        },
-      ],
-      responseBody: z.object({
-        ok: z.boolean(),
-        invites: z.array(z.unknown()).describe("Invite objects"),
-      }),
-      handler: ({ url }) => handleListInvites(url),
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "invites_list",
+    endpoint: "contacts/invites",
+    method: "GET",
+    handler: handleListInvites,
+    summary: "List invites",
+    description:
+      "Return all invites, optionally filtered by sourceChannel or status.",
+    tags: ["contacts"],
+    queryParams: [
+      {
+        name: "sourceChannel",
+        description: "Filter by source channel",
+      },
+      {
+        name: "status",
+        description: "Filter by invite status",
+      },
+    ],
+    responseBody: z.object({
+      ok: z.boolean(),
+      invites: z.array(z.unknown()).describe("Invite objects"),
+    }),
+  },
+  {
+    operationId: "invites_create",
+    endpoint: "contacts/invites",
+    method: "POST",
+    handler: handleCreateInvite,
+    responseStatus: "201",
+    summary: "Create an invite",
+    description:
+      'Create a new invite. Supports voice invites when sourceChannel is "phone".',
+    tags: ["contacts"],
+    requestBody: z.object({
+      contactId: z.string().describe("Contact to invite"),
+      sourceChannel: z
+        .string()
+        .describe("Source channel (e.g. phone)")
+        .optional(),
+      note: z.string().describe("Optional note").optional(),
+      maxUses: z.number().describe("Max redemptions").optional(),
+      expiresInMs: z.number().describe("Expiry duration in ms").optional(),
+      contactName: z.string().describe("Contact display name").optional(),
+      expectedExternalUserId: z
+        .string()
+        .describe("Expected user ID (E.164 for phone)")
+        .optional(),
+      friendName: z.string().describe("Friend name for the invite").optional(),
+      guardianName: z.string().describe("Guardian name").optional(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      invite: z.object({}).passthrough().describe("Created invite"),
+    }),
+    additionalResponses: {
+      "400": {
+        description: "Invalid invite parameters",
+      },
     },
-    {
-      endpoint: "contacts/invites",
-      method: "POST",
-      summary: "Create an invite",
-      description:
-        'Create a new invite. Supports voice invites when sourceChannel is "phone".',
-      tags: ["contacts"],
-      requestBody: z.object({
-        contactId: z.string().describe("Contact to invite"),
-        sourceChannel: z
-          .string()
-          .describe("Source channel (e.g. phone)")
-          .optional(),
-        note: z.string().describe("Optional note").optional(),
-        maxUses: z.number().describe("Max redemptions").optional(),
-        expiresInMs: z.number().describe("Expiry duration in ms").optional(),
-        contactName: z.string().describe("Contact display name").optional(),
-        expectedExternalUserId: z
-          .string()
-          .describe("Expected user ID (E.164 for phone)")
-          .optional(),
-        friendName: z
-          .string()
-          .describe("Friend name for the invite")
-          .optional(),
-        guardianName: z.string().describe("Guardian name").optional(),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        invite: z.object({}).passthrough().describe("Created invite"),
-      }),
-      handler: async ({ req }) => handleCreateInvite(req),
+  },
+  {
+    operationId: "invites_redeem",
+    endpoint: "contacts/invites/redeem",
+    method: "POST",
+    handler: handleRedeemInvite,
+    summary: "Redeem an invite",
+    description: "Redeem an invite by token or voice code.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      token: z.string().describe("Invite token (token-based redemption)"),
+      code: z.string().describe("Voice code (voice-code redemption)"),
+      callerExternalUserId: z
+        .string()
+        .describe("Caller E.164 phone (voice-code)"),
+      externalUserId: z.string().describe("External user ID (token-based)"),
+      externalChatId: z.string().describe("External chat ID (token-based)"),
+      sourceChannel: z.string().describe("Source channel (token-based)"),
+      assistantId: z.string().describe("Assistant ID (voice-code)"),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      invite: z
+        .object({})
+        .passthrough()
+        .describe("Redeemed invite (token path)"),
+      type: z.string().describe("Redemption type (voice path)"),
+      memberId: z.string().describe("Member ID (voice path)"),
+    }),
+    additionalResponses: {
+      "400": {
+        description: "Invalid redemption parameters or failed redemption",
+      },
     },
-    {
-      endpoint: "contacts/invites/redeem",
-      method: "POST",
-      summary: "Redeem an invite",
-      description: "Redeem an invite by token or voice code.",
-      tags: ["contacts"],
-      requestBody: z.object({
-        token: z.string().describe("Invite token (token-based redemption)"),
-        code: z.string().describe("Voice code (voice-code redemption)"),
-        callerExternalUserId: z
-          .string()
-          .describe("Caller E.164 phone (voice-code)"),
-        externalUserId: z.string().describe("External user ID (token-based)"),
-        externalChatId: z.string().describe("External chat ID (token-based)"),
-        sourceChannel: z.string().describe("Source channel (token-based)"),
-        assistantId: z.string().describe("Assistant ID (voice-code)"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        invite: z
-          .object({})
-          .passthrough()
-          .describe("Redeemed invite (token path)"),
-        type: z.string().describe("Redemption type (voice path)"),
-        memberId: z.string().describe("Member ID (voice path)"),
-      }),
-      handler: async ({ req }) => handleRedeemInvite(req),
+  },
+  {
+    operationId: "invites_revoke",
+    endpoint: "contacts/invites/:id",
+    method: "DELETE",
+    policyKey: "contacts/invites",
+    handler: handleRevokeInvite,
+    summary: "Revoke an invite",
+    description: "Revoke an invite by ID.",
+    tags: ["contacts"],
+    additionalResponses: {
+      "404": {
+        description: "Invite not found",
+      },
     },
-    {
-      endpoint: "contacts/invites/:id",
-      method: "DELETE",
-      policyKey: "contacts/invites",
-      summary: "Revoke an invite",
-      description: "Revoke an invite by ID.",
-      tags: ["contacts"],
-      handler: ({ params }) => handleRevokeInvite(params.id),
+  },
+  {
+    operationId: "invites_trigger_call",
+    endpoint: "contacts/invites/:id/call",
+    method: "POST",
+    policyKey: "contacts/invites",
+    handler: handleTriggerInviteCall,
+    summary: "Trigger invite call",
+    description: "Trigger an outbound call for a phone invite.",
+    tags: ["contacts"],
+    responseBody: z.object({
+      ok: z.boolean(),
+      callSid: z.string().describe("Call SID from the provider"),
+    }),
+    additionalResponses: {
+      "400": {
+        description: "Invite not eligible for outbound call",
+      },
     },
-    {
-      endpoint: "contacts/invites/:id/call",
-      method: "POST",
-      policyKey: "contacts/invites",
-      summary: "Trigger invite call",
-      description: "Trigger an outbound call for a phone invite.",
-      tags: ["contacts"],
-      responseBody: z.object({
-        ok: z.boolean(),
-        callSid: z.string().describe("Call SID from the provider"),
-      }),
-      handler: async ({ params }) => handleTriggerInviteCall(params.id),
-    },
-  ];
-}
+  },
+];

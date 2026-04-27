@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { upsertContact } from "../contacts/contact-store.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
+import { RouteError } from "../runtime/routes/errors.js";
+import {
+  handleCreateInvite as _handleCreateInvite,
+  handleListInvites as _handleListInvites,
+  handleRedeemInvite as _handleRedeemInvite,
+  handleRevokeInvite as _handleRevokeInvite,
+  handleTriggerInviteCall as _handleTriggerInviteCall,
+} from "../runtime/routes/invite-routes.js";
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -19,12 +30,8 @@ mock.module("../security/secure-keys.js", () => ({
 // control the return value directly via a mutable variable.
 let mockTelegramBotUsername: string | undefined;
 mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotId: () => undefined,
   getTelegramBotUsername: () => mockTelegramBotUsername,
-}));
-
-// Mock invite instruction generator — skip LLM calls in tests.
-mock.module("../runtime/invite-instruction-generator.js", () => ({
-  generateInviteInstruction: async () => "Mock invite instruction for testing.",
 }));
 
 // Mock startInviteCall from call-domain — test env lacks Twilio credentials.
@@ -38,15 +45,75 @@ mock.module("../calls/call-domain.js", () => ({
   startInviteCall: async () => mockStartInviteCallResult,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
-import {
-  handleCreateInvite,
-  handleListInvites,
-  handleRedeemInvite,
-  handleRevokeInvite,
-  handleTriggerInviteCall,
-} from "../runtime/routes/invite-routes.js";
+/**
+ * Compatibility wrappers: translate old handler call signatures into the new
+ * RouteHandlerArgs pattern and wrap the result in a Response-like object so
+ * existing test assertions (res.status / res.json()) keep working.
+ */
+function fakeResponse(body: unknown, status = 200) {
+  return { status, json: async () => body };
+}
+
+async function handleCreateInvite(req: Request) {
+  const body = (await req.json()) as Record<string, unknown>;
+  try {
+    const result = await _handleCreateInvite({ body });
+    return fakeResponse(result, 201);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+function handleListInvites(url: URL) {
+  const queryParams: Record<string, string> = {};
+  for (const [k, v] of url.searchParams.entries()) queryParams[k] = v;
+  try {
+    const result = _handleListInvites({ queryParams });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+function handleRevokeInvite(inviteId: string) {
+  try {
+    const result = _handleRevokeInvite({ pathParams: { id: inviteId } });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+async function handleRedeemInvite(req: Request) {
+  const body = (await req.json()) as Record<string, unknown>;
+  try {
+    const result = await _handleRedeemInvite({ body });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
+    throw err;
+  }
+}
+
+async function handleTriggerInviteCall(inviteId: string) {
+  try {
+    const result = await _handleTriggerInviteCall({
+      pathParams: { id: inviteId },
+    });
+    return fakeResponse(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return fakeResponse({ ok: false, error: err.message }, err.statusCode);
+    throw err;
+  }
+}
 
 initializeDb();
 
