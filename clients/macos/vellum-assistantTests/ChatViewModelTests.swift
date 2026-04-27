@@ -151,8 +151,7 @@ final class ChatViewModelTests: XCTestCase {
             diff: nil,
             allowlistOptions: [],
             scopeOptions: [],
-            executionTarget: "host",
-            persistentDecisionsAllowed: true
+            executionTarget: "host"
         )
         confirmation.state = .pending
         viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
@@ -177,8 +176,7 @@ final class ChatViewModelTests: XCTestCase {
             diff: nil,
             allowlistOptions: [],
             scopeOptions: [],
-            executionTarget: "host",
-            persistentDecisionsAllowed: true
+            executionTarget: "host"
         )
         confirmation.state = .pending
         viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
@@ -2499,8 +2497,7 @@ final class ChatViewModelTests: XCTestCase {
             diff: nil,
             allowlistOptions: [],
             scopeOptions: [],
-            executionTarget: nil,
-            persistentDecisionsAllowed: true
+            executionTarget: nil
         )
         confirmation.state = .approved
         viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))
@@ -2548,8 +2545,7 @@ final class ChatViewModelTests: XCTestCase {
             diff: nil,
             allowlistOptions: [],
             scopeOptions: [],
-            executionTarget: nil,
-            persistentDecisionsAllowed: true
+            executionTarget: nil
         )
         confirmation.state = .approved
         viewModel.messages.append(ChatMessage(role: .assistant, text: "", confirmation: confirmation))

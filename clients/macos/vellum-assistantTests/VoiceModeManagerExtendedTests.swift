@@ -50,7 +50,6 @@ final class VoiceModeManagerExtendedTests: XCTestCase {
             allowlistOptions: [],
             scopeOptions: [],
             executionTarget: nil,
-            persistentDecisionsAllowed: true,
             state: .pending
         )
     }
