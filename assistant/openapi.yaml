@@ -5015,11 +5015,21 @@ paths:
                   intervalMs:
                     type: number
                   activeHoursStart:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   activeHoursEnd:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   nextRunAt:
-                    type: string
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   success:
                     type: boolean
                 required:
@@ -5028,6 +5038,7 @@ paths:
                   - activeHoursStart
                   - activeHoursEnd
                   - nextRunAt
+                  - lastRunAt
                   - success
                 additionalProperties: false
     put:
@@ -5049,11 +5060,21 @@ paths:
                   intervalMs:
                     type: number
                   activeHoursStart:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   activeHoursEnd:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   nextRunAt:
-                    type: string
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   success:
                     type: boolean
                 required:
@@ -5062,6 +5083,7 @@ paths:
                   - activeHoursStart
                   - activeHoursEnd
                   - nextRunAt
+                  - lastRunAt
                   - success
                 additionalProperties: false
       requestBody:

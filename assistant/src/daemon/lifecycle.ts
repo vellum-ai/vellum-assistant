@@ -1021,7 +1021,6 @@ export async function runDaemon(): Promise<void> {
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),
-      getHeartbeatService: () => server.getHeartbeatService(),
     });
 
     // Fire-and-forget: Qdrant init and memory worker startup run concurrently
@@ -1312,7 +1311,6 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     heartbeat.start();
-    server.setHeartbeatService(heartbeat);
     log.info(
       {
         enabled: heartbeatConfig.enabled,

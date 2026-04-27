@@ -55,7 +55,7 @@ import type {
   HostProxyTransportMetadata,
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
-import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import {
   writeOnboardingSidecar,
@@ -2707,7 +2707,6 @@ export function conversationRouteDefinitions(deps: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   suggestionCache: Map<string, string>;
   suggestionInFlight: Map<string, Promise<string | null>>;
-  getHeartbeatService?: () => HeartbeatService | undefined;
 }): HTTPRouteDefinition[] {
   return [
     {
@@ -2761,7 +2760,7 @@ export function conversationRouteDefinitions(deps: {
           {
             sendMessageDeps: deps.sendMessageDeps,
             approvalConversationGenerator: deps.approvalConversationGenerator,
-            heartbeatService: deps.getHeartbeatService?.(),
+            heartbeatService: HeartbeatService.getInstance(),
           },
           authContext,
         ),

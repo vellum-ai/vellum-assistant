@@ -147,7 +147,6 @@ import { conversationQueryRouteDefinitions } from "./routes/conversation-query-r
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
-import { heartbeatHttpOnlyRouteDefinitions } from "./routes/heartbeat-routes.js";
 import {
   resolveHostBrowserEvent,
   resolveHostBrowserResultByRequestId,
@@ -299,7 +298,6 @@ export class RuntimeHttpServer {
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
-  private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
   private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
 
@@ -318,7 +316,6 @@ export class RuntimeHttpServer {
     this.getModelSetContext = options.getModelSetContext;
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
-    this.getHeartbeatService = options.getHeartbeatService;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -1750,9 +1747,6 @@ export class RuntimeHttpServer {
       ...scheduleHttpOnlyRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
-      ...heartbeatHttpOnlyRouteDefinitions({
-        getHeartbeatService: this.getHeartbeatService,
-      }),
       ...workItemHttpOnlyRouteDefinitions(
         this.sendMessageDeps
           ? {
@@ -1997,7 +1991,6 @@ export class RuntimeHttpServer {
         approvalConversationGenerator: this.approvalConversationGenerator,
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
-        getHeartbeatService: this.getHeartbeatService,
       }),
       ...playgroundRouteDefinitions({
         getConversationById: async (id) => {
@@ -2086,7 +2079,6 @@ export class RuntimeHttpServer {
         guardianActionCopyGenerator: this.guardianActionCopyGenerator,
         guardianFollowUpConversationGenerator:
           this.guardianFollowUpConversationGenerator,
-        getHeartbeatService: this.getHeartbeatService,
       }),
       // Internal Twilio forwarding (gateway -> runtime) — kept inline
       // because these reconstruct fake form-encoded requests from JSON,
