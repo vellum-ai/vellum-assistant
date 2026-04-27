@@ -59,10 +59,12 @@ export async function executeContactUpsert(
   const res = await cliIpcCall<ContactWithChannels & { created: boolean }>(
     "upsert_contact",
     {
-      id: input.id as string | undefined,
-      displayName: displayName.trim(),
-      notes: input.notes as string | undefined,
-      channels,
+      body: {
+        id: input.id as string | undefined,
+        displayName: displayName.trim(),
+        notes: input.notes as string | undefined,
+        channels,
+      },
     },
   );
 

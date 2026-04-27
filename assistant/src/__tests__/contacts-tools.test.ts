@@ -39,20 +39,22 @@ mock.module("../config/env.js", () => ({
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     const store = await import("../contacts/contact-store.js");
+    const body = (params?.body ?? params ?? {}) as Record<string, unknown>;
+    const pathParams = (params?.pathParams ?? {}) as Record<string, string>;
     if (method === "search_contacts") {
-      return { ok: true, result: store.searchContacts(params ?? {}) };
+      return { ok: true, result: store.searchContacts(body) };
     }
     if (method === "upsert_contact") {
-      return { ok: true, result: store.upsertContact(params as never) };
+      return { ok: true, result: store.upsertContact(body as never) };
     }
-    if (method === "get_contact") {
-      return {
-        ok: true,
-        result: store.getContact((params as { id: string }).id) ?? null,
-      };
+    if (method === "getContact") {
+      const id = pathParams.id ?? (body as { id?: string }).id;
+      const contact = id ? store.getContact(id) : null;
+      if (!contact) return { ok: false, error: `Contact "${id}" not found` };
+      return { ok: true, result: { ok: true, contact } };
     }
     if (method === "merge_contacts") {
-      const { keepId, mergeId } = params as { keepId: string; mergeId: string };
+      const { keepId, mergeId } = body as { keepId: string; mergeId: string };
       return { ok: true, result: store.mergeContacts(keepId, mergeId) };
     }
     return { ok: false, error: `Unknown IPC method: ${method}` };

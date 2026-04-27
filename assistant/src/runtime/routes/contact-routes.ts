@@ -458,7 +458,106 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
 
-  // ── contacts/:id catch-all (MUST be last) ───────────────────────────
+  // ── contacts/search ──────────────────────────────────────────────────
+  {
+    operationId: "search_contacts",
+    endpoint: "contacts/search",
+    method: "POST",
+    summary: "Search contacts",
+    description:
+      "Search contacts by query, channel address, or channel type.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      query: z.string().optional(),
+      channelAddress: z.string().optional(),
+      channelType: z.string().optional(),
+      limit: z.number().optional(),
+    }),
+    responseBody: z.array(z.object({}).passthrough()),
+    handler: ({ body = {} }: RouteHandlerArgs) => {
+      const parsed = z
+        .object({
+          query: z.string().optional(),
+          channelAddress: z.string().optional(),
+          channelType: z.string().optional(),
+          limit: z.number().optional(),
+        })
+        .parse(body);
+      return searchContacts(parsed);
+    },
+  },
+
+  // ── contacts/upsert ─────────────────────────────────────────────────
+  {
+    operationId: "upsert_contact",
+    endpoint: "contacts/upsert",
+    method: "POST",
+    summary: "Create or update a contact",
+    description:
+      "Create a new contact or update an existing one by ID.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      id: z.string().optional(),
+      displayName: z.string().min(1),
+      notes: z.string().optional(),
+      channels: z
+        .array(
+          z.object({
+            type: z.string(),
+            address: z.string(),
+            isPrimary: z.boolean().optional(),
+          }),
+        )
+        .optional(),
+    }),
+    responseBody: z.object({}).passthrough(),
+    handler: ({ body = {} }: RouteHandlerArgs) => {
+      const parsed = z
+        .object({
+          id: z.string().optional(),
+          displayName: z.string().min(1),
+          notes: z.string().optional(),
+          channels: z
+            .array(
+              z.object({
+                type: z.string(),
+                address: z.string(),
+                isPrimary: z.boolean().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .parse(body);
+      return upsertContact(parsed);
+    },
+  },
+
+  // ── contacts/merge-by-id ────────────────────────────────────────────
+  {
+    operationId: "merge_contacts",
+    endpoint: "contacts/merge-by-id",
+    method: "POST",
+    summary: "Merge two contacts",
+    description:
+      "Merge two contacts by ID, keeping one and absorbing the other.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      keepId: z.string().min(1),
+      mergeId: z.string().min(1),
+    }),
+    responseBody: z.object({}).passthrough(),
+    handler: ({ body = {} }: RouteHandlerArgs) => {
+      const { keepId, mergeId } = z
+        .object({
+          keepId: z.string().min(1),
+          mergeId: z.string().min(1),
+        })
+        .parse(body);
+      return mergeContacts(keepId, mergeId);
+    },
+  },
+
+  // ── contacts/:id (MUST be last — path param shadows sub-paths) ────
   {
     operationId: "getContact",
     endpoint: "contacts/:id",
