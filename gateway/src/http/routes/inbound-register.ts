@@ -33,17 +33,24 @@ const log = getLogger("inbound-register");
 
 const InboundRegisterRequestSchema = z.object({
   type: z.string().trim().toLowerCase(),
-  guardian_email: z.string().trim().toLowerCase().email(),
+  guardian_email: z.string().email().trim().toLowerCase(),
 });
 
 // ---------------------------------------------------------------------------
 // Provider → email validator map
 // ---------------------------------------------------------------------------
 
+export interface EmailValidationResult {
+  channel: string;
+  externalUserId: string;
+  deliveryChatId: string;
+  displayName: string;
+}
+
 type EmailValidator = (
   apiKey: string,
   guardianEmail: string,
-) => Promise<boolean>;
+) => Promise<EmailValidationResult | null>;
 
 const providerValidators: Record<string, EmailValidator> = {
   resend: validateResendEmail,
@@ -56,22 +63,24 @@ const providerValidators: Record<string, EmailValidator> = {
 
 interface GuardianRow {
   id: string;
-  principal_id: string;
+  principal_id: string | null;
 }
 
 /**
  * Find the existing guardian contact (any channel). Returns null if no
- * guardian has been verified yet.
+ * guardian has been verified yet or if the guardian has no principal_id.
  */
-function findGuardian(): GuardianRow | null {
+function findGuardian(): (GuardianRow & { principal_id: string }) | null {
   const db = getAssistantDb();
-  return (
+  const row =
     db
       .query<GuardianRow, []>(
         `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
       )
-      .get() ?? null
-  );
+      .get() ?? null;
+
+  if (!row?.principal_id) return null;
+  return row as GuardianRow & { principal_id: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,10 +141,10 @@ export function createInboundRegisterHandler(
 
     // ── Validate email with provider ────────────────────────────
 
-    const valid = await validator(apiKey, guardianEmail);
-    if (!valid) {
+    const binding = await validator(apiKey, guardianEmail);
+    if (!binding) {
       log.warn(
-        { providerType, guardianEmail },
+        { providerType },
         "Provider email validation failed — skipping auto-verify",
       );
       return Response.json(
@@ -162,16 +171,16 @@ export function createInboundRegisterHandler(
 
     try {
       createGuardianBinding({
-        channel: "email",
-        externalUserId: guardianEmail,
-        deliveryChatId: guardianEmail,
+        channel: binding.channel,
+        externalUserId: binding.externalUserId,
+        deliveryChatId: binding.deliveryChatId,
         guardianPrincipalId: guardian.principal_id,
-        displayName: guardianEmail,
+        displayName: binding.displayName,
         verifiedVia: "webhook_registration",
       });
     } catch (err) {
       log.error(
-        { err, providerType, guardianEmail },
+        { err, providerType },
         "Failed to create guardian email channel binding",
       );
       return Response.json(
@@ -181,7 +190,7 @@ export function createInboundRegisterHandler(
     }
 
     log.info(
-      { providerType, guardianEmail },
+      { providerType },
       "Auto-verified guardian email channel via webhook registration",
     );
 

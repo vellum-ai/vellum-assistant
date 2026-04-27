@@ -6,6 +6,7 @@
  */
 
 import { getLogger } from "../../logger.js";
+import type { EmailValidationResult } from "./inbound-register.js";
 
 const log = getLogger("resend-identity");
 
@@ -13,12 +14,12 @@ const log = getLogger("resend-identity");
  * Validate the Resend API key by listing domains.
  *
  * A successful response proves the caller controls the Resend account.
- * Returns true when the key is functional.
+ * Returns binding fields when the key is functional, null otherwise.
  */
 export async function validateResendEmail(
   apiKey: string,
-  _guardianEmail: string,
-): Promise<boolean> {
+  guardianEmail: string,
+): Promise<EmailValidationResult | null> {
   try {
     const response = await fetch("https://api.resend.com/domains", {
       headers: {
@@ -33,13 +34,18 @@ export async function validateResendEmail(
         { status: response.status },
         "Resend API key validation failed — key may be invalid or expired",
       );
-      return false;
+      return null;
     }
 
-    log.info("Resend API key validated — trusting provided guardian_email");
-    return true;
+    log.info("Resend API key validated — trusting provided guardian email");
+    return {
+      channel: "email",
+      externalUserId: guardianEmail,
+      deliveryChatId: guardianEmail,
+      displayName: guardianEmail,
+    };
   } catch (err) {
     log.warn({ err }, "Resend API key validation request failed");
-    return false;
+    return null;
   }
 }
