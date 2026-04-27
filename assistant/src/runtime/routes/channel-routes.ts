@@ -9,7 +9,7 @@
  */
 
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -55,7 +55,7 @@ export function channelRouteDefinitions(deps: {
   guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   getHeartbeatService?: () => HeartbeatService | undefined;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "channels/conversation",

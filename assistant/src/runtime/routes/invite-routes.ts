@@ -11,7 +11,7 @@
 
 import { z } from "zod";
 
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -166,7 +166,7 @@ export async function handleTriggerInviteCall(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function inviteRouteDefinitions(): RouteDefinition[] {
+export function inviteRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "contacts/invites",

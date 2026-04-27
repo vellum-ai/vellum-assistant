@@ -22,7 +22,7 @@ import {
 } from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
 
@@ -333,7 +333,7 @@ function handleDeleteSharedApp(shareToken: string): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function appRouteDefinitions(): RouteDefinition[] {
+export function appRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "apps/:appId/dist/:filename",

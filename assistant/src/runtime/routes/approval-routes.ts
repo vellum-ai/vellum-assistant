@@ -21,7 +21,7 @@ import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
 
 const log = getLogger("approval-routes");
@@ -280,7 +280,7 @@ export function handleListPendingInteractions(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function approvalRouteDefinitions(): RouteDefinition[] {
+export function approvalRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "confirm",

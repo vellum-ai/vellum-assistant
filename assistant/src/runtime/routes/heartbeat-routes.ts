@@ -16,7 +16,7 @@ import { readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("heartbeat-routes");
 
@@ -144,7 +144,7 @@ function handleWriteChecklist(content: string): Response {
 
 export function heartbeatRouteDefinitions(deps: {
   getHeartbeatService?: () => HeartbeatService | undefined;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "heartbeat/config",

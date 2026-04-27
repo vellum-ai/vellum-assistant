@@ -14,7 +14,7 @@ import {
   getVercelConfig,
   setVercelConfig,
 } from "../../../daemon/handlers/config-vercel.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 
 /**
  * GET /v1/integrations/vercel/config
@@ -68,7 +68,7 @@ async function handleDeleteVercelConfig(): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function vercelRouteDefinitions(): RouteDefinition[] {
+export function vercelRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "integrations/vercel/config",

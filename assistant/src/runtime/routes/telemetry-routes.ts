@@ -9,7 +9,7 @@ import { z } from "zod";
 import { recordLifecycleEvent } from "../../memory/lifecycle-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("telemetry-routes");
 
@@ -45,7 +45,7 @@ async function handleRecordLifecycleEvent(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function telemetryRouteDefinitions(): RouteDefinition[] {
+export function telemetryRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "telemetry/lifecycle",

@@ -41,7 +41,7 @@ import {
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
@@ -1761,7 +1761,7 @@ export async function handleMigrationJobStatus(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function migrationRouteDefinitions(): RouteDefinition[] {
+export function migrationRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "migrations/validate",

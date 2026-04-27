@@ -8,13 +8,13 @@ import { z } from "zod";
 
 import { getTraceEvents } from "../../memory/trace-event-store.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function traceEventRouteDefinitions(): RouteDefinition[] {
+export function traceEventRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "trace-events",

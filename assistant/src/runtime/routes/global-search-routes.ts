@@ -22,7 +22,7 @@ import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("global-search");
 
@@ -272,7 +272,7 @@ async function handleGlobalSearch(url: URL): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function globalSearchRouteDefinitions(): RouteDefinition[] {
+export function globalSearchRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "search/global",

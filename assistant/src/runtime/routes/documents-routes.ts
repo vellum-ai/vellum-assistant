@@ -9,7 +9,7 @@ import { z } from "zod";
 import { rawAll, rawGet, rawRun } from "../../memory/db.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("documents-routes");
 
@@ -157,7 +157,7 @@ function listDocuments(conversationId?: string): Array<{
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function documentRouteDefinitions(): RouteDefinition[] {
+export function documentRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "documents",

@@ -29,7 +29,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { isServiceGatewayPrincipal } from "../auth/context.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
@@ -587,7 +587,7 @@ function handleGetAttachmentContent(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function attachmentRouteDefinitions(): RouteDefinition[] {
+export function attachmentRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "attachments",

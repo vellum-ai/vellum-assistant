@@ -37,7 +37,7 @@ import {
 } from "../../util/platform.js";
 import { APP_VERSION, COMMIT_SHA } from "../../version.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import { createTarGz } from "./archive-utils.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
 
@@ -444,7 +444,7 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function logExportRouteDefinitions(): RouteDefinition[] {
+export function logExportRouteDefinitions(): HTTPRouteDefinition[] {
   const exportRequestBody = z.object({
     auditLimit: z
       .number()

@@ -188,6 +188,17 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
     }
 
     for (const [exportName, exportValue] of Object.entries(mod)) {
+      if (exportName === "ROUTES" && Array.isArray(exportValue)) {
+        for (const raw of exportValue) {
+          const result = RouteEntrySchema.safeParse({
+            ...(typeof raw === "object" && raw !== null ? raw : {}),
+            sourceModule: file,
+          });
+          if (result.success) routes.push(result.data);
+        }
+        continue;
+      }
+
       if (
         !exportName.endsWith("RouteDefinitions") ||
         typeof exportValue !== "function"

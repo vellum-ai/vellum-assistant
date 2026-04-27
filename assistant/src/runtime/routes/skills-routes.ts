@@ -30,7 +30,7 @@ import {
   updateSkill,
 } from "../../daemon/handlers/skills.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 /**
  * Dependencies injected by the HTTP server to provide the
@@ -130,7 +130,7 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
   z.object({ ...slimSkillBase, origin: z.literal("custom") }),
 ]);
 
-export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
+export function skillRouteDefinitions(deps: SkillRouteDeps): HTTPRouteDefinition[] {
   const ctx = () => deps.getSkillContext();
 
   return [

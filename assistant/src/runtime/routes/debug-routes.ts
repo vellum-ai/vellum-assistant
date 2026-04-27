@@ -16,7 +16,7 @@ import {
 } from "../../providers/registry.js";
 import { countSchedules } from "../../schedule/schedule-store.js";
 import { getDbPath } from "../../util/platform.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 /** Process start time — used to calculate uptime. */
 const startedAt = Date.now();
@@ -90,7 +90,7 @@ function handleDebug(): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function debugRouteDefinitions(): RouteDefinition[] {
+export function debugRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "debug",

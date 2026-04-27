@@ -30,7 +30,7 @@ import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../../tools/credentials/metadata-store.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -461,7 +461,7 @@ async function handleReleaseTwilioNumber(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function twilioRouteDefinitions(): RouteDefinition[] {
+export function twilioRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "integrations/twilio/config",

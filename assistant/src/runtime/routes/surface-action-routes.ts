@@ -12,7 +12,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import {
   resolveTrustContext,
@@ -248,7 +248,7 @@ async function handleSurfaceUndo(
 export function surfaceActionRouteDefinitions(deps: {
   findConversation?: ConversationLookup;
   findConversationBySurfaceId?: ConversationLookupBySurfaceId;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "surface-actions",

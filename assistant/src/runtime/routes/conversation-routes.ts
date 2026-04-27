@@ -108,7 +108,7 @@ import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-gua
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
   RuntimeAttachmentMetadata,
@@ -2665,7 +2665,7 @@ export function conversationRouteDefinitions(deps: {
   suggestionCache: Map<string, string>;
   suggestionInFlight: Map<string, Promise<string | null>>;
   getHeartbeatService?: () => HeartbeatService | undefined;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "messages",

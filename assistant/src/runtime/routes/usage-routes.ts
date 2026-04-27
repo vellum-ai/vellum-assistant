@@ -16,7 +16,7 @@ import {
 } from "../../memory/llm-usage-store.js";
 import { validateTimezone } from "../../memory/usage-buckets.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const VALID_GROUP_BY = new Set(["actor", "provider", "model", "conversation"]);
 
@@ -80,7 +80,7 @@ function parseTimeRange(url: URL): { from: number; to: number } | Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function usageRouteDefinitions(): RouteDefinition[] {
+export function usageRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "usage/totals",

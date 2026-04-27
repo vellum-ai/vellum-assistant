@@ -21,7 +21,7 @@ import { getConfig } from "../../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../../config/schema.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError, httpErrorCodeFromStatus } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
 // Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
@@ -285,7 +285,7 @@ async function handleInstructionCall(
 
 export function callRouteDefinitions(deps: {
   assistantId: string;
-}): RouteDefinition[] {
+}): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "calls/start",

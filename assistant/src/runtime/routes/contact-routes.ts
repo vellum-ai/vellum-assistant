@@ -37,7 +37,7 @@ import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { isServiceGatewayPrincipal } from "../auth/context.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 function withGuardianNameOverride<
   T extends { role: string; displayName: string },
@@ -512,7 +512,7 @@ export async function handleAddGuardianChannel(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function contactRouteDefinitions(): RouteDefinition[] {
+export function contactRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "contacts",
@@ -634,7 +634,7 @@ export function contactRouteDefinitions(): RouteDefinition[] {
  * share the `contacts/` prefix (e.g. `inviteRouteDefinitions()`) to avoid
  * the `:id` parameter matching literal sub-paths like "invites".
  */
-export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
+export function contactCatchAllRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "contacts/:id",

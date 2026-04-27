@@ -14,7 +14,7 @@ import { z } from "zod";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Message } from "../../../providers/types.js";
 import { httpError } from "../../http-errors.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
 
 /**
@@ -41,7 +41,7 @@ const LOREM_BASE =
 
 export function seedConversationRouteDefinitions(
   deps: PlaygroundRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "playground/seed-conversation",

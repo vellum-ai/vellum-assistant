@@ -52,7 +52,7 @@ import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("app-management-routes");
 
@@ -358,7 +358,7 @@ async function openBundle(filePath: string): Promise<Record<string, unknown>> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function appManagementRouteDefinitions(): RouteDefinition[] {
+export function appManagementRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     // -----------------------------------------------------------------------
     // Literal path routes MUST come before parameterized `apps/:id/*` routes

@@ -13,7 +13,7 @@ import {
   getInviteAdapterRegistry,
   resolveAdapterHandle,
 } from "../channel-invite-transport.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 /**
  * GET /v1/channels/readiness
@@ -123,7 +123,7 @@ async function handleRefreshChannelReadiness(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function channelReadinessRouteDefinitions(): RouteDefinition[] {
+export function channelReadinessRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "channels/readiness",

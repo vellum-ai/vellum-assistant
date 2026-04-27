@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { Conversation } from "../../../../daemon/conversation.js";
-import type { RouteDefinition } from "../../../http-router.js";
+import type { HTTPRouteDefinition } from "../../../http-router.js";
 import type { PlaygroundRouteDeps } from "../deps.js";
 import {
   PLAYGROUND_TITLE_PREFIX,
@@ -46,7 +46,7 @@ function makeDeps(overrides?: { enabled?: boolean }): Spy {
   return { deps, createdTitles, addedMessages };
 }
 
-function getSeedHandler(deps: PlaygroundRouteDeps): RouteDefinition["handler"] {
+function getSeedHandler(deps: PlaygroundRouteDeps): HTTPRouteDefinition["handler"] {
   const routes = seedConversationRouteDefinitions(deps);
   const route = routes.find(
     (r) => r.endpoint === "playground/seed-conversation" && r.method === "POST",

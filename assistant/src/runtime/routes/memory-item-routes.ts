@@ -50,7 +50,7 @@ import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
-import type { RouteContext, RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition,RouteContext } from "../http-router.js";
 
 const log = getLogger("memory-item-routes");
 
@@ -684,7 +684,7 @@ function rowToNode(row: typeof memoryGraphNodes.$inferSelect): MemoryNode {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function memoryItemRouteDefinitions(): RouteDefinition[] {
+export function memoryItemRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "memory-items",

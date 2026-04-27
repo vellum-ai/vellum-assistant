@@ -50,7 +50,7 @@ import {
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import { DefaultPathResolver } from "../migrations/vbundle-import-analyzer.js";
 
 const log = getLogger("backup-routes");
@@ -439,7 +439,7 @@ export async function handleBackupVerify(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function backupRouteDefinitions(): RouteDefinition[] {
+export function backupRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "backups",

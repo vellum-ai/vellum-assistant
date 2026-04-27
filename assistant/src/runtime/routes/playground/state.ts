@@ -14,7 +14,7 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import type { RouteDefinition } from "../../http-router.js";
+import type { HTTPRouteDefinition } from "../../http-router.js";
 import { conversationNotFoundResponse } from "./conversation-not-found.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
 
@@ -54,7 +54,7 @@ export function buildCompactionStateResponse(conversation: Conversation) {
 
 export function stateRouteDefinitions(
   deps: PlaygroundRouteDeps,
-): RouteDefinition[] {
+): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "conversations/:id/playground/compaction-state",

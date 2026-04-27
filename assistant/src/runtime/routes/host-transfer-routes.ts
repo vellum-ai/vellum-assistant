@@ -10,7 +10,7 @@ import { z } from "zod";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
 
 /**
@@ -165,7 +165,7 @@ async function handleTransferResult(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function hostTransferRouteDefinitions(): RouteDefinition[] {
+export function hostTransferRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "transfers/:transferId/content",

@@ -38,7 +38,7 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { getProfilerRunDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 import { createTarGz, MAX_ARCHIVE_BYTES } from "./archive-utils.js";
 
 const log = getLogger("profiler-routes");
@@ -268,7 +268,7 @@ function copyDirContents(src: string, dest: string): void {
 
 // ── Route definitions ──────────────────────────────────────────────────
 
-export function profilerRouteDefinitions(): RouteDefinition[] {
+export function profilerRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "profiler/runs",

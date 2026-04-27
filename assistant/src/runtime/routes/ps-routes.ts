@@ -15,7 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import { resolveQdrantUrl } from "../../memory/qdrant-client.js";
 import { getLogger } from "../../util/logger.js";
 import { getEmbedWorkerPidPath } from "../../util/platform.js";
-import type { RouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router.js";
 
 const log = getLogger("ps-routes");
 
@@ -107,7 +107,7 @@ async function handlePs(): Promise<Response> {
   return Response.json({ processes });
 }
 
-export function psRouteDefinitions(): RouteDefinition[] {
+export function psRouteDefinitions(): HTTPRouteDefinition[] {
   return [
     {
       endpoint: "ps",
