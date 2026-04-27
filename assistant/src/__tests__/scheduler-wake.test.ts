@@ -16,8 +16,12 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-const mockWakeAgentForOpportunity = mock(() =>
-  Promise.resolve({ invoked: true, producedToolCalls: false }),
+const mockWakeAgentForOpportunity = mock(
+  (): Promise<{
+    invoked: boolean;
+    producedToolCalls: boolean;
+    reason?: string;
+  }> => Promise.resolve({ invoked: true, producedToolCalls: false }),
 );
 mock.module("../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: mockWakeAgentForOpportunity,
