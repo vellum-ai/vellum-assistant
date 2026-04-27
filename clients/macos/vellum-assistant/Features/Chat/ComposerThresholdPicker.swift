@@ -40,7 +40,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
 
     var icon: VIcon {
         switch self {
-        case .strict: return .lock
+        case .strict: return .shieldAlert
         case .default: return .shieldCheck
         case .relaxed: return .shield
         case .fullAccess: return .shieldOff
