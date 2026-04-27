@@ -14,6 +14,7 @@ import {
   fetchCurrentUser,
   fetchOrganizationId,
   getPlatformUrl,
+  getWebUrl,
   injectCredentialsIntoAssistant,
   readGatewayCredential,
   readPlatformToken,
@@ -45,7 +46,7 @@ function openBrowser(url: string): void {
  * Start a local HTTP server, open the browser to the platform login page,
  * and wait for the platform to redirect back with the session token.
  */
-function browserLogin(platformUrl: string): Promise<string> {
+function browserLogin(webUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const state = randomBytes(32).toString("hex");
 
@@ -112,7 +113,7 @@ function browserLogin(platformUrl: string): Promise<string> {
 
       const port = addr.port;
       const returnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
-      const loginUrl = `${platformUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
+      const loginUrl = `${webUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
 
       console.log("Opening browser for login...");
       console.log(`If the browser doesn't open, visit: ${loginUrl}`);
@@ -156,9 +157,9 @@ export async function login(): Promise<void> {
 
   // If no --token flag, use browser-based login
   if (!token) {
-    const platformUrl = getPlatformUrl();
+    const webUrl = getWebUrl();
     try {
-      token = await browserLogin(platformUrl);
+      token = await browserLogin(webUrl);
     } catch (error) {
       console.error(`❌ ${error instanceof Error ? error.message : error}`);
       process.exit(1);

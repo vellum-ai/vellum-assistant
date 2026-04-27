@@ -31,6 +31,16 @@ export interface EnvironmentDefinition {
   platformUrl: string;
 
   /**
+   * The web app (Next.js) base URL for browser-facing pages like
+   * `/account/login`. In production this is separate from the API backend
+   * (e.g. `www.vellum.ai` vs `platform.vellum.ai`); locally it's
+   * `localhost:3000` vs `localhost:8000`.
+   *
+   * Mirrors `VellumEnvironment.webURL` on the Swift side.
+   */
+  webUrl: string;
+
+  /**
    * Override for the platform URL the assistant process itself uses. Only
    * differs from `platformUrl` when the assistant runs in a different network
    * namespace than the host (e.g. Docker on macOS, where the host's localhost

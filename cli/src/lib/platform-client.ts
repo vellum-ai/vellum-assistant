@@ -40,6 +40,19 @@ export function getPlatformUrl(): string {
   );
 }
 
+/**
+ * Resolve the web app (Next.js) base URL for browser-facing pages like
+ * `/account/login`. Mirrors `VellumEnvironment.resolvedWebURL` on the
+ * Swift side.
+ *
+ * Resolution order:
+ *   1. `VELLUM_WEB_URL` env var (explicit override)
+ *   2. The current environment's seed web URL
+ */
+export function getWebUrl(): string {
+  return process.env.VELLUM_WEB_URL?.trim() || getCurrentEnvironment().webUrl;
+}
+
 export function readPlatformToken(): string | null {
   try {
     return readFileSync(getPlatformTokenPath(), "utf-8").trim();
