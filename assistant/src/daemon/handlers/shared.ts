@@ -64,6 +64,12 @@ export interface HistoryToolCall {
   confirmationDecision?: string;
   /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
   confirmationLabel?: string;
+  /** Risk level classification at invocation time ("low" | "medium" | "high" | "unknown"). */
+  riskLevel?: string;
+  /** Human-readable reason for the risk classification. */
+  riskReason?: string;
+  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
+  autoApproved?: boolean;
 }
 
 export interface HistorySurface {
@@ -378,6 +384,12 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         entry.confirmationDecision = block._confirmationDecision;
       if (typeof block._confirmationLabel === "string")
         entry.confirmationLabel = block._confirmationLabel;
+      if (typeof block._riskLevel === "string")
+        entry.riskLevel = block._riskLevel;
+      if (typeof block._riskReason === "string")
+        entry.riskReason = block._riskReason;
+      if (typeof block._autoApproved === "boolean")
+        entry.autoApproved = block._autoApproved;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
