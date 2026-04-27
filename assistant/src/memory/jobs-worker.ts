@@ -60,6 +60,12 @@ import {
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
+import {
+  memoryV2ActivationRecomputeJob,
+  memoryV2MigrateJob,
+  memoryV2RebuildEdgesJob,
+  memoryV2ReembedJob,
+} from "./v2/backfill-jobs.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -459,11 +465,19 @@ async function processJob(
     case "memory_v2_sweep":
       await memoryV2SweepJob(job, config);
       return;
-    case "memory_v2_consolidate":
     case "memory_v2_migrate":
+      await memoryV2MigrateJob(job, config);
+      return;
     case "memory_v2_rebuild_edges":
+      await memoryV2RebuildEdgesJob(job, config);
+      return;
     case "memory_v2_reembed":
+      await memoryV2ReembedJob(job, config);
+      return;
     case "memory_v2_activation_recompute":
+      await memoryV2ActivationRecomputeJob(job, config);
+      return;
+    case "memory_v2_consolidate":
       log.warn(
         { jobId: job.id, type: job.type },
         `Memory v2 job type ${job.type} not yet implemented; ignoring`,

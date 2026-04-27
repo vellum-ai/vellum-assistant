@@ -1,9 +1,13 @@
 /**
- * Stub-handler dispatch tests for the memory v2 job types registered in
- * PR 6. The real handlers land in later PRs (13, 18, 20, 21); for now the
- * worker should accept these job types, log a warning, and complete the
- * job successfully so the row leaves the queue instead of being retried
- * forever.
+ * Stub-handler dispatch tests for the remaining memory v2 job types whose
+ * production handler hasn't landed yet. PR 6 registered seven v2 job types;
+ * PRs 13/18/21 landed real handlers for all but `memory_v2_consolidate`, so
+ * this test now only covers that one — the others have dedicated handler
+ * tests in their respective modules.
+ *
+ * The contract being verified: while the consolidation handler is still a
+ * stub (PR 20), the worker must accept the job type, log a warning, and
+ * complete the row instead of failing or retrying forever.
  *
  * Uses the real SQLite test DB and `enqueueMemoryJob` so the test
  * exercises the same claim → dispatch → complete path the production
@@ -59,13 +63,7 @@ import { startMemoryJobsWorker } from "../jobs-worker.js";
 import { memoryJobs } from "../schema.js";
 
 const V2_STUB_JOB_TYPES: readonly MemoryJobType[] = [
-  "embed_concept_page",
-  "memory_v2_sweep",
   "memory_v2_consolidate",
-  "memory_v2_migrate",
-  "memory_v2_rebuild_edges",
-  "memory_v2_reembed",
-  "memory_v2_activation_recompute",
 ] as const;
 
 initializeDb();
@@ -120,20 +118,4 @@ describe("memory v2 job-type stubs", () => {
       expect(row?.lastError).toBeNull();
     });
   }
-
-  test("processes a batch with multiple v2 stub job types in one drain", async () => {
-    const ids = V2_STUB_JOB_TYPES.map((type) => ({
-      type,
-      id: enqueueMemoryJob(type, {}),
-    }));
-
-    await drainJobs();
-
-    for (const { type, id } of ids) {
-      const row = getJobRow(id);
-      expect(row?.status).toBe("completed");
-      expect(row?.type).toBe(type);
-      expect(row?.lastError).toBeNull();
-    }
-  });
 });
