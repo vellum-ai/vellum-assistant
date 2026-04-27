@@ -40,7 +40,7 @@ interface IpcResponse {
   id: string;
   result?: unknown;
   error?: string;
-  errorStatusCode?: number;
+  statusCode?: number;
   errorCode?: string;
 }
 
@@ -266,12 +266,12 @@ export async function ipcCallAssistantStrict(
             const msg = JSON.parse(line) as IpcResponse;
             if (msg.id === reqId) {
               if (msg.error) {
-                if (msg.errorStatusCode) {
+                if (msg.statusCode) {
                   finish(
                     undefined,
                     new IpcHandlerError(
                       msg.error,
-                      msg.errorStatusCode,
+                      msg.statusCode,
                       msg.errorCode ?? "UNKNOWN",
                     ),
                   );

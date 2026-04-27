@@ -29,6 +29,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
 import { RouteError } from "../runtime/routes/errors.js";
+import type { RouteDefinition } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import type { IpcEnvelope } from "./ipc-framing.js";
 import {
@@ -57,8 +58,8 @@ export type IpcResponse = {
   id: string;
   result?: unknown;
   error?: string;
-  /** HTTP-style status code for RouteError instances. */
-  errorStatusCode?: number;
+  /** HTTP status code — present for all responses, not just errors. */
+  statusCode?: number;
   /** Machine-readable error code (e.g. "NOT_FOUND") for RouteError instances. */
   errorCode?: string;
   headers?: Record<string, string>;
@@ -69,23 +70,13 @@ export type IpcMethodHandler = (
   connection?: unknown,
 ) => unknown | Promise<unknown>;
 
-/**
- * Structured handler that receives separated pathParams/queryParams/body/headers.
- * Used by the route adapter for transport-agnostic ROUTES entries.
- * The IPC server prefers this over `handler` when present.
- */
-export type IpcStructuredHandler = (args: {
-  pathParams?: Record<string, string>;
-  queryParams?: Record<string, string>;
-  body?: Record<string, unknown>;
-  headers?: Record<string, string>;
-}) => unknown | Promise<unknown>;
-
 /** A single IPC route definition — method name + handler function. */
 export type IpcRoute = {
   method: string;
   handler: IpcMethodHandler;
-  structuredHandler?: IpcStructuredHandler;
+  /** Structured handler from transport-agnostic RouteDefinitions. The IPC
+   *  server prefers this over `handler` when present. */
+  structuredHandler?: RouteDefinition["handler"];
 };
 
 // ---------------------------------------------------------------------------
@@ -96,7 +87,7 @@ export class AssistantIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
   private methods = new Map<string, IpcMethodHandler>();
-  private structuredMethods = new Map<string, IpcStructuredHandler>();
+  private structuredMethods = new Map<string, RouteDefinition["handler"]>();
   private socketPath: string;
 
   constructor() {
@@ -220,29 +211,12 @@ export class AssistantIpcServer {
     // callers send flat params and use the legacy handler.
     const structuredHandler = this.structuredMethods.get(req.method);
 
-    // Detect structured payload shape: has at least one of the known keys.
-    const params = req.params;
-    const isStructured =
-      structuredHandler != null &&
-      params != null &&
-      ("pathParams" in params ||
-        "queryParams" in params ||
-        "body" in params ||
-        "headers" in params);
-
     void binary;
 
     try {
-      const result = isStructured
-        ? structuredHandler(
-            params as {
-              pathParams?: Record<string, string>;
-              queryParams?: Record<string, string>;
-              body?: Record<string, unknown>;
-              headers?: Record<string, string>;
-            },
-          )
-        : legacyHandler(params);
+      const result = structuredHandler
+        ? structuredHandler(req.params ?? {})
+        : legacyHandler(req.params);
 
       if (result instanceof Promise) {
         result
@@ -271,7 +245,7 @@ export class AssistantIpcServer {
       return {
         id,
         error: err.message,
-        errorStatusCode: err.statusCode,
+        statusCode: err.statusCode,
         errorCode: err.code,
       };
     }
