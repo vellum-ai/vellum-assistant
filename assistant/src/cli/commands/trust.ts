@@ -247,6 +247,8 @@ Options:
     .addHelpText(
       "after",
       `
+Run 'assistant trust list' to see available rule IDs.
+
 The <id> argument can be a prefix of the full UUID (at least the first
 few characters, enough to be unambiguous).
 
@@ -399,6 +401,8 @@ Examples:
     .addHelpText(
       "after",
       `
+Run 'assistant trust list' to see available rule IDs.
+
 The <id> argument can be a prefix of the full UUID (at least the first
 few characters, enough to be unambiguous).
 
