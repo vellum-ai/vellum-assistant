@@ -19,7 +19,9 @@ import {
   completeScheduleRun,
   createScheduleRun,
   failOneShot,
+  failOneShotPermanently,
   getLastScheduleConversationId,
+  retryOneShot,
   type RoutingIntent,
 } from "./schedule-store.js";
 
@@ -63,6 +65,13 @@ export interface SchedulerHandle {
 }
 
 const TICK_INTERVAL_MS = 15_000;
+
+/**
+ * Maximum number of times a wake can be retried after a timeout before
+ * being permanently failed. At 15-second scheduler intervals, 20 retries
+ * ≈ 5 minutes of total retry window.
+ */
+const WAKE_MAX_RETRIES = 20;
 
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
@@ -246,11 +255,60 @@ async function runScheduleOnce(
           { jobId: job.id, name: job.name, wakeConversationId, isOneShot },
           "Executing wake schedule",
         );
-        await wakeAgentForOpportunity({
+        const result = await wakeAgentForOpportunity({
           conversationId: wakeConversationId,
           hint: job.message,
           source: "defer",
         });
+
+        if (result.reason === "timeout" && isOneShot) {
+          // The conversation is busy processing a tool call. Retry on
+          // the next scheduler tick unless we've exceeded the retry cap.
+          if (job.retryCount >= WAKE_MAX_RETRIES) {
+            log.warn(
+              {
+                jobId: job.id,
+                name: job.name,
+                wakeConversationId,
+                retryCount: job.retryCount,
+              },
+              "Wake timed out and exceeded max retries — permanently failing",
+            );
+            failOneShotPermanently(job.id);
+          } else {
+            log.warn(
+              {
+                jobId: job.id,
+                name: job.name,
+                wakeConversationId,
+                retryCount: job.retryCount,
+              },
+              "Wake timed out waiting for idle conversation — will retry on next tick",
+            );
+            retryOneShot(job.id);
+          }
+          processed += 1;
+          continue;
+        }
+
+        // Guard: if the wake was not invoked for any reason (timeout on
+        // a recurring schedule, not_found, archived, no_resolver), skip
+        // the success feed event — the wake did not actually fire.
+        if (!result.invoked) {
+          log.warn(
+            {
+              jobId: job.id,
+              name: job.name,
+              wakeConversationId,
+              reason: result.reason,
+            },
+            "Wake not invoked; skipping feed event",
+          );
+          if (isOneShot) completeOneShot(job.id);
+          processed += 1;
+          continue;
+        }
+
         if (isOneShot) completeOneShot(job.id);
         if (!job.quiet) {
           emitScheduleFeedEvent({
