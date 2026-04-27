@@ -607,6 +607,22 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Cache operations: local-only (CLI / IPC callers)
+registerPolicy("cache/set", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("cache/get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("cache/delete", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Browser operations: local-only (CLI / IPC callers)
 registerPolicy("browser/execute", {
   requiredScopes: ["settings.write"],
