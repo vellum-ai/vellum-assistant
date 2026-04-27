@@ -181,7 +181,6 @@ function createCtx(): {
   const sent: Array<{ type: string; [k: string]: unknown }> = [];
 
   const ctx: HandlerContext = {
-    conversations: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
     suppressConfigReload: false,

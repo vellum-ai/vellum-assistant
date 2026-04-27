@@ -143,6 +143,10 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-store.js";
 import { handleConfirmationResponse } from "../daemon/handlers/conversations.js";
 
 interface TestConversation {
@@ -179,7 +183,6 @@ function createContext(conversationObj: TestConversation): {
 } {
   const sent: ServerMessage[] = [];
   const ctx: HandlerContext = {
-    conversations: new Map(),
     sharedRequestTimestamps: [],
     debounceTimers: new DebouncerMap({ defaultDelayMs: 100 }),
     suppressConfigReload: false,
@@ -225,6 +228,7 @@ function makeConversation(
 
 describe("handleConfirmationResponse canonical status sync", () => {
   beforeEach(() => {
+    clearConversations();
     (
       globalThis as Record<string, unknown>
     ).__approvalConsumptionUseMockCanonicalStore = true;
@@ -245,7 +249,7 @@ describe("handleConfirmationResponse canonical status sync", () => {
       handleConfirmationResponse: mock(() => {}),
     };
     const { ctx } = createContext(makeConversation());
-    ctx.conversations.set("conv-1", conversationObj as any);
+    setConversation("conv-1", conversationObj as any);
 
     const msg: ConfirmationResponse = {
       type: "confirmation_response",

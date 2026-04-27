@@ -104,6 +104,18 @@ import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import {
+  allConversations,
+  clearConversations,
+  conversationCount,
+  conversationEntries,
+  conversationIds,
+  deleteConversation as storeDelete,
+  findConversation as storeFindConversation,
+  findConversationBySurfaceId as storeFindBySurfaceId,
+  getConversationMap,
+  setConversation as storeSet,
+} from "./conversation-store.js";
+import {
   refreshSurfacesForApp,
   showStandaloneSurface,
 } from "./conversation-surfaces.js";
@@ -310,7 +322,6 @@ function makePendingInteractionRegistrar(
 }
 
 export class DaemonServer {
-  private conversations = new Map<string, Conversation>();
   private conversationOptions = new Map<string, ConversationCreateOptions>();
   private conversationCreating = new Map<string, Promise<Conversation>>();
   private sharedRequestTimestamps: number[] = [];
@@ -437,11 +448,11 @@ export class DaemonServer {
   }
 
   constructor() {
-    this.evictor = new ConversationEvictor(this.conversations);
+    this.evictor = new ConversationEvictor(getConversationMap());
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
     getSubagentManager().resolveParentConversation = (id) =>
-      this.conversations.get(id);
+      storeFindConversation(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     // Wire the skill IPC server into the meet-host supervisor's lazy
@@ -465,7 +476,7 @@ export class DaemonServer {
       sendToClient,
       notification,
     ) => {
-      const parentConversation = this.conversations.get(parentConversationId);
+      const parentConversation = storeFindConversation(parentConversationId);
       if (!parentConversation) {
         log.warn(
           { parentConversationId },
@@ -506,7 +517,7 @@ export class DaemonServer {
       message,
       sendToClient,
     ) => {
-      const parentConversation = this.conversations.get(parentConversationId);
+      const parentConversation = storeFindConversation(parentConversationId);
       if (!parentConversation) {
         log.warn(
           { parentConversationId },
@@ -645,7 +656,7 @@ export class DaemonServer {
     if (!app) return;
 
     const doRefresh = () => {
-      for (const conversation of this.conversations.values()) {
+      for (const conversation of allConversations()) {
         refreshSurfacesForApp(conversation, appId, { fileChange: true });
       }
       this.broadcast({ type: "app_files_changed", appId });
@@ -690,7 +701,7 @@ export class DaemonServer {
     });
 
     registerCancelCallback((conversationId) => {
-      const conversation = this.conversations.get(conversationId);
+      const conversation = storeFindConversation(conversationId);
       if (!conversation) return false;
       this.evictor.touch(conversationId);
       conversation.abort(
@@ -868,7 +879,7 @@ export class DaemonServer {
     // cancelled with no_interactive_surface. We skip that wasted work
     // and return conversation_not_found directly.
     registerInteractiveUiResolver(async (request) => {
-      const conversation = this.conversations.get(request.conversationId);
+      const conversation = storeFindConversation(request.conversationId);
 
       if (!conversation) {
         log.warn(
@@ -899,7 +910,7 @@ export class DaemonServer {
     // extension connectivity instead of always falling back to a synthetic
     // browser-cli session that has no hostBrowserProxy.
     registerBrowserIpcContextResolver((conversationId) => {
-      const conversation = this.conversations.get(conversationId);
+      const conversation = storeFindConversation(conversationId);
       if (!conversation) return null;
       return {
         conversationId,
@@ -984,10 +995,10 @@ export class DaemonServer {
       this.unsubscribeContactChange = null;
     }
 
-    for (const conversation of this.conversations.values()) {
+    for (const conversation of allConversations()) {
       conversation.dispose();
     }
-    this.conversations.clear();
+    clearConversations();
 
     // Abort any in-flight CES initialization so it fails fast instead of
     // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
@@ -1031,16 +1042,16 @@ export class DaemonServer {
   }
 
   clearAllConversations(): number {
-    const count = this.conversations.size;
+    const count = conversationCount();
     const subagentManager = getSubagentManager();
-    for (const id of this.conversations.keys()) {
+    for (const id of conversationIds()) {
       this.evictor.remove(id);
       subagentManager.abortAllForParent(id);
     }
-    for (const conversation of this.conversations.values()) {
+    for (const conversation of allConversations()) {
       conversation.dispose();
     }
-    this.conversations.clear();
+    clearConversations();
     this.conversationOptions.clear();
     return count;
   }
@@ -1050,22 +1061,22 @@ export class DaemonServer {
    * conversation map. No-op if no conversation exists for the given ID.
    */
   destroyConversation(conversationId: string): void {
-    const conversation = this.conversations.get(conversationId);
+    const conversation = storeFindConversation(conversationId);
     if (!conversation) return;
     this.evictor.remove(conversationId);
     getSubagentManager().abortAllForParent(conversationId);
     conversation.dispose();
-    this.conversations.delete(conversationId);
+    storeDelete(conversationId);
     this.conversationOptions.delete(conversationId);
   }
 
   private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
-    for (const [id, conversation] of this.conversations) {
+    for (const [id, conversation] of conversationEntries()) {
       if (!conversation.isProcessing()) {
         subagentManager.abortAllForParent(id);
         conversation.dispose();
-        this.conversations.delete(id);
+        storeDelete(id);
         this.evictor.remove(id);
       } else {
         conversation.markStale();
@@ -1099,7 +1110,7 @@ export class DaemonServer {
     conversationId: string,
     options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    let conversation = this.conversations.get(conversationId);
+    let conversation = storeFindConversation(conversationId);
     const sendToClient = () => {};
 
     const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
@@ -1195,7 +1206,7 @@ export class DaemonServer {
           await newConversation.ensureActorScopedHistory();
         }
         this.applyTransportMetadata(newConversation, storedOptions);
-        this.conversations.set(conversationId, newConversation);
+        storeSet(conversationId, newConversation);
         return newConversation;
       })();
 
@@ -1232,7 +1243,6 @@ export class DaemonServer {
 
   private handlerContext(): HandlerContext {
     return {
-      conversations: this.conversations,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
@@ -1804,37 +1814,14 @@ export class DaemonServer {
    * Look up an active conversation by ID without creating one.
    */
   findConversation(conversationId: string): Conversation | undefined {
-    return this.conversations.get(conversationId);
+    return storeFindConversation(conversationId);
   }
 
   /**
    * Look up an active conversation that owns a given surfaceId.
    */
   findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
-    // Fast path: exact surfaceId match in surfaceState
-    for (const c of this.conversations.values()) {
-      if (c.surfaceState.has(surfaceId)) return c;
-    }
-
-    // Fallback: standalone app surfaces use "app-open-{appId}" IDs that
-    // were never part of any conversation.  Extract the appId and find
-    // a conversation whose surfaceState has a surface for that app.
-    const appOpenPrefix = "app-open-";
-    if (surfaceId.startsWith(appOpenPrefix)) {
-      const appId = surfaceId.slice(appOpenPrefix.length);
-      for (const c of this.conversations.values()) {
-        for (const [, state] of c.surfaceState.entries()) {
-          const data = state.data as unknown as Record<string, unknown>;
-          if (data?.appId === appId) {
-            // Register this surfaceId so subsequent lookups are O(1)
-            c.surfaceState.set(surfaceId, state);
-            return c;
-          }
-        }
-      }
-    }
-
-    return undefined;
+    return storeFindBySurfaceId(surfaceId);
   }
 
   /**

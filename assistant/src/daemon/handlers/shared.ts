@@ -160,7 +160,6 @@ export interface ConversationCreateOptions {
  * Keeps handlers decoupled from the server class itself.
  */
 export interface HandlerContext {
-  conversations: Map<string, Conversation>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;

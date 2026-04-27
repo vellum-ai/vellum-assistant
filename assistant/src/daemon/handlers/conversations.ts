@@ -17,6 +17,10 @@ import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
+import {
+  conversationEntries,
+  findConversation as storeFindConversation,
+} from "../conversation-store.js";
 import type {
   ConfirmationResponse,
   SecretResponse,
@@ -141,7 +145,7 @@ export function handleConfirmationResponse(
   // request was issued (e.g. after a conversation switch).
   const decision = msg.decision;
 
-  for (const [conversationId, conversation] of ctx.conversations) {
+  for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       ctx.touchConversation(conversationId);
       conversation.handleConfirmationResponse(
@@ -184,7 +188,7 @@ export function handleSecretResponse(
   // Route by requestId to the conversation that originated the prompt, not by
   // the current conversation binding which may have changed since the
   // request was issued (e.g. after a conversation switch).
-  for (const [conversationId, conversation] of ctx.conversations) {
+  for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingSecret(msg.requestId)) {
       ctx.touchConversation(conversationId);
       conversation.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
@@ -231,7 +235,7 @@ export async function switchConversation(
 
   // If the target conversation is headless-locked (actively executing a task run),
   // skip rebinding so tool confirmations stay suppressed.
-  const existingConversation = ctx.conversations.get(conversationId);
+  const existingConversation = storeFindConversation(conversationId);
   const isHeadlessLocked = existingConversation?.headlessLock;
 
   if (isHeadlessLocked) {
@@ -270,7 +274,7 @@ export function cancelGeneration(
   conversationId: string,
   ctx: HandlerContext,
 ): boolean {
-  const conversation = ctx.conversations.get(conversationId);
+  const conversation = storeFindConversation(conversationId);
   if (!conversation) {
     return false;
   }
