@@ -9,7 +9,6 @@ import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
-import { renameConversationRoute } from "./rename-conversation.js";
 import { routeDefinitionsToIpcRoutes } from "./route-adapter.js";
 import { routeSchemaRoute } from "./route-schema.js";
 import { searchContactsRoute } from "./search-contacts.js";
@@ -32,7 +31,6 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...deferRoutes,
   getContactRoute,
   mergeContactsRoute,
-  renameConversationRoute,
   searchContactsRoute,
   ...secretsRoutes,
   suggestTrustRuleRoute,

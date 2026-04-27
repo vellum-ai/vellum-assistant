@@ -26,6 +26,7 @@ import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as INVITE_ROUTES } from "./invite-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
+import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import type { RouteDefinition } from "./types.js";
@@ -53,6 +54,7 @@ export const ROUTES: RouteDefinition[] = [
   ...IDENTITY_ROUTES,
   ...INVITE_ROUTES,
   ...PS_ROUTES,
+  ...RENAME_CONVERSATION_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
