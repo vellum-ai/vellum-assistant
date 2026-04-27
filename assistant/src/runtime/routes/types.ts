@@ -9,6 +9,8 @@ export interface RouteQueryParam {
   type?: string;
   required?: boolean;
   description?: string;
+  /** Full JSON Schema object — overrides `type` in generated OpenAPI spec. */
+  schema?: Record<string, unknown>;
 }
 
 export interface RouteHandlerArgs {

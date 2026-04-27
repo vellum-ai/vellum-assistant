@@ -9,7 +9,8 @@ mock.module("../util/logger.js", () => ({
 
 import { getSqlite, initializeDb } from "../memory/db.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
-import { usageRouteDefinitions } from "../runtime/routes/usage-routes.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
+import { ROUTES } from "../runtime/routes/usage-routes.js";
 
 initializeDb();
 
@@ -17,26 +18,21 @@ function clearUsageEvents() {
   getSqlite().run("DELETE FROM llm_usage_events");
 }
 
-// Build a simple dispatch helper from route definitions
-const routes = usageRouteDefinitions();
-
-function dispatch(method: string, path: string): Promise<Response> | Response {
+// Build a dispatch helper that calls handlers via the transport-agnostic pattern
+function dispatch(method: string, path: string) {
   const url = new URL(`http://localhost/v1/${path}`);
-  const req = new Request(url.toString(), { method });
-  const route = routes.find(
-    (r) =>
-      r.method === method &&
-      `usage/${url.pathname.split("/v1/usage/")[1]?.split("?")[0]}` ===
-        r.endpoint,
+  const endpoint = `usage/${url.pathname.split("/v1/usage/")[1]?.split("?")[0]}`;
+  const route = ROUTES.find(
+    (r) => r.method === method && r.endpoint === endpoint,
   );
   if (!route) throw new Error(`No route for ${method} /v1/${path}`);
-  return route.handler({
-    req,
-    url,
-    server: null as never,
-    authContext: {} as never,
-    params: {},
-  });
+
+  const queryParams: Record<string, string> = {};
+  for (const [k, v] of url.searchParams.entries()) {
+    queryParams[k] = v;
+  }
+
+  return route.handler({ queryParams });
 }
 
 // ---------------------------------------------------------------------------
@@ -122,59 +118,58 @@ describe("usage routes", () => {
   // -- query parsing / validation --
 
   describe("query parameter validation", () => {
-    test("returns 400 when from/to are missing", async () => {
-      const res = await dispatch("GET", "usage/totals");
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as { error: { message: string } };
-      expect(body.error.message).toContain("from");
+    test("throws BadRequestError when from/to are missing", () => {
+      expect(() => dispatch("GET", "usage/totals")).toThrow(BadRequestError);
     });
 
-    test("returns 400 when from is missing", async () => {
-      const res = await dispatch("GET", "usage/totals?to=1000");
-      expect(res.status).toBe(400);
+    test("throws BadRequestError when from is missing", () => {
+      expect(() => dispatch("GET", "usage/totals?to=1000")).toThrow(
+        BadRequestError,
+      );
     });
 
-    test("returns 400 when to is missing", async () => {
-      const res = await dispatch("GET", "usage/totals?from=1000");
-      expect(res.status).toBe(400);
+    test("throws BadRequestError when to is missing", () => {
+      expect(() => dispatch("GET", "usage/totals?from=1000")).toThrow(
+        BadRequestError,
+      );
     });
 
-    test("returns 400 when from/to are not numbers", async () => {
-      const res = await dispatch("GET", "usage/totals?from=abc&to=def");
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as { error: { message: string } };
-      expect(body.error.message).toContain("valid numbers");
+    test("throws BadRequestError when from/to are not numbers", () => {
+      expect(() => dispatch("GET", "usage/totals?from=abc&to=def")).toThrow(
+        BadRequestError,
+      );
     });
 
-    test("returns 400 when from > to", async () => {
-      const res = await dispatch("GET", "usage/totals?from=2000&to=1000");
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as { error: { message: string } };
-      expect(body.error.message).toContain("less than or equal");
+    test("throws BadRequestError when from > to", () => {
+      expect(() => dispatch("GET", "usage/totals?from=2000&to=1000")).toThrow(
+        BadRequestError,
+      );
     });
   });
 
   // -- totals --
 
   describe("GET /v1/usage/totals", () => {
-    test("returns zeros for empty range", async () => {
-      const res = await dispatch("GET", "usage/totals?from=0&to=999999999999");
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, number>;
+    test("returns zeros for empty range", () => {
+      const body = dispatch(
+        "GET",
+        "usage/totals?from=0&to=999999999999",
+      ) as Record<string, number>;
       expect(body.totalInputTokens).toBe(0);
       expect(body.totalOutputTokens).toBe(0);
       expect(body.totalEstimatedCostUsd).toBe(0);
       expect(body.eventCount).toBe(0);
     });
 
-    test("returns correct totals for seeded data", async () => {
+    test("returns correct totals for seeded data", () => {
       const { day1, day2 } = seedEvents();
       const from = day1 - 1000;
       const to = day2 + 1000;
 
-      const res = await dispatch("GET", `usage/totals?from=${from}&to=${to}`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as Record<string, number>;
+      const body = dispatch(
+        "GET",
+        `usage/totals?from=${from}&to=${to}`,
+      ) as Record<string, number>;
       expect(body.totalInputTokens).toBe(3350);
       expect(body.totalOutputTokens).toBe(700);
       expect(body.totalCacheCreationTokens).toBe(50);
@@ -184,14 +179,16 @@ describe("usage routes", () => {
       expect(body.unpricedEventCount).toBe(1);
     });
 
-    test("filters by time range", async () => {
+    test("filters by time range", () => {
       const { day1 } = seedEvents();
       // Only day 1 events
       const from = day1 - 1000;
       const to = day1 + 86400_000 - 1;
 
-      const res = await dispatch("GET", `usage/totals?from=${from}&to=${to}`);
-      const body = (await res.json()) as Record<string, number>;
+      const body = dispatch(
+        "GET",
+        `usage/totals?from=${from}&to=${to}`,
+      ) as Record<string, number>;
       expect(body.eventCount).toBe(2);
       expect(body.totalInputTokens).toBe(1350);
       expect(body.totalCacheCreationTokens).toBe(50);
@@ -202,12 +199,10 @@ describe("usage routes", () => {
   // -- daily buckets --
 
   describe("GET /v1/usage/daily", () => {
-    test("returns zero-filled buckets when no events in range", async () => {
+    test("returns zero-filled buckets when no events in range", () => {
       const from = new Date("2025-01-15T00:00:00Z").getTime();
       const to = new Date("2025-01-17T23:59:59Z").getTime();
-      const res = await dispatch("GET", `usage/daily?from=${from}&to=${to}`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      const body = dispatch("GET", `usage/daily?from=${from}&to=${to}`) as {
         buckets: Array<{
           date: string;
           eventCount: number;
@@ -230,14 +225,12 @@ describe("usage routes", () => {
       }
     });
 
-    test("returns daily buckets for seeded data", async () => {
+    test("returns daily buckets for seeded data", () => {
       const { day1, day2 } = seedEvents();
       const from = day1 - 1000;
       const to = day2 + 1000;
 
-      const res = await dispatch("GET", `usage/daily?from=${from}&to=${to}`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      const body = dispatch("GET", `usage/daily?from=${from}&to=${to}`) as {
         buckets: Array<{
           date: string;
           totalInputTokens: number;
@@ -257,37 +250,30 @@ describe("usage routes", () => {
   // -- breakdown --
 
   describe("GET /v1/usage/breakdown", () => {
-    test("returns 400 when groupBy is missing", async () => {
-      const res = await dispatch(
-        "GET",
-        "usage/breakdown?from=0&to=999999999999",
-      );
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as { error: { message: string } };
-      expect(body.error.message).toContain("groupBy");
+    test("throws BadRequestError when groupBy is missing", () => {
+      expect(() =>
+        dispatch("GET", "usage/breakdown?from=0&to=999999999999"),
+      ).toThrow(BadRequestError);
     });
 
-    test("returns 400 for invalid groupBy value", async () => {
-      const res = await dispatch(
-        "GET",
-        "usage/breakdown?from=0&to=999999999999&groupBy=invalid",
-      );
-      expect(res.status).toBe(400);
-      const body = (await res.json()) as { error: { message: string } };
-      expect(body.error.message).toContain("invalid");
+    test("throws BadRequestError for invalid groupBy value", () => {
+      expect(() =>
+        dispatch(
+          "GET",
+          "usage/breakdown?from=0&to=999999999999&groupBy=invalid",
+        ),
+      ).toThrow(BadRequestError);
     });
 
-    test("groups by provider", async () => {
+    test("groups by provider", () => {
       const { day1, day2 } = seedEvents();
       const from = day1 - 1000;
       const to = day2 + 1000;
 
-      const res = await dispatch(
+      const body = dispatch(
         "GET",
         `usage/breakdown?from=${from}&to=${to}&groupBy=provider`,
-      );
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      ) as {
         breakdown: Array<{
           group: string;
           totalInputTokens: number;
@@ -313,17 +299,15 @@ describe("usage routes", () => {
       expect(body.breakdown[1].eventCount).toBe(1);
     });
 
-    test("groups by actor", async () => {
+    test("groups by actor", () => {
       const { day1, day2 } = seedEvents();
       const from = day1 - 1000;
       const to = day2 + 1000;
 
-      const res = await dispatch(
+      const body = dispatch(
         "GET",
         `usage/breakdown?from=${from}&to=${to}&groupBy=actor`,
-      );
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      ) as {
         breakdown: Array<{ group: string; eventCount: number }>;
       };
       expect(body.breakdown).toHaveLength(2);
@@ -333,17 +317,15 @@ describe("usage routes", () => {
       expect(assistantGroup?.eventCount).toBe(2);
     });
 
-    test("groups by model", async () => {
+    test("groups by model", () => {
       const { day1, day2 } = seedEvents();
       const from = day1 - 1000;
       const to = day2 + 1000;
 
-      const res = await dispatch(
+      const body = dispatch(
         "GET",
         `usage/breakdown?from=${from}&to=${to}&groupBy=model`,
-      );
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
+      ) as {
         breakdown: Array<{ group: string; eventCount: number }>;
       };
       expect(body.breakdown).toHaveLength(3);

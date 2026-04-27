@@ -1,74 +1,43 @@
 /**
  * Workspace commit endpoint — creates a git commit in the workspace
  * directory with all pending changes.
- *
- * Protected by a route policy restricting access to gateway service
- * principals only (`svc_gateway` with `internal.write` scope), following
- * the same pattern as other gateway-forwarded control-plane endpoints.
  */
 
 import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getWorkspaceGitService } from "../../workspace/git-service.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-export function workspaceCommitRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "admin/workspace-commit",
-      method: "POST",
-      summary: "Commit workspace changes",
-      description:
-        "Create a git commit in the workspace directory with all pending changes.",
-      tags: ["admin"],
-      requestBody: z.object({
-        message: z.string().describe("Commit message"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        let body: unknown;
-        try {
-          body = await req.json();
-        } catch {
-          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-        }
+async function handleWorkspaceCommit({ body }: RouteHandlerArgs) {
+  const message = body?.message;
 
-        if (!body || typeof body !== "object") {
-          return httpError(
-            "BAD_REQUEST",
-            "Request body must be a JSON object",
-            400,
-          );
-        }
+  if (typeof message !== "string" || message.length === 0) {
+    throw new BadRequestError(
+      "message is required and must be a non-empty string",
+    );
+  }
 
-        const { message } = body as { message?: unknown };
-
-        if (typeof message !== "string" || message.length === 0) {
-          return httpError(
-            "BAD_REQUEST",
-            "message is required and must be a non-empty string",
-            400,
-          );
-        }
-
-        try {
-          await getWorkspaceGitService(getWorkspaceDir()).commitChanges(
-            message,
-          );
-          return Response.json({ ok: true });
-        } catch (err) {
-          const detail = err instanceof Error ? err.message : "Unknown error";
-          return httpError(
-            "INTERNAL_ERROR",
-            `Workspace commit failed: ${detail}`,
-            500,
-          );
-        }
-      },
-    },
-  ];
+  await getWorkspaceGitService(getWorkspaceDir()).commitChanges(message);
+  return { ok: true };
 }
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "workspace_commit",
+    endpoint: "admin/workspace-commit",
+    method: "POST",
+    summary: "Commit workspace changes",
+    description:
+      "Create a git commit in the workspace directory with all pending changes.",
+    tags: ["admin"],
+    requestBody: z.object({
+      message: z.string().describe("Commit message"),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+    handler: handleWorkspaceCommit,
+  },
+];
