@@ -76,8 +76,11 @@ export function handleRemember(
  * Format mirrors the long-standing v1 PKB layout so v2 buffers stay
  * human-readable and downstream consumers (sweep, consolidation) can parse
  * the same shape regardless of which path produced the entry.
+ *
+ * Exported so memory v2 sweep / extractor jobs format their auto-remembered
+ * entries identically to user-facing `remember()` calls.
  */
-function formatRememberEntry(content: string, now: Date): string {
+export function formatRememberEntry(content: string, now: Date): string {
   const month = now.toLocaleString("en-US", { month: "short" });
   const day = now.getDate();
   const hours = now.getHours();
@@ -93,8 +96,13 @@ function formatRememberEntry(content: string, now: Date): string {
  *
  * Returns the absolute paths of both files so callers can fan out follow-up
  * work (e.g. PKB re-indexing in the v1 path).
+ *
+ * Exported so memory v2 background jobs (`sweep`, future LLM-driven
+ * extractors) can append to `memory/buffer.md` + `memory/archive/<today>.md`
+ * with exactly the same format `remember()` produces, keeping the two write
+ * paths byte-compatible for downstream consumers (consolidation, search).
  */
-function appendBufferAndArchive(args: {
+export function appendBufferAndArchive(args: {
   rootDir: string;
   entry: string;
   now: Date;

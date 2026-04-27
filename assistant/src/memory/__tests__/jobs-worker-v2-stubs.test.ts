@@ -51,7 +51,7 @@ mock.module("../checkpoints.js", () => ({
   setMemoryCheckpoint: () => {},
 }));
 
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { getDb, initializeDb } from "../db.js";
 import { enqueueMemoryJob, type MemoryJobType } from "../jobs-store.js";
@@ -72,12 +72,24 @@ initializeDb();
 
 async function drainJobs(): Promise<void> {
   // `startMemoryJobsWorker` kicks off an auto-tick that races with our
-  // explicit `runOnce`; loop until both report no remaining work so
-  // either path finishes draining the queue.
+  // explicit `runOnce`. The auto-tick can claim a subset of pending jobs
+  // first and then still be in-flight when `runOnce` returns 0; if we exit
+  // immediately we may observe a job that's still in `running` state. Loop
+  // until both `runOnce` AND the DB show no remaining pending/running rows
+  // so either drain path finishes the queue.
   const worker = startMemoryJobsWorker();
   try {
-    let safety = 5;
-    while (safety > 0 && (await worker.runOnce()) > 0) {
+    let safety = 20;
+    while (safety > 0) {
+      const processed = await worker.runOnce();
+      const remaining = getDb()
+        .select({ id: memoryJobs.id })
+        .from(memoryJobs)
+        .where(inArray(memoryJobs.status, ["pending", "running"]))
+        .all().length;
+      if (processed === 0 && remaining === 0) break;
+      // Yield so any concurrently in-flight auto-tick can advance.
+      await new Promise((resolve) => setImmediate(resolve));
       safety -= 1;
     }
   } finally {
