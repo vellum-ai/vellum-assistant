@@ -10,32 +10,59 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
 import "../../__tests__/test-preload.js";
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Mock implementations
 // ---------------------------------------------------------------------------
 
+class MockIpcHandlerError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+  constructor(message: string, statusCode: number, code: string) {
+    super(message);
+    this.name = "IpcHandlerError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+class MockIpcTransportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IpcTransportError";
+  }
+}
+
+// ipcCallAssistant — used by refreshRouteSchema to prime the cache
+const ipcCallAssistantMock = mock(() =>
+  Promise.resolve([
+    { operationId: "health", endpoint: "health", method: "GET" },
+    { operationId: "acp_steer", endpoint: "acp/:id/steer", method: "POST" },
+    {
+      operationId: "acp_list_sessions",
+      endpoint: "acp/sessions",
+      method: "GET",
+    },
+    {
+      operationId: "apps_dist_file",
+      endpoint: "apps/:appId/dist/:filename",
+      method: "GET",
+    },
+  ]),
+);
+
+// ipcCallAssistantStrict — used by tryIpcProxy for actual IPC calls
 const ipcCallAssistantStrictMock = mock(
   (_method: string, _params?: Record<string, unknown>) =>
     Promise.resolve({ ok: true }),
 );
 
+// Single mock.module for assistant-client — must include ALL exports
+// that any transitive import needs (route-schema-cache uses ipcCallAssistant,
+// ipc-runtime-proxy uses ipcCallAssistantStrict + error classes).
 mock.module("../../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: ipcCallAssistantMock,
   ipcCallAssistantStrict: ipcCallAssistantStrictMock,
-  IpcHandlerError: class IpcHandlerError extends Error {
-    readonly statusCode: number;
-    readonly code: string;
-    constructor(message: string, statusCode: number, code: string) {
-      super(message);
-      this.name = "IpcHandlerError";
-      this.statusCode = statusCode;
-      this.code = code;
-    }
-  },
-  IpcTransportError: class IpcTransportError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "IpcTransportError";
-    }
-  },
+  IpcHandlerError: MockIpcHandlerError,
+  IpcTransportError: MockIpcTransportError,
 }));
 
 // Stub validateEdgeToken — default: auth passes
@@ -54,51 +81,14 @@ mock.module("../../auth/token-exchange.js", () => ({
   validateEdgeToken: validateEdgeTokenMock,
 }));
 
-// Import real matchRoute + its internal state so we can prime the cache
+// ---------------------------------------------------------------------------
+// Import modules under test (after all mocks are registered)
+// ---------------------------------------------------------------------------
+
 const { matchRoute, refreshRouteSchema } =
   await import("../../ipc/route-schema-cache.js");
 
-// Stub the route schema refresh to inject test routes
-const ipcCallAssistantForSchemaMock = mock(() =>
-  Promise.resolve([
-    { operationId: "health", endpoint: "health", method: "GET" },
-    { operationId: "acp_steer", endpoint: "acp/:id/steer", method: "POST" },
-    {
-      operationId: "acp_list_sessions",
-      endpoint: "acp/sessions",
-      method: "GET",
-    },
-    {
-      operationId: "apps_dist_file",
-      endpoint: "apps/:appId/dist/:filename",
-      method: "GET",
-    },
-  ]),
-);
-
-// We need to prime the cache before importing tryIpcProxy
-mock.module("../../ipc/assistant-client.js", () => ({
-  ipcCallAssistant: ipcCallAssistantForSchemaMock,
-  ipcCallAssistantStrict: ipcCallAssistantStrictMock,
-  IpcHandlerError: class IpcHandlerError extends Error {
-    readonly statusCode: number;
-    readonly code: string;
-    constructor(message: string, statusCode: number, code: string) {
-      super(message);
-      this.name = "IpcHandlerError";
-      this.statusCode = statusCode;
-      this.code = code;
-    }
-  },
-  IpcTransportError: class IpcTransportError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "IpcTransportError";
-    }
-  },
-}));
-
-// Prime the route schema cache
+// Prime the route schema cache with test routes
 await refreshRouteSchema();
 
 const { tryIpcProxy } = await import("./ipc-runtime-proxy.js");
@@ -272,7 +262,7 @@ describe("tryIpcProxy", () => {
 
   test("returns 401 when auth is required and token is invalid", async () => {
     validateEdgeTokenMock.mockImplementation(() => ({
-      ok: false as const,
+      ok: false,
       reason: "expired",
     }));
     const config = makeConfig({ runtimeProxyRequireAuth: true });
@@ -294,25 +284,22 @@ describe("tryIpcProxy", () => {
   });
 
   test("returns handler error status code from IpcHandlerError", async () => {
-    // Dynamically get the mocked class
-    const { IpcHandlerError } = await import("../../ipc/assistant-client.js");
     ipcCallAssistantStrictMock.mockImplementation(() => {
-      throw new IpcHandlerError("Not found", 404, "NOT_FOUND");
+      throw new MockIpcHandlerError("Not found", 404, "NOT_FOUND");
     });
 
     const req = makeRequest("/v1/health");
     const result = await tryIpcProxy(req, makeConfig());
     expect(result!.status).toBe(404);
 
-    const body = await result!.json();
+    const body = (await result!.json()) as Record<string, unknown>;
     expect(body.error).toBe("Not found");
     expect(body.code).toBe("NOT_FOUND");
   });
 
   test("returns 502 on transport error", async () => {
-    const { IpcTransportError } = await import("../../ipc/assistant-client.js");
     ipcCallAssistantStrictMock.mockImplementation(() => {
-      throw new IpcTransportError("Socket closed");
+      throw new MockIpcTransportError("Socket closed");
     });
 
     const req = makeRequest("/v1/health");
