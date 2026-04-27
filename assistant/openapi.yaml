@@ -9290,6 +9290,9 @@ paths:
           required: false
           schema:
             type: string
+            enum:
+              - daily
+              - hourly
           description: 'Bucket granularity: "daily" (default) or "hourly"'
         - name: tz
           in: query
