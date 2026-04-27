@@ -13,10 +13,6 @@ import { z } from "zod";
 import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type { UserDecision } from "../../permissions/types.js";
-import {
-  isConversationHostAccessDecision,
-  isConversationHostAccessEnablePrompt,
-} from "../../permissions/v2-consent-policy.js";
 import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
@@ -85,18 +81,6 @@ export async function handleConfirm(
       "BAD_REQUEST",
       "decision must resolve to allow or deny",
       400,
-    );
-  }
-
-  if (
-    peeked.confirmationDetails &&
-    isConversationHostAccessEnablePrompt(peeked.confirmationDetails) &&
-    !isConversationHostAccessDecision(effectiveDecision as UserDecision)
-  ) {
-    return httpError(
-      "FORBIDDEN",
-      "Conversation host-access prompts only accept allow or deny",
-      403,
     );
   }
 

@@ -79,14 +79,6 @@ export const PermissionsConfigSchema = z
       .describe(
         "Permission mode — 'strict' requires explicit approval for all operations, 'workspace' allows operations within the workspace",
       ),
-    hostAccess: z
-      .boolean({
-        error: "permissions.hostAccess must be a boolean",
-      })
-      .default(false)
-      .describe(
-        "Whether the assistant can execute commands on the host machine without prompting",
-      ),
     autoApproveUpTo: z
       .union([
         z.enum(["none", "low", "medium", "high"], {

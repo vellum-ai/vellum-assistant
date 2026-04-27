@@ -44,19 +44,11 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import {
-  getConversationOriginChannel,
-  updateConversationHostAccess,
-} from "../memory/conversation-crud.js";
+import { getConversationOriginChannel } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
-import {
-  isConversationHostAccessDecision,
-  isConversationHostAccessEnabled,
-  isConversationHostAccessEnablePrompt,
-} from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
@@ -64,7 +56,6 @@ import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
@@ -954,28 +945,7 @@ export class Conversation {
       return;
     }
 
-    const hostAccessEnablePrompt =
-      this.prompter.isHostAccessEnablePrompt(requestId) ||
-      isConversationHostAccessEnablePrompt(
-        pendingInteractions.get(requestId)?.confirmationDetails,
-      );
-    const effectiveDecision =
-      hostAccessEnablePrompt && !isConversationHostAccessDecision(decision)
-        ? "deny"
-        : decision;
-
-    if (
-      hostAccessEnablePrompt &&
-      effectiveDecision === "allow" &&
-      !isConversationHostAccessEnabled(this.conversationId)
-    ) {
-      updateConversationHostAccess(this.conversationId, true);
-      this.sendToClient({
-        type: "conversation_host_access_updated",
-        conversationId: this.conversationId,
-        hostAccess: true,
-      });
-    }
+    const effectiveDecision = decision;
 
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
@@ -1035,69 +1005,6 @@ export class Conversation {
       // Canonical request tracking should not break the primary approval flow.
     }
 
-    // Cascade to other pending confirmations that match this decision
-    this.cascadePendingApprovals(
-      requestId,
-      effectiveDecision,
-      selectedPattern,
-      hostAccessEnablePrompt,
-    );
-  }
-
-  /**
-   * After resolving one confirmation, auto-resolve other pending
-   * confirmations in the same conversation that match the decision.
-   *
-   * Currently only host-access enable prompts cascade: when the first
-   * host-access enable is approved, sibling host prompts resolve immediately.
-   * Simple allow / deny decisions do not cascade.
-   */
-  /**
-   * When host access is approved, cascade to sibling host-access prompts
-   * in the same conversation so the user isn't asked multiple times.
-   */
-  private cascadePendingApprovals(
-    primaryRequestId: string,
-    decision: UserDecision,
-    _selectedPattern?: string,
-    hostAccessEnablePrompt = false,
-  ): void {
-    // Only host-access approvals cascade — all other decisions are one-shot.
-    if (!hostAccessEnablePrompt || decision !== "allow") {
-      return;
-    }
-
-    const pendingRequestIds = this.prompter.getPendingRequestIds();
-    if (pendingRequestIds.length === 0) return;
-
-    for (const candidateId of pendingRequestIds) {
-      if (candidateId === primaryRequestId) continue;
-
-      const interaction = pendingInteractions.get(candidateId);
-      if (!interaction) continue;
-      if (interaction.conversationId !== this.conversationId) continue;
-      if (interaction.kind !== "confirmation") continue;
-
-      if (
-        this.prompter.isHostAccessEnablePrompt(candidateId) ||
-        isConversationHostAccessEnablePrompt(interaction.confirmationDetails)
-      ) {
-        // Enabling computer access is conversation-scoped, so sibling host
-        // prompts should resolve immediately once the first approval lands.
-        pendingInteractions.resolve(candidateId);
-        this.handleConfirmationResponse(
-          candidateId,
-          "allow",
-          undefined,
-          undefined,
-          undefined,
-          {
-            source: "system",
-            causedByRequestId: primaryRequestId,
-          },
-        );
-      }
-    }
   }
 
   handleSecretResponse(

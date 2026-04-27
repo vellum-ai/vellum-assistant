@@ -230,8 +230,7 @@ private struct ThreadWindowContentView: View {
                     isInteractionEnabled: true,
                     isReadonly: conversation?.isChannelConversation ?? false,
                     watchSession: ambientAgent.activeWatchSession,
-                    conversationManager: conversationManager,
-                    showsConversationHostAccessControl: false
+                    conversationManager: conversationManager
                 )
                 .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
                 .padding(.bottom, VSpacing.md)

@@ -34,7 +34,6 @@ import {
   addMessage,
   createConversation,
   forkConversation,
-  getConversationHostAccess,
   getMessages,
 } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
@@ -137,21 +136,6 @@ describe("forkConversation", () => {
     ).toBe(true);
   });
 
-  test("forked conversations start with host access disabled", async () => {
-    const source = createConversation({
-      title: "Computer-enabled thread",
-      hostAccess: true,
-    });
-    await addMessage(source.id, "user", "Use the computer", undefined, {
-      skipIndexing: true,
-    });
-
-    const fork = forkConversation({ conversationId: source.id });
-
-    expect(getConversationHostAccess(source.id)).toBe(true);
-    expect(getConversationHostAccess(fork.id)).toBe(false);
-    expect(fork.hostAccess).toBe(0);
-  });
 
   test("preserves source order when source messages share a timestamp", () => {
     const source = createConversation("Equal timestamp thread");

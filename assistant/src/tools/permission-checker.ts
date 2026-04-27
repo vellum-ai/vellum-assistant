@@ -11,11 +11,6 @@ import {
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
-import {
-  CONVERSATION_HOST_ACCESS_PROMPT,
-  evaluateV2ConsentDisposition,
-  isConversationHostAccessDecision,
-} from "../permissions/v2-consent-policy.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
@@ -88,33 +83,7 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
-    let v2ForcePrompt = false;
     const cfg = getConfig();
-    const v2Disposition = evaluateV2ConsentDisposition(name, input, context);
-    if (v2Disposition === "auto_allow") {
-      // Skill tools that run on the host machine (executionTarget: "host") are
-      // not registered in HOST_TOOLS by name, but they execute with host-level
-      // access. Always route them through the full permission check so that
-      // trust rules and interactive approval remain active for host-execution
-      // skill tools, matching the security model for named host tools.
-      const isHostSkillTool =
-        tool.origin === "skill" && tool.executionTarget === "host";
-      if (!isHostSkillTool) {
-        return {
-          allowed: true,
-          decision: "allow",
-          riskLevel: RiskLevel.Low,
-        };
-      }
-    }
-    if (v2Disposition === "prompt_host_access") {
-      // Host tool with hostAccess disabled — fall through to v1 so the
-      // interactive prompter is engaged (returning allowed:false here
-      // would surface an error string instead of a permission dialog).
-      // The v2ForcePrompt flag ensures check()'s allow decision is
-      // promoted to prompt so the user sees a permission dialog.
-      v2ForcePrompt = true;
-    }
 
     const { level: risk, reason: riskReason } = await classifyRisk(
       name,
@@ -176,14 +145,6 @@ export class PermissionChecker {
         result.decision = "prompt";
         result.reason =
           "Fresh approval required: per-invocation human review enforced";
-      }
-
-      // v2 host-access-disabled: the v2 gate fell through because
-      // hostAccess is off. Promote allow → prompt so the user sees an
-      // interactive permission dialog instead of an error string.
-      if (v2ForcePrompt && result.decision === "allow") {
-        result.decision = "prompt";
-        result.reason = "Host access disabled: requires explicit approval";
       }
 
       if (result.decision === "deny") {
@@ -256,8 +217,7 @@ export class PermissionChecker {
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
-          !isDynamicSkillLoad &&
-          !v2ForcePrompt
+          !isDynamicSkillLoad
         ) {
           // Use gateway threshold when v3 is enabled, falling back to config.
           // getAutoApproveThreshold returns from cache (populated by check() above).
@@ -330,17 +290,15 @@ export class PermissionChecker {
         }
 
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
-        const promptOptions = v2ForcePrompt
-          ? CONVERSATION_HOST_ACCESS_PROMPT
-          : {
-              allowlistOptions: await generateAllowlistOptions(
-                name,
-                input,
-                context.signal,
-              ),
-              scopeOptions: generateScopeOptions(context.workingDir, name),
-              persistentDecisionsAllowed: !context.requireFreshApproval,
-            };
+        const promptOptions = {
+          allowlistOptions: await generateAllowlistOptions(
+            name,
+            input,
+            context.signal,
+          ),
+          scopeOptions: generateScopeOptions(context.workingDir, name),
+          persistentDecisionsAllowed: !context.requireFreshApproval,
+        };
 
         emitLifecycleEvent({
           type: "permission_prompt",
@@ -371,16 +329,12 @@ export class PermissionChecker {
           promptOptions.persistentDecisionsAllowed,
           context.signal,
           context.toolUseId,
-          v2ForcePrompt,
           riskReason,
           getIsContainerized(),
           cachedAssessment?.directoryScopeOptions,
         );
 
-        const decision =
-          v2ForcePrompt && !isConversationHostAccessDecision(response.decision)
-            ? "deny"
-            : response.decision;
+        const decision = response.decision;
 
         if (decision === "deny") {
           const contextualDenial =

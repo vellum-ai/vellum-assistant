@@ -22,8 +22,6 @@ import Foundation
 // │                                 │ via string `kind`; contract type skipped │
 // │ ConversationErrorMessage        │ References hand-maintained               │
 // │                                 │ ConversationErrorCode enum               │
-// │ ConversationHostAccessUpdated   │ Small client-only wire type added ahead  │
-// │ Message                         │ of generated contract coverage            │
 // │ ConversationErrorCode (enum)    │ String enum with fallback decoding;      │
 // │                                 │ code generator cannot emit Swift enums   │
 // │ ServerMessage (enum)            │ Discriminated union with custom          │
@@ -726,14 +724,9 @@ extension MessageComplete {
 public typealias ConversationInfoMessage = ConversationInfo
 
 extension ConversationInfo {
-    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil, hostAccess: Bool? = nil) {
-        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType, hostAccess: hostAccess)
+    public init(conversationId: String, title: String, correlationId: String? = nil, conversationType: String? = nil) {
+        self.init(type: "conversation_info", conversationId: conversationId, title: title, correlationId: correlationId, conversationType: conversationType)
     }
-}
-
-public struct ConversationHostAccessUpdatedMessage: Decodable, Sendable {
-    public let conversationId: String
-    public let hostAccess: Bool
 }
 
 /// Server push: the per-conversation inference-profile override changed.
@@ -2542,7 +2535,6 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
-    case conversationHostAccessUpdated(ConversationHostAccessUpdatedMessage)
     case conversationInferenceProfileUpdated(ConversationInferenceProfileUpdatedMessage)
     case conversationTitleUpdated(ConversationTitleUpdatedMessage)
     case conversationListResponse(ConversationListResponseMessage)
@@ -2757,9 +2749,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "conversation_info":
             let message = try ConversationInfoMessage(from: decoder)
             self = .conversationInfo(message)
-        case "conversation_host_access_updated":
-            let message = try ConversationHostAccessUpdatedMessage(from: decoder)
-            self = .conversationHostAccessUpdated(message)
         case "conversation_inference_profile_updated":
             let message = try ConversationInferenceProfileUpdatedMessage(from: decoder)
             self = .conversationInferenceProfileUpdated(message)

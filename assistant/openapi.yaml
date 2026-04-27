@@ -2880,75 +2880,6 @@ paths:
           required: true
           schema:
             type: string
-  /v1/conversations/{id}/host-access:
-    get:
-      operationId: conversations_by_id_hostaccess_get
-      summary: Get conversation host access
-      description: Return whether the conversation can use host tools.
-      tags:
-        - conversations
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  conversationId:
-                    type: string
-                  hostAccess:
-                    type: boolean
-                required:
-                  - conversationId
-                  - hostAccess
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-    patch:
-      operationId: conversations_by_id_hostaccess_patch
-      summary: Update conversation host access
-      description: Enable or disable host access for a conversation.
-      tags:
-        - conversations
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  conversationId:
-                    type: string
-                  hostAccess:
-                    type: boolean
-                required:
-                  - conversationId
-                  - hostAccess
-                additionalProperties: false
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                hostAccess:
-                  type: boolean
-              required:
-                - hostAccess
-              additionalProperties: false
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
@@ -3360,15 +3291,12 @@ paths:
                     type: string
                   conversationType:
                     type: string
-                  hostAccess:
-                    type: boolean
                   inferenceProfile:
                     type: string
                 required:
                   - conversationId
                   - title
                   - conversationType
-                  - hostAccess
                 additionalProperties: false
       requestBody:
         required: true

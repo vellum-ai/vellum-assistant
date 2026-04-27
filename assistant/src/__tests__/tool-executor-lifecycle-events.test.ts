@@ -74,9 +74,7 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 mock.module("../memory/conversation-crud.js", () => ({
-  getConversationHostAccess: () => true,
-  createConversation: (title: string) => ({ id: "conversation-1", title, hostAccess: 1 }),
-  updateConversationHostAccess: () => {},
+  createConversation: (title: string) => ({ id: "conversation-1", title }),
 }));
 
 // Mock every export so downstream test files that dynamically import modules

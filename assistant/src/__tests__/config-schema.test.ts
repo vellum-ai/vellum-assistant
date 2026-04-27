@@ -678,7 +678,6 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.permissions).toEqual({
       mode: "workspace",
-      hostAccess: false,
       autoApproveUpTo: {
         conversation: "low",
         background: "medium",
@@ -2389,7 +2388,6 @@ describe("loadConfig with schema validation", () => {
     const config = loadConfig();
     expect(config.permissions).toEqual({
       mode: "workspace",
-      hostAccess: false,
       autoApproveUpTo: {
         conversation: "low",
         background: "medium",

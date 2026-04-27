@@ -5,7 +5,6 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { isConversationHostAccessEnabled } from "../permissions/v2-consent-policy.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -179,10 +178,6 @@ function guardianApprovalDeniedMessage(
   return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
 }
 
-function trustedContactHostAccessDeniedMessage(toolName: string): string {
-  return `Permission denied for "${toolName}": computer access is not enabled for this conversation. Confirm the guardian's intent conversationally and ask them to enable computer access for this conversation before retrying.`;
-}
-
 export type PreExecutionGateResult =
   | { allowed: true; tool: Tool; grantConsumed?: boolean }
   | { allowed: false; result: ToolExecutionResult };
@@ -296,33 +291,6 @@ export class ToolApprovalHandler {
       input,
       executionTarget,
     );
-
-    if (
-      context.trustClass === "trusted_contact" &&
-      guardianApprovalRequired &&
-      executionTarget === "host" &&
-      !isConversationHostAccessEnabled(context.conversationId)
-    ) {
-      const durationMs = Date.now() - startTime;
-      const reason = trustedContactHostAccessDeniedMessage(name);
-      emitLifecycleEvent({
-        type: "permission_denied",
-        toolName: name,
-        executionTarget,
-        input,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-        requestId: context.requestId,
-        riskLevel,
-        decision: "deny",
-        reason,
-        durationMs,
-      });
-      return {
-        allowed: false,
-        result: { content: reason, isError: true },
-      };
-    }
 
     if (
       isUntrustedTrustClass(context.trustClass) &&

@@ -5,10 +5,6 @@ import {
   setAttachmentThumbnail,
 } from "../memory/attachments-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
-import {
-  CONVERSATION_HOST_ACCESS_PROMPT,
-  isConversationHostAccessEnabled,
-} from "../permissions/v2-consent-policy.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -42,10 +38,6 @@ export async function approveHostAttachmentRead(
   const toolName = "host_file_read";
   const input = { path: filePath };
 
-  if (isConversationHostAccessEnabled(conversationId)) {
-    return true;
-  }
-
   // HTTP-created sessions use a no-op sendToClient — prompting would
   // block for the full permission timeout before auto-denying.
   if (hasNoClient) {
@@ -60,15 +52,12 @@ export async function approveHostAttachmentRead(
     toolName,
     input,
     "low",
-    CONVERSATION_HOST_ACCESS_PROMPT.allowlistOptions,
-    CONVERSATION_HOST_ACCESS_PROMPT.scopeOptions,
+    [],
+    [],
     undefined,
     conversationId,
     "host",
-    CONVERSATION_HOST_ACCESS_PROMPT.persistentDecisionsAllowed,
-    undefined,
-    undefined,
-    true,
+    false,
   );
 
   return response.decision === "allow";
