@@ -451,6 +451,18 @@ async function processJob(
     case "graph_bootstrap":
       await bootstrapFromHistory();
       return;
+    case "embed_concept_page":
+    case "memory_v2_sweep":
+    case "memory_v2_consolidate":
+    case "memory_v2_migrate":
+    case "memory_v2_rebuild_edges":
+    case "memory_v2_reembed":
+    case "memory_v2_activation_recompute":
+      log.warn(
+        { jobId: job.id, type: job.type },
+        `Memory v2 job type ${job.type} not yet implemented; ignoring`,
+      );
+      return;
 
     default: {
       const rawType = (job as { type: string }).type;
