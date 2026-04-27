@@ -18,6 +18,7 @@ import {
 import { APP_VERSION } from "../../version.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
+import { NotFoundError } from "./errors.js";
 import { getCachedIntro } from "./identity-intro-cache.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -407,7 +408,7 @@ export function handleReadyz(): Response {
 function getIdentity() {
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
   if (!existsSync(identityPath)) {
-    throw new Error("IDENTITY.md not found");
+    throw new NotFoundError("IDENTITY.md not found");
   }
 
   const content = readFileSync(identityPath, "utf-8");
@@ -442,7 +443,7 @@ function getIdentityIntro() {
 
   const cached = getCachedIntro();
   if (!cached) {
-    throw new Error("No cached identity intro available");
+    throw new NotFoundError("No cached identity intro available");
   }
   return { text: cached.text };
 }

@@ -3,7 +3,9 @@
  * for the HTTP server's route table.
  */
 
+import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 export function routeDefinitionsToHTTPRoutes(
@@ -18,8 +20,15 @@ export function routeDefinitionsToHTTPRoutes(
     tags: r.tags,
     responseBody: r.responseBody,
     handler: async () => {
-      const result = await r.handler();
-      return Response.json(result);
+      try {
+        const result = await r.handler();
+        return Response.json(result);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return httpError("NOT_FOUND", err.message, 404);
+        }
+        throw err;
+      }
     },
   }));
 }
