@@ -16,11 +16,11 @@ struct RiskToleranceSection: View {
 
     /// Current selection for the interactive ("Conversations") threshold.
     /// Defaults to `.low` to match the gateway schema default.
-    @State private var interactiveSelection: RiskThreshold = .low
+    @State private var interactiveSelection: RiskThreshold = .medium
 
     /// Current selection for the autonomous threshold.
     /// Defaults to `.none` to match the gateway schema default.
-    @State private var autonomousSelection: RiskThreshold = .none
+    @State private var autonomousSelection: RiskThreshold = .low
 
     /// In-flight sync task so rapid picker changes cancel the previous
     /// write and only the latest selection reaches the gateway.
@@ -126,8 +126,8 @@ struct RiskToleranceSection: View {
                 guard !Task.isCancelled else { return }
                 hasLoadedInitial = true
                 guard !hasUserInteracted else { return }
-                interactiveSelection = RiskThreshold(rawValue: thresholds.interactive) ?? .low
-                autonomousSelection = RiskThreshold(rawValue: thresholds.autonomous) ?? .none
+                interactiveSelection = RiskThreshold(rawValue: thresholds.interactive) ?? .medium
+                autonomousSelection = RiskThreshold(rawValue: thresholds.autonomous) ?? .low
             } catch {
                 riskToleranceLog.error(
                     "getGlobalThresholds failed: \(error.localizedDescription, privacy: .public)"

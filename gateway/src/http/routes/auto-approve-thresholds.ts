@@ -46,8 +46,8 @@ export function createGlobalThresholdGetHandler() {
       if (!row) {
         // Return defaults when no row exists yet
         return Response.json({
-          interactive: "low",
-          autonomous: "none",
+          interactive: "medium",
+          autonomous: "low",
         });
       }
 

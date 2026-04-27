@@ -61,7 +61,7 @@ function readInteractiveThreshold(): string {
       .from(autoApproveThresholds)
       .where(eq(autoApproveThresholds.id, 1))
       .get();
-    return row?.interactive ?? "low";
+    return row?.interactive ?? "medium";
   } catch {
     return "low";
   }

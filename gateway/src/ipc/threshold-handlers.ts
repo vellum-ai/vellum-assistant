@@ -16,8 +16,8 @@ import {
 import type { IpcRoute } from "./server.js";
 
 const GLOBAL_DEFAULTS = {
-  interactive: "low",
-  autonomous: "none",
+  interactive: "medium",
+  autonomous: "low",
 };
 
 const GetConversationThresholdSchema = z.object({

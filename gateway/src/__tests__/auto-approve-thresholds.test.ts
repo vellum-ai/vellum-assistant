@@ -50,8 +50,8 @@ describe("auto-approve thresholds", () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
-        interactive: "low",
-        autonomous: "none",
+        interactive: "medium",
+        autonomous: "low",
       });
     });
 
@@ -60,15 +60,15 @@ describe("auto-approve thresholds", () => {
       const getHandler = createGlobalThresholdGetHandler();
 
       // First PUT to set values
-      await putHandler(makeRequest({ interactive: "medium" }));
+      await putHandler(makeRequest({ interactive: "none" }));
 
       // GET should reflect the update
       const res = await getHandler(makeRequest(undefined, "GET"));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
-        interactive: "medium",
-        autonomous: "none",
+        interactive: "none",
+        autonomous: "low",
       });
     });
   });
@@ -77,12 +77,12 @@ describe("auto-approve thresholds", () => {
     test("partial update only changes provided fields", async () => {
       const handler = createGlobalThresholdPutHandler();
 
-      const res = await handler(makeRequest({ interactive: "medium" }));
+      const res = await handler(makeRequest({ interactive: "none" }));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
-        interactive: "medium",
-        autonomous: "none",
+        interactive: "none",
+        autonomous: "low",
       });
     });
 
@@ -104,7 +104,7 @@ describe("auto-approve thresholds", () => {
       const data = await res.json();
       expect(data).toEqual({
         interactive: "high",
-        autonomous: "none",
+        autonomous: "low",
       });
     });
 

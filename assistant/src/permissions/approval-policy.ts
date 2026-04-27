@@ -39,17 +39,17 @@ export interface ApprovalContext {
  * direct callers that bypass the IPC path.
  *
  * Note: when a scalar value (e.g. `"low"`) is passed, it applies uniformly to
- * ALL contexts — including autonomous, whose default here is `"none"`. A scalar
- * `"low"` is therefore *less strict* than the autonomous default. This is
+ * ALL contexts — including autonomous, whose default here is `"low"`. A scalar
+ * `"none"` is therefore *more strict* than the autonomous default. This is
  * intentional: the caller explicitly chose a uniform threshold.
  */
 const CONTEXT_DEFAULTS: Record<
   ExecutionContext,
   "none" | "low" | "medium" | "high"
 > = {
-  conversation: "low",
-  background: "none",
-  headless: "none",
+  conversation: "medium",
+  background: "low",
+  headless: "low",
 };
 
 type ThresholdScalar = "none" | "low" | "medium" | "high";
