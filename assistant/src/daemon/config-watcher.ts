@@ -29,7 +29,6 @@ import { getLogger } from "../util/logger.js";
 import {
   AVATAR_IMAGE_FILENAME,
   getAvatarDir,
-  getProtectedDir,
   getSignalsDir,
   getSoundsDir,
   getWorkspaceDir,
@@ -324,15 +323,8 @@ export class ConfigWatcher {
   }
 
   private startFeatureFlagsWatcher(onFeatureFlagsChanged?: () => void): void {
-    const protectedDir = process.env.GATEWAY_SECURITY_DIR || getProtectedDir();
-
-    try {
-      if (!existsSync(protectedDir)) {
-        mkdirSync(protectedDir, { recursive: true });
-      }
-    } catch {
-      // If we can't create it, watching will also fail — handled below.
-    }
+    const protectedDir = process.env.GATEWAY_SECURITY_DIR;
+    if (!protectedDir) return;
 
     const FLAG_FILES = new Set([
       "feature-flags.json",

@@ -38,11 +38,7 @@ import {
 import type { StreamExportVBundleResult } from "../runtime/migrations/vbundle-builder.js";
 import { streamExportVBundle as realStreamExportVBundle } from "../runtime/migrations/vbundle-builder.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getDbPath,
-  getProtectedDir,
-  getWorkspaceDir,
-} from "../util/platform.js";
+import { getDbPath, getWorkspaceDir } from "../util/platform.js";
 import { ensureBackupKey as realEnsureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
@@ -178,7 +174,7 @@ async function performBackup(
   const ensureKey = deps.ensureBackupKey ?? realEnsureBackupKey;
   const workspaceDir = deps.workspaceDir ?? getWorkspaceDir();
   const localDir = deps.localDir ?? getLocalBackupsDir(config.localDirectory);
-  const trustPath = deps.trustPath ?? join(getProtectedDir(), "trust.json");
+  const trustPath = deps.trustPath ?? join(getWorkspaceDir(), "trust.json");
   const backupKeyPath = deps.backupKeyPath ?? getBackupKeyPath();
 
   const startTimestamp = Date.now();

@@ -6,7 +6,7 @@ import {
   getBackupKeyPathOverride,
 } from "../config/env-registry.js";
 import type { BackupDestination } from "../config/schema.js";
-import { getProtectedDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 /**
  * Returns the backup root directory. Respects the `VELLUM_BACKUP_DIR`
@@ -58,12 +58,7 @@ function safeUserInfoHomedir(): string {
  */
 export function getICloudDriveRoot(): string {
   const home = process.env.HOME || safeUserInfoHomedir() || homedir();
-  const root = join(
-    home,
-    "Library",
-    "Mobile Documents",
-    "com~apple~CloudDocs",
-  );
+  const root = join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
   if (!isAbsolute(root)) {
     throw new Error(
       `getICloudDriveRoot resolved to a relative path: ${root}. ` +
@@ -140,12 +135,12 @@ export function resolveOffsiteDestinations(
 
 /**
  * Returns the path to the backup encryption key file. By default this is
- * `~/.vellum/protected/backup.key`, but the `VELLUM_BACKUP_KEY_PATH` env var
+ * inside the workspace directory. The `VELLUM_BACKUP_KEY_PATH` env var
  * can override it for containerized deployments where the key must live on a
  * persistent volume.
  */
 export function getBackupKeyPath(): string {
-  return getBackupKeyPathOverride() ?? join(getProtectedDir(), "backup.key");
+  return getBackupKeyPathOverride() ?? join(getWorkspaceDir(), "backup.key");
 }
 
 /**

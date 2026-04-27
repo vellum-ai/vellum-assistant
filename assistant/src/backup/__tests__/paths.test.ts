@@ -88,8 +88,9 @@ describe("VELLUM_BACKUP_DIR override", () => {
 describe("deriveSafeAncestor", () => {
   test("iCloud Drive subtree anchors on the iCloud Drive root", () => {
     const iCloudRoot = getICloudDriveRoot();
-    expect(deriveSafeAncestor(join(iCloudRoot, "VellumAssistant", "backups")))
-      .toBe(iCloudRoot);
+    expect(
+      deriveSafeAncestor(join(iCloudRoot, "VellumAssistant", "backups")),
+    ).toBe(iCloudRoot);
     // The default offsite path specifically — this is the regression the
     // feature exists to fix.
     expect(deriveSafeAncestor(getDefaultOffsiteBackupsDir())).toBe(iCloudRoot);
@@ -172,9 +173,10 @@ describe("getBackupKeyPath", () => {
     }
   });
 
-  test("ends with /protected/backup.key when env var is unset", () => {
+  test("ends with /backup.key inside workspace when env var is unset", () => {
     delete process.env.VELLUM_BACKUP_KEY_PATH;
-    expect(getBackupKeyPath().endsWith("/protected/backup.key")).toBe(true);
+    expect(getBackupKeyPath().endsWith("/backup.key")).toBe(true);
+    expect(getBackupKeyPath()).not.toContain("/protected/");
   });
 
   test("returns the env var override when VELLUM_BACKUP_KEY_PATH is set", () => {

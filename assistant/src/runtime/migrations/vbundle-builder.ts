@@ -6,7 +6,7 @@
  * - workspace/: the entire ~/.vellum/workspace/ directory tree (DB, config,
  *   skills, prompts, attachments, etc.) — excluding large/regenerable
  *   dirs (embedding-models/, data/qdrant/)
- * - trust/trust.json: trust rules (optional, lives in protected/ outside workspace)
+ * - trust/trust.json: trust rules (optional)
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -455,8 +455,7 @@ export interface BuildExportVBundleOptions {
  * Walks the entire workspace directory (~/.vellum/workspace/) and includes
  * all files in the archive, skipping only large/regenerable directories
  * (embedding-models/, data/qdrant/). Binary files (SQLite DB, attachments)
- * are included. Trust rules (in protected/, outside workspace) are handled
- * separately.
+ * are included. Trust rules are handled separately.
  *
  * The WAL is checkpointed before the walk so the exported DB file contains
  * all committed rows.
@@ -505,7 +504,7 @@ export function buildExportVBundle(
     configEntry.data = new TextEncoder().encode(sanitized);
   }
 
-  // Include trust rules if the file exists (lives in protected/, outside workspace).
+  // Include trust rules if the file exists.
   if (trustPath && existsSync(trustPath)) {
     const trustData = new Uint8Array(readFileSync(trustPath));
     files.push({ path: "trust/trust.json", data: trustData });
