@@ -56,7 +56,6 @@ import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";

@@ -43,7 +43,6 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import { createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { scopedApprovalGrants } from "../memory/schema.js";

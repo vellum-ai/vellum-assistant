@@ -337,18 +337,8 @@ describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
 // ---------------------------------------------------------------------------
 
 describe("end-to-end: tool grant escalation -> approval -> consume", () => {
-  // Use a wider wait window so the delayed guardian approval arrives in time
-  const handler = new ToolApprovalHandler({
-    inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
-  });
-  const events: ToolLifecycleEvent[] = [];
-  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
-    events.push(event);
-  };
-
   beforeEach(() => {
     resetTables();
-    events.length = 0;
     emittedSignals.length = 0;
   });
 

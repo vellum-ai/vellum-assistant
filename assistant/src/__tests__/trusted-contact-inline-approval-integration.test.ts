@@ -162,7 +162,6 @@ import {
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
@@ -234,10 +233,6 @@ const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
 // ===========================================================================
 
 describe("(a) target flow: trusted-contact inline guardian approval end-to-end", () => {
-  const handler = new ToolApprovalHandler({
-    inlineGrantWait: { maxWaitMs: 2_000, intervalMs: 20 },
-  });
-
   beforeEach(() => {
     resetTables();
     events.length = 0;
@@ -412,10 +407,6 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
 // ===========================================================================
 
 describe("(c) no-binding flow: trusted contact fails fast without guardian binding", () => {
-  const shortHandler = new ToolApprovalHandler({
-    inlineGrantWait: { maxWaitMs: 100, intervalMs: 20 },
-  });
-
   beforeEach(() => {
     resetTables();
     events.length = 0;
