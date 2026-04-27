@@ -210,12 +210,16 @@ async function handleListTwilioNumbers() {
 }
 
 export async function handleProvisionTwilioNumber({
-  body = {},
+  body,
 }: RouteHandlerArgs) {
   if (!(await hasTwilioCredentials())) {
     throw new BadRequestError(
       "Twilio credentials not configured. Set credentials first.",
     );
+  }
+
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
 
   const { country: rawCountry, areaCode } = body as {
@@ -302,11 +306,15 @@ export async function handleAssignTwilioNumber({
   };
 }
 
-async function handleReleaseTwilioNumber({ body = {} }: RouteHandlerArgs) {
+async function handleReleaseTwilioNumber({ body }: RouteHandlerArgs) {
   if (!(await hasTwilioCredentials())) {
     throw new BadRequestError(
       "Twilio credentials not configured. Set credentials first.",
     );
+  }
+
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
 
   const { phoneNumber: requestedNumber } = body as {
