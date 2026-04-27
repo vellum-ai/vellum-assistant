@@ -345,6 +345,12 @@ export interface HistoryResponseToolCall {
   confirmationDecision?: string;
   /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
   confirmationLabel?: string;
+  /** Risk level at the time of invocation ("low" | "medium" | "high" | "unknown"). */
+  riskLevel?: string;
+  /** Human-readable reason for the risk classification. */
+  riskReason?: string;
+  /** Whether the tool was auto-approved (true) or required explicit user input (false). */
+  autoApproved?: boolean;
 }
 
 export interface HistoryResponseSurface {
