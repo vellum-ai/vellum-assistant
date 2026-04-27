@@ -38,7 +38,7 @@ Examples:
         conversations: ["list", "new", "export", "clear"],
         config: ["set", "get", "list", "validate-allowlist"],
         keys: ["list", "set", "delete"],
-        trust: ["list", "remove", "clear"],
+        trust: ["list", "add", "update", "remove"],
         memory: ["status", "backfill", "cleanup", "query", "rebuild-index"],
         contacts: ["list", "invites", "get", "merge"],
         autonomy: ["get", "set"],

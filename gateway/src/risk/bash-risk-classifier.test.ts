@@ -931,9 +931,17 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("assistant trust clear → high", async () => {
+  test("assistant trust add → high", async () => {
     const result = await classifier.classify({
-      command: "assistant trust clear",
+      command: "assistant trust add",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("assistant trust update → high", async () => {
+    const result = await classifier.classify({
+      command: "assistant trust update",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");

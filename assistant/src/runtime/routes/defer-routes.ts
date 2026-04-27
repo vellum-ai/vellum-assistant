@@ -53,15 +53,11 @@ const DeferListParams = z.object({
   conversationId: z.string().optional(),
 });
 
-const DeferCancelParams = z
-  .object({
-    id: z.string().optional(),
-    all: z.boolean().optional(),
-    conversationId: z.string().optional(),
-  })
-  .refine((p) => !p.all || p.conversationId, {
-    message: "conversationId is required when cancelling all defers",
-  });
+const DeferCancelParams = z.object({
+  id: z.string().optional(),
+  all: z.boolean().optional(),
+  conversationId: z.string().optional(),
+});
 
 // ── Handlers ──────────────────────────────────────────────────────────
 
