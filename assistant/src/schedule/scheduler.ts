@@ -294,6 +294,23 @@ async function runScheduleOnce(
           continue;
         }
 
+        // Guard: if the wake was not invoked for any reason (timeout on
+        // a recurring schedule, not_found, archived, no_resolver), skip
+        // the success feed event — the wake did not actually fire.
+        if (!result.invoked) {
+          log.warn(
+            {
+              jobId: job.id,
+              name: job.name,
+              wakeConversationId,
+              reason: result.reason,
+            },
+            "Wake not invoked; skipping feed event",
+          );
+          processed += 1;
+          continue;
+        }
+
         if (isOneShot) completeOneShot(job.id);
         if (!job.quiet) {
           emitScheduleFeedEvent({
