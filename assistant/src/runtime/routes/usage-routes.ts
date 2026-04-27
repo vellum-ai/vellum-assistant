@@ -146,6 +146,7 @@ export const ROUTES: RouteDefinition[] = [
       },
       {
         name: "granularity",
+        schema: { type: "string", enum: ["daily", "hourly"] },
         description: 'Bucket granularity: "daily" (default) or "hourly"',
       },
       {
