@@ -1,13 +1,10 @@
 /**
  * Route handlers for contact management endpoints.
  *
- * GET    /v1/contacts                      — list contacts
- * POST   /v1/contacts                      — create or update a contact
- * GET    /v1/contacts/:id                  — get a contact by ID
- * DELETE /v1/contacts/:id                  — delete a contact
- * POST   /v1/contacts/merge                — merge two contacts
- * POST   /v1/contacts/guardian/channel      — add a channel to the guardian contact
- * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
+ * Shared ROUTES are served by both the HTTP server and the IPC server.
+ * Routes requiring raw Request, AuthContext, or special response status
+ * codes remain HTTP-only via contactHttpOnlyRouteDefinitions() and
+ * contactCatchAllRouteDefinitions().
  */
 
 import { z } from "zod";
@@ -38,6 +35,12 @@ import { isServiceGatewayPrincipal } from "../auth/context.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function withGuardianNameOverride<
   T extends { role: string; displayName: string },
@@ -56,110 +59,6 @@ const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
   "vellum",
   "openclaw",
 ];
-
-/**
- * GET /v1/contacts?limit=50&role=guardian&contactType=human
- *
- * Also supports search query params: query, channelAddress, channelType.
- * When any search param is provided, delegates to searchContacts() instead of listContacts().
- */
-export function handleListContacts(url: URL): Response {
-  const limit = Number(url.searchParams.get("limit") ?? 50);
-  const role = url.searchParams.get("role") as ContactRole | null;
-  const contactTypeParam = url.searchParams.get("contactType");
-  const query = url.searchParams.get("query");
-  const channelAddress = url.searchParams.get("channelAddress");
-  const channelType = url.searchParams.get("channelType");
-  if (contactTypeParam && !isContactType(contactTypeParam)) {
-    return httpError(
-      "BAD_REQUEST",
-      `Invalid contactType "${contactTypeParam}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
-      400,
-    );
-  }
-
-  const hasSearchParams = query || channelAddress || channelType;
-
-  const contactType = contactTypeParam
-    ? (contactTypeParam as ContactType)
-    : undefined;
-
-  if (hasSearchParams) {
-    const contacts = searchContacts({
-      query: query ?? undefined,
-      channelAddress: channelAddress ?? undefined,
-      channelType: channelType ?? undefined,
-      role: role ?? undefined,
-      contactType,
-      limit,
-    });
-    return Response.json({
-      ok: true,
-      contacts: contacts.map(withGuardianNameOverride),
-    });
-  }
-
-  const contacts = listContacts(limit, role ?? undefined, contactType);
-  return Response.json({
-    ok: true,
-    contacts: contacts.map(withGuardianNameOverride),
-  });
-}
-
-/**
- * GET /v1/contacts/:id
- */
-export function handleGetContact(contactId: string): Response {
-  const contact = getContact(contactId);
-  if (!contact) {
-    return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
-  }
-  const assistantMeta =
-    contact.contactType === "assistant"
-      ? getAssistantContactMetadata(contact.id)
-      : undefined;
-  return Response.json({
-    ok: true,
-    contact: withGuardianNameOverride(contact),
-    assistantMetadata: assistantMeta ?? undefined,
-  });
-}
-
-/**
- * DELETE /v1/contacts/:id
- */
-function handleDeleteContact(contactId: string): Response {
-  const result = deleteContact(contactId);
-  if (result === "not_found") {
-    return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
-  }
-  if (result === "is_guardian") {
-    return httpError("FORBIDDEN", "Cannot delete a guardian contact", 403);
-  }
-  return new Response(null, { status: 204 });
-}
-
-/**
- * POST /v1/contacts/merge { keepId, mergeId }
- */
-export async function handleMergeContacts(req: Request): Promise<Response> {
-  const body = (await req.json()) as { keepId?: string; mergeId?: string };
-
-  if (!body.keepId || !body.mergeId) {
-    return httpError("BAD_REQUEST", "keepId and mergeId are required", 400);
-  }
-
-  try {
-    const contact = mergeContacts(body.keepId, body.mergeId);
-    return Response.json({
-      ok: true,
-      contact: withGuardianNameOverride(contact),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return httpError("BAD_REQUEST", message, 400);
-  }
-}
 
 const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
   "active",
@@ -190,9 +89,189 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
   return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
 }
 
-/**
- * POST /v1/contacts { displayName, id?, notes?, contactType?, assistantMetadata?, ... }
- */
+// ---------------------------------------------------------------------------
+// Handlers (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+function handleListContacts(queryParams: Record<string, string>) {
+  const limit = Number(queryParams.limit ?? 50);
+  const role = (queryParams.role as ContactRole) || undefined;
+  const contactTypeParam = queryParams.contactType;
+  const query = queryParams.query || undefined;
+  const channelAddress = queryParams.channelAddress || undefined;
+  const channelType = queryParams.channelType || undefined;
+
+  if (contactTypeParam && !isContactType(contactTypeParam)) {
+    throw new BadRequestError(
+      `Invalid contactType "${contactTypeParam}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
+    );
+  }
+
+  const contactType = contactTypeParam
+    ? (contactTypeParam as ContactType)
+    : undefined;
+
+  if (query || channelAddress || channelType) {
+    const contacts = searchContacts({
+      query,
+      channelAddress,
+      channelType,
+      role,
+      contactType,
+      limit,
+    });
+    return {
+      ok: true,
+      contacts: contacts.map(withGuardianNameOverride),
+    };
+  }
+
+  const contacts = listContacts(limit, role, contactType);
+  return {
+    ok: true,
+    contacts: contacts.map(withGuardianNameOverride),
+  };
+}
+
+function handleGetContact(contactId: string) {
+  const contact = getContact(contactId);
+  if (!contact) {
+    throw new NotFoundError(`Contact "${contactId}" not found`);
+  }
+  const assistantMeta =
+    contact.contactType === "assistant"
+      ? getAssistantContactMetadata(contact.id)
+      : undefined;
+  return {
+    ok: true,
+    contact: withGuardianNameOverride(contact),
+    assistantMetadata: assistantMeta ?? undefined,
+  };
+}
+
+function handleDeleteContact(contactId: string) {
+  const result = deleteContact(contactId);
+  if (result === "not_found") {
+    throw new NotFoundError(`Contact "${contactId}" not found`);
+  }
+  if (result === "is_guardian") {
+    throw new ForbiddenError("Cannot delete a guardian contact");
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Shared route definitions (HTTP + IPC)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listContacts",
+    endpoint: "contacts",
+    method: "GET",
+    summary: "List contacts",
+    description:
+      "Return all contacts, optionally filtered by type or channel status.",
+    tags: ["contacts"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max contacts to return (default 50)",
+      },
+      {
+        name: "role",
+        schema: { type: "string" },
+        description: "Filter by role (e.g. guardian)",
+      },
+      {
+        name: "contactType",
+        schema: { type: "string" },
+        description: "Filter by contact type (human or assistant)",
+      },
+      {
+        name: "query",
+        schema: { type: "string" },
+        description: "Full-text search query",
+      },
+      {
+        name: "channelAddress",
+        schema: { type: "string" },
+        description: "Filter by channel address",
+      },
+      {
+        name: "channelType",
+        schema: { type: "string" },
+        description: "Filter by channel type",
+      },
+    ],
+    responseBody: z.object({
+      ok: z.boolean(),
+      contacts: z
+        .array(z.unknown())
+        .describe("Contact objects with channels and metadata"),
+    }),
+    handler: ({ queryParams }: RouteHandlerArgs) =>
+      handleListContacts(queryParams ?? {}),
+  },
+  {
+    operationId: "getContact",
+    endpoint: "contacts/:id",
+    method: "GET",
+    policyKey: "contacts",
+    summary: "Get a contact",
+    description:
+      "Return a single contact with its channels and assistant metadata.",
+    tags: ["contacts"],
+    responseBody: z.object({
+      ok: z.boolean(),
+      contact: z.object({}).passthrough().describe("Contact details"),
+      assistantMetadata: z
+        .object({})
+        .passthrough()
+        .describe("Assistant-side metadata"),
+    }),
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleGetContact(pathParams!.id),
+  },
+  {
+    operationId: "deleteContact",
+    endpoint: "contacts/:id",
+    method: "DELETE",
+    policyKey: "contacts",
+    summary: "Delete a contact",
+    description: "Delete a contact by ID.",
+    tags: ["contacts"],
+    responseStatus: "204",
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleDeleteContact(pathParams!.id),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// HTTP-only route definitions (require raw Request, AuthContext, or
+// conditional response status codes)
+// ---------------------------------------------------------------------------
+
+export async function handleMergeContacts(req: Request): Promise<Response> {
+  const body = (await req.json()) as { keepId?: string; mergeId?: string };
+
+  if (!body.keepId || !body.mergeId) {
+    return httpError("BAD_REQUEST", "keepId and mergeId are required", 400);
+  }
+
+  try {
+    const contact = mergeContacts(body.keepId, body.mergeId);
+    return Response.json({
+      ok: true,
+      contact: withGuardianNameOverride(contact),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return httpError("BAD_REQUEST", message, 400);
+  }
+}
+
 export async function handleUpsertContact(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     id?: string;
@@ -334,9 +413,6 @@ export async function handleUpsertContact(req: Request): Promise<Response> {
   }
 }
 
-/**
- * PATCH /v1/contact-channels/:contactChannelId { status?, policy?, reason? }
- */
 async function handleUpdateContactChannel(
   req: Request,
   channelId: string,
@@ -367,9 +443,6 @@ async function handleUpdateContactChannel(
     );
   }
 
-  // Blocked-state guard: revoking a blocked channel is not allowed because
-  // blocking is a stronger action than revoking. The caller must explicitly
-  // unblock (set status to "active") before revoking.
   if (body.status === "revoked") {
     const existing = getChannelById(channelId);
     if (!existing) {
@@ -414,24 +487,10 @@ async function handleUpdateContactChannel(
   });
 }
 
-/**
- * POST /v1/contacts/guardian/channel
- *
- * Add a single channel to the existing guardian contact.
- * If no guardian contact exists, returns 404.
- * If the caller is not the guardian, returns 403.
- *
- * Used by the guardian to auto-verify their own channel.
- */
 export async function handleAddGuardianChannel(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {
-  // This endpoint is restricted to gateway service tokens only — the
-  // platform calls it during email registration to auto-verify the owner's
-  // email as a guardian channel. Direct actor/local calls are not permitted
-  // because the endpoint bypasses normal channel verification (no code sent,
-  // no confirmation) and would allow guardian channel takeover (ATL-102).
   if (!isServiceGatewayPrincipal(authContext)) {
     return httpError(
       "FORBIDDEN",
@@ -486,7 +545,6 @@ export async function handleAddGuardianChannel(
     );
   }
 
-  // Upsert the guardian with the new channel added.
   const updated = upsertContact({
     id: guardian.id,
     displayName: guardian.displayName,
@@ -508,27 +566,8 @@ export async function handleAddGuardianChannel(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-export function contactRouteDefinitions(): HTTPRouteDefinition[] {
+export function contactHttpOnlyRouteDefinitions(): HTTPRouteDefinition[] {
   return [
-    {
-      endpoint: "contacts",
-      method: "GET",
-      summary: "List contacts",
-      description:
-        "Return all contacts, optionally filtered by type or channel status.",
-      tags: ["contacts"],
-      responseBody: z.object({
-        ok: z.boolean(),
-        contacts: z
-          .array(z.unknown())
-          .describe("Contact objects with channels and metadata"),
-      }),
-      handler: ({ url }) => handleListContacts(url),
-    },
     {
       endpoint: "contacts",
       method: "POST",
@@ -625,43 +664,6 @@ export function contactRouteDefinitions(): HTTPRouteDefinition[] {
       }),
       handler: async ({ req, params }) =>
         handleUpdateContactChannel(req, params.contactChannelId),
-    },
-  ];
-}
-
-/**
- * Catch-all `contacts/:id` route. Must be registered AFTER any routes that
- * share the `contacts/` prefix (e.g. `inviteRouteDefinitions()`) to avoid
- * the `:id` parameter matching literal sub-paths like "invites".
- */
-export function contactCatchAllRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "contacts/:id",
-      method: "GET",
-      policyKey: "contacts",
-      summary: "Get a contact",
-      description:
-        "Return a single contact with its channels and assistant metadata.",
-      tags: ["contacts"],
-      responseBody: z.object({
-        ok: z.boolean(),
-        contact: z.object({}).passthrough().describe("Contact details"),
-        assistantMetadata: z
-          .object({})
-          .passthrough()
-          .describe("Assistant-side metadata"),
-      }),
-      handler: ({ params }) => handleGetContact(params.id),
-    },
-    {
-      endpoint: "contacts/:id",
-      method: "DELETE",
-      policyKey: "contacts",
-      summary: "Delete a contact",
-      description: "Delete a contact by ID.",
-      tags: ["contacts"],
-      handler: ({ params }) => handleDeleteContact(params.id),
     },
   ];
 }

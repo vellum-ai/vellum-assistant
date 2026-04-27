@@ -2300,6 +2300,43 @@ paths:
                   - ok
                   - contacts
                 additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max contacts to return (default 50)
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by role (e.g. guardian)
+        - name: contactType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by contact type (human or assistant)
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Full-text search query
+        - name: channelAddress
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by channel address
+        - name: channelType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by channel type
     post:
       operationId: contacts_post
       summary: Create or update a contact
@@ -2361,7 +2398,7 @@ paths:
       tags:
         - contacts
       responses:
-        "200":
+        "204":
           description: Successful response
       parameters:
         - name: id

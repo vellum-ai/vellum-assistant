@@ -140,8 +140,7 @@ import {
 } from "./routes/channel-routes.js";
 import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
 import {
-  contactCatchAllRouteDefinitions,
-  contactRouteDefinitions,
+  contactHttpOnlyRouteDefinitions,
 } from "./routes/contact-routes.js";
 import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import {
@@ -2142,9 +2141,7 @@ export class RuntimeHttpServer {
       }),
       ...guardianActionRouteDefinitions(),
 
-      ...contactRouteDefinitions(),
-      // contacts/:id catch-all must follow invite routes to avoid shadowing
-      ...contactCatchAllRouteDefinitions(),
+      ...contactHttpOnlyRouteDefinitions(),
 
       ...telegramRouteDefinitions(),
       ...channelVerificationRouteDefinitions(),

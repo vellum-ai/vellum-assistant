@@ -19,6 +19,7 @@ import { ROUTES as BRAIN_GRAPH_ROUTES } from "./brain-graph-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
+import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
@@ -65,6 +66,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CHANNEL_READINESS_ROUTES,
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
+  ...CONTACT_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_ROUTES,

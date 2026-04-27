@@ -67,10 +67,9 @@ import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/co
 import { getDb, resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
-  handleGetContact,
-  handleListContacts,
   handleMergeContacts,
   handleUpsertContact,
+  ROUTES,
 } from "../runtime/routes/contact-routes.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -91,14 +90,24 @@ beforeAll(() => {
         return handleMergeContacts(req);
       }
       if (path === "/v1/contacts" && req.method === "GET") {
-        return handleListContacts(url);
+        const listRoute = ROUTES.find(
+          (r) => r.operationId === "listContacts",
+        )!;
+        const qp: Record<string, string> = {};
+        url.searchParams.forEach((v, k) => { qp[k] = v; });
+        const result = listRoute.handler({ queryParams: qp });
+        return Response.json(result);
       }
       if (path === "/v1/contacts" && req.method === "POST") {
         return handleUpsertContact(req);
       }
       const idMatch = path.match(/^\/v1\/contacts\/([^/]+)$/);
       if (idMatch && req.method === "GET") {
-        return handleGetContact(idMatch[1]);
+        const getRoute = ROUTES.find(
+          (r) => r.operationId === "getContact",
+        )!;
+        const result = getRoute.handler({ pathParams: { id: idMatch[1] } });
+        return Response.json(result);
       }
       return new Response("Not found", { status: 404 });
     },
