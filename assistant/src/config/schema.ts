@@ -109,7 +109,6 @@ export type {
 export {
   PermissionsConfigSchema,
   SecretDetectionConfigSchema,
-  VALID_PERMISSIONS_MODES,
 } from "./schemas/security.js";
 export type {
   ImageGenerationService,

@@ -34,14 +34,14 @@ mock.module("../util/logger.js", () => ({
 }));
 
 interface TestConfig {
-  permissions: { mode: "strict" | "workspace" };
+  permissions: { autoApproveUpTo?: "none" | "low" | "medium" | "high" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
   [key: string]: unknown;
 }
 
 const testConfig: TestConfig = {
-  permissions: { mode: "workspace" },
+  permissions: {},
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
 };
@@ -113,7 +113,7 @@ function writeDynamicSkill(
 describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
     clearRiskCache();
-    testConfig.permissions = { mode: "workspace" };
+    testConfig.permissions = {};
     testConfig.skills = { load: { extraDirs: [] } };
     _setOverridesForTesting({
       "inline-skill-commands": true,
@@ -148,7 +148,7 @@ describe("inline-command skill_load permissions", () => {
     test("dynamic skill prompts in strict mode (no matching rule)", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-strict", "Dynamic Strict Skill");
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
 
       const result = await check(
         "skill_load",
@@ -156,7 +156,7 @@ describe("inline-command skill_load permissions", () => {
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
   });
 

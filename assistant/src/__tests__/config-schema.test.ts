@@ -674,10 +674,9 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("defaults permissions.mode to workspace", () => {
+  test("defaults permissions.autoApproveUpTo to per-context object", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.permissions).toEqual({
-      mode: "workspace",
       autoApproveUpTo: {
         conversation: "low",
         background: "medium",
@@ -686,43 +685,8 @@ describe("AssistantConfigSchema", () => {
     });
   });
 
-  test("accepts explicit permissions.mode strict", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "strict" },
-    });
-    expect(result.permissions.mode).toBe("strict");
-  });
-
-  test("rejects permissions.mode legacy", () => {
-    expect(() =>
-      AssistantConfigSchema.parse({
-        permissions: { mode: "legacy" },
-      }),
-    ).toThrow();
-  });
-
-  test("accepts explicit permissions.mode workspace", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "workspace" },
-    });
-    expect(result.permissions.mode).toBe("workspace");
-  });
-
-  test("rejects invalid permissions.mode", () => {
-    const result = AssistantConfigSchema.safeParse({
-      permissions: { mode: "permissive" },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("permissions.mode"))).toBe(true);
-    }
-  });
-
   test("defaults autoApproveUpTo to per-context object when not specified", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "workspace" },
-    });
+    const result = AssistantConfigSchema.parse({ permissions: {} });
     expect(result.permissions.autoApproveUpTo).toEqual({
       conversation: "low",
       background: "medium",
@@ -2383,29 +2347,16 @@ describe("loadConfig with schema validation", () => {
     expect(config.auditLog.retentionDays).toBe(0);
   });
 
-  test("defaults permissions.mode to workspace when not specified", () => {
+  test("defaults permissions.autoApproveUpTo when not specified", () => {
     writeConfig({});
     const config = loadConfig();
     expect(config.permissions).toEqual({
-      mode: "workspace",
       autoApproveUpTo: {
         conversation: "low",
         background: "medium",
         headless: "none",
       },
     });
-  });
-
-  test("loads explicit permissions.mode strict", () => {
-    writeConfig({ permissions: { mode: "strict" } });
-    const config = loadConfig();
-    expect(config.permissions.mode).toBe("strict");
-  });
-
-  test("falls back for invalid permissions.mode", () => {
-    writeConfig({ permissions: { mode: "yolo" } });
-    const config = loadConfig();
-    expect(config.permissions.mode).toBe("workspace");
   });
 
   // ── Calls config (loader integration) ──────────────────────────────

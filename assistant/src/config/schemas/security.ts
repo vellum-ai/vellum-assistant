@@ -1,9 +1,6 @@
 import { z } from "zod";
 
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
-const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
-
-export { VALID_PERMISSIONS_MODES };
 
 const CustomSecretPatternSchema = z
   .object({
@@ -69,16 +66,6 @@ export const SecretDetectionConfigSchema = z
 
 export const PermissionsConfigSchema = z
   .object({
-    mode: z
-      .enum(VALID_PERMISSIONS_MODES, {
-        error: `permissions.mode must be one of: ${VALID_PERMISSIONS_MODES.join(
-          ", ",
-        )}`,
-      })
-      .default("workspace")
-      .describe(
-        "Permission mode — 'strict' requires explicit approval for all operations, 'workspace' allows operations within the workspace",
-      ),
     autoApproveUpTo: z
       .union([
         z.enum(["none", "low", "medium", "high"], {
