@@ -14,12 +14,16 @@ import type { IpcRoute } from "../assistant-server.js";
 export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
 ): IpcRoute[] {
-  return routes.map((r) => ({
-    method: r.operationId,
-    handler: (params?: Record<string, unknown>) =>
-      r.handler({
-        pathParams: (params as Record<string, string> | undefined) ?? {},
-        body: params,
-      }),
-  }));
+  // Routes that require guardian binding are excluded from IPC — they will
+  // migrate to the gateway which owns guardian identity long-term.
+  return routes
+    .filter((r) => !r.requireGuardian)
+    .map((r) => ({
+      method: r.operationId,
+      handler: (params?: Record<string, unknown>) =>
+        r.handler({
+          pathParams: (params as Record<string, string> | undefined) ?? {},
+          body: params,
+        }),
+    }));
 }

@@ -126,7 +126,6 @@ import {
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
-import { approvalRouteDefinitions } from "./routes/approval-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { handleGetAudio } from "./routes/audio-routes.js";
 import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
@@ -1004,7 +1003,9 @@ export class RuntimeHttpServer {
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
     if (pagesMatch && req.method === "GET") {
       return withErrorHandling("pages", async () => {
-        const pageDef = APP_ROUTES.find((r) => r.operationId === "pages_serve")!;
+        const pageDef = APP_ROUTES.find(
+          (r) => r.operationId === "pages_serve",
+        )!;
         const args = { pathParams: { appId: pagesMatch[1] } };
         const body = pageDef.handler(args) as string;
         const headers =
@@ -2151,7 +2152,6 @@ export class RuntimeHttpServer {
         },
       }),
       ...globalSearchRouteDefinitions(),
-      ...approvalRouteDefinitions(),
       ...hostBashRouteDefinitions(),
       ...hostBrowserRouteDefinitions(),
       ...hostCuRouteDefinitions(),

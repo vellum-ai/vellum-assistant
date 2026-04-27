@@ -42,6 +42,13 @@ export interface RouteDefinition {
   requestBody?: z.ZodType;
   responseBody?: z.ZodType;
   /**
+   * When true, the HTTP adapter verifies the caller is the bound guardian
+   * before invoking the handler. The IPC adapter excludes these routes
+   * entirely — they will migrate to the gateway which owns guardian
+   * binding long-term.
+   */
+  requireGuardian?: boolean;
+  /**
    * Response headers for this route. Can be:
    * - A static map of header name → value
    * - A function that computes headers from path/query params + request headers
