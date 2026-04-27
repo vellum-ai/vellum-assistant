@@ -15,38 +15,51 @@ mock.module("../prompts/user-reference.js", () => ({
 }));
 
 import { getSqlite, initializeDb } from "../memory/db.js";
-import type { RouteParams } from "../runtime/http-router.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
-  conversationStarterRouteDefinitions,
   orderStrongestFirst,
+  ROUTES,
 } from "../runtime/routes/conversation-starter-routes.js";
+import { RouteError } from "../runtime/routes/errors.js";
 
 initializeDb();
 
-const routes = conversationStarterRouteDefinitions();
-
-function dispatch(path: string, method = "GET"): Response | Promise<Response> {
+/**
+ * Dispatch a request to the ROUTES array by matching endpoint + method.
+ * Parses the URL to extract queryParams and pathParams.
+ */
+function dispatch(path: string, method = "GET"): unknown | Promise<unknown> {
   const url = new URL(`http://localhost/v1/${path}`);
-  const req = new Request(url.toString(), { method });
-  const route = routes.find(
-    (r) =>
-      r.method === method &&
-      (r.endpoint === "conversation-starters" ||
-        r.endpoint === "conversation-starters/:id"),
-  );
-  if (!route) throw new Error("No conversation-starters route found");
-  const params: RouteParams =
-    method === "DELETE"
-      ? { id: decodeURIComponent(path.split("/").at(-1) ?? "") }
-      : {};
-  return route.handler({
-    req,
-    url,
-    server: null as never,
-    authContext: {} as never,
-    params,
+  const urlPath = url.pathname.replace("/v1/", "");
+
+  const route = ROUTES.find((r) => {
+    if (r.method !== method) return false;
+    // Simple matching: "conversation-starters" or "conversation-starters/:id"
+    const pattern = r.endpoint.replace(/:(\w+)/g, "([^/]+)");
+    return new RegExp(`^${pattern}$`).test(urlPath);
   });
+  if (!route) throw new Error(`No route found for ${method} ${urlPath}`);
+
+  // Extract path params from the endpoint pattern
+  const pathParams: Record<string, string> = {};
+  const paramNames = [...route.endpoint.matchAll(/:(\w+)/g)].map((m) => m[1]);
+  if (paramNames.length > 0) {
+    const pattern = route.endpoint.replace(/:(\w+)/g, "([^/]+)");
+    const match = urlPath.match(new RegExp(`^${pattern}$`));
+    if (match) {
+      paramNames.forEach((name, i) => {
+        pathParams[name] = decodeURIComponent(match[i + 1]);
+      });
+    }
+  }
+
+  // Extract query params
+  const queryParams: Record<string, string> = {};
+  for (const [key, value] of url.searchParams.entries()) {
+    queryParams[key] = value;
+  }
+
+  return route.handler({ pathParams, queryParams, body: {} });
 }
 
 function clearTables() {
@@ -158,17 +171,15 @@ describe("GET /v1/conversation-starters", () => {
     insertMemoryItem();
     insertMemoryItem();
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: unknown[];
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("ready");
-    expect(body.starters).toHaveLength(2);
-    expect(body.total).toBe(2);
+    expect(result.status).toBe("ready");
+    expect(result.starters).toHaveLength(2);
+    expect(result.total).toBe(2);
   });
 
   test("returns refreshing with existing starters when the batch is stale and enqueues one refresh job", async () => {
@@ -193,16 +204,14 @@ describe("GET /v1/conversation-starters", () => {
     insertMemoryItem();
     insertMemoryItem();
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: unknown[];
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("refreshing");
-    expect(body.starters).toHaveLength(2);
+    expect(result.status).toBe("refreshing");
+    expect(result.starters).toHaveLength(2);
     expect(countStarterJobs()).toBe(1);
   });
 
@@ -219,16 +228,14 @@ describe("GET /v1/conversation-starters", () => {
     insertMemoryItem();
     insertMemoryItem();
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: unknown[];
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("refreshing");
-    expect(body.starters).toHaveLength(1);
+    expect(result.status).toBe("refreshing");
+    expect(result.starters).toHaveLength(1);
     expect(countStarterJobs()).toBe(1);
   });
 
@@ -248,16 +255,14 @@ describe("GET /v1/conversation-starters", () => {
     insertMemoryItem();
     insertStarterJob("default");
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: unknown[];
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("refreshing");
-    expect(body.starters).toHaveLength(1);
+    expect(result.status).toBe("refreshing");
+    expect(result.starters).toHaveLength(1);
     expect(countStarterJobs()).toBe(1);
   });
 
@@ -279,17 +284,15 @@ describe("GET /v1/conversation-starters", () => {
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: Array<{ label: string }>;
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("refreshing");
-    expect(body.total).toBe(1);
-    expect(body.starters.map((starter) => starter.label)).toEqual([
+    expect(result.status).toBe("refreshing");
+    expect(result.total).toBe(1);
+    expect(result.starters.map((starter) => starter.label)).toEqual([
       "Plan my morning",
     ]);
     expect(countStarterJobs()).toBe(1);
@@ -313,48 +316,42 @@ describe("GET /v1/conversation-starters", () => {
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: Array<{ label: string }>;
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("refreshing");
-    expect(body.total).toBe(1);
-    expect(body.starters.map((starter) => starter.label)).toEqual([
+    expect(result.status).toBe("refreshing");
+    expect(result.total).toBe(1);
+    expect(result.starters.map((starter) => starter.label)).toEqual([
       "Catch me up",
     ]);
     expect(countStarterJobs()).toBe(1);
   });
 
   test("returns empty status when no memory items exist", async () => {
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: unknown[];
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("empty");
-    expect(body.starters).toHaveLength(0);
+    expect(result.status).toBe("empty");
+    expect(result.starters).toHaveLength(0);
   });
 
   test("returns generating status when memory items exist but no starters", async () => {
     insertMemoryItem();
 
-    const res = await dispatch("conversation-starters");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters")) as {
       starters: unknown[];
       total: number;
       status: string;
     };
 
-    expect(res.status).toBe(200);
-    expect(body.status).toBe("generating");
-    expect(body.starters).toHaveLength(0);
+    expect(result.status).toBe("generating");
+    expect(result.starters).toHaveLength(0);
   });
 
   test("respects limit parameter", async () => {
@@ -374,11 +371,13 @@ describe("GET /v1/conversation-starters", () => {
       });
     }
 
-    const res = await dispatch("conversation-starters?limit=3");
-    const body = (await res.json()) as { starters: unknown[]; total: number };
+    const result = (await dispatch("conversation-starters?limit=3")) as {
+      starters: unknown[];
+      total: number;
+    };
 
-    expect(body.starters).toHaveLength(3);
-    expect(body.total).toBe(6);
+    expect(result.starters).toHaveLength(3);
+    expect(result.total).toBe(6);
   });
 
   test("surfaces category-diverse starters first", async () => {
@@ -408,12 +407,11 @@ describe("GET /v1/conversation-starters", () => {
       createdAt: now + 2,
     });
 
-    const res = await dispatch("conversation-starters?limit=4");
-    const body = (await res.json()) as {
+    const result = (await dispatch("conversation-starters?limit=4")) as {
       starters: Array<{ label: string; category: string }>;
     };
 
-    const firstThreeCategories = body.starters
+    const firstThreeCategories = result.starters
       .slice(0, 3)
       .map((starter) => starter.category);
     expect(new Set(firstThreeCategories).size).toBe(3);
@@ -431,33 +429,30 @@ describe("GET /v1/conversation-starters", () => {
       category: "communication",
     });
 
-    const deleteRes = await dispatch(
+    const deleteResult = (await dispatch(
       `conversation-starters/${deletedId}`,
       "DELETE",
-    );
-    const deleteBody = (await deleteRes.json()) as {
-      deleted: boolean;
-      id: string;
-    };
-    expect(deleteRes.status).toBe(200);
-    expect(deleteBody).toEqual({ deleted: true, id: deletedId });
+    )) as { deleted: boolean; id: string };
+    expect(deleteResult).toEqual({ deleted: true, id: deletedId });
     expect(countStarterJobs()).toBe(0);
 
-    const listRes = await dispatch("conversation-starters");
-    const listBody = (await listRes.json()) as {
+    const listResult = (await dispatch("conversation-starters")) as {
       starters: Array<{ id: string }>;
       total: number;
     };
-    expect(listBody.total).toBe(1);
-    expect(listBody.starters.map((starter) => starter.id)).toEqual([keptId]);
+    expect(listResult.total).toBe(1);
+    expect(listResult.starters.map((starter) => starter.id)).toEqual([keptId]);
   });
 
-  test("returns 404 when deleting an unknown starter", async () => {
-    const res = await dispatch(`conversation-starters/${uuid()}`, "DELETE");
-    const body = (await res.json()) as { error: { code: string } };
-
-    expect(res.status).toBe(404);
-    expect(body.error.code).toBe("NOT_FOUND");
+  test("throws NotFoundError when deleting an unknown starter", async () => {
+    try {
+      await dispatch(`conversation-starters/${uuid()}`, "DELETE");
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(404);
+      expect((err as RouteError).code).toBe("NOT_FOUND");
+    }
     expect(countStarterJobs()).toBe(0);
   });
 });
