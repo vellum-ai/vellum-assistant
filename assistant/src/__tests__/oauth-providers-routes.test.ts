@@ -97,32 +97,43 @@ mock.module("../oauth/oauth-store.js", () => ({
   getProvider: mockGetProvider,
 }));
 
-import { oauthProvidersRouteDefinitions } from "../runtime/routes/oauth-providers.js";
+import { NotFoundError } from "../runtime/routes/errors.js";
+import { ROUTES } from "../runtime/routes/oauth-providers.js";
+import type { RouteDefinition, RouteHandlerArgs } from "../runtime/routes/types.js";
 
-const routes = oauthProvidersRouteDefinitions();
-
-function getRoute(method: string, endpoint: string) {
-  const route = routes.find(
-    (r) => r.method === method && r.endpoint === endpoint,
+function getRoute(method: string, endpoint: string): RouteDefinition {
+  const route = ROUTES.find(
+    (r: RouteDefinition) => r.method === method && r.endpoint === endpoint,
   );
   if (!route) throw new Error(`Route not found: ${method} ${endpoint}`);
   return route;
 }
 
+/** Call a route handler, catching RouteErrors for test assertions. */
+async function callRoute(
+  route: RouteDefinition,
+  args: RouteHandlerArgs,
+): Promise<{ status: number; body: unknown }> {
+  try {
+    const result = await route.handler(args);
+    return { status: 200, body: result };
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      return { status: err.statusCode, body: { error: { code: err.code, message: err.message } } };
+    }
+    throw err;
+  }
+}
+
 describe("GET /v1/oauth/providers", () => {
   test("returns all providers with correct summary shape", async () => {
-    const req = new Request("http://localhost/v1/oauth/providers");
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: {},
-    });
+    const { status, body } = await callRoute(
+      getRoute("GET", "oauth/providers"),
+      { queryParams: {} },
+    );
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    expect(status).toBe(200);
+    const { providers } = body as {
       providers: Array<{
         provider_key: string;
         display_name: string | null;
@@ -134,23 +145,18 @@ describe("GET /v1/oauth/providers", () => {
       }>;
     };
 
-    expect(body.providers).toHaveLength(2);
-    expect(body.providers[0]!.provider_key).toBe("google");
-    expect(body.providers[1]!.provider_key).toBe("github");
+    expect(providers).toHaveLength(2);
+    expect(providers[0]!.provider_key).toBe("google");
+    expect(providers[1]!.provider_key).toBe("github");
   });
 
   test("response shape matches serializeProviderSummary output (snake_case keys)", async () => {
-    const req = new Request("http://localhost/v1/oauth/providers");
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: {},
-    });
+    const { body } = await callRoute(
+      getRoute("GET", "oauth/providers"),
+      { queryParams: {} },
+    );
 
-    const body = (await res.json()) as {
+    const { providers } = body as {
       providers: Array<Record<string, unknown>>;
     };
 
@@ -167,103 +173,79 @@ describe("GET /v1/oauth/providers", () => {
       "feature_flag",
     ];
 
-    for (const provider of body.providers) {
+    for (const provider of providers) {
       expect(Object.keys(provider).sort()).toEqual(expectedKeys.sort());
     }
   });
 
   test("response includes logo_url for each provider", async () => {
-    const req = new Request("http://localhost/v1/oauth/providers");
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: {},
-    });
+    const { status, body } = await callRoute(
+      getRoute("GET", "oauth/providers"),
+      { queryParams: {} },
+    );
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    expect(status).toBe(200);
+    const { providers } = body as {
       providers: Array<{
         provider_key: string;
         logo_url: string | null;
       }>;
     };
 
-    expect(body.providers[0]!.logo_url).toBe(
+    expect(providers[0]!.logo_url).toBe(
       "https://cdn.simpleicons.org/google",
     );
-    expect(body.providers[1]!.logo_url).toBeNull();
+    expect(providers[1]!.logo_url).toBeNull();
   });
 
   test("supports_managed_mode=true returns only managed providers", async () => {
-    const req = new Request(
-      "http://localhost/v1/oauth/providers?supports_managed_mode=true",
+    const { status, body } = await callRoute(
+      getRoute("GET", "oauth/providers"),
+      { queryParams: { supports_managed_mode: "true" } },
     );
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: {},
-    });
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    expect(status).toBe(200);
+    const { providers } = body as {
       providers: Array<{
         provider_key: string;
         supports_managed_mode: boolean;
       }>;
     };
 
-    expect(body.providers).toHaveLength(1);
-    expect(body.providers[0]!.provider_key).toBe("google");
-    expect(body.providers[0]!.supports_managed_mode).toBe(true);
+    expect(providers).toHaveLength(1);
+    expect(providers[0]!.provider_key).toBe("google");
+    expect(providers[0]!.supports_managed_mode).toBe(true);
   });
 
   test("supports_managed_mode=false returns only non-managed providers", async () => {
-    const req = new Request(
-      "http://localhost/v1/oauth/providers?supports_managed_mode=false",
+    const { status, body } = await callRoute(
+      getRoute("GET", "oauth/providers"),
+      { queryParams: { supports_managed_mode: "false" } },
     );
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: {},
-    });
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    expect(status).toBe(200);
+    const { providers } = body as {
       providers: Array<{
         provider_key: string;
         supports_managed_mode: boolean;
       }>;
     };
 
-    expect(body.providers).toHaveLength(1);
-    expect(body.providers[0]!.provider_key).toBe("github");
-    expect(body.providers[0]!.supports_managed_mode).toBe(false);
+    expect(providers).toHaveLength(1);
+    expect(providers[0]!.provider_key).toBe("github");
+    expect(providers[0]!.supports_managed_mode).toBe(false);
   });
 });
 
 describe("GET /v1/oauth/providers/:providerKey", () => {
   test("returns the correct provider", async () => {
-    const req = new Request("http://localhost/v1/oauth/providers/google");
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers/:providerKey").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: { providerKey: "google" },
-    });
+    const { status, body } = await callRoute(
+      getRoute("GET", "oauth/providers/:providerKey"),
+      { pathParams: { providerKey: "google" } },
+    );
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    expect(status).toBe(200);
+    const { provider } = body as {
       provider: {
         provider_key: string;
         display_name: string | null;
@@ -275,25 +257,20 @@ describe("GET /v1/oauth/providers/:providerKey", () => {
       };
     };
 
-    expect(body.provider.provider_key).toBe("google");
-    expect(body.provider.display_name).toBe("Google");
-    expect(body.provider.supports_managed_mode).toBe(true);
-    expect(body.provider.requires_client_secret).toBe(true);
+    expect(provider.provider_key).toBe("google");
+    expect(provider.display_name).toBe("Google");
+    expect(provider.supports_managed_mode).toBe(true);
+    expect(provider.requires_client_secret).toBe(true);
   });
 
   test("returns 404 for unknown provider", async () => {
-    const req = new Request("http://localhost/v1/oauth/providers/nonexistent");
-    const url = new URL(req.url);
-    const res = await getRoute("GET", "oauth/providers/:providerKey").handler({
-      req,
-      url,
-      server: null as never,
-      authContext: null as never,
-      params: { providerKey: "nonexistent" },
-    });
+    const { status, body } = await callRoute(
+      getRoute("GET", "oauth/providers/:providerKey"),
+      { pathParams: { providerKey: "nonexistent" } },
+    );
 
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(status).toBe(404);
+    const { error } = body as { error: { code: string } };
+    expect(error.code).toBe("NOT_FOUND");
   });
 });

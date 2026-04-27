@@ -6518,16 +6518,27 @@ paths:
   /v1/oauth/providers:
     get:
       operationId: oauth_providers_get
+      summary: List OAuth providers
+      description: List all registered OAuth providers with optional filtering.
       tags:
-        - oauth-providers
+        - oauth
       responses:
         "200":
           description: Successful response
+      parameters:
+        - name: supports_managed_mode
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by managed mode support (true/false)
   /v1/oauth/providers/{providerKey}:
     get:
       operationId: oauth_providers_by_providerKey_get
+      summary: Get OAuth provider
+      description: Get a single OAuth provider by key.
       tags:
-        - oauth-providers
+        - oauth
       responses:
         "200":
           description: Successful response
