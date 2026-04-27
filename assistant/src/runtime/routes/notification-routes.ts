@@ -10,69 +10,69 @@ import { z } from "zod";
 
 import { getDb } from "../../memory/db-connection.js";
 import { notificationDeliveries } from "../../memory/schema.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-export function notificationRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    // POST /v1/notification-intent-result — client ack for notification delivery
-    {
-      endpoint: "notification-intent-result",
-      method: "POST",
-      policyKey: "notification-intent-result",
-      summary: "Report notification delivery result",
-      description:
-        "Client acknowledgment for local notification delivery outcome.",
-      tags: ["notifications"],
-      requestBody: z.object({
-        deliveryId: z.string().describe("Notification delivery ID"),
-        success: z.boolean().describe("Whether delivery succeeded").optional(),
-        errorMessage: z
-          .string()
-          .describe("Error message if delivery failed")
-          .optional(),
-        errorCode: z
-          .string()
-          .describe("Error code if delivery failed")
-          .optional(),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          deliveryId?: string;
-          success?: boolean;
-          errorMessage?: string;
-          errorCode?: string;
-        };
+function handleNotificationIntentResult({ body = {} }: RouteHandlerArgs) {
+  const { deliveryId, success, errorMessage, errorCode } = body as {
+    deliveryId?: string;
+    success?: boolean;
+    errorMessage?: string;
+    errorCode?: string;
+  };
 
-        if (!body.deliveryId || typeof body.deliveryId !== "string") {
-          return httpError("BAD_REQUEST", "deliveryId is required", 400);
-        }
+  if (!deliveryId || typeof deliveryId !== "string") {
+    throw new BadRequestError("deliveryId is required");
+  }
 
-        const db = getDb();
-        const now = Date.now();
+  const db = getDb();
+  const now = Date.now();
 
-        const updates: Record<string, unknown> = {
-          clientDeliveryStatus: body.success ? "delivered" : "client_failed",
-          clientDeliveryAt: now,
-          updatedAt: now,
-        };
-        if (body.errorMessage) {
-          updates.clientDeliveryError = body.errorMessage;
-        }
-        if (body.errorCode) {
-          updates.errorCode = body.errorCode;
-        }
+  const updates: Record<string, unknown> = {
+    clientDeliveryStatus: success ? "delivered" : "client_failed",
+    clientDeliveryAt: now,
+    updatedAt: now,
+  };
+  if (errorMessage) {
+    updates.clientDeliveryError = errorMessage;
+  }
+  if (errorCode) {
+    updates.errorCode = errorCode;
+  }
 
-        db.update(notificationDeliveries)
-          .set(updates)
-          .where(eq(notificationDeliveries.id, body.deliveryId))
-          .run();
+  db.update(notificationDeliveries)
+    .set(updates)
+    .where(eq(notificationDeliveries.id, deliveryId))
+    .run();
 
-        return Response.json({ ok: true });
-      },
-    },
-  ];
+  return { ok: true };
 }
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "notificationintentresult_post",
+    endpoint: "notification-intent-result",
+    method: "POST",
+    summary: "Report notification delivery result",
+    description:
+      "Client acknowledgment for local notification delivery outcome.",
+    tags: ["notifications"],
+    requirePolicyEnforcement: true,
+    handler: handleNotificationIntentResult,
+    requestBody: z.object({
+      deliveryId: z.string().describe("Notification delivery ID"),
+      success: z.boolean().describe("Whether delivery succeeded").optional(),
+      errorMessage: z
+        .string()
+        .describe("Error message if delivery failed")
+        .optional(),
+      errorCode: z
+        .string()
+        .describe("Error code if delivery failed")
+        .optional(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+  },
+];
