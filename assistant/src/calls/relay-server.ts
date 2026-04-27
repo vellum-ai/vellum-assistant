@@ -15,13 +15,13 @@ import {
   listGuardianChannels,
 } from "../contacts/contact-store.js";
 import {
-  createGuardianBinding,
   revokeGuardianBinding,
   touchContactInteraction,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { ipcCall } from "../ipc/gateway-client.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -1010,10 +1010,10 @@ export class RelayConnection {
           );
         } else {
           revokeGuardianBinding("phone");
-          createGuardianBinding({
+          await ipcCall("create_guardian_binding", {
             channel: "phone",
-            guardianExternalUserId: fromNumber,
-            guardianDeliveryChatId: fromNumber,
+            externalUserId: fromNumber,
+            deliveryChatId: fromNumber,
             guardianPrincipalId: result.canonicalPrincipal!,
             verifiedVia: "challenge",
           });

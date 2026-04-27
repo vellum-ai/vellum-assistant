@@ -16,10 +16,10 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import {
-  createGuardianBinding,
   revokeGuardianBinding,
   upsertContactChannel,
 } from "../../../contacts/contacts-write.js";
+import { ipcCall } from "../../../ipc/gateway-client.js";
 import {
   clearPendingVerificationReply,
   storePendingVerificationReply,
@@ -182,14 +182,6 @@ export async function handleVerificationIntercept(
         // Revoke any existing active binding before creating a new one (same-user re-verification)
         revokeGuardianBinding(sourceChannel);
 
-        const metadata: Record<string, string> = {};
-        if (actorUsername && actorUsername.trim().length > 0) {
-          metadata.username = actorUsername.trim();
-        }
-        if (actorDisplayName && actorDisplayName.trim().length > 0) {
-          metadata.displayName = actorDisplayName.trim();
-        }
-
         // Unify all channel bindings onto the canonical (vellum) principal
         const vellumBinding = getGuardianBinding(
           canonicalAssistantId,
@@ -200,14 +192,13 @@ export async function handleVerificationIntercept(
           canonicalSenderId ??
           rawSenderId;
 
-        createGuardianBinding({
+        await ipcCall("create_guardian_binding", {
           channel: sourceChannel,
-          guardianExternalUserId: canonicalSenderId ?? rawSenderId,
-          guardianDeliveryChatId: conversationExternalId,
+          externalUserId: canonicalSenderId ?? rawSenderId,
+          deliveryChatId: conversationExternalId,
           guardianPrincipalId: canonicalPrincipal,
+          displayName: actorDisplayName?.trim() || undefined,
           verifiedVia: "challenge",
-          metadataJson:
-            Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
         });
       }
     }

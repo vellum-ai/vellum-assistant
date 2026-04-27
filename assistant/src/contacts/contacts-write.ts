@@ -236,8 +236,7 @@ export function upsertContactChannel(params: {
   // NOTE: We intentionally do NOT seed `users/<slug>.md` here. This is the
   // inbound-message hot path — every new contact (Slack, phone, email, etc)
   // would otherwise fire the `users/` directory watcher in
-  // config-watcher.ts and evict live conversations. Persona-file seeding
-  // is the sole responsibility of `createGuardianBinding`.
+  // config-watcher.ts and evict live conversations.
 
   const contactResult = findContactChannel({
     channelType: params.sourceChannel,

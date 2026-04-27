@@ -1,12 +1,16 @@
 /**
- * IPC route definitions for contact reads.
+ * IPC route definitions for contact operations.
  *
  * Exposes gateway-owned contact data (auth/authz) to the assistant
- * daemon over the IPC socket. All methods are read-only.
+ * daemon over the IPC socket.
  */
 
 import { z } from "zod";
 
+import {
+  createGuardianBinding,
+  type CreateGuardianBindingParams,
+} from "../auth/guardian-bootstrap.js";
 import { ContactStore } from "../db/contact-store.js";
 import type { IpcRoute } from "./server.js";
 
@@ -30,6 +34,15 @@ const GetContactByChannelParamsSchema = z.object({
 
 const GetChannelsForContactParamsSchema = z.object({
   contactId: z.string(),
+});
+
+const CreateGuardianBindingParamsSchema = z.object({
+  channel: z.string(),
+  externalUserId: z.string(),
+  deliveryChatId: z.string(),
+  guardianPrincipalId: z.string(),
+  displayName: z.string().optional(),
+  verifiedVia: z.string().optional(),
 });
 
 export const contactRoutes: IpcRoute[] = [
@@ -62,6 +75,14 @@ export const contactRoutes: IpcRoute[] = [
     handler: (params?: Record<string, unknown>) => {
       const contactId = params?.contactId as string;
       return getStore().getChannelsForContact(contactId);
+    },
+  },
+  {
+    method: "create_guardian_binding",
+    schema: CreateGuardianBindingParamsSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const p = params as CreateGuardianBindingParams;
+      return createGuardianBinding(p);
     },
   },
 ];
