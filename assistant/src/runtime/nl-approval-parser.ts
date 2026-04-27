@@ -116,5 +116,16 @@ export function parseApprovalIntent(text: string): ApprovalIntent | null {
     return { decision: "reject", confidence: 0.95 };
   }
 
+  // Legacy timed/persistent phrases — treat as simple approval.
+  // These used to produce approve_10m / approve_always but now collapse to approve.
+  if (
+    /^always\s+allow$/i.test(normalized) ||
+    /^approve\s+(for\s+)?\d+\s*(m|min|minutes?)$/i.test(normalized) ||
+    /^allow\s+(for\s+)?\d+\s*(m|min|minutes?)$/i.test(normalized) ||
+    /^approve\s+always$/i.test(normalized)
+  ) {
+    return { decision: "approve", confidence: 0.85 };
+  }
+
   return null;
 }
