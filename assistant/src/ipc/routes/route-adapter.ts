@@ -11,6 +11,7 @@ export function routeDefinitionsToIpcRoutes(
 ): IpcRoute[] {
   return routes.map((r) => ({
     method: r.operationId,
-    handler: r.handler,
+    handler: (params?: Record<string, unknown>) =>
+      r.handler({ params, body: params }),
   }));
 }

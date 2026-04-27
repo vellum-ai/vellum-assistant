@@ -127,7 +127,7 @@ beforeEach(() => {
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
   test("returns an empty array when no sessions exist", async () => {
     const handler = getSessionsHandler();
-    const body = (await handler()) as ResponseShape;
+    const body = (await handler({})) as ResponseShape;
     expect(body.sessions).toEqual([]);
   });
 
@@ -144,7 +144,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     ];
 
     const handler = getSessionsHandler();
-    const body = (await handler()) as ResponseShape;
+    const body = (await handler({})) as ResponseShape;
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]).toMatchObject({
       id: "live-1",
@@ -179,7 +179,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler()) as ResponseShape;
+    const body = (await handler({})) as ResponseShape;
     expect(body.sessions).toHaveLength(1);
     const s = body.sessions[0];
     expect(s.id).toBe("hist-1");
@@ -224,7 +224,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler()) as ResponseShape;
+    const body = (await handler({})) as ResponseShape;
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0].agentId).toBe("agent-live");
     expect(body.sessions[0].status).toBe("running");
@@ -253,7 +253,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler()) as ResponseShape;
+    const body = (await handler({})) as ResponseShape;
     expect(body.sessions).toHaveLength(2);
     // Sorted newest-first by startedAt.
     expect(body.sessions[0].id).toBe("live-1");
@@ -306,7 +306,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler({ limit: "2" })) as ResponseShape;
+    const body = (await handler({ params: { limit: "2" } })) as ResponseShape;
     expect(body.sessions).toHaveLength(2);
     expect(body.sessions.map((s) => s.id)).toEqual(["live-newest", "hist-mid"]);
   });
@@ -348,7 +348,9 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler({ conversationId: "conv-target" })) as ResponseShape;
+    const body = (await handler({
+      params: { conversationId: "conv-target" },
+    })) as ResponseShape;
     expect(body.sessions.map((s) => s.id)).toEqual([
       "live-match",
       "hist-match",
@@ -384,7 +386,9 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler({ limit: "9999" })) as ResponseShape;
+    const body = (await handler({
+      params: { limit: "9999" },
+    })) as ResponseShape;
     expect(body.sessions).toHaveLength(3);
   });
 });

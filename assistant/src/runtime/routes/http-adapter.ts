@@ -3,6 +3,7 @@
  * for the HTTP server's route table.
  */
 
+import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
 import { RouteError } from "./errors.js";
@@ -58,7 +59,11 @@ export function routeDefinitionsToHTTPRoutes(
         return Response.json(result);
       } catch (err) {
         if (err instanceof RouteError) {
-          return httpError(err.code, err.message, err.statusCode);
+          return httpError(
+            err.code as HttpErrorCode,
+            err.message,
+            err.statusCode,
+          );
         }
         throw err;
       }
