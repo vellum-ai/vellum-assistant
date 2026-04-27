@@ -8,6 +8,7 @@ import { credentialPromptRoute } from "./credential-prompt.js";
 import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
 import { listClientsRoute } from "./list-clients.js";
+import { memoryV2BackfillRoute } from "./memory-v2-backfill.js";
 import { memoryV2ValidateRoute } from "./memory-v2-validate.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
@@ -33,6 +34,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...deferRoutes,
   getContactRoute,
   listClientsRoute,
+  memoryV2BackfillRoute,
   memoryV2ValidateRoute,
   mergeContactsRoute,
   renameConversationRoute,
