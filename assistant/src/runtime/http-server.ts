@@ -153,7 +153,6 @@ import {
 } from "./routes/conversation-management-routes.js";
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
-import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
@@ -1787,7 +1786,6 @@ export class RuntimeHttpServer {
       ...telemetryRouteDefinitions(),
       ...workspaceHttpOnlyRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
-      ...conversationStarterRouteDefinitions(),
       ...settingsRouteDefinitions(),
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,

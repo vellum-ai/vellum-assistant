@@ -2753,8 +2753,6 @@ paths:
                   - deleted
                   - id
                 additionalProperties: false
-        "404":
-          description: Conversation starter not found
       parameters:
         - name: id
           in: path
