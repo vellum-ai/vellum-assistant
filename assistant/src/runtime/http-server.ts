@@ -159,7 +159,6 @@ import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { workItemHttpOnlyRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
@@ -1744,14 +1743,7 @@ export class RuntimeHttpServer {
       ...scheduleHttpOnlyRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
-      ...workItemHttpOnlyRouteDefinitions(
-        this.sendMessageDeps
-          ? {
-              getOrCreateConversation: (conversationId) =>
-                this.sendMessageDeps!.getOrCreateConversation(conversationId),
-            }
-          : undefined,
-      ),
+
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped
       // into a single domain module.
