@@ -1192,6 +1192,103 @@ paths:
           required: true
           schema:
             type: string
+  /v1/attachments/lookup:
+    post:
+      operationId: attachments_lookup_post
+      summary: Look up attachment by source path
+      description: Search for a previously registered attachment by its original source path, scoped to a conversation.
+      tags:
+        - attachments
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  filePath:
+                    type: string
+                required:
+                  - filePath
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourcePath:
+                  type: string
+                  description: Original source path of the file
+                conversationId:
+                  type: string
+                  description: Conversation ID to search within
+              required:
+                - sourcePath
+                - conversationId
+              additionalProperties: false
+  /v1/attachments/register:
+    post:
+      operationId: attachments_register_post
+      summary: Register a file-backed attachment
+      description:
+        Register an on-disk file as a file-backed attachment. The file must be within the workspace directory and
+        must remain on disk for the lifetime of the attachment.
+      tags:
+        - attachments
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  originalFilename:
+                    type: string
+                  mimeType:
+                    type: string
+                  sizeBytes:
+                    type: number
+                  kind:
+                    type: string
+                  filePath:
+                    type: string
+                  createdAt:
+                    type: number
+                required:
+                  - id
+                  - originalFilename
+                  - mimeType
+                  - sizeBytes
+                  - kind
+                  - filePath
+                  - createdAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the file
+                mimeType:
+                  type: string
+                  description: MIME type of the file
+                filename:
+                  type: string
+                  description: Display filename (defaults to basename of path)
+              required:
+                - path
+                - mimeType
+              additionalProperties: false
   /v1/audio/{audioId}:
     get:
       operationId: audio_by_audioId_get

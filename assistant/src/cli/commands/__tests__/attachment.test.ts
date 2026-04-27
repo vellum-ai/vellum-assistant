@@ -182,11 +182,13 @@ describe("attachment register", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("attachment/register");
+    expect(lastIpcCall!.method).toBe("attachment_register");
     expect(lastIpcCall!.params).toEqual({
-      path: "/tmp/clip.mp4",
-      mimeType: "video/mp4",
-      filename: undefined,
+      body: {
+        path: "/tmp/clip.mp4",
+        mimeType: "video/mp4",
+        filename: undefined,
+      },
     });
     expect(stdout).toContain("att-123");
   });
@@ -251,7 +253,9 @@ describe("attachment register", () => {
       "recording.mp4",
     ]);
 
-    expect(lastIpcCall!.params!.filename).toBe("recording.mp4");
+    expect(
+      (lastIpcCall!.params!.body as Record<string, unknown>).filename,
+    ).toBe("recording.mp4");
   });
 
   // ── register errors ──────────────────────────────────────────────
@@ -362,10 +366,12 @@ describe("attachment lookup", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("attachment/lookup");
+    expect(lastIpcCall!.method).toBe("attachment_lookup");
     expect(lastIpcCall!.params).toEqual({
-      sourcePath: "/original/path/file.mp4",
-      conversationId: "conv_123",
+      body: {
+        sourcePath: "/original/path/file.mp4",
+        conversationId: "conv_123",
+      },
     });
     expect(stdout).toContain("/path/to/stored/file.mp4");
   });

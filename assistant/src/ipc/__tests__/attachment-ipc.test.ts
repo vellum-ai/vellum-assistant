@@ -89,16 +89,18 @@ interface StoredAttachmentResult {
 // ---------------------------------------------------------------------------
 
 describe("attachment IPC routes", () => {
-  // -- attachment/register success ----------------------------------------
+  // -- attachment_register success ----------------------------------------
 
-  test("attachment/register returns stored attachment for valid file", async () => {
+  test("attachment_register returns stored attachment for valid file", async () => {
     const filePath = createWorkspaceFile("hello world");
 
     const result = await cliIpcCall<StoredAttachmentResult>(
-      "attachment/register",
+      "attachment_register",
       {
-        path: filePath,
-        mimeType: "text/plain",
+        body: {
+          path: filePath,
+          mimeType: "text/plain",
+        },
       },
     );
 
@@ -113,15 +115,17 @@ describe("attachment IPC routes", () => {
     expect(typeof result.result!.createdAt).toBe("number");
   });
 
-  test("attachment/register uses custom filename when provided", async () => {
+  test("attachment_register uses custom filename when provided", async () => {
     const filePath = createWorkspaceFile("custom name test");
 
     const result = await cliIpcCall<StoredAttachmentResult>(
-      "attachment/register",
+      "attachment_register",
       {
-        path: filePath,
-        mimeType: "image/png",
-        filename: "screenshot.png",
+        body: {
+          path: filePath,
+          mimeType: "image/png",
+          filename: "screenshot.png",
+        },
       },
     );
 
@@ -131,151 +135,141 @@ describe("attachment IPC routes", () => {
     expect(result.result!.kind).toBe("image");
   });
 
-  // -- attachment/register workspace restriction --------------------------
+  // -- attachment_register workspace restriction --------------------------
 
-  test("attachment/register rejects paths outside workspace", async () => {
+  test("attachment_register rejects paths outside workspace", async () => {
     const filePath = createOutsideFile("sensitive data");
 
-    const result = await cliIpcCall("attachment/register", {
-      path: filePath,
-      mimeType: "text/plain",
+    const result = await cliIpcCall("attachment_register", {
+      body: {
+        path: filePath,
+        mimeType: "text/plain",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("must be within the workspace directory");
   });
 
-  test("attachment/register rejects absolute paths outside workspace", async () => {
-    const result = await cliIpcCall("attachment/register", {
-      path: "/etc/passwd",
-      mimeType: "text/plain",
+  test("attachment_register rejects absolute paths outside workspace", async () => {
+    const result = await cliIpcCall("attachment_register", {
+      body: {
+        path: "/etc/passwd",
+        mimeType: "text/plain",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("must be within the workspace directory");
   });
 
-  test("attachment/register rejects traversal attempts", async () => {
+  test("attachment_register rejects traversal attempts", async () => {
     const workspaceDir = getWorkspaceDir();
     const traversalPath = join(workspaceDir, "..", "..", "etc", "passwd");
 
-    const result = await cliIpcCall("attachment/register", {
-      path: traversalPath,
-      mimeType: "text/plain",
+    const result = await cliIpcCall("attachment_register", {
+      body: {
+        path: traversalPath,
+        mimeType: "text/plain",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("must be within the workspace directory");
   });
 
-  // -- attachment/register errors -----------------------------------------
+  // -- attachment_register errors -----------------------------------------
 
-  test("attachment/register errors when file does not exist", async () => {
+  test("attachment_register errors when file does not exist", async () => {
     const workspaceDir = getWorkspaceDir();
-    const result = await cliIpcCall("attachment/register", {
-      path: join(
-        workspaceDir,
-        "nonexistent-file-that-should-not-exist-12345.txt",
-      ),
-      mimeType: "text/plain",
+
+    const result = await cliIpcCall("attachment_register", {
+      body: {
+        path: join(
+          workspaceDir,
+          "nonexistent-file-that-should-not-exist-12345.txt",
+        ),
+        mimeType: "text/plain",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("File not found");
   });
 
-  test("attachment/register rejects missing path", async () => {
-    const result = await cliIpcCall("attachment/register", {
-      mimeType: "text/plain",
+  test("attachment_register rejects missing path", async () => {
+    const result = await cliIpcCall("attachment_register", {
+      body: {
+        mimeType: "text/plain",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
-  test("attachment/register rejects missing mimeType", async () => {
+  test("attachment_register rejects missing mimeType", async () => {
     const filePath = createWorkspaceFile("missing mime type");
 
-    const result = await cliIpcCall("attachment/register", {
-      path: filePath,
+    const result = await cliIpcCall("attachment_register", {
+      body: {
+        path: filePath,
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
-  // -- attachment/lookup workspace restriction ----------------------------
+  // -- attachment_lookup workspace restriction ----------------------------
 
-  test("attachment/lookup rejects paths outside workspace", async () => {
-    const result = await cliIpcCall("attachment/lookup", {
-      sourcePath: "/etc/passwd",
-      conversationId: "some-conversation-id",
+  test("attachment_lookup rejects paths outside workspace", async () => {
+    const result = await cliIpcCall("attachment_lookup", {
+      body: {
+        sourcePath: "/etc/passwd",
+        conversationId: "some-conversation-id",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("must be within the workspace directory");
   });
 
-  // -- attachment/lookup errors -------------------------------------------
+  // -- attachment_lookup errors -------------------------------------------
 
-  test("attachment/lookup errors when no attachment matches", async () => {
+  test("attachment_lookup errors when no attachment matches", async () => {
     const workspaceDir = getWorkspaceDir();
-    const result = await cliIpcCall("attachment/lookup", {
-      sourcePath: join(workspaceDir, "nonexistent", "path", "file.txt"),
-      conversationId: "nonexistent-conversation-id",
-    });
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain("No attachment found");
-  });
-
-  test("attachment/lookup rejects missing sourcePath", async () => {
-    const result = await cliIpcCall("attachment/lookup", {
-      conversationId: "some-conversation-id",
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toBeDefined();
-  });
-
-  test("attachment/lookup rejects missing conversationId", async () => {
-    const result = await cliIpcCall("attachment/lookup", {
-      sourcePath: "/some/path",
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toBeDefined();
-  });
-
-  // -- Underscore aliases -------------------------------------------------
-
-  test("attachment_register alias works identically to attachment/register", async () => {
-    const filePath = createWorkspaceFile("alias test content");
-
-    const result = await cliIpcCall<StoredAttachmentResult>(
-      "attachment_register",
-      {
-        path: filePath,
-        mimeType: "text/plain",
-        filename: "alias-test.txt",
-      },
-    );
-
-    expect(result.ok).toBe(true);
-    expect(result.result).toBeDefined();
-    expect(result.result!.originalFilename).toBe("alias-test.txt");
-    expect(result.result!.mimeType).toBe("text/plain");
-    expect(typeof result.result!.id).toBe("string");
-  });
-
-  test("attachment_lookup alias works identically to attachment/lookup", async () => {
-    const workspaceDir = getWorkspaceDir();
     const result = await cliIpcCall("attachment_lookup", {
-      sourcePath: join(workspaceDir, "nonexistent", "path", "file.txt"),
-      conversationId: "nonexistent-conversation-id",
+      body: {
+        sourcePath: join(workspaceDir, "nonexistent", "path", "file.txt"),
+        conversationId: "nonexistent-conversation-id",
+      },
     });
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("No attachment found");
+  });
+
+  test("attachment_lookup rejects missing sourcePath", async () => {
+    const result = await cliIpcCall("attachment_lookup", {
+      body: {
+        conversationId: "some-conversation-id",
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
+  });
+
+  test("attachment_lookup rejects missing conversationId", async () => {
+    const result = await cliIpcCall("attachment_lookup", {
+      body: {
+        sourcePath: "/some/path",
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeDefined();
   });
 });

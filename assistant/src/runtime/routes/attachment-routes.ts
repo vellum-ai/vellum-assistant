@@ -15,6 +15,7 @@ import { z } from "zod";
 import {
   deleteAttachment,
   getAttachmentById,
+  getFilePathBySourcePath,
   StoredAttachment,
   uploadAttachment,
   uploadAttachmentFromBytes,
@@ -30,6 +31,8 @@ import { isServiceGatewayPrincipal } from "../auth/context.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
@@ -663,3 +666,161 @@ export function attachmentRouteDefinitions(): HTTPRouteDefinition[] {
     },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// Shared (transport-agnostic) routes — served via HTTP + IPC
+// ---------------------------------------------------------------------------
+
+/**
+ * Verify that a resolved path is within the workspace directory.
+ * Resolves symlinks on the nearest existing ancestor to prevent
+ * symlink-based escapes.
+ */
+function assertWithinWorkspace(filePath: string): string {
+  const workspaceDir = getWorkspaceDir();
+  const resolvedWorkspace = resolveCanonicalPath(workspaceDir);
+  const resolved = resolve(filePath);
+
+  // Walk up to the nearest existing ancestor and resolve symlinks.
+  let current = resolved;
+  const trailing: string[] = [];
+  while (current !== join(current, "..")) {
+    try {
+      const real = realpathSync(current);
+      const realResolved =
+        trailing.length > 0 ? resolve(real, ...trailing) : real;
+      if (!isPathWithinDirectory(realResolved, resolvedWorkspace)) {
+        throw new BadRequestError(
+          `Path must be within the workspace directory. Got: ${filePath}`,
+        );
+      }
+      return resolved;
+    } catch (err) {
+      if (err instanceof BadRequestError) throw err;
+      trailing.unshift(join(current).split(sep).pop()!);
+      current = join(current, "..");
+    }
+  }
+
+  throw new BadRequestError(
+    `Path must be within the workspace directory. Got: ${filePath}`,
+  );
+}
+
+function handleAttachmentRegister({ body = {} }: RouteHandlerArgs) {
+  const { path, mimeType, filename } = body as {
+    path?: string;
+    mimeType?: string;
+    filename?: string;
+  };
+
+  if (!path || typeof path !== "string") {
+    throw new BadRequestError("path is required");
+  }
+  if (!mimeType || typeof mimeType !== "string") {
+    throw new BadRequestError("mimeType is required");
+  }
+
+  const resolvedPath = assertWithinWorkspace(path);
+
+  let sizeBytes: number;
+  try {
+    const stat = statSync(resolvedPath);
+    if (!stat.isFile()) {
+      throw new BadRequestError(
+        `Path is not a regular file: ${path}. Provide a path to a file, not a directory.`,
+      );
+    }
+    sizeBytes = stat.size;
+  } catch (err) {
+    if (err instanceof BadRequestError) throw err;
+    throw new NotFoundError(`File not found: ${path}`);
+  }
+
+  const resolvedFilename =
+    filename ?? resolvedPath.split(sep).pop() ?? "unknown";
+
+  const validation = validateAttachmentUpload(resolvedFilename, mimeType);
+  if (!validation.ok) {
+    throw new BadRequestError(validation.error);
+  }
+
+  return uploadFileBackedAttachment(
+    resolvedFilename,
+    mimeType,
+    resolvedPath,
+    sizeBytes,
+  );
+}
+
+function handleAttachmentLookup({ body = {} }: RouteHandlerArgs) {
+  const { sourcePath, conversationId } = body as {
+    sourcePath?: string;
+    conversationId?: string;
+  };
+
+  if (!sourcePath || typeof sourcePath !== "string") {
+    throw new BadRequestError("sourcePath is required");
+  }
+  if (!conversationId || typeof conversationId !== "string") {
+    throw new BadRequestError("conversationId is required");
+  }
+
+  assertWithinWorkspace(sourcePath);
+
+  const result = getFilePathBySourcePath(sourcePath, conversationId);
+  if (result === null) {
+    throw new NotFoundError(
+      `No attachment found for source path: ${sourcePath} in conversation ${conversationId}. Run 'assistant attachment register' to register a file first.`,
+    );
+  }
+
+  return { filePath: result };
+}
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "attachment_register",
+    endpoint: "attachments/register",
+    method: "POST",
+    summary: "Register a file-backed attachment",
+    description:
+      "Register an on-disk file as a file-backed attachment. The file must be within the workspace directory and must remain on disk for the lifetime of the attachment.",
+    tags: ["attachments"],
+    requestBody: z.object({
+      path: z.string().describe("Absolute path to the file"),
+      mimeType: z.string().describe("MIME type of the file"),
+      filename: z
+        .string()
+        .describe("Display filename (defaults to basename of path)")
+        .optional(),
+    }),
+    responseBody: z.object({
+      id: z.string(),
+      originalFilename: z.string(),
+      mimeType: z.string(),
+      sizeBytes: z.number(),
+      kind: z.string(),
+      filePath: z.string(),
+      createdAt: z.number(),
+    }),
+    handler: handleAttachmentRegister,
+  },
+  {
+    operationId: "attachment_lookup",
+    endpoint: "attachments/lookup",
+    method: "POST",
+    summary: "Look up attachment by source path",
+    description:
+      "Search for a previously registered attachment by its original source path, scoped to a conversation.",
+    tags: ["attachments"],
+    requestBody: z.object({
+      sourcePath: z.string().describe("Original source path of the file"),
+      conversationId: z.string().describe("Conversation ID to search within"),
+    }),
+    responseBody: z.object({
+      filePath: z.string(),
+    }),
+    handler: handleAttachmentLookup,
+  },
+];

@@ -591,6 +591,17 @@ registerPolicy("profiler/runs/export", {
   allowedPrincipalTypes: ["svc_gateway"],
 });
 
+// Attachment management: local-only (CLI / IPC callers)
+registerPolicy("attachments/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("attachments/lookup", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],
