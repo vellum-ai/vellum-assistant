@@ -1504,9 +1504,9 @@ paths:
                 - conversationKey
                 - content
               additionalProperties: false
-  /v1/calls/{id}:
+  /v1/calls/{callSessionId}:
     get:
-      operationId: calls_by_id_get
+      operationId: calls_by_callSessionId_get
       summary: Get call status
       description: Return the current status and details of a call session.
       tags:
@@ -1536,15 +1536,23 @@ paths:
                   task:
                     type: string
                   startedAt:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   endedAt:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   lastError:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   pendingQuestion:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
                   createdAt:
                     type: string
                   updatedAt:
@@ -1566,14 +1574,14 @@ paths:
                   - updatedAt
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
             type: string
-  /v1/calls/{id}/answer:
+  /v1/calls/{callSessionId}/answer:
     post:
-      operationId: calls_by_id_answer_post
+      operationId: calls_by_callSessionId_answer_post
       summary: Answer a pending call question
       description: Provide an answer to a pending question during an active call.
       tags:
@@ -1595,7 +1603,7 @@ paths:
                   - questionId
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
@@ -1615,11 +1623,10 @@ paths:
                   description: ID of the pending question
               required:
                 - answer
-                - pendingQuestionId
               additionalProperties: false
-  /v1/calls/{id}/cancel:
+  /v1/calls/{callSessionId}/cancel:
     post:
-      operationId: calls_by_id_cancel_post
+      operationId: calls_by_callSessionId_cancel_post
       summary: Cancel a call
       description: Cancel an active or pending call.
       tags:
@@ -1641,7 +1648,7 @@ paths:
                   - status
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
@@ -1656,12 +1663,10 @@ paths:
                 reason:
                   type: string
                   description: Cancellation reason
-              required:
-                - reason
               additionalProperties: false
-  /v1/calls/{id}/instruction:
+  /v1/calls/{callSessionId}/instruction:
     post:
-      operationId: calls_by_id_instruction_post
+      operationId: calls_by_callSessionId_instruction_post
       summary: Relay instruction to active call
       description: Send a real-time instruction to an active call.
       tags:
@@ -1680,7 +1685,7 @@ paths:
                   - ok
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
@@ -1706,7 +1711,7 @@ paths:
       tags:
         - calls
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:

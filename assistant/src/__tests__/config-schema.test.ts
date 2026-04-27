@@ -2550,8 +2550,9 @@ describe("Call entrypoint gating", () => {
       throw new Error("Expected handler to throw");
     } catch (err) {
       expect(err).toBeInstanceOf(RouteError);
-      expect((err as RouteError).statusCode).toBe(403);
-      expect((err as RouteError).message).toContain("disabled");
+      const routeErr = err as InstanceType<typeof RouteError>;
+      expect(routeErr.statusCode).toBe(403);
+      expect(routeErr.message).toContain("disabled");
     }
   });
 });
