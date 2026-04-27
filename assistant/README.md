@@ -85,7 +85,7 @@ bun run src/index.ts                # interactive CLI session
 | `assistant conversations list\|new\|export\|clear` | Manage conversations                             |
 | `assistant config set\|get\|list`                  | Manage configuration                             |
 | `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
-| `assistant trust list\|remove\|clear`              | Manage trust rules                               |
+| `assistant trust list\|add\|update\|remove`              | Manage trust rules                               |
 
 ## Project Structure
 
