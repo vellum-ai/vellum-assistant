@@ -52,14 +52,6 @@ mock.module("../skills/catalog-install.js", () => ({
   getRepoSkillsDir: () => mockRepoSkillsDir,
 }));
 
-let mockPlatformToken: string | null = null;
-mock.module("../util/platform.ts", () => ({
-  readPlatformToken: () => mockPlatformToken,
-}));
-mock.module("../util/platform.js", () => ({
-  readPlatformToken: () => mockPlatformToken,
-}));
-
 let mockPlatformBaseUrl = "https://platform.test";
 mock.module("../config/env.ts", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
@@ -168,7 +160,6 @@ beforeEach(() => {
   fetchCalls = [];
   mockCatalog = [];
   mockRepoSkillsDir = undefined;
-  mockPlatformToken = null;
   mockPlatformBaseUrl = "https://platform.test";
 });
 
@@ -430,7 +421,6 @@ describe("readCatalogSkillFiles (platform mode)", () => {
   test("fetches file listing from the platform and maps it", async () => {
     mockRepoSkillsDir = undefined;
     mockCatalog = [skill("remote-skill")];
-    mockPlatformToken = "tok-123";
     installFetchMock(() =>
       Response.json({
         skill_id: "remote-skill",
@@ -455,7 +445,6 @@ describe("readCatalogSkillFiles (platform mode)", () => {
       string
     >;
     expect(headers["Accept"]).toBe("application/json");
-    expect(headers["X-Conversation-Token"]).toBe("tok-123");
 
     // Mapped entries: always content === null, isBinary from filename.
     const md = entries!.find((e) => e.path === "SKILL.md")!;
@@ -467,21 +456,6 @@ describe("readCatalogSkillFiles (platform mode)", () => {
     expect(png.isBinary).toBe(true);
     expect(png.content).toBeNull();
     expect(png.mimeType).toBe("");
-  });
-
-  test("does not set X-Conversation-Token when no token is present", async () => {
-    mockCatalog = [skill("remote-skill")];
-    mockPlatformToken = null;
-    installFetchMock(() =>
-      Response.json({ skill_id: "remote-skill", files: [] }),
-    );
-
-    await readCatalogSkillFiles("remote-skill");
-    const headers = (fetchCalls[0]!.init?.headers ?? {}) as Record<
-      string,
-      string
-    >;
-    expect(headers["X-Conversation-Token"]).toBeUndefined();
   });
 
   test("returns null on 500", async () => {
