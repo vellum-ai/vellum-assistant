@@ -149,7 +149,6 @@ import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
-import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { heartbeatHttpOnlyRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
@@ -2091,7 +2090,6 @@ export class RuntimeHttpServer {
       ...hostFileRouteDefinitions(),
       ...hostTransferRouteDefinitions(),
       ...surfaceContentRouteDefinitions(),
-      ...guardianActionRouteDefinitions(),
 
       ...contactHttpOnlyRouteDefinitions(),
 

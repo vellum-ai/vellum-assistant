@@ -5,11 +5,11 @@
  * submit button decisions without relying on text parsing.
  *
  * All guardian action endpoints require a valid JWT bearer token.
- * Auth is verified upstream by JWT middleware; the AuthContext is
- * threaded through from the HTTP server layer.
+ * Auth is verified upstream by JWT middleware; the adapter injects the
+ * actor principal ID via the `x-vellum-actor-principal-id` header.
  *
  * Guardian decisions additionally verify the actor is the bound guardian
- * via the AuthContext's actorPrincipalId.
+ * via the `requireGuardian` route flag.
  */
 import { z } from "zod";
 
@@ -19,37 +19,24 @@ import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
-import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
-import type { AuthContext } from "../auth/types.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // GET /v1/guardian-actions/pending?conversationId=...
 // ---------------------------------------------------------------------------
 
-/**
- * List pending guardian decision prompts for a conversation.
- * Auth is verified upstream by JWT middleware.
- *
- * Returns guardian approval requests (from the channel guardian store) that
- * are still pending, mapped to the GuardianDecisionPrompt shape so clients
- * can render structured button UIs.
- */
-function handleGuardianActionsPending(
-  url: URL,
-  _authContext: AuthContext,
-): Response {
-  const conversationId = url.searchParams.get("conversationId");
+function handleGuardianActionsPending({
+  queryParams = {},
+}: RouteHandlerArgs) {
+  const conversationId = queryParams.conversationId;
 
   if (!conversationId) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "conversationId query parameter is required",
-      400,
     );
   }
 
@@ -57,51 +44,46 @@ function handleGuardianActionsPending(
     conversationId,
     channel: "vellum",
   });
-  return Response.json({ conversationId, prompts });
+  return { conversationId, prompts };
 }
 
 // ---------------------------------------------------------------------------
 // POST /v1/guardian-actions/decision
 // ---------------------------------------------------------------------------
 
-/**
- * Submit a guardian action decision.
- * Requires AuthContext with a bound guardian actor.
- *
- * Routes all decisions through the unified canonical guardian decision
- * primitive which handles CAS resolution, resolver dispatch, and grant
- * minting.
- */
-export async function handleGuardianActionDecision(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  const guardianError = requireBoundGuardian(authContext);
-  if (guardianError) return guardianError;
+export async function handleGuardianActionDecision({
+  body,
+  headers = {},
+}: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
 
-  const body = (await req.json()) as {
+  const { requestId, action, conversationId } = body as {
     requestId?: string;
     action?: string;
     conversationId?: string;
   };
 
-  const { requestId, action, conversationId } = body;
-
   if (!requestId || typeof requestId !== "string") {
-    return httpError("BAD_REQUEST", "requestId is required", 400);
+    throw new BadRequestError("requestId is required");
   }
 
   if (!action || typeof action !== "string") {
-    return httpError("BAD_REQUEST", "action is required", 400);
+    throw new BadRequestError("action is required");
   }
 
-  // Resolve the actor's guardian principal ID. For JWT-verified actors this
-  // comes from the token claims. For dev bypass (HTTP auth disabled) the
-  // synthetic "dev-bypass" principal won't match the real guardian binding,
-  // so fall back to the local guardian binding to avoid identity_mismatch.
+  // Resolve the actor's guardian principal ID. The HTTP adapter injects it
+  // from the AuthContext via the x-vellum-actor-principal-id header.
+  // For dev bypass (HTTP auth disabled) the synthetic "dev-bypass" principal
+  // won't match the real guardian binding, so fall back to the local guardian
+  // binding to avoid identity_mismatch.
   let guardianPrincipalId: string | undefined =
-    authContext.actorPrincipalId ?? undefined;
-  if (isHttpAuthDisabled() && authContext.actorPrincipalId === "dev-bypass") {
+    headers["x-vellum-actor-principal-id"] ?? undefined;
+  if (
+    isHttpAuthDisabled() &&
+    headers["x-vellum-actor-principal-id"] === "dev-bypass"
+  ) {
     const binding = findGuardianForChannel("vellum");
     guardianPrincipalId = binding?.contact.principalId ?? undefined;
   }
@@ -118,29 +100,28 @@ export async function handleGuardianActionDecision(
   });
 
   if (!result.ok) {
-    return httpError("BAD_REQUEST", result.message, 400);
+    throw new BadRequestError(result.message);
   }
   if (result.applied) {
-    return Response.json({
+    return {
       applied: true,
       requestId: result.requestId,
       ...(result.replyText ? { replyText: result.replyText } : {}),
-    });
+    };
   }
-  return result.reason === "not_found"
-    ? httpError(
-        "NOT_FOUND",
-        "No pending guardian action found for this requestId",
-        404,
-      )
-    : Response.json({
-        applied: false,
-        reason: result.reason,
-        ...(result.resolverFailureReason
-          ? { resolverFailureReason: result.resolverFailureReason }
-          : {}),
-        requestId: result.requestId ?? requestId,
-      });
+  if (result.reason === "not_found") {
+    throw new NotFoundError(
+      "No pending guardian action found for this requestId",
+    );
+  }
+  return {
+    applied: false,
+    reason: result.reason,
+    ...(result.resolverFailureReason
+      ? { resolverFailureReason: result.resolverFailureReason }
+      : {}),
+    requestId: result.requestId ?? requestId,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,18 +167,6 @@ export function listGuardianDecisionPrompts(params: {
 // Canonical request -> prompt mapping
 // ---------------------------------------------------------------------------
 
-/**
- * Map a canonical guardian request to the client-facing prompt format.
- *
- * Generates kind-specific questionText and action sets:
- * - `tool_approval`: approve_once + reject only
- * - `pending_question`: approve_once + reject only
- * - `access_request`: approve_once + reject only, with text fallback instructions
- *   (request code + "open invite flow")
- * - `tool_grant_request`: approve_once + reject only
- *
- * All guardian action prompts use approve_once + reject only.
- */
 function mapCanonicalRequestToPrompt(
   req: CanonicalGuardianRequest,
   conversationId: string,
@@ -218,9 +187,6 @@ function mapCanonicalRequestToPrompt(
     toolName: req.toolName ?? null,
     actions,
     expiresAt,
-    // Normalize to the queried conversation ID for client rendering stability.
-    // The canonical request's source conversationId may differ from the
-    // guardian destination conversation the client is viewing.
     conversationId,
     callSessionId: req.callSessionId ?? null,
     kind: req.kind,
@@ -231,13 +197,6 @@ function mapCanonicalRequestToPrompt(
   };
 }
 
-/**
- * Build kind-aware question text for the guardian prompt.
- *
- * For `access_request`, appends deterministic text fallback instructions
- * (request-code approve/reject + "open invite flow") so the prompt remains
- * actionable even when buttons are unavailable or not used.
- */
 function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
   const baseText =
     req.questionText ??
@@ -263,61 +222,60 @@ function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
 
-export function guardianActionRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "guardian-actions/pending",
-      method: "GET",
-      summary: "List pending guardian actions",
-      description:
-        "Return pending guardian decision prompts for a conversation.",
-      tags: ["guardian"],
-      queryParams: [
-        {
-          name: "conversationId",
-          schema: { type: "string" },
-          description: "Conversation ID (required)",
-        },
-      ],
-      responseBody: z.object({
-        conversationId: z.string(),
-        prompts: z
-          .array(z.unknown())
-          .describe("Guardian decision prompt objects"),
-      }),
-      handler: ({ url, authContext }) =>
-        handleGuardianActionsPending(url, authContext),
-    },
-    {
-      endpoint: "guardian-actions/decision",
-      method: "POST",
-      summary: "Submit guardian decision",
-      description: "Submit a guardian action decision (approve/reject).",
-      tags: ["guardian"],
-      requestBody: z.object({
-        requestId: z.string().describe("Guardian request ID"),
-        action: z.string().describe("Decision action"),
-        conversationId: z.string().describe("Conversation ID").optional(),
-      }),
-      responseBody: z.object({
-        applied: z.boolean(),
-        requestId: z.string(),
-        reason: z
-          .string()
-          .optional()
-          .describe("Decline reason (present only when applied is false)"),
-        replyText: z
-          .string()
-          .optional()
-          .describe(
-            "Resolver reply text for the guardian (e.g. verification code)",
-          ),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleGuardianActionDecision(req, authContext),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "guardian_actions_pending",
+    endpoint: "guardian-actions/pending",
+    method: "GET",
+    summary: "List pending guardian actions",
+    description:
+      "Return pending guardian decision prompts for a conversation.",
+    tags: ["guardian"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        description: "Conversation ID (required)",
+      },
+    ],
+    responseBody: z.object({
+      conversationId: z.string(),
+      prompts: z
+        .array(z.unknown())
+        .describe("Guardian decision prompt objects"),
+    }),
+    handler: handleGuardianActionsPending,
+  },
+  {
+    operationId: "guardian_actions_decision",
+    endpoint: "guardian-actions/decision",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Submit guardian decision",
+    description: "Submit a guardian action decision (approve/reject).",
+    tags: ["guardian"],
+    requestBody: z.object({
+      requestId: z.string().describe("Guardian request ID"),
+      action: z.string().describe("Decision action"),
+      conversationId: z.string().describe("Conversation ID").optional(),
+    }),
+    responseBody: z.object({
+      applied: z.boolean(),
+      requestId: z.string(),
+      reason: z
+        .string()
+        .optional()
+        .describe("Decline reason (present only when applied is false)"),
+      replyText: z
+        .string()
+        .optional()
+        .describe(
+          "Resolver reply text for the guardian (e.g. verification code)",
+        ),
+    }),
+    handler: handleGuardianActionDecision,
+  },
+];
