@@ -16,7 +16,7 @@ import {
 } from "../../providers/registry.js";
 import { countSchedules } from "../../schedule/schedule-store.js";
 import { getDbPath } from "../../util/platform.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import type { RouteDefinition } from "./types.js";
 
 /** Process start time — used to calculate uptime. */
 const startedAt = Date.now();
@@ -40,7 +40,7 @@ function getMemoryItemCount(): number {
   }
 }
 
-function handleDebug(): Response {
+function getDebugInfo() {
   const now = Date.now();
   const uptimeSeconds = Math.floor((now - startedAt) / 1000);
 
@@ -59,7 +59,7 @@ function handleDebug(): Response {
     routingSources[name] = getProviderRoutingSource(name);
   }
 
-  return Response.json({
+  return {
     session: {
       uptimeSeconds,
       startedAt: new Date(startedAt).toISOString(),
@@ -83,40 +83,35 @@ function handleDebug(): Response {
       enabled: scheduleCounts.enabled,
     },
     timestamp: new Date(now).toISOString(),
-  });
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-export function debugRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "debug",
-      method: "GET",
-      summary: "Debug introspection",
-      description:
-        "Return runtime diagnostics: uptime, provider info, memory stats, job counts, and schedule counts.",
-      tags: ["debug"],
-      handler: () => handleDebug(),
-      responseBody: z.object({
-        session: z.object({}).passthrough().describe("Uptime and start time"),
-        provider: z
-          .object({})
-          .passthrough()
-          .describe("Inference provider configuration"),
-        memory: z
-          .object({})
-          .passthrough()
-          .describe("Conversation and memory item counts"),
-        jobs: z.object({}).passthrough().describe("Background job counts"),
-        schedules: z
-          .object({})
-          .passthrough()
-          .describe("Schedule counts (total, enabled)"),
-        timestamp: z.string().describe("Current server timestamp (ISO 8601)"),
-      }),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "debug",
+    endpoint: "debug",
+    method: "GET",
+    handler: getDebugInfo,
+    summary: "Debug introspection",
+    description:
+      "Return runtime diagnostics: uptime, provider info, memory stats, job counts, and schedule counts.",
+    tags: ["debug"],
+    responseBody: z.object({
+      session: z.object({}).passthrough().describe("Uptime and start time"),
+      provider: z
+        .object({})
+        .passthrough()
+        .describe("Inference provider configuration"),
+      memory: z
+        .object({})
+        .passthrough()
+        .describe("Conversation and memory item counts"),
+      jobs: z.object({}).passthrough().describe("Background job counts"),
+      schedules: z
+        .object({})
+        .passthrough()
+        .describe("Schedule counts (total, enabled)"),
+      timestamp: z.string().describe("Current server timestamp (ISO 8601)"),
+    }),
+  },
+];

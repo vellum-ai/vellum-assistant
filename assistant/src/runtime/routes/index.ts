@@ -8,8 +8,13 @@
  * into this shared array.
  */
 
+import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import type { RouteDefinition } from "./types.js";
 
-export const ROUTES: RouteDefinition[] = [...IDENTITY_ROUTES, ...PS_ROUTES];
+export const ROUTES: RouteDefinition[] = [
+  ...IDENTITY_ROUTES,
+  ...PS_ROUTES,
+  ...DEBUG_ROUTES,
+];

@@ -161,7 +161,6 @@ import {
 import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
-import { debugRouteDefinitions } from "./routes/debug-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
@@ -1785,7 +1784,6 @@ export class RuntimeHttpServer {
       ...upgradeBroadcastRouteDefinitions(),
       ...workspaceCommitRouteDefinitions(),
       ...migrationRollbackRouteDefinitions(),
-      ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...telemetryRouteDefinitions(),
       ...workspaceRouteDefinitions(),
