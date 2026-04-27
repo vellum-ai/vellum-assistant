@@ -2249,15 +2249,6 @@ describe("Conversation host attachment directives", () => {
         (confirmation as { persistentDecisionsAllowed?: boolean })
           .persistentDecisionsAllowed,
       ).toBe(false);
-      expect(
-        (
-          confirmation as {
-            temporaryOptionsAvailable?: Array<
-              "allow_10m" | "allow_conversation"
-            >;
-          }
-        ).temporaryOptionsAvailable ?? [],
-      ).toEqual([]);
       conversation.handleConfirmationResponse(
         (confirmation as { requestId: string }).requestId,
         "allow",

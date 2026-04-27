@@ -60,10 +60,7 @@ export function registerToolMetricsLoggingListener(
           requestId: event.payload.requestId,
         };
 
-        if (
-          event.payload.decision === "deny" ||
-          event.payload.decision === "always_deny"
-        ) {
+        if (event.payload.decision === "deny") {
           logger.info(meta, "Tool permission denied");
           return;
         }

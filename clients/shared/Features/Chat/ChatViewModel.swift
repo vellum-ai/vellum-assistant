@@ -2029,14 +2029,15 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     /// Persist a trust rule via the focused TrustRuleClient.
     public func addTrustRule(toolName: String, pattern: String, scope: String, decision: String) {
+        let risk = decision == "deny" ? "high" : "low"
         Task {
             do {
-                try await trustRuleClient.addTrustRule(
-                    toolName: toolName,
+                try await trustRuleClient.createRule(
+                    tool: toolName,
                     pattern: pattern,
-                    scope: scope,
-                    decision: decision,
-                    executionTarget: nil
+                    risk: risk,
+                    description: "",
+                    scope: scope
                 )
             } catch {
                 log.error("Failed to add trust rule: \(error.localizedDescription)")

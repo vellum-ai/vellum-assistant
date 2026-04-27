@@ -34,12 +34,8 @@ const log = getLogger("ces-approval-bridge");
  * CES approval decisions that the bridge presents to the guardian.
  *
  * Maps the existing confirmation transport decisions to CES grant semantics:
- * - `allow`          -> approved (single-use grant, no TTL)
- * - `allow_10m`      -> approved (temporary grant, 10-minute TTL)
- * - `allow_conversation` -> approved (conversation-scoped grant, no TTL but conversation-bound)
- * - `always_allow`   -> approved (persistent grant, no expiry)
- * - `deny`           -> denied
- * - `always_deny`    -> denied
+ * - `allow` -> approved (single-use grant, no TTL)
+ * - `deny`  -> denied
  */
 export interface CesApprovalDecision {
   /** The CES grant decision: approved or denied. */
@@ -47,12 +43,7 @@ export interface CesApprovalDecision {
   /** ISO-8601 duration for temporary grants. Undefined for single-use or persistent. */
   ttl: string | undefined;
   /** The type of grant to create (controls persistence behaviour in CES). */
-  grantType:
-    | "allow_once"
-    | "allow_10m"
-    | "allow_conversation"
-    | "always_allow"
-    | undefined;
+  grantType: "allow_once" | undefined;
   /** The original user decision from the confirmation transport. */
   userDecision: UserDecision;
 }
@@ -68,44 +59,11 @@ function mapUserDecisionToCesDecision(
         grantType: "allow_once",
         userDecision: decision,
       };
-    case "allow_10m":
-      return {
-        grantDecision: "approved",
-        ttl: "PT10M",
-        grantType: "allow_10m",
-        userDecision: decision,
-      };
-    case "allow_conversation":
-      // Conversation-scoped grants don't have a wall-clock TTL — they are bound
-      // to the conversation lifetime. CES handles the conversation binding; we pass
-      // no TTL so the grant remains active until the conversation ends.
-      return {
-        grantDecision: "approved",
-        ttl: undefined,
-        grantType: "allow_conversation",
-        userDecision: decision,
-      };
-    case "always_allow":
-      // Persistent grant — no expiry. CES stores it with expiresAt: null.
-      return {
-        grantDecision: "approved",
-        ttl: undefined,
-        grantType: "always_allow",
-        userDecision: decision,
-      };
     case "deny":
-    case "always_deny":
       return {
         grantDecision: "denied",
         ttl: undefined,
         grantType: undefined,
-        userDecision: decision,
-      };
-    case "temporary_override":
-      return {
-        grantDecision: "approved",
-        ttl: undefined,
-        grantType: "allow_once",
         userDecision: decision,
       };
     default: {

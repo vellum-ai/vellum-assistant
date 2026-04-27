@@ -52,15 +52,15 @@ describe("tool audit listener", () => {
       workingDir: "/tmp",
       conversationId: "conv-2",
       riskLevel: "high",
-      decision: "always_deny",
-      reason: "Permission denied by user (rule saved)",
+      decision: "deny",
+      reason: "Permission denied by user",
       durationMs: 22,
     });
 
     expect(records).toHaveLength(2);
     expect(records[0].result).toBe("denied: Blocked by deny rule: rm *");
     expect(records[0].decision).toBe("denied");
-    expect(records[1].result).toBe("denied (permanent)");
+    expect(records[1].result).toBe("denied");
     expect(records[1].decision).toBe("denied");
   });
 

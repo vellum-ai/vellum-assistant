@@ -115,7 +115,7 @@ describe("createToolDomainEventPublisher", () => {
       workingDir: "/tmp/project",
       conversationId: "conversation-1",
       riskLevel: "high",
-      decision: "always_allow",
+      decision: "allow",
       durationMs: 5000,
       result: {
         content: "[Command timed out after 5s]",
@@ -129,12 +129,12 @@ describe("createToolDomainEventPublisher", () => {
       "tool.execution.finished",
     ]);
     expect(events[0].payload).toMatchObject({
-      decision: "always_allow",
+      decision: "allow",
       riskLevel: "high",
     });
     expect(events[1].payload).toMatchObject({
       toolName: "bash",
-      decision: "always_allow",
+      decision: "allow",
       isError: true,
       durationMs: 5000,
     });

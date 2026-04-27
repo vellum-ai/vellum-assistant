@@ -17,14 +17,7 @@ export interface ToolDomainEvents {
     conversationId: string;
     requestId?: string;
     toolName: string;
-    decision:
-      | "allow"
-      | "allow_10m"
-      | "allow_conversation"
-      | "always_allow"
-      | "deny"
-      | "always_deny"
-      | "temporary_override";
+    decision: string;
     riskLevel: string;
     decidedAtMs: number;
   };

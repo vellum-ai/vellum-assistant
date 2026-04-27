@@ -60,7 +60,7 @@ function toInvocationRecord(
         conversationId: event.conversationId,
         toolName: event.toolName,
         input: stringifyInput(event.input),
-        result: formatDeniedResult(event.reason, event.decision),
+        result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
         durationMs: event.durationMs,
@@ -80,15 +80,9 @@ function stringifyInput(input: Record<string, unknown>): string {
   }
 }
 
-function formatDeniedResult(
-  reason: string,
-  decision: "deny" | "always_deny",
-): string {
+function formatDeniedResult(reason: string): string {
   if (reason.startsWith("Blocked by deny rule:")) {
     return `denied: ${reason}`;
-  }
-  if (decision === "always_deny" && reason.includes("rule saved")) {
-    return "denied (permanent)";
   }
   return "denied";
 }

@@ -63,7 +63,6 @@ export class PermissionPrompter {
     executionTarget?: ExecutionTarget,
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
-    temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">,
     toolUseId?: string,
     hostAccessEnablePrompt?: boolean,
     riskReason?: string,
@@ -137,7 +136,6 @@ export class PermissionPrompter {
         conversationId,
         executionTarget,
         persistentDecisionsAllowed: persistentDecisionsAllowed ?? true,
-        temporaryOptionsAvailable,
         toolUseId,
       });
 
