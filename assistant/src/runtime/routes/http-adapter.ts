@@ -58,7 +58,7 @@ export function routeDefinitionsToHTTPRoutes(
         const contentType = req.headers.get("content-type") ?? "";
         let body: Record<string, unknown> | undefined;
         let rawBody: Uint8Array | undefined;
-        if (r.method === "POST" || r.method === "PUT" || r.method === "PATCH") {
+        if (r.method === "POST" || r.method === "PUT" || r.method === "PATCH" || r.method === "DELETE") {
           if (contentType.includes("application/json") || contentType === "") {
             try {
               const parsed = (await req.json()) as Record<string, unknown>;

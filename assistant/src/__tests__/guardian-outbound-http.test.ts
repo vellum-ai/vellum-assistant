@@ -130,14 +130,6 @@ function resetTables(): void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function jsonRequest(body: Record<string, unknown>): Request {
-  return new Request("http://localhost/test", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 // Reset mutable state between tests
 beforeEach(() => {
   resetTables();
