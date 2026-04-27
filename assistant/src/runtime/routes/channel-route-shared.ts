@@ -40,6 +40,13 @@ const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "reject",
 ]);
 
+/** Map legacy callback actions to canonical ones for in-flight buttons. */
+const LEGACY_CALLBACK_MAP: Record<string, string> = {
+  approve_10m: "approve_once",
+  approve_conversation: "approve_once",
+  approve_always: "approve_once",
+};
+
 export function parseCallbackData(
   data: string,
   sourceChannel?: string,
@@ -47,7 +54,8 @@ export function parseCallbackData(
   const parts = data.split(":");
   if (parts.length < 3 || parts[0] !== "apr") return null;
   const requestId = parts[1];
-  const action = parts.slice(2).join(":");
+  const rawAction = parts.slice(2).join(":");
+  const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
   if (!requestId || !VALID_ACTIONS.has(action)) return null;
   const source =
     sourceChannel === "whatsapp"
@@ -70,6 +78,8 @@ export function parseCallbackData(
 const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
   ["+1", "approve_once"],
   ["thumbsup", "approve_once"],
+  ["white_check_mark", "approve_once"],
+  ["alarm_clock", "approve_once"],
   ["-1", "reject"],
   ["thumbsdown", "reject"],
 ]);
