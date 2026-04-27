@@ -2025,6 +2025,37 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/clients:
+    get:
+      operationId: clients_get
+      summary: List connected clients
+      description: Return all connected clients, optionally filtered by capability.
+      tags:
+        - clients
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      type: object
+                      properties: {}
+                      additionalProperties: {}
+                required:
+                  - clients
+                additionalProperties: false
+      parameters:
+        - name: capability
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter clients by a specific capability.
   /v1/config:
     get:
       operationId: config_get

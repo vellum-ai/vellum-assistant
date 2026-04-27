@@ -55,14 +55,13 @@ Examples:
     )
     .action(
       async (opts: { json?: boolean; capability?: string }, cmd: Command) => {
-        const params: Record<string, unknown> = {};
-        if (opts.capability) {
-          params.capability = opts.capability;
-        }
-
         const result = await cliIpcCall<ListClientsResponse>(
           "list_clients",
-          Object.keys(params).length > 0 ? params : undefined,
+          {
+            queryParams: {
+              ...(opts.capability ? { capability: opts.capability } : {}),
+            },
+          },
         );
 
         if (!result.ok) {
