@@ -46,6 +46,8 @@ struct RiskToleranceSection: View {
     /// server data.
     @State private var hasUserInteracted: Bool = false
 
+    @State private var isAdvancedExpanded: Bool = false
+
     var body: some View {
         SettingsCard(title: "Risk Tolerance") {
             Text("Control which actions your assistant can take without asking first. Each action is classified by risk level — your tolerance determines which levels auto-approve.")
@@ -78,7 +80,7 @@ struct RiskToleranceSection: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            DisclosureGroup("Advanced") {
+            DisclosureGroup(isExpanded: $isAdvancedExpanded) {
                 VStack(alignment: .leading, spacing: VSpacing.lg) {
                     SettingsDivider()
 
@@ -140,6 +142,13 @@ struct RiskToleranceSection: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } label: {
+                Text("Advanced")
+                    .onTapGesture {
+                        withAnimation {
+                            isAdvancedExpanded.toggle()
+                        }
+                    }
             }
         }
         .task { await loadThresholds() }
