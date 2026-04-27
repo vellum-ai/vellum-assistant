@@ -200,7 +200,6 @@ import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
-import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
@@ -1774,7 +1773,6 @@ export class RuntimeHttpServer {
         getCesClient: this.getCesClient,
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
-      ...upgradeBroadcastRouteDefinitions(),
       ...migrationRollbackRouteDefinitions(),
       ...workspaceHttpOnlyRouteDefinitions(),
       ...memoryItemRouteDefinitions(),
