@@ -22,10 +22,9 @@ mock.module("../../permissions/checker.js", () => ({
 import { initializeDb } from "../../memory/db.js";
 import { createTask } from "../../tasks/task-store.js";
 import { createWorkItem } from "../../work-items/work-item-store.js";
-import type { RouteContext } from "../http-router.js";
 import {
   preflightWorkItem,
-  workItemRouteDefinitions,
+  workItemHttpOnlyRouteDefinitions,
 } from "./work-items-routes.js";
 
 initializeDb();
@@ -63,7 +62,7 @@ describe("empty required_tools snapshot bypass", () => {
       requiredTools: JSON.stringify([]),
     });
 
-    const routes = workItemRouteDefinitions();
+    const routes = workItemHttpOnlyRouteDefinitions();
     const runRoute = routes.find(
       (r) => r.endpoint === "work-items/:id/run" && r.method === "POST",
     )!;
@@ -77,7 +76,7 @@ describe("empty required_tools snapshot bypass", () => {
         },
       ),
       url: new URL("http://localhost/v1/work-items/" + workItem.id + "/run"),
-    } as unknown as RouteContext);
+    } as unknown as Parameters<typeof runRoute.handler>[0]);
 
     expect(response.status).toBe(403);
   });

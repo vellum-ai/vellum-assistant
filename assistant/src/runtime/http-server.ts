@@ -129,7 +129,6 @@ import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
-import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
@@ -178,7 +177,6 @@ import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
-import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
@@ -199,7 +197,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
+import { workItemHttpOnlyRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
@@ -1813,7 +1811,7 @@ export class RuntimeHttpServer {
       ...logExportRouteDefinitions(),
       ...profilerRouteDefinitions(),
       ...documentRouteDefinitions(),
-      ...workItemRouteDefinitions(
+      ...workItemHttpOnlyRouteDefinitions(
         this.sendMessageDeps
           ? {
               getOrCreateConversation: (conversationId) =>
@@ -2171,7 +2169,6 @@ export class RuntimeHttpServer {
       ...guardianActionRouteDefinitions(),
 
       ...contactRouteDefinitions(),
-      ...inviteRouteDefinitions(),
       // contacts/:id catch-all must follow invite routes to avoid shadowing
       ...contactCatchAllRouteDefinitions(),
 
@@ -2209,8 +2206,6 @@ export class RuntimeHttpServer {
           this.guardianFollowUpConversationGenerator,
         getHeartbeatService: this.getHeartbeatService,
       }),
-      ...callRouteDefinitions({ assistantId }),
-
       // Internal Twilio forwarding (gateway -> runtime) — kept inline
       // because these reconstruct fake form-encoded requests from JSON,
       // a pattern specific to the gateway-to-daemon bridge.

@@ -74,6 +74,83 @@ final class ComposerThresholdPickerTests: XCTestCase {
         )
         XCTAssertNil(`default`)
     }
+
+    func testPresetFromNoOverrideReflectsGlobalInteractiveThreshold() {
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: nil,
+                globalInteractive: RiskThreshold.none.rawValue
+            ),
+            .strict
+        )
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: nil,
+                globalInteractive: RiskThreshold.low.rawValue
+            ),
+            .default
+        )
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: nil,
+                globalInteractive: RiskThreshold.medium.rawValue
+            ),
+            .relaxed
+        )
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: nil,
+                globalInteractive: RiskThreshold.high.rawValue
+            ),
+            .fullAccess
+        )
+    }
+
+    func testPresetFromOverrideMatchingGlobalReflectsGlobalPreset() {
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: RiskThreshold.high.rawValue,
+                globalInteractive: RiskThreshold.high.rawValue
+            ),
+            .fullAccess
+        )
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: RiskThreshold.medium.rawValue,
+                globalInteractive: RiskThreshold.medium.rawValue
+            ),
+            .relaxed
+        )
+    }
+
+    func testPresetFromOverrideUsesAbsoluteThresholdValue() {
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: RiskThreshold.medium.rawValue,
+                globalInteractive: RiskThreshold.high.rawValue
+            ),
+            .relaxed
+        )
+        XCTAssertEqual(
+            ThresholdPreset.from(
+                override: RiskThreshold.low.rawValue,
+                globalInteractive: RiskThreshold.none.rawValue
+            ),
+            .default
+        )
+    }
+
+    func testPresetRiskThresholdMappingRoundTrips() {
+        XCTAssertEqual(ThresholdPreset.strict.riskThreshold, .none)
+        XCTAssertEqual(ThresholdPreset.default.riskThreshold, .low)
+        XCTAssertEqual(ThresholdPreset.relaxed.riskThreshold, .medium)
+        XCTAssertEqual(ThresholdPreset.fullAccess.riskThreshold, .high)
+
+        XCTAssertEqual(ThresholdPreset.from(riskThreshold: .none), .strict)
+        XCTAssertEqual(ThresholdPreset.from(riskThreshold: .low), .default)
+        XCTAssertEqual(ThresholdPreset.from(riskThreshold: .medium), .relaxed)
+        XCTAssertEqual(ThresholdPreset.from(riskThreshold: .high), .fullAccess)
+    }
 }
 
 private final class MockThresholdClient: ThresholdClientProtocol {
@@ -88,8 +165,7 @@ private final class MockThresholdClient: ThresholdClientProtocol {
     func getGlobalThresholds() async throws -> GlobalThresholds {
         GlobalThresholds(
             interactive: RiskThreshold.low.rawValue,
-            background: RiskThreshold.medium.rawValue,
-            headless: RiskThreshold.none.rawValue
+            autonomous: RiskThreshold.none.rawValue
         )
     }
 

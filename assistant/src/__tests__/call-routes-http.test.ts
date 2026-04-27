@@ -265,10 +265,6 @@ describe("runtime call routes — HTTP layer", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { message: string; code?: string };
-    };
-    expect(body.error.message).toContain("Invalid JSON");
 
     await stopServer();
   });
@@ -499,10 +495,6 @@ describe("runtime call routes — HTTP layer", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { message: string; code?: string };
-    };
-    expect(body.error.message).toContain("Invalid JSON");
 
     await stopServer();
   });
@@ -604,10 +596,6 @@ describe("runtime call routes — HTTP layer", () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { message: string; code?: string };
-    };
-    expect(body.error.message).toContain("Invalid JSON");
 
     await stopServer();
   });

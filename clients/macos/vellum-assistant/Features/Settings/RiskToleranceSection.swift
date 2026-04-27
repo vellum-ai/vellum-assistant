@@ -15,16 +15,18 @@ struct RiskToleranceSection: View {
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     /// Current selection for the interactive ("Conversations") threshold.
-    /// Defaults to `.low` to match the gateway schema default.
+    /// Defaults to `.medium` to match the gateway schema default.
     @State private var interactiveSelection: RiskThreshold = .medium
 
     /// Current selection for the autonomous threshold.
-    /// Defaults to `.none` to match the gateway schema default.
+    /// Defaults to `.low` to match the gateway schema default.
     @State private var autonomousSelection: RiskThreshold = .low
 
-    /// In-flight sync task so rapid picker changes cancel the previous
-    /// write and only the latest selection reaches the gateway.
+    /// In-flight sync task. Writes are serialized so rapid picker changes
+    /// resolve in order and the latest selection wins deterministically.
     @State private var syncTask: Task<Void, Never>?
+    /// Monotonic sync version used to drop superseded queued writes.
+    @State private var syncVersion: UInt64 = 0
 
     /// In-flight load task so repeated view appearances don't stack
     /// concurrent GETs against the gateway.
@@ -56,21 +58,14 @@ struct RiskToleranceSection: View {
                 Text("When you're chatting with your assistant directly.")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
-                VDropdown(
-                    options: RiskThreshold.allCases.map {
-                        VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
-                    },
-                    selection: Binding(
-                        get: { interactiveSelection },
-                        set: { newValue in
-                            hasUserInteracted = true
-                            interactiveSelection = newValue
-                            syncThresholds()
-                        }
-                    ),
-                    maxWidth: 280
-                )
-                .accessibilityLabel("Conversations risk threshold")
+                ThresholdPresetDropdown(
+                    preset: ThresholdPreset.from(riskThreshold: interactiveSelection),
+                    accessibilityLabel: "Conversations risk threshold"
+                ) { preset in
+                    hasUserInteracted = true
+                    interactiveSelection = preset.riskThreshold
+                    syncThresholds()
+                }
                 Text(interactiveSelection.settingsDescription)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
@@ -86,21 +81,14 @@ struct RiskToleranceSection: View {
                 Text("When your assistant acts without you — scheduled tasks, background jobs, and external triggers.")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
-                VDropdown(
-                    options: RiskThreshold.allCases.map {
-                        VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
-                    },
-                    selection: Binding(
-                        get: { autonomousSelection },
-                        set: { newValue in
-                            hasUserInteracted = true
-                            autonomousSelection = newValue
-                            syncThresholds()
-                        }
-                    ),
-                    maxWidth: 280
-                )
-                .accessibilityLabel("Autonomous risk threshold")
+                ThresholdPresetDropdown(
+                    preset: ThresholdPreset.from(riskThreshold: autonomousSelection),
+                    accessibilityLabel: "Autonomous risk threshold"
+                ) { preset in
+                    hasUserInteracted = true
+                    autonomousSelection = preset.riskThreshold
+                    syncThresholds()
+                }
                 Text(autonomousSelection.settingsDescription)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
@@ -140,9 +128,9 @@ struct RiskToleranceSection: View {
 
     // MARK: - Sync Thresholds
 
-    /// Syncs the current threshold selections to the gateway, cancelling
-    /// any in-flight sync so that only the latest state wins when the user
-    /// changes rapidly.
+    /// Syncs the current threshold selections to the gateway. Writes are
+    /// serialized rather than cancelled because cancellation does not
+    /// guarantee an in-flight HTTP request stops server-side.
     ///
     /// If the PUT fails, clears `hasUserInteracted` so a subsequent
     /// `loadThresholds()` call can reconcile the picker against the
@@ -151,21 +139,29 @@ struct RiskToleranceSection: View {
         // Don't sync until we've loaded at least once — otherwise we'd
         // persist stale local defaults over the real server state.
         guard hasLoadedInitial else { return }
-        syncTask?.cancel()
+
+        let payload = GlobalThresholds(
+            interactive: interactiveSelection.rawValue,
+            autonomous: autonomousSelection.rawValue
+        )
+        syncVersion &+= 1
+        let requestVersion = syncVersion
+        let previousSync = syncTask
+
         syncTask = Task {
+            await previousSync?.value
+            guard requestVersion == syncVersion else { return }
             do {
-                try await thresholdClient.setGlobalThresholds(
-                    GlobalThresholds(
-                        interactive: interactiveSelection.rawValue,
-                        autonomous: autonomousSelection.rawValue
-                    )
-                )
+                try await thresholdClient.setGlobalThresholds(payload)
+                guard requestVersion == syncVersion else { return }
+                NotificationCenter.default.post(name: .globalRiskThresholdsDidChange, object: nil)
             } catch {
-                guard !Task.isCancelled else { return }
                 riskToleranceLog.error(
                     "setGlobalThresholds failed: \(error.localizedDescription, privacy: .public)"
                 )
-                hasUserInteracted = false
+                if requestVersion == syncVersion {
+                    hasUserInteracted = false
+                }
             }
         }
     }

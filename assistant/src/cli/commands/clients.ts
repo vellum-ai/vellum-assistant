@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { ClientEntryJSON } from "../../runtime/client-registry.js";
+import { optsToQueryParams } from "../lib/ipc-params.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 
@@ -57,11 +58,7 @@ Examples:
       async (opts: { json?: boolean; capability?: string }, cmd: Command) => {
         const result = await cliIpcCall<ListClientsResponse>(
           "list_clients",
-          {
-            queryParams: {
-              ...(opts.capability ? { capability: opts.capability } : {}),
-            },
-          },
+          optsToQueryParams(opts),
         );
 
         if (!result.ok) {

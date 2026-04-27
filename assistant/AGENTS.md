@@ -34,6 +34,10 @@ Routes in `src/runtime/routes/` are being migrated to a **shared `ROUTES` array*
 - **Dual exposure is intentional.** Every route in the shared `ROUTES` array is served over both HTTP and IPC. This is by design — it enables the gateway to call the daemon over IPC instead of HTTP, eliminating JWT token exchange on those paths (ATL-309 → ATL-311). Do not flag IPC exposure of shared routes as unintentional surface area.
 - **`RouteDefinition` carries everything:** `operationId`, `endpoint`, `method`, `handler`, `policyKey?`, `summary?`, `description?`, `tags?`, `responseBody?`. The HTTP adapter reads all fields; the IPC adapter only needs `operationId` and `handler`.
 
+### CLI ↔ daemon version skew
+
+The CLI and daemon are always shipped and upgraded together — there is no version skew between them. When migrating a route to the shared `ROUTES` array and updating the CLI to send structured params, backward compatibility with older CLI versions is **not required**. Do not add compat shims for flat-param callers that no longer exist.
+
 ### IPC-only routes
 
 Some routes are IPC-only (defined in `src/ipc/routes/`, not in the shared array). These are tool/CLI-specific methods (e.g. `wake_conversation`, `upsert_contact`) that have no HTTP counterpart. They follow the existing pattern: define in `src/ipc/routes/`, register in `src/ipc/routes/index.ts`.

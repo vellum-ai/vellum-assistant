@@ -2383,26 +2383,29 @@ describe("Call entrypoint gating", () => {
     expect(config.calls.enabled).toBe(false);
   });
 
-  test("handleStartCall route returns 403 when calls.enabled is false", async () => {
+  test("calls_start route throws ForbiddenError when calls.enabled is false", async () => {
     writeConfig({ calls: { enabled: false } });
     loadConfig();
 
-    const { handleStartCall } =
-      await import("../runtime/routes/call-routes.js");
-    const req = new Request("http://localhost/v1/calls/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phoneNumber: "+14155551234",
-        task: "Test call",
-        conversationId: "test-conv-id",
-      }),
-    });
+    const { ROUTES } = await import("../runtime/routes/call-routes.js");
+    const { RouteError } = await import("../runtime/routes/errors.js");
+    const startRoute = ROUTES.find((r) => r.operationId === "calls_start");
+    expect(startRoute).toBeDefined();
 
-    const response = await handleStartCall(req);
-    expect(response.status).toBe(403);
-
-    const body = (await response.json()) as { error: { message: string } };
-    expect(body.error.message).toContain("disabled");
+    try {
+      await startRoute!.handler({
+        body: {
+          phoneNumber: "+14155551234",
+          task: "Test call",
+          conversationId: "test-conv-id",
+        },
+      });
+      throw new Error("Expected handler to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      const routeErr = err as InstanceType<typeof RouteError>;
+      expect(routeErr.statusCode).toBe(403);
+      expect(routeErr.message).toContain("disabled");
+    }
   });
 });
