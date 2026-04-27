@@ -10,46 +10,25 @@ mock.module("../util/logger.js", () => ({
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs } from "../memory/schema.js";
-import { conversationQueryRouteDefinitions } from "../runtime/routes/conversation-query-routes.js";
+import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
+import { NotFoundError } from "../runtime/routes/errors.js";
 
 initializeDb();
 
-const routes = conversationQueryRouteDefinitions();
+const llmContextRoute = ROUTES.find(
+  (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
+)!;
 
-function dispatchLlmContext(messageId: string): Promise<Response> | Response {
-  const url = new URL(`http://localhost/v1/messages/${messageId}/llm-context`);
-  const route = routes.find(
-    (r) => r.method === "GET" && r.endpoint === "messages/:id/llm-context",
-  );
-  if (!route) {
-    throw new Error("No llm-context route found");
-  }
+const logPayloadRoute = ROUTES.find(
+  (r) => r.method === "GET" && r.endpoint === "llm-request-logs/:id/payload",
+)!;
 
-  return route.handler({
-    req: new Request(url.toString(), { method: "GET" }),
-    url,
-    server: null as never,
-    authContext: {} as never,
-    params: { id: messageId },
-  });
+function dispatchLlmContext(messageId: string) {
+  return llmContextRoute.handler({ pathParams: { id: messageId } });
 }
 
-function dispatchLogPayload(logId: string): Promise<Response> | Response {
-  const url = new URL(`http://localhost/v1/llm-request-logs/${logId}/payload`);
-  const route = routes.find(
-    (r) => r.method === "GET" && r.endpoint === "llm-request-logs/:id/payload",
-  );
-  if (!route) {
-    throw new Error("No llm-request-logs payload route found");
-  }
-
-  return route.handler({
-    req: new Request(url.toString(), { method: "GET" }),
-    url,
-    server: null as never,
-    authContext: {} as never,
-    params: { id: logId },
-  });
+function dispatchLogPayload(logId: string) {
+  return logPayloadRoute.handler({ pathParams: { id: logId } });
 }
 
 function clearRequestLogs(): void {
@@ -118,20 +97,13 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: openAiResponsePayload,
     });
 
-    const response = await dispatchLlmContext("msg-openrouter");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        summary?: { provider: string };
-      }>;
+    const body = (await dispatchLlmContext("msg-openrouter")) as {
+      logs: Array<{ summary?: { provider: string } }>;
     };
 
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual(
-      expect.objectContaining({
-        provider: "openrouter",
-      }),
+      expect.objectContaining({ provider: "openrouter" }),
     );
   });
 
@@ -144,20 +116,13 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: openAiResponsePayload,
     });
 
-    const response = await dispatchLlmContext("msg-fireworks");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        summary?: { provider: string };
-      }>;
+    const body = (await dispatchLlmContext("msg-fireworks")) as {
+      logs: Array<{ summary?: { provider: string } }>;
     };
 
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual(
-      expect.objectContaining({
-        provider: "fireworks",
-      }),
+      expect.objectContaining({ provider: "fireworks" }),
     );
   });
 
@@ -170,20 +135,13 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: openAiResponsePayload,
     });
 
-    const response = await dispatchLlmContext("msg-legacy");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        summary?: { provider: string };
-      }>;
+    const body = (await dispatchLlmContext("msg-legacy")) as {
+      logs: Array<{ summary?: { provider: string } }>;
     };
 
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual(
-      expect.objectContaining({
-        provider: "openai",
-      }),
+      expect.objectContaining({ provider: "openai" }),
     );
   });
 
@@ -196,13 +154,8 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: "still-not-json",
     });
 
-    const response = await dispatchLlmContext("msg-raw-only");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        summary?: { provider: string };
-      }>;
+    const body = (await dispatchLlmContext("msg-raw-only")) as {
+      logs: Array<{ summary?: { provider: string } }>;
     };
 
     expect(body.logs).toHaveLength(1);
@@ -218,14 +171,8 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: openAiResponsePayload,
     });
 
-    const response = await dispatchLlmContext("msg-null-payload");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        requestPayload: unknown;
-        responsePayload: unknown;
-      }>;
+    const body = (await dispatchLlmContext("msg-null-payload")) as {
+      logs: Array<{ requestPayload: unknown; responsePayload: unknown }>;
     };
 
     expect(body.logs).toHaveLength(1);
@@ -273,21 +220,13 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: responsesApiResponsePayload,
     });
 
-    const response = await dispatchLlmContext("msg-responses-legacy");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        summary?: { provider: string; inputTokens?: number };
-      }>;
+    const body = (await dispatchLlmContext("msg-responses-legacy")) as {
+      logs: Array<{ summary?: { provider: string; inputTokens?: number } }>;
     };
 
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual(
-      expect.objectContaining({
-        provider: "openai",
-        inputTokens: 11,
-      }),
+      expect.objectContaining({ provider: "openai", inputTokens: 11 }),
     );
   });
 
@@ -300,20 +239,13 @@ describe("GET /v1/messages/:id/llm-context provider preference", () => {
       responsePayload: responsesApiResponsePayload,
     });
 
-    const response = await dispatchLlmContext("msg-responses-openai");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      logs: Array<{
-        summary?: { provider: string };
-      }>;
+    const body = (await dispatchLlmContext("msg-responses-openai")) as {
+      logs: Array<{ summary?: { provider: string } }>;
     };
 
     expect(body.logs).toHaveLength(1);
     expect(body.logs[0]?.summary).toEqual(
-      expect.objectContaining({
-        provider: "openai",
-      }),
+      expect.objectContaining({ provider: "openai" }),
     );
   });
 });
@@ -332,10 +264,7 @@ describe("GET /v1/llm-request-logs/:id/payload", () => {
       responsePayload: resPayload,
     });
 
-    const response = await dispatchLogPayload("log-payload-ok");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
+    const body = (await dispatchLogPayload("log-payload-ok")) as {
       id: string;
       requestPayload: unknown;
       responsePayload: unknown;
@@ -346,9 +275,8 @@ describe("GET /v1/llm-request-logs/:id/payload", () => {
     expect(body.responsePayload).toEqual(JSON.parse(resPayload));
   });
 
-  test("returns 404 for a nonexistent log", async () => {
-    const response = await dispatchLogPayload("does-not-exist");
-    expect(response.status).toBe(404);
+  test("returns NotFoundError for a nonexistent log", () => {
+    expect(() => dispatchLogPayload("does-not-exist")).toThrow(NotFoundError);
   });
 
   test("falls back to string values for non-JSON payloads", async () => {
@@ -360,10 +288,7 @@ describe("GET /v1/llm-request-logs/:id/payload", () => {
       responsePayload: "raw-response-text",
     });
 
-    const response = await dispatchLogPayload("log-raw-strings");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
+    const body = (await dispatchLogPayload("log-raw-strings")) as {
       id: string;
       requestPayload: unknown;
       responsePayload: unknown;

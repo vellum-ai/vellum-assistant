@@ -1,9 +1,7 @@
 /**
- * HTTP route definitions for model configuration, embedding configuration,
+ * Route definitions for model configuration, embedding configuration,
  * conversation search, message content, LLM
  * context inspection, and queued message deletion.
- *
- * These routes expose conversation query functionality over the HTTP API.
  *
  * GET    /v1/model                      — current model info
  * PUT    /v1/model                      — set model
@@ -16,6 +14,7 @@
  * GET    /v1/conversations/search       — search conversations
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
+ * GET    /v1/llm-request-logs/:id/payload — raw payload for a single log
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
@@ -29,6 +28,7 @@ import {
 import { LLMConfigFragment } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
+import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
   getEmbeddingConfigInfo,
   setEmbeddingConfig,
@@ -51,12 +51,12 @@ import {
 } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { resolvePricingForUsage } from "../../util/pricing.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
   normalizeLlmContextPayloads,
 } from "./llm-context-normalization.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 const validEmbeddingProviderSet = new Set<string>(
@@ -159,515 +159,483 @@ function applyStoredProviderToLlmContextResult(
 }
 
 // ---------------------------------------------------------------------------
-// Dependency interfaces
+// Model set context — derived directly from the config watcher singleton
 // ---------------------------------------------------------------------------
 
-export interface ConversationQueryRouteDeps {
-  /** Lazy factory for model set context (config reload suppression, conversation eviction). */
-  getModelSetContext?: () => ModelSetContext;
+function getModelSetContext(): ModelSetContext {
+  const watcher = getConfigWatcher();
+  return {
+    suppressConfigReload: watcher.suppressConfigReload,
+    setSuppressConfigReload(value: boolean) {
+      watcher.suppressConfigReload = value;
+    },
+    updateConfigFingerprint() {
+      watcher.updateFingerprint();
+    },
+    debounceTimers: watcher.timers,
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Handlers
 // ---------------------------------------------------------------------------
 
-export function conversationQueryRouteDefinitions(
-  deps: ConversationQueryRouteDeps = {},
-): HTTPRouteDefinition[] {
-  return [
-    // ── Model config ──────────────────────────────────────────────────
-    {
-      endpoint: "model",
-      method: "GET",
-      policyKey: "model",
-      summary: "Get current model config",
-      description:
-        "Return the active LLM model ID, provider, and available models.",
-      tags: ["config"],
-      handler: async () => {
-        const info = await getModelInfo();
-        return Response.json(info);
-      },
-    },
-    {
-      endpoint: "model",
-      method: "PUT",
-      policyKey: "model",
-      summary: "Set LLM model",
-      description: "Change the active LLM model and optionally its provider.",
-      tags: ["config"],
-      requestBody: z.object({
-        modelId: z.string(),
-        provider: z.string().describe("Optional provider override").optional(),
-      }),
-      handler: async ({ req }) => {
-        if (!deps.getModelSetContext) {
-          return httpError("INTERNAL_ERROR", "Model set not available", 500);
-        }
-        const body = (await req.json()) as {
-          modelId?: string;
-          provider?: string;
-        };
-        if (!body.modelId || typeof body.modelId !== "string") {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing required field: modelId",
-            400,
-          );
-        }
-        if (
-          body.provider !== undefined &&
-          (typeof body.provider !== "string" ||
-            !validProviderSet.has(body.provider))
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            `Invalid provider "${body.provider}". Valid providers: ${[...validProviderSet].join(", ")}`,
-            400,
-          );
-        }
-        try {
-          const info = await setModel(
-            body.modelId,
-            deps.getModelSetContext(),
-            body.provider,
-          );
-          return Response.json(info);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to set model: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-    {
-      endpoint: "model/image-gen",
-      method: "PUT",
-      policyKey: "model/image-gen",
-      summary: "Set image generation model",
-      description: "Change the active image generation model.",
-      tags: ["config"],
-      requestBody: z.object({
-        modelId: z.string(),
-      }),
-      handler: async ({ req }) => {
-        if (!deps.getModelSetContext) {
-          return httpError(
-            "INTERNAL_ERROR",
-            "Image gen model set not available",
-            500,
-          );
-        }
-        const body = (await req.json()) as { modelId?: string };
-        if (!body.modelId || typeof body.modelId !== "string") {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing required field: modelId",
-            400,
-          );
-        }
-        try {
-          setImageGenModel(body.modelId, deps.getModelSetContext());
-          return Response.json({ ok: true });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to set image gen model: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-
-    // ── Embedding config ─────────────────────────────────────────────
-    {
-      endpoint: "config/embeddings",
-      method: "GET",
-      policyKey: "config/embeddings",
-      summary: "Get embedding config",
-      description:
-        "Return the active embedding provider, model, and available options.",
-      tags: ["config"],
-      handler: async () => {
-        const info = await getEmbeddingConfigInfo();
-        return Response.json(info);
-      },
-    },
-    {
-      endpoint: "config/embeddings",
-      method: "PUT",
-      policyKey: "config/embeddings",
-      summary: "Set embedding config",
-      description: "Change the embedding provider and optionally model.",
-      tags: ["config"],
-      requestBody: z.object({
-        provider: z.string(),
-        model: z.string().optional(),
-      }),
-      handler: async ({ req }) => {
-        if (!deps.getModelSetContext) {
-          return httpError(
-            "INTERNAL_ERROR",
-            "Embedding config not available",
-            500,
-          );
-        }
-        const body = (await req.json()) as {
-          provider?: string;
-          model?: string;
-        };
-        if (!body.provider || typeof body.provider !== "string") {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing required field: provider",
-            400,
-          );
-        }
-        if (!validEmbeddingProviderSet.has(body.provider)) {
-          return httpError(
-            "BAD_REQUEST",
-            `Invalid provider "${body.provider}". Valid providers: ${[...validEmbeddingProviderSet].join(", ")}`,
-            400,
-          );
-        }
-        if (body.model !== undefined && typeof body.model !== "string") {
-          return httpError(
-            "BAD_REQUEST",
-            "Field 'model' must be a string",
-            400,
-          );
-        }
-        try {
-          const info = await setEmbeddingConfig(
-            body.provider,
-            body.model,
-            deps.getModelSetContext(),
-          );
-          return Response.json(info);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to set embedding config: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-
-    // ── Full config read ─────────────────────────────────────────────
-    {
-      endpoint: "config",
-      method: "GET",
-      policyKey: "config",
-      summary: "Get full config",
-      description: "Return the raw settings.json configuration object.",
-      tags: ["config"],
-      handler: () => {
-        try {
-          const raw = loadRawConfig();
-          return Response.json(raw);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to read config: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-
-    // ── Generic config patch ──────────────────────────────────────────
-    {
-      endpoint: "config",
-      method: "PATCH",
-      policyKey: "config",
-      summary: "Patch config",
-      description:
-        "Deep-merge a partial JSON object into the settings.json configuration.",
-      tags: ["config"],
-      handler: async ({ req }) => {
-        const body = (await req.json()) as Record<string, unknown>;
-        if (
-          body == null ||
-          typeof body !== "object" ||
-          Array.isArray(body) ||
-          Object.keys(body).length === 0
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            "Body must be a non-empty JSON object",
-            400,
-          );
-        }
-        try {
-          const raw = loadRawConfig();
-          deepMergeOverwrite(raw, body);
-          saveRawConfig(raw);
-          return Response.json({ ok: true });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to patch config: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-
-    // ── Inference profile replacement ─────────────────────────────────
-    {
-      endpoint: "config/llm/profiles/:name",
-      method: "PUT",
-      policyKey: "config",
-      summary: "Replace an inference profile",
-      description:
-        "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
-      tags: ["config"],
-      handler: async ({ req, params }) => {
-        const name = params.name.trim();
-        if (!name) {
-          return httpError(
-            "BAD_REQUEST",
-            "Profile name must be a non-empty string",
-            400,
-          );
-        }
-
-        const body = (await req.json()) as unknown;
-        if (body == null || typeof body !== "object" || Array.isArray(body)) {
-          return httpError("BAD_REQUEST", "Body must be a JSON object", 400);
-        }
-
-        const parsed = LLMConfigFragment.safeParse(body);
-        if (!parsed.success) {
-          const detail = parsed.error.issues
-            .map((issue) => issue.message)
-            .join("; ");
-          return httpError(
-            "BAD_REQUEST",
-            `Invalid profile fragment: ${detail}`,
-            400,
-          );
-        }
-
-        try {
-          const raw = loadRawConfig();
-          replaceInferenceProfileConfig(
-            raw,
-            name,
-            parsed.data as Record<string, unknown>,
-          );
-          saveRawConfig(raw);
-          return Response.json({ ok: true });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to replace inference profile: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-
-    // ── Conversation search ───────────────────────────────────────────
-    {
-      endpoint: "conversations/search",
-      method: "GET",
-      policyKey: "conversations/search",
-      summary: "Search conversations",
-      description:
-        "Full-text search across conversation titles and message content.",
-      tags: ["conversations"],
-      responseBody: z.object({
-        query: z.string(),
-        results: z.array(z.unknown()),
-      }),
-      handler: ({ url }) => {
-        const q = url.searchParams.get("q");
-        if (!q) {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing required query parameter: q",
-            400,
-          );
-        }
-        const limit = url.searchParams.has("limit")
-          ? Number(url.searchParams.get("limit"))
-          : undefined;
-        const maxMessages = url.searchParams.has("maxMessagesPerConversation")
-          ? Number(url.searchParams.get("maxMessagesPerConversation"))
-          : undefined;
-        const results = performConversationSearch({
-          query: q,
-          limit,
-          maxMessagesPerConversation: maxMessages,
-        });
-        return Response.json({ query: q, results });
-      },
-    },
-
-    // ── Message content ───────────────────────────────────────────────
-    {
-      endpoint: "messages/:id/content",
-      method: "GET",
-      policyKey: "messages/content",
-      summary: "Get message content",
-      description: "Return the full content of a single message by ID.",
-      tags: ["messages"],
-      handler: ({ url, params }) => {
-        const conversationId = url.searchParams.get("conversationId");
-        const result = getMessageContent(
-          params.id,
-          conversationId ?? undefined,
-        );
-        if (!result) {
-          return httpError("NOT_FOUND", `Message ${params.id} not found`, 404);
-        }
-        return Response.json(result);
-      },
-    },
-
-    // ── LLM context (request logs) for a message ───────────────────────
-    {
-      endpoint: "messages/:id/llm-context",
-      method: "GET",
-      policyKey: "messages/llm-context",
-      summary: "Get LLM context for a message",
-      description:
-        "Return request/response logs and memory recall data for a specific message.",
-      tags: ["messages"],
-      responseBody: z.object({
-        messageId: z.string(),
-        logs: z.array(z.unknown()),
-        memoryRecall: z.object({}).passthrough(),
-      }),
-      handler: ({ params }) => {
-        const messageId = params.id;
-        if (!messageId) {
-          return httpError("BAD_REQUEST", "message id is required", 400);
-        }
-        const logs = getRequestLogsByMessageId(messageId);
-        const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
-        const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
-        return Response.json({
-          messageId,
-          logs: logs.map((log) => {
-            let requestPayload: unknown;
-            try {
-              requestPayload = JSON.parse(log.requestPayload);
-            } catch {
-              requestPayload = log.requestPayload;
-            }
-            let responsePayload: unknown;
-            try {
-              responsePayload = JSON.parse(log.responsePayload);
-            } catch {
-              responsePayload = log.responsePayload;
-            }
-            const normalized = normalizeLlmContextPayloads({
-              requestPayload,
-              responsePayload,
-              createdAt: log.createdAt,
-            });
-            const result = applyStoredProviderToLlmContextResult(
-              normalized,
-              log.provider,
-            );
-            return {
-              id: log.id,
-              requestPayload: null,
-              responsePayload: null,
-              createdAt: log.createdAt,
-              ...result,
-            };
-          }),
-          memoryRecall: memoryRecallLog ?? null,
-        });
-      },
-    },
-
-    // ── Raw payload for a single LLM request log ─────────────────────
-    {
-      endpoint: "llm-request-logs/:id/payload",
-      method: "GET",
-      policyKey: "llm-request-logs/payload",
-      summary: "Get raw payload for a single LLM request log",
-      description:
-        "Return the full request and response payloads for a specific log entry.",
-      tags: ["messages"],
-      responseBody: z.object({
-        id: z.string(),
-        requestPayload: z.unknown(),
-        responsePayload: z.unknown(),
-      }),
-      handler: ({ params }) => {
-        const logId = params.id;
-        if (!logId) {
-          return httpError("BAD_REQUEST", "log id is required", 400);
-        }
-        const log = getRequestLogById(logId);
-        if (!log) {
-          return httpError("NOT_FOUND", "log not found", 404);
-        }
-        let requestPayload: unknown;
-        try {
-          requestPayload = JSON.parse(log.requestPayload);
-        } catch {
-          requestPayload = log.requestPayload;
-        }
-        let responsePayload: unknown;
-        try {
-          responsePayload = JSON.parse(log.responsePayload);
-        } catch {
-          responsePayload = log.responsePayload;
-        }
-        return Response.json({
-          id: log.id,
-          requestPayload,
-          responsePayload,
-        });
-      },
-    },
-
-    // ── Delete queued message ─────────────────────────────────────────
-    {
-      endpoint: "messages/queued/:id",
-      method: "DELETE",
-      policyKey: "messages/queued",
-      summary: "Delete a queued message",
-      description:
-        "Remove a pending message from the conversation queue before it is processed.",
-      tags: ["messages"],
-      handler: ({ url, params }) => {
-        const conversationId = url.searchParams.get("conversationId");
-        if (!conversationId) {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing required query parameter: conversationId",
-            400,
-          );
-        }
-        const result = deleteQueuedMessage(conversationId, params.id);
-        if (result.removed) {
-          return Response.json({
-            ok: true,
-            conversationId,
-            requestId: params.id,
-          });
-        }
-        if (result.reason === "conversation_not_found") {
-          return httpError("NOT_FOUND", "Conversation not found", 404);
-        }
-        return httpError("NOT_FOUND", "Queued message not found", 404);
-      },
-    },
-  ];
+async function handleGetModel() {
+  return getModelInfo();
 }
+
+async function handleSetModel({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+  const { modelId, provider } = body as {
+    modelId?: string;
+    provider?: string;
+  };
+  if (!modelId || typeof modelId !== "string") {
+    throw new BadRequestError("Missing required field: modelId");
+  }
+  if (
+    provider !== undefined &&
+    (typeof provider !== "string" || !validProviderSet.has(provider))
+  ) {
+    throw new BadRequestError(
+      `Invalid provider "${provider}". Valid providers: ${[...validProviderSet].join(", ")}`,
+    );
+  }
+  try {
+    return await setModel(modelId, getModelSetContext(), provider);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to set model: ${message}`);
+  }
+}
+
+async function handleSetImageGenModel({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+  const { modelId } = body as { modelId?: string };
+  if (!modelId || typeof modelId !== "string") {
+    throw new BadRequestError("Missing required field: modelId");
+  }
+  try {
+    setImageGenModel(modelId, getModelSetContext());
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to set image gen model: ${message}`);
+  }
+}
+
+async function handleGetEmbeddingConfig() {
+  return getEmbeddingConfigInfo();
+}
+
+async function handleSetEmbeddingConfig({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+  const { provider, model } = body as {
+    provider?: string;
+    model?: string;
+  };
+  if (!provider || typeof provider !== "string") {
+    throw new BadRequestError("Missing required field: provider");
+  }
+  if (!validEmbeddingProviderSet.has(provider)) {
+    throw new BadRequestError(
+      `Invalid provider "${provider}". Valid providers: ${[...validEmbeddingProviderSet].join(", ")}`,
+    );
+  }
+  if (model !== undefined && typeof model !== "string") {
+    throw new BadRequestError("Field 'model' must be a string");
+  }
+  try {
+    return await setEmbeddingConfig(provider, model, getModelSetContext());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to set embedding config: ${message}`);
+  }
+}
+
+function handleGetConfig() {
+  try {
+    return loadRawConfig();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to read config: ${message}`);
+  }
+}
+
+function handlePatchConfig({ body }: RouteHandlerArgs) {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).length === 0
+  ) {
+    throw new BadRequestError("Body must be a non-empty JSON object");
+  }
+  try {
+    const raw = loadRawConfig();
+    deepMergeOverwrite(raw, body);
+    saveRawConfig(raw);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to patch config: ${message}`);
+  }
+}
+
+function handleReplaceInferenceProfile({
+  pathParams = {},
+  body,
+}: RouteHandlerArgs) {
+  const name = (pathParams.name ?? "").trim();
+  if (!name) {
+    throw new BadRequestError("Profile name must be a non-empty string");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new BadRequestError("Body must be a JSON object");
+  }
+  const parsed = LLMConfigFragment.safeParse(body);
+  if (!parsed.success) {
+    const detail = parsed.error.issues.map((issue) => issue.message).join("; ");
+    throw new BadRequestError(`Invalid profile fragment: ${detail}`);
+  }
+  try {
+    const raw = loadRawConfig();
+    replaceInferenceProfileConfig(
+      raw,
+      name,
+      parsed.data as Record<string, unknown>,
+    );
+    saveRawConfig(raw);
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new InternalError(`Failed to replace inference profile: ${message}`);
+  }
+}
+
+function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
+  const q = queryParams.q;
+  if (!q) {
+    throw new BadRequestError("Missing required query parameter: q");
+  }
+  const limit = queryParams.limit ? Number(queryParams.limit) : undefined;
+  const maxMessages = queryParams.maxMessagesPerConversation
+    ? Number(queryParams.maxMessagesPerConversation)
+    : undefined;
+  const results = performConversationSearch({
+    query: q,
+    limit,
+    maxMessagesPerConversation: maxMessages,
+  });
+  return { query: q, results };
+}
+
+function handleGetMessageContent({
+  queryParams = {},
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const conversationId = queryParams.conversationId;
+  const result = getMessageContent(
+    pathParams.id ?? "",
+    conversationId ?? undefined,
+  );
+  if (!result) {
+    throw new NotFoundError(`Message ${pathParams.id} not found`);
+  }
+  return result;
+}
+
+function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
+  const messageId = pathParams.id;
+  if (!messageId) {
+    throw new BadRequestError("message id is required");
+  }
+  const logs = getRequestLogsByMessageId(messageId);
+  const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
+  const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
+  return {
+    messageId,
+    logs: logs.map((log) => {
+      let requestPayload: unknown;
+      try {
+        requestPayload = JSON.parse(log.requestPayload);
+      } catch {
+        requestPayload = log.requestPayload;
+      }
+      let responsePayload: unknown;
+      try {
+        responsePayload = JSON.parse(log.responsePayload);
+      } catch {
+        responsePayload = log.responsePayload;
+      }
+      const normalized = normalizeLlmContextPayloads({
+        requestPayload,
+        responsePayload,
+        createdAt: log.createdAt,
+      });
+      const result = applyStoredProviderToLlmContextResult(
+        normalized,
+        log.provider,
+      );
+      return {
+        id: log.id,
+        requestPayload: null,
+        responsePayload: null,
+        createdAt: log.createdAt,
+        ...result,
+      };
+    }),
+    memoryRecall: memoryRecallLog ?? null,
+  };
+}
+
+function handleGetLlmRequestLogPayload({ pathParams = {} }: RouteHandlerArgs) {
+  const logId = pathParams.id;
+  if (!logId) {
+    throw new BadRequestError("log id is required");
+  }
+  const log = getRequestLogById(logId);
+  if (!log) {
+    throw new NotFoundError("log not found");
+  }
+  let requestPayload: unknown;
+  try {
+    requestPayload = JSON.parse(log.requestPayload);
+  } catch {
+    requestPayload = log.requestPayload;
+  }
+  let responsePayload: unknown;
+  try {
+    responsePayload = JSON.parse(log.responsePayload);
+  } catch {
+    responsePayload = log.responsePayload;
+  }
+  return { id: log.id, requestPayload, responsePayload };
+}
+
+function handleDeleteQueuedMessage({
+  queryParams = {},
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const conversationId = queryParams.conversationId;
+  if (!conversationId) {
+    throw new BadRequestError(
+      "Missing required query parameter: conversationId",
+    );
+  }
+  const result = deleteQueuedMessage(conversationId, pathParams.id ?? "");
+  if (result.removed) {
+    return { ok: true, conversationId, requestId: pathParams.id };
+  }
+  if (result.reason === "conversation_not_found") {
+    throw new NotFoundError("Conversation not found");
+  }
+  throw new NotFoundError("Queued message not found");
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions (shared HTTP + IPC)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "model_get",
+    endpoint: "model",
+    method: "GET",
+    policyKey: "model",
+    summary: "Get current model config",
+    description:
+      "Return the active LLM model ID, provider, and available models.",
+    tags: ["config"],
+    handler: handleGetModel,
+  },
+  {
+    operationId: "model_set",
+    endpoint: "model",
+    method: "PUT",
+    policyKey: "model",
+    summary: "Set LLM model",
+    description: "Change the active LLM model and optionally its provider.",
+    tags: ["config"],
+    requestBody: z.object({
+      modelId: z.string(),
+      provider: z.string().describe("Optional provider override").optional(),
+    }),
+    handler: handleSetModel,
+  },
+  {
+    operationId: "model_image_gen_set",
+    endpoint: "model/image-gen",
+    method: "PUT",
+    policyKey: "model/image-gen",
+    summary: "Set image generation model",
+    description: "Change the active image generation model.",
+    tags: ["config"],
+    requestBody: z.object({ modelId: z.string() }),
+    handler: handleSetImageGenModel,
+  },
+  {
+    operationId: "config_embeddings_get",
+    endpoint: "config/embeddings",
+    method: "GET",
+    policyKey: "config/embeddings",
+    summary: "Get embedding config",
+    description:
+      "Return the active embedding provider, model, and available options.",
+    tags: ["config"],
+    handler: handleGetEmbeddingConfig,
+  },
+  {
+    operationId: "config_embeddings_set",
+    endpoint: "config/embeddings",
+    method: "PUT",
+    policyKey: "config/embeddings",
+    summary: "Set embedding config",
+    description: "Change the embedding provider and optionally model.",
+    tags: ["config"],
+    requestBody: z.object({
+      provider: z.string(),
+      model: z.string().optional(),
+    }),
+    handler: handleSetEmbeddingConfig,
+  },
+  {
+    operationId: "config_get",
+    endpoint: "config",
+    method: "GET",
+    policyKey: "config",
+    summary: "Get full config",
+    description: "Return the raw settings.json configuration object.",
+    tags: ["config"],
+    handler: handleGetConfig,
+  },
+  {
+    operationId: "config_patch",
+    endpoint: "config",
+    method: "PATCH",
+    policyKey: "config",
+    summary: "Patch config",
+    description:
+      "Deep-merge a partial JSON object into the settings.json configuration.",
+    tags: ["config"],
+    handler: handlePatchConfig,
+  },
+  {
+    operationId: "config_llm_profiles_replace",
+    endpoint: "config/llm/profiles/:name",
+    method: "PUT",
+    policyKey: "config",
+    summary: "Replace an inference profile",
+    description:
+      "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
+    tags: ["config"],
+    handler: handleReplaceInferenceProfile,
+  },
+  {
+    operationId: "conversations_search",
+    endpoint: "conversations/search",
+    method: "GET",
+    policyKey: "conversations/search",
+    summary: "Search conversations",
+    description:
+      "Full-text search across conversation titles and message content.",
+    tags: ["conversations"],
+    queryParams: [
+      {
+        name: "q",
+        required: true,
+        schema: { type: "string" },
+        description: "Search query",
+      },
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max results",
+      },
+      {
+        name: "maxMessagesPerConversation",
+        schema: { type: "integer" },
+        description: "Max messages per conversation",
+      },
+    ],
+    responseBody: z.object({
+      query: z.string(),
+      results: z.array(z.unknown()),
+    }),
+    handler: handleSearchConversations,
+  },
+  {
+    operationId: "messages_content_get",
+    endpoint: "messages/:id/content",
+    method: "GET",
+    policyKey: "messages/content",
+    summary: "Get message content",
+    description: "Return the full content of a single message by ID.",
+    tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        description: "Optional conversation ID filter",
+      },
+    ],
+    handler: handleGetMessageContent,
+  },
+  {
+    operationId: "messages_llm_context_get",
+    endpoint: "messages/:id/llm-context",
+    method: "GET",
+    policyKey: "messages/llm-context",
+    summary: "Get LLM context for a message",
+    description:
+      "Return request/response logs and memory recall data for a specific message.",
+    tags: ["messages"],
+    responseBody: z.object({
+      messageId: z.string(),
+      logs: z.array(z.unknown()),
+      memoryRecall: z.object({}).passthrough(),
+    }),
+    handler: handleGetLlmContext,
+  },
+  {
+    operationId: "llm_request_logs_payload_get",
+    endpoint: "llm-request-logs/:id/payload",
+    method: "GET",
+    policyKey: "llm-request-logs/payload",
+    summary: "Get raw payload for a single LLM request log",
+    description:
+      "Return the full request and response payloads for a specific log entry.",
+    tags: ["messages"],
+    responseBody: z.object({
+      id: z.string(),
+      requestPayload: z.unknown(),
+      responsePayload: z.unknown(),
+    }),
+    handler: handleGetLlmRequestLogPayload,
+  },
+  {
+    operationId: "messages_queued_delete",
+    endpoint: "messages/queued/:id",
+    method: "DELETE",
+    policyKey: "messages/queued",
+    summary: "Delete a queued message",
+    description:
+      "Remove a pending message from the conversation queue before it is processed.",
+    tags: ["messages"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        required: true,
+        description: "Conversation ID (required)",
+      },
+    ],
+    handler: handleDeleteQueuedMessage,
+  },
+];

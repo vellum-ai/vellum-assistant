@@ -3798,6 +3798,25 @@ paths:
                   - query
                   - results
                 additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max results
+        - name: maxMessagesPerConversation
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max messages per conversation
   /v1/conversations/seen:
     post:
       operationId: conversations_seen_post
@@ -6575,6 +6594,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional conversation ID filter
   /v1/messages/{id}/llm-context:
     get:
       operationId: messages_by_id_llmcontext_get
@@ -6648,6 +6673,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Conversation ID (required)
   /v1/migrations/export:
     post:
       operationId: migrations_export_post

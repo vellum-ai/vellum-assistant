@@ -13,7 +13,6 @@ import type {
 // Re-export so route modules (background-dispatch, etc.) can pull the type
 // from the runtime barrel without reaching into daemon internals.
 export type { SlackInboundMessageMetadata };
-import type { ModelSetContext } from "../daemon/handlers/config-model.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
@@ -190,8 +189,6 @@ export interface RuntimeHttpServerOptions {
   sendMessageDeps?: SendMessageDeps;
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
-  /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
-  getModelSetContext?: () => ModelSetContext;
   /** Accessor for the CES client, used to push API key updates to CES after hatch. */
   getCesClient?: () => CesClient | undefined;
   /**
