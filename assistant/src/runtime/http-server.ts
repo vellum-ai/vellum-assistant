@@ -947,10 +947,7 @@ export class RuntimeHttpServer {
     if (twilioResponse) return twilioResponse;
 
     // Audio serving endpoint — before auth check because Twilio
-    // fetches these URLs directly. The audioId is an unguessable UUID.
-    // Uses the shared RouteDefinition (also registered for IPC) but
-    // dispatched pre-auth here. Will move into the router when we add
-    // skipAuth support to RouteDefinition.
+    // fetches these URLs directly (isPublic route, ATL-314).
     const audioMatch = path.match(/^\/v1\/audio\/([^/]+)$/);
     if (audioMatch && req.method === "GET") {
       const audioDef = AUDIO_ROUTES.find((r) => r.operationId === "audio_get")!;

@@ -49,6 +49,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "audio_get",
     endpoint: "audio/:audioId",
     method: "GET",
+    isPublic: true,
     summary: "Get audio segment",
     description:
       "Retrieve a previously stored audio segment by ID. " +

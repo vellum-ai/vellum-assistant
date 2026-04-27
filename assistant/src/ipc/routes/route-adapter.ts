@@ -37,7 +37,7 @@ export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
 ): IpcRoute[] {
   return routes
-    .filter((r) => !r.requireGuardian)
+    .filter((r) => !r.requireGuardian && !r.isPublic)
     .map((r) => ({
       method: r.operationId,
       handler: async (params?: Record<string, unknown>) => {
