@@ -9,10 +9,7 @@ import { z } from "zod";
 
 import { broadcastToAllClients } from "../../acp/index.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
-import type {
-  CreateSkillParams,
-  SkillOperationContext,
-} from "../../daemon/handlers/skills.js";
+import type { SkillOperationContext } from "../../daemon/handlers/skills.js";
 import {
   checkSkillUpdates,
   configureSkill,
@@ -31,8 +28,6 @@ import {
   uninstallSkill,
   updateSkill,
 } from "../../daemon/handlers/skills.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -500,99 +495,84 @@ export const ROUTES: RouteDefinition[] = [
       return null;
     },
   },
-];
-
-// ---------------------------------------------------------------------------
-// HTTP-only route definitions (require authContext)
-// ---------------------------------------------------------------------------
-
-export function skillHttpOnlyRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "skills/install",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Install skill",
-      description: "Install a skill by slug, URL, or spec.",
-      tags: ["skills"],
-      requestBody: z.object({
-        slug: z.string().describe("Skill slug"),
-        url: z.string().describe("Skill URL"),
-        spec: z.string().describe("Skill spec"),
-        version: z.string(),
-        origin: z
-          .enum(["clawhub", "skillssh"])
-          .optional()
-          .describe(
-            "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
-          ),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        skillId: z.string().optional(),
-      }),
-      handler: async ({ req, authContext }) => {
-        const body = (await req.json()) as {
-          slug?: string;
-          url?: string;
-          spec?: string;
-          version?: string;
-          origin?: "clawhub" | "skillssh";
-        };
-        const slug = body.slug ?? body.url ?? body.spec;
-        if (!slug || typeof slug !== "string") {
-          return httpError(
-            "BAD_REQUEST",
-            "slug, url, or spec is required",
-            400,
-          );
-        }
-        const contactId = authContext.actorPrincipalId ?? undefined;
-        const result = await installSkill(
-          { slug, version: body.version, origin: body.origin, contactId },
-          ctx(),
+  {
+    operationId: "installSkill",
+    endpoint: "skills/install",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Install skill",
+    description: "Install a skill by slug, URL, or spec.",
+    tags: ["skills"],
+    requestBody: z.object({
+      slug: z.string().describe("Skill slug"),
+      url: z.string().describe("Skill URL"),
+      spec: z.string().describe("Skill spec"),
+      version: z.string(),
+      origin: z
+        .enum(["clawhub", "skillssh"])
+        .optional()
+        .describe(
+          "Which registry to install from. When omitted, the install flow auto-detects based on slug format.",
+        ),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      skillId: z.string().optional(),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const slug =
+        (body.slug as string) ??
+        (body.url as string) ??
+        (body.spec as string);
+      if (!slug || typeof slug !== "string") {
+        throw new BadRequestError("slug, url, or spec is required");
+      }
+      const result = await installSkill(
+        {
+          slug,
+          version: body.version as string | undefined,
+          origin: body.origin as "clawhub" | "skillssh" | undefined,
+        },
+        ctx(),
+      );
+      if (!result.success) throw new InternalError(result.error);
+      return { ok: true, skillId: result.skillId };
+    },
+  },
+  {
+    operationId: "createSkill",
+    endpoint: "skills",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Create skill",
+    description: "Create a new skill.",
+    tags: ["skills"],
+    requestBody: z.object({
+      skillId: z.string(),
+      name: z.string(),
+      description: z.string(),
+      bodyMarkdown: z.string(),
+    }),
+    responseBody: z.object({ ok: z.boolean() }),
+    responseStatus: "201",
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const { skillId, name, description, bodyMarkdown } = body as Record<
+        string,
+        string
+      >;
+      if (!skillId || !name || !description || !bodyMarkdown) {
+        throw new BadRequestError(
+          "skillId, name, description, and bodyMarkdown are required",
         );
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ ok: true, skillId: result.skillId });
-      },
+      }
+      const result = await createSkill(
+        { skillId, name, description, bodyMarkdown },
+        ctx(),
+      );
+      if (!result.success) throw new InternalError(result.error);
+      return { ok: true };
     },
-    {
-      endpoint: "skills",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Create skill",
-      description: "Create a new skill.",
-      tags: ["skills"],
-      requestBody: z.object({
-        skillId: z.string(),
-        name: z.string(),
-        description: z.string(),
-        bodyMarkdown: z.string(),
-      }),
-      responseBody: z.object({ ok: z.boolean() }),
-      handler: async ({ req, authContext }) => {
-        const body = (await req.json()) as CreateSkillParams;
-        if (
-          !body.skillId ||
-          !body.name ||
-          !body.description ||
-          !body.bodyMarkdown
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            "skillId, name, description, and bodyMarkdown are required",
-            400,
-          );
-        }
-        const contactId = authContext.actorPrincipalId ?? undefined;
-        const result = await createSkill({ ...body, contactId }, ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ ok: true }, { status: 201 });
-      },
-    },
-  ];
-}
+  },
+];
