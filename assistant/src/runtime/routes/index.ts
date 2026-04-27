@@ -52,6 +52,7 @@ import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
+import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
@@ -106,6 +107,7 @@ export const ROUTES: RouteDefinition[] = [
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SKILL_ROUTES,
   ...SLACK_CHANNEL_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,

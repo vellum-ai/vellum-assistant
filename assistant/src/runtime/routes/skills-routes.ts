@@ -1,12 +1,14 @@
 /**
  * Route handlers for skill management operations.
  *
- * These HTTP routes expose the same business logic as the skill handlers,
- * using the standalone functions extracted in `../../daemon/handlers/skills.ts`.
+ * Shared ROUTES (13 routes) are served by both the HTTP server and IPC.
+ * Routes requiring authContext remain HTTP-only via skillHttpOnlyRouteDefinitions().
  */
 
 import { z } from "zod";
 
+import { broadcastToAllClients } from "../../acp/index.js";
+import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import type {
   CreateSkillParams,
   SkillOperationContext,
@@ -31,13 +33,20 @@ import {
 } from "../../daemon/handlers/skills.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-/**
- * Dependencies injected by the HTTP server to provide the
- * SkillOperationContext that the business-logic functions need.
- */
-export interface SkillRouteDeps {
-  getSkillContext: () => SkillOperationContext;
+/** Build SkillOperationContext from module-level globals. */
+function ctx(): SkillOperationContext {
+  const cw = getConfigWatcher();
+  return {
+    debounceTimers: cw.timers,
+    setSuppressConfigReload: (v) => {
+      cw.suppressConfigReload = v;
+    },
+    updateConfigFingerprint: () => cw.updateFingerprint(),
+    broadcast: broadcastToAllClients ?? (() => {}),
+  };
 }
 
 const partnerAuditSchema = z.object({
@@ -130,235 +139,375 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
   z.object({ ...slimSkillBase, origin: z.literal("custom") }),
 ]);
 
-export function skillRouteDefinitions(deps: SkillRouteDeps): HTTPRouteDefinition[] {
-  const ctx = () => deps.getSkillContext();
+// ---------------------------------------------------------------------------
+// Shared route definitions (HTTP + IPC)
+// ---------------------------------------------------------------------------
 
-  return [
-    {
-      endpoint: "skills",
-      method: "GET",
-      policyKey: "skills",
-      summary: "List all skills",
-      description:
-        "Return all installed skills. Pass ?include=catalog to also include available catalog skills. Supports optional filter params: origin, kind, q, category.",
-      tags: ["skills"],
-      queryParams: [
-        {
-          name: "include",
-          schema: { type: "string", enum: ["catalog"] },
-          description:
-            "Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.",
-        },
-        {
-          name: "origin",
-          schema: { type: "string" },
-          description:
-            "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').",
-        },
-        {
-          name: "kind",
-          schema: { type: "string" },
-          description:
-            "Filter by kind: 'installed' (includes bundled), 'available', or pass through as skill.kind.",
-        },
-        {
-          name: "q",
-          schema: { type: "string" },
-          description:
-            "Text search across skill name, description, id, and origin label.",
-        },
-        {
-          name: "category",
-          schema: { type: "string" },
-          description:
-            "Filter by inferred category (e.g. 'communication', 'productivity').",
-        },
-      ],
-      responseBody: z.object({
-        skills: z.array(slimSkillSchema).describe("Skill objects"),
-        categoryCounts: z
-          .record(z.string(), z.number())
-          .optional()
-          .describe(
-            "Count of skills per category (before category filter is applied)",
-          ),
-        totalCount: z
-          .number()
-          .optional()
-          .describe("Total number of skills matching non-category filters"),
-      }),
-      handler: async ({ url }) => {
-        const include = url.searchParams.get("include");
-        const origin = url.searchParams.get("origin");
-        const kind = url.searchParams.get("kind");
-        const q = url.searchParams.get("q");
-        const category = url.searchParams.get("category");
-
-        const hasFilter = !!(origin || kind || q || category);
-
-        if (hasFilter || include === "catalog") {
-          const result = await listSkillsFiltered(
-            {
-              ...(origin ? { origin } : {}),
-              ...(kind ? { kind } : {}),
-              ...(q ? { q } : {}),
-              ...(category ? { category } : {}),
-              includeCatalog: include === "catalog",
-            },
-            ctx(),
-          );
-          return Response.json({
-            skills: result.skills,
-            categoryCounts: result.categoryCounts,
-            totalCount: result.totalCount,
-          });
-        }
-
-        // No filter params and include !== catalog: preserve existing behavior
-        const skills = listSkills(ctx());
-        return Response.json({ skills });
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listSkills",
+    endpoint: "skills",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "List all skills",
+    description:
+      "Return all installed skills. Pass ?include=catalog to also include available catalog skills. Supports optional filter params: origin, kind, q, category.",
+    tags: ["skills"],
+    queryParams: [
+      {
+        name: "include",
+        schema: { type: "string", enum: ["catalog"] },
+        description:
+          "Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.",
       },
-    },
-
-    // The router uses strict anchored-regex matching, so this route is never
-    // ambiguous with skills/:id/files.
-    {
-      endpoint: "skills/:id/files/content",
-      method: "GET",
-      policyKey: "skills",
-      summary: "Get skill file content",
-      description:
-        "Return the content of a single file belonging to an installed or catalog skill.",
-      tags: ["skills"],
-      queryParams: [
-        {
-          name: "path",
-          schema: { type: "string" },
-          required: true,
-          description: "Relative path of the file within the skill directory",
-        },
-      ],
-      responseBody: z.object({
-        path: z.string(),
-        name: z.string(),
-        size: z.number().int(),
-        mimeType: z.string(),
-        isBinary: z.boolean(),
-        content: z.string().nullable(),
-      }),
-      handler: async ({ params, url }) => {
-        const path = url.searchParams.get("path");
-        if (!path) {
-          return httpError(
-            "BAD_REQUEST",
-            "path query parameter is required",
-            400,
-          );
-        }
-        const result = await getSkillFileContent(params.id, path, ctx());
-        if ("error" in result) {
-          if (result.status === 400) {
-            return httpError("BAD_REQUEST", result.error, 400);
-          }
-          if (result.status === 404) {
-            return httpError("NOT_FOUND", result.error, 404);
-          }
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json(result);
+      {
+        name: "origin",
+        schema: { type: "string" },
+        description:
+          "Filter by skill origin (e.g. 'vellum', 'clawhub', 'skillssh', 'custom').",
       },
-    },
-
-    {
-      endpoint: "skills/:id/files",
-      method: "GET",
-      policyKey: "skills",
-      summary: "Get skill files",
-      description: "Return skill metadata and directory contents.",
-      tags: ["skills"],
-      handler: async ({ params }) => {
-        const result = await getSkillFiles(params.id, ctx());
-        if ("error" in result) {
-          if (result.status === 404) {
-            return httpError("NOT_FOUND", result.error, 404);
-          }
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json(result);
+      {
+        name: "kind",
+        schema: { type: "string" },
+        description:
+          "Filter by kind: 'installed' (includes bundled), 'available', or pass through as skill.kind.",
       },
-    },
-
-    {
-      endpoint: "skills/:id/enable",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Enable skill",
-      description: "Enable an installed skill.",
-      tags: ["skills"],
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: ({ params }) => {
-        const result = enableSkill(params.id, ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ ok: true });
+      {
+        name: "q",
+        schema: { type: "string" },
+        description:
+          "Text search across skill name, description, id, and origin label.",
       },
-    },
-
-    {
-      endpoint: "skills/:id/disable",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Disable skill",
-      description: "Disable an installed skill.",
-      tags: ["skills"],
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: ({ params }) => {
-        const result = disableSkill(params.id, ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ ok: true });
+      {
+        name: "category",
+        schema: { type: "string" },
+        description:
+          "Filter by inferred category (e.g. 'communication', 'productivity').",
       },
-    },
+    ],
+    responseBody: z.object({
+      skills: z.array(slimSkillSchema).describe("Skill objects"),
+      categoryCounts: z
+        .record(z.string(), z.number())
+        .optional()
+        .describe(
+          "Count of skills per category (before category filter is applied)",
+        ),
+      totalCount: z
+        .number()
+        .optional()
+        .describe("Total number of skills matching non-category filters"),
+    }),
+    handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
+      const include = queryParams.include;
+      const origin = queryParams.origin;
+      const kind = queryParams.kind;
+      const q = queryParams.q;
+      const category = queryParams.category;
 
-    {
-      endpoint: "skills/:id/config",
-      method: "PATCH",
-      policyKey: "skills",
-      summary: "Configure skill",
-      description: "Update skill configuration (env, apiKey, config).",
-      tags: ["skills"],
-      requestBody: z.object({
-        env: z.object({}).passthrough().describe("Environment variables"),
-        apiKey: z.string(),
-        config: z.object({}).passthrough().describe("Arbitrary config"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as {
-          env?: Record<string, string>;
-          apiKey?: string;
-          config?: Record<string, unknown>;
-        };
-        const result = configureSkill(
-          params.id,
-          { env: body.env, apiKey: body.apiKey, config: body.config },
+      const hasFilter = !!(origin || kind || q || category);
+
+      if (hasFilter || include === "catalog") {
+        const result = await listSkillsFiltered(
+          {
+            ...(origin ? { origin } : {}),
+            ...(kind ? { kind } : {}),
+            ...(q ? { q } : {}),
+            ...(category ? { category } : {}),
+            includeCatalog: include === "catalog",
+          },
           ctx(),
         );
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ ok: true });
-      },
-    },
+        return {
+          skills: result.skills,
+          categoryCounts: result.categoryCounts,
+          totalCount: result.totalCount,
+        };
+      }
 
+      const skills = listSkills(ctx());
+      return { skills };
+    },
+  },
+  {
+    operationId: "getSkillFileContent",
+    endpoint: "skills/:id/files/content",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Get skill file content",
+    description:
+      "Return the content of a single file belonging to an installed or catalog skill.",
+    tags: ["skills"],
+    queryParams: [
+      {
+        name: "path",
+        schema: { type: "string" },
+        required: true,
+        description: "Relative path of the file within the skill directory",
+      },
+    ],
+    responseBody: z.object({
+      path: z.string(),
+      name: z.string(),
+      size: z.number().int(),
+      mimeType: z.string(),
+      isBinary: z.boolean(),
+      content: z.string().nullable(),
+    }),
+    handler: async ({ pathParams, queryParams = {} }: RouteHandlerArgs) => {
+      const path = queryParams.path;
+      if (!path) {
+        throw new BadRequestError("path query parameter is required");
+      }
+      const result = await getSkillFileContent(pathParams!.id, path, ctx());
+      if ("error" in result) {
+        if (result.status === 400) throw new BadRequestError(result.error);
+        if (result.status === 404) throw new NotFoundError(result.error);
+        throw new InternalError(result.error);
+      }
+      return result;
+    },
+  },
+  {
+    operationId: "getSkillFiles",
+    endpoint: "skills/:id/files",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Get skill files",
+    description: "Return skill metadata and directory contents.",
+    tags: ["skills"],
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await getSkillFiles(pathParams!.id, ctx());
+      if ("error" in result) {
+        if (result.status === 404) throw new NotFoundError(result.error);
+        throw new InternalError(result.error);
+      }
+      return result;
+    },
+  },
+  {
+    operationId: "enableSkill",
+    endpoint: "skills/:id/enable",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Enable skill",
+    description: "Enable an installed skill.",
+    tags: ["skills"],
+    responseBody: z.object({ ok: z.boolean() }),
+    handler: ({ pathParams }: RouteHandlerArgs) => {
+      const result = enableSkill(pathParams!.id, ctx());
+      if (!result.success) throw new InternalError(result.error);
+      return { ok: true };
+    },
+  },
+  {
+    operationId: "disableSkill",
+    endpoint: "skills/:id/disable",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Disable skill",
+    description: "Disable an installed skill.",
+    tags: ["skills"],
+    responseBody: z.object({ ok: z.boolean() }),
+    handler: ({ pathParams }: RouteHandlerArgs) => {
+      const result = disableSkill(pathParams!.id, ctx());
+      if (!result.success) throw new InternalError(result.error);
+      return { ok: true };
+    },
+  },
+  {
+    operationId: "configureSkill",
+    endpoint: "skills/:id/config",
+    method: "PATCH",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Configure skill",
+    description: "Update skill configuration (env, apiKey, config).",
+    tags: ["skills"],
+    requestBody: z.object({
+      env: z.object({}).passthrough().describe("Environment variables"),
+      apiKey: z.string(),
+      config: z.object({}).passthrough().describe("Arbitrary config"),
+    }),
+    responseBody: z.object({ ok: z.boolean() }),
+    handler: ({ pathParams, body = {} }: RouteHandlerArgs) => {
+      const result = configureSkill(
+        pathParams!.id,
+        {
+          env: body.env as Record<string, string> | undefined,
+          apiKey: body.apiKey as string | undefined,
+          config: body.config as Record<string, unknown> | undefined,
+        },
+        ctx(),
+      );
+      if (!result.success) throw new InternalError(result.error);
+      return { ok: true };
+    },
+  },
+  {
+    operationId: "checkSkillUpdates",
+    endpoint: "skills/check-updates",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Check skill updates",
+    description: "Check for available updates to installed skills.",
+    tags: ["skills"],
+    responseBody: z.object({
+      data: z.object({}).passthrough().describe("Update availability info"),
+    }),
+    handler: async () => {
+      const result = await checkSkillUpdates(ctx());
+      if (!result.success) throw new InternalError(result.error);
+      return { data: result.data };
+    },
+  },
+  {
+    operationId: "searchSkills",
+    endpoint: "skills/search",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Search skill catalog",
+    description: "Search the skill catalog by query string.",
+    tags: ["skills"],
+    queryParams: [
+      {
+        name: "q",
+        schema: { type: "string" },
+        description: "Search query (required)",
+      },
+    ],
+    responseBody: z.object({
+      skills: z
+        .array(slimSkillSchema)
+        .describe("Skill objects matching the search query"),
+    }),
+    handler: async ({ queryParams = {} }: RouteHandlerArgs) => {
+      const query = queryParams.q ?? "";
+      if (!query) throw new BadRequestError("q query parameter is required");
+      const result = await searchSkills(query, ctx());
+      if (!result.success) throw new InternalError(result.error);
+      return { skills: result.skills };
+    },
+  },
+  {
+    operationId: "draftSkill",
+    endpoint: "skills/draft",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Draft a skill",
+    description: "Generate a skill draft from source text.",
+    tags: ["skills"],
+    requestBody: z.object({
+      sourceText: z.string().describe("Source text for drafting"),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const sourceText = body.sourceText as string | undefined;
+      if (!sourceText || typeof sourceText !== "string") {
+        throw new BadRequestError("sourceText is required");
+      }
+      const result = await draftSkill({ sourceText }, ctx());
+      if (!result.success) {
+        throw new InternalError(result.error ?? "Draft failed");
+      }
+      return result;
+    },
+  },
+  {
+    operationId: "updateSkill",
+    endpoint: "skills/:id/update",
+    method: "POST",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Update skill",
+    description: "Update an installed skill to the latest version.",
+    tags: ["skills"],
+    responseBody: z.object({ ok: z.boolean() }),
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await updateSkill(pathParams!.id, ctx());
+      if (!result.success) throw new InternalError(result.error);
+      return { ok: true };
+    },
+  },
+  {
+    operationId: "inspectSkill",
+    endpoint: "skills/:id/inspect",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Inspect skill",
+    description: "Return detailed skill information.",
+    tags: ["skills"],
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await inspectSkill(pathParams!.id, ctx());
+      if (result.error && !result.data) {
+        if (result.error.startsWith("Invalid skill slug:")) {
+          throw new BadRequestError(result.error);
+        }
+        if (
+          /not found|does not exist|no such skill|unknown skill/i.test(
+            result.error,
+          )
+        ) {
+          throw new NotFoundError(result.error);
+        }
+        throw new InternalError(result.error);
+      }
+      return result;
+    },
+  },
+  {
+    operationId: "getSkill",
+    endpoint: "skills/:id",
+    method: "GET",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Get skill",
+    description: "Return a single skill by ID with enriched detail fields.",
+    tags: ["skills"],
+    responseBody: z.object({
+      skill: skillDetailSchema.describe("Skill detail object"),
+    }),
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await getSkill(pathParams!.id, ctx());
+      if ("error" in result) {
+        if (result.status === 404) throw new NotFoundError(result.error);
+        throw new InternalError(result.error);
+      }
+      return result;
+    },
+  },
+  {
+    operationId: "deleteSkill",
+    endpoint: "skills/:id",
+    method: "DELETE",
+    policyKey: "skills",
+    requirePolicyEnforcement: true,
+    summary: "Uninstall skill",
+    description: "Remove an installed skill.",
+    tags: ["skills"],
+    responseStatus: "204",
+    handler: async ({ pathParams }: RouteHandlerArgs) => {
+      const result = await uninstallSkill(pathParams!.id, ctx());
+      if (!result.success) throw new InternalError(result.error);
+      return null;
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// HTTP-only route definitions (require authContext)
+// ---------------------------------------------------------------------------
+
+export function skillHttpOnlyRouteDefinitions(): HTTPRouteDefinition[] {
+  return [
     {
       endpoint: "skills/install",
       method: "POST",
@@ -409,85 +558,6 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): HTTPRouteDefinition
         return Response.json({ ok: true, skillId: result.skillId });
       },
     },
-
-    {
-      endpoint: "skills/check-updates",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Check skill updates",
-      description: "Check for available updates to installed skills.",
-      tags: ["skills"],
-      responseBody: z.object({
-        data: z.object({}).passthrough().describe("Update availability info"),
-      }),
-      handler: async () => {
-        const result = await checkSkillUpdates(ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ data: result.data });
-      },
-    },
-
-    {
-      endpoint: "skills/search",
-      method: "GET",
-      policyKey: "skills",
-      summary: "Search skill catalog",
-      description: "Search the skill catalog by query string.",
-      tags: ["skills"],
-      queryParams: [
-        {
-          name: "q",
-          schema: { type: "string" },
-          description: "Search query (required)",
-        },
-      ],
-      responseBody: z.object({
-        skills: z
-          .array(slimSkillSchema)
-          .describe("Skill objects matching the search query"),
-      }),
-      handler: async ({ url }) => {
-        const query = url.searchParams.get("q") ?? "";
-        if (!query) {
-          return httpError("BAD_REQUEST", "q query parameter is required", 400);
-        }
-        const result = await searchSkills(query, ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ skills: result.skills });
-      },
-    },
-
-    {
-      endpoint: "skills/draft",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Draft a skill",
-      description: "Generate a skill draft from source text.",
-      tags: ["skills"],
-      requestBody: z.object({
-        sourceText: z.string().describe("Source text for drafting"),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as { sourceText?: string };
-        if (!body.sourceText || typeof body.sourceText !== "string") {
-          return httpError("BAD_REQUEST", "sourceText is required", 400);
-        }
-        const result = await draftSkill({ sourceText: body.sourceText }, ctx());
-        if (!result.success) {
-          return httpError(
-            "INTERNAL_ERROR",
-            result.error ?? "Draft failed",
-            500,
-          );
-        }
-        return Response.json(result);
-      },
-    },
-
     {
       endpoint: "skills",
       method: "POST",
@@ -501,9 +571,7 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): HTTPRouteDefinition
         description: z.string(),
         bodyMarkdown: z.string(),
       }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
+      responseBody: z.object({ ok: z.boolean() }),
       handler: async ({ req, authContext }) => {
         const body = (await req.json()) as CreateSkillParams;
         if (
@@ -524,89 +592,6 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): HTTPRouteDefinition
           return httpError("INTERNAL_ERROR", result.error, 500);
         }
         return Response.json({ ok: true }, { status: 201 });
-      },
-    },
-
-    {
-      endpoint: "skills/:id/update",
-      method: "POST",
-      policyKey: "skills",
-      summary: "Update skill",
-      description: "Update an installed skill to the latest version.",
-      tags: ["skills"],
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ params }) => {
-        const result = await updateSkill(params.id, ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json({ ok: true });
-      },
-    },
-
-    {
-      endpoint: "skills/:id/inspect",
-      method: "GET",
-      policyKey: "skills",
-      summary: "Inspect skill",
-      description: "Return detailed skill information.",
-      tags: ["skills"],
-      handler: async ({ params }) => {
-        const result = await inspectSkill(params.id, ctx());
-        if (result.error && !result.data) {
-          if (result.error.startsWith("Invalid skill slug:")) {
-            return httpError("BAD_REQUEST", result.error, 400);
-          }
-          if (
-            /not found|does not exist|no such skill|unknown skill/i.test(
-              result.error,
-            )
-          ) {
-            return httpError("NOT_FOUND", result.error, 404);
-          }
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json(result);
-      },
-    },
-
-    {
-      endpoint: "skills/:id",
-      method: "GET",
-      policyKey: "skills",
-      summary: "Get skill",
-      description: "Return a single skill by ID with enriched detail fields.",
-      tags: ["skills"],
-      responseBody: z.object({
-        skill: skillDetailSchema.describe("Skill detail object"),
-      }),
-      handler: async ({ params }) => {
-        const result = await getSkill(params.id, ctx());
-        if ("error" in result) {
-          if (result.status === 404) {
-            return httpError("NOT_FOUND", result.error, 404);
-          }
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json(result);
-      },
-    },
-
-    {
-      endpoint: "skills/:id",
-      method: "DELETE",
-      policyKey: "skills",
-      summary: "Uninstall skill",
-      description: "Remove an installed skill.",
-      tags: ["skills"],
-      handler: async ({ params }) => {
-        const result = await uninstallSkill(params.id, ctx());
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return new Response(null, { status: 204 });
       },
     },
   ];

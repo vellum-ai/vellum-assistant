@@ -8523,7 +8523,7 @@ paths:
       tags:
         - skills
       responses:
-        "200":
+        "204":
           description: Successful response
       parameters:
         - name: id

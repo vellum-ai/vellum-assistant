@@ -973,7 +973,6 @@ export async function runDaemon(): Promise<void> {
           }));
         },
       },
-      getSkillContext: () => server.getSkillContext(),
       getModelSetContext: () => server.getHandlerContext(),
       conversationManagementDeps: {
         switchConversation: (conversationId) =>

@@ -14,7 +14,6 @@ import type {
 // from the runtime barrel without reaching into daemon internals.
 export type { SlackInboundMessageMetadata };
 import type { ModelSetContext } from "../daemon/handlers/config-model.js";
-import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -190,8 +189,6 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
-  /** Context provider for skill management HTTP routes. */
-  getSkillContext?: () => SkillOperationContext;
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
