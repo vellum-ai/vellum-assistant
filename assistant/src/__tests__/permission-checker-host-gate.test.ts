@@ -134,8 +134,8 @@ describe("permission-checker host-access gate", () => {
           expect(call[3]).toEqual([]);
           expect(call[4]).toEqual([]);
           expect(call[8]).toBe(false);
-          expect(call[10]).toBeUndefined();
-          expect(call[12]).toBe(true);
+          expect(call[10]).toBeUndefined(); // toolUseId
+          expect(call[11]).toBe(true); // hostAccessEnablePrompt
           // Since the mock prompter returns "allow", the result should be allowed
           expect(result.allowed).toBe(true);
           expect(result.decision).toBe("allow");
@@ -249,7 +249,7 @@ describe("permission-checker host-access gate", () => {
         expect(call[4]).toEqual([]);
         expect(call[8]).toBe(false);
         expect(call[10]).toBeUndefined();
-        expect(call[12]).toBe(false);
+        expect(call[11]).toBe(false); // hostAccessEnablePrompt
         expect(result.allowed).toBe(true);
         expect(result.decision).toBe("allow");
       });
@@ -279,7 +279,7 @@ describe("permission-checker host-access gate", () => {
         expect(call[4]).toEqual([]);
         expect(call[8]).toBe(false);
         expect(call[10]).toBeUndefined();
-        expect(call[12]).toBe(false);
+        expect(call[11]).toBe(false); // hostAccessEnablePrompt
         expect(result.allowed).toBe(true);
         expect(result.decision).toBe("allow");
       });

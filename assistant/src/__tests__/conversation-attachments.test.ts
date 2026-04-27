@@ -239,8 +239,8 @@ describe("approveHostAttachmentRead", () => {
     expect(call[3]).toEqual([]);
     expect(call[4]).toEqual([]);
     expect(call[8]).toBe(false);
-    expect(call[10]).toBeUndefined();
-    expect(call[12]).toBe(true);
+    expect(call[10]).toBeUndefined(); // toolUseId
+    expect(call[11]).toBe(true); // hostAccessEnablePrompt
   });
 
   test("auto-allows host attachment reads when the conversation already has host access", async () => {
