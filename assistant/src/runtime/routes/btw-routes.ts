@@ -1,5 +1,5 @@
 /**
- * HTTP route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
+ * Route handler for the POST /v1/btw SSE-streaming side-chain endpoint.
  *
  * Runs an ephemeral LLM call that reuses the conversation's provider, tool
  * definitions, and message history for prompt-cache efficiency. Uses the
@@ -17,16 +17,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
+import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { resolvePersonaContext } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
-import type { AuthContext } from "../auth/types.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
-import type { SendMessageDeps } from "../http-types.js";
+import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("btw-routes");
 
@@ -64,42 +63,36 @@ function readSoulIdentityIntro(): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// SSE helpers
+// ---------------------------------------------------------------------------
+
+function sseEvent(event: string, data: unknown): Uint8Array {
+  return new TextEncoder().encode(
+    `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
 
-async function handleBtw(
-  req: Request,
-  deps: { sendMessageDeps?: SendMessageDeps },
-  _authContext: AuthContext,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    conversationKey?: string;
-    content?: string;
-  };
-
-  const { conversationKey, content } = body;
+async function handleBtw({
+  body,
+  abortSignal,
+}: RouteHandlerArgs): Promise<ReadableStream<Uint8Array>> {
+  const conversationKey = body?.conversationKey as string | undefined;
+  const content = body?.content as string | undefined;
 
   if (!conversationKey) {
-    return httpError("BAD_REQUEST", "conversationKey is required", 400);
+    throw new BadRequestError("conversationKey is required");
   }
   if (!content || typeof content !== "string") {
-    return httpError("BAD_REQUEST", "content must be a non-empty string", 400);
-  }
-
-  if (!deps.sendMessageDeps) {
-    return httpError(
-      "SERVICE_UNAVAILABLE",
-      "Message processing is not available",
-      503,
-    );
+    throw new BadRequestError("content must be a non-empty string");
   }
 
   const trimmedContent = content.trim();
 
   // ----- Identity intro fast-path -----
-  // When the client requests the identity intro, check SOUL.md first (persisted
-  // during onboarding), then the LLM-generated cache. Only fall through to a
-  // live LLM call when neither source has a value.
   if (conversationKey === IDENTITY_INTRO_KEY) {
     const soulIntro = readSoulIdentityIntro();
     const fastText = soulIntro ?? getCachedIntro()?.text;
@@ -109,34 +102,17 @@ async function handleBtw(
           ? "Returning SOUL.md identity intro"
           : "Returning cached identity intro",
       );
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream({
+      return new ReadableStream({
         start(controller) {
-          controller.enqueue(
-            encoder.encode(
-              `event: btw_text_delta\ndata: ${JSON.stringify({ text: fastText })}\n\n`,
-            ),
-          );
-          controller.enqueue(
-            encoder.encode(`event: btw_complete\ndata: {}\n\n`),
-          );
+          controller.enqueue(sseEvent("btw_text_delta", { text: fastText }));
+          controller.enqueue(sseEvent("btw_complete", {}));
           controller.close();
-        },
-      });
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
         },
       });
     }
   }
 
   // ----- Greeting context enrichment -----
-  // Inject NOW.md scratchpad so the model has contextual awareness (mood,
-  // current activity) and produces varied, relevant greetings instead of
-  // the same deterministic output each time.
   let effectiveContent = trimmedContent;
   if (conversationKey === GREETING_KEY) {
     const now = readNowScratchpad();
@@ -145,35 +121,31 @@ async function handleBtw(
     }
   }
 
-  // Look up an existing conversation — never create one.  BTW is ephemeral
-  // (the file header promises "No messages are persisted"), so we must not
-  // call getOrCreateConversation which would insert a DB row.  When no
-  // conversation exists (e.g. greeting generation for a draft conversation), we
-  // still get a usable conversation via getOrCreateConversation with the raw key; the
-  // conversation lives only in memory and disappears on restart.
+  // Look up an existing conversation or create an ephemeral one.
   const mapping = getConversationByKey(conversationKey);
   const conversationId = mapping?.conversationId ?? conversationKey;
-  const conversation =
-    await deps.sendMessageDeps.getOrCreateConversation(conversationId);
 
-  const encoder = new TextEncoder();
+  let conversation;
+  try {
+    conversation = await getOrCreateConversation(conversationId);
+  } catch {
+    throw new ServiceUnavailableError(
+      "Message processing is not available",
+    );
+  }
 
-  const stream = new ReadableStream({
+  return new ReadableStream({
     start(controller) {
       (async () => {
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
           const isGreeting = conversationKey === GREETING_KEY;
-          // Resolve guardian persona context (undefined trustContext triggers
-          // the guardian lookup path in persona-resolver). Thread userSlug
-          // through so buildSystemPrompt's BOOTSTRAP.md placeholder never
-          // falls back to "default.md" if excludeBootstrap is ever flipped.
           const { userPersona, userSlug, channelPersona } =
             resolvePersonaContext(undefined, undefined);
           const result = await runBtwSidechain({
             content: effectiveContent,
             conversation,
-            signal: req.signal,
+            signal: abortSignal,
             userPersona,
             channelPersona,
             userSlug,
@@ -181,9 +153,7 @@ async function handleBtw(
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(
-                  encoder.encode(
-                    `event: btw_text_delta\ndata: ${JSON.stringify({ text: event.text })}\n\n`,
-                  ),
+                  sseEvent("btw_text_delta", { text: event.text }),
                 );
               }
             },
@@ -199,7 +169,6 @@ async function handleBtw(
             );
           }
 
-          // Cache the generated identity intro for subsequent requests.
           if (isIntroRequest && result.text) {
             try {
               setCachedIntro(result.text);
@@ -209,19 +178,13 @@ async function handleBtw(
             }
           }
 
-          controller.enqueue(
-            encoder.encode(`event: btw_complete\ndata: {}\n\n`),
-          );
+          controller.enqueue(sseEvent("btw_complete", {}));
           controller.close();
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : "Unknown error";
           log.error({ err }, "btw side-chain streaming error");
           try {
-            controller.enqueue(
-              encoder.encode(
-                `event: btw_error\ndata: ${JSON.stringify({ error: message })}\n\n`,
-              ),
-            );
+            controller.enqueue(sseEvent("btw_error", { error: message }));
             controller.close();
           } catch {
             /* stream already closed */
@@ -230,40 +193,33 @@ async function handleBtw(
       })();
     },
   });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function btwRouteDefinitions(deps: {
-  sendMessageDeps?: SendMessageDeps;
-}): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "btw",
-      method: "POST",
-      policyKey: "btw",
-      summary: "Run ephemeral LLM side-chain",
-      description:
-        "Stream an ephemeral LLM call reusing the conversation's provider and message history. Response is SSE (btw_text_delta, btw_complete, btw_error).",
-      tags: ["btw"],
-      requestBody: z.object({
-        conversationKey: z
-          .string()
-          .describe("Conversation key to scope the call"),
-        content: z.string().describe("User prompt content"),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleBtw(req, deps, authContext),
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "runBtwSidechain",
+    endpoint: "btw",
+    method: "POST",
+    policyKey: "btw",
+    summary: "Run ephemeral LLM side-chain",
+    description:
+      "Stream an ephemeral LLM call reusing the conversation's provider and message history. Response is SSE (btw_text_delta, btw_complete, btw_error).",
+    tags: ["btw"],
+    responseHeaders: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
-  ];
-}
+    requestBody: z.object({
+      conversationKey: z
+        .string()
+        .describe("Conversation key to scope the call"),
+      content: z.string().describe("User prompt content"),
+    }),
+    handler: handleBtw,
+  },
+];

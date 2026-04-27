@@ -128,7 +128,6 @@ import {
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
-import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
@@ -2006,10 +2005,6 @@ export class RuntimeHttpServer {
           return Response.json(detail);
         },
       },
-
-      ...btwRouteDefinitions({
-        sendMessageDeps: this.sendMessageDeps,
-      }),
 
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,

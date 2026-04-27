@@ -92,6 +92,7 @@ export function routeDefinitionsToHTTPRoutes(
           body,
           rawBody,
           headers,
+          abortSignal: req.signal,
         });
 
         const responseHeaders = resolveResponseHeaders(r.responseHeaders, {
@@ -107,8 +108,12 @@ export function routeDefinitionsToHTTPRoutes(
           return new Response(null, { status: 204, headers: responseHeaders });
         }
 
-        // Non-JSON responses: handler returned string or Uint8Array
-        if (typeof result === "string" || result instanceof Uint8Array) {
+        // Non-JSON responses: handler returned string, Uint8Array, or ReadableStream
+        if (
+          typeof result === "string" ||
+          result instanceof Uint8Array ||
+          result instanceof ReadableStream
+        ) {
           return new Response(result as BodyInit, {
             status,
             headers: responseHeaders,
