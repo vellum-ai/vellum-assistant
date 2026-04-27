@@ -26,39 +26,26 @@ graph TB
     RISK_CHECK -->|"High"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
-    NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>+ Low risk?"}
-    WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
-    WS_CHECK -->|"no"| RISK_THRESHOLD
+    NO_MATCH -->|"workspace-scoped<br/>+ Low risk"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
+    NO_MATCH -->|"otherwise"| RISK_THRESHOLD
 
     RISK_THRESHOLD{"risk ≤ autoApproveUpTo<br/>threshold?"}
     RISK_THRESHOLD -->|"yes"| AUTO_THRESHOLD["decision: allow<br/>within auto-approve threshold"]
     RISK_THRESHOLD -->|"no"| PROMPT_THRESHOLD["decision: prompt<br/>above auto-approve threshold"]
 ```
 
-### Permission Modes: Workspace and Strict
+### Auto-Approve Threshold
 
-The `permissions.mode` config option (`workspace` or `strict`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
+Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database and are read by the assistant via IPC (`get_global_thresholds`, `get_conversation_threshold`). Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
-| Behavior                                           | Workspace mode (default)                      | Strict mode                                   |
-| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      |
-| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      |
-| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      |
-| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      |
-| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
-| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
-| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules + containerized bash (high risk)       | Auto-allowed (runtime check)                  | Auto-allowed (runtime check)                  |
-| Deny rules                                         | Blocked                                       | Blocked                                       |
+| `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
+| ------------------ | -------------- | ----------------- | --------------- |
+| `"none"`           | Prompted       | Prompted          | Prompted        |
+| `"low"` (default)  | Auto-allowed   | Prompted          | Prompted        |
+| `"medium"`         | Auto-allowed   | Auto-allowed      | Prompted        |
+| `"high"`           | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
-**Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
-
-**Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
-
-> **Migration note:** Existing config files with `permissions.mode = "legacy"` are automatically migrated to `workspace` during config loading. The `legacy` value is not a supported steady-state mode.
+When set to `"none"`, every tool invocation requires explicit approval. Explicit deny and ask rules always take precedence over the threshold.
 
 ### Trust Rules (v3 Schema)
 
@@ -101,11 +88,11 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
+When `autoApproveUpTo` is `"none"`, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) globally allows all skill loads regardless of threshold (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
-The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly in strict mode. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
+The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly when `autoApproveUpTo` is `"none"`. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
 
 | Rule             | Tool             | Pattern             |
 | ---------------- | ---------------- | ------------------- |
@@ -136,7 +123,7 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 | `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
 | `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both workspace and strict modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect regardless of the `autoApproveUpTo` threshold. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Shell Command Identity and Allowlist Options
 
@@ -184,7 +171,6 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict`)                                                                                                             |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 

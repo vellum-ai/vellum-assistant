@@ -26,7 +26,6 @@ function makeContext(overrides: Partial<ApprovalContext>): ApprovalContext {
   return {
     riskLevel: RiskLevel.Low,
     toolName: "bash",
-    permissionsMode: "workspace",
     isContainerized: false,
     isWorkspaceScoped: false,
     ...overrides,
@@ -75,7 +74,7 @@ describe("ask rule", () => {
   const askRule = makeRule({ decision: "ask" });
 
   test("ask at Low risk", () => {
-    const result = evaluate({ riskLevel: RiskLevel.Low, matchedRule: askRule });
+    const result = evaluate({ riskLevel: RiskLevel.Low, matchedRule: askRule, autoApproveUpTo: "none" });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("ask rule");
     expect(result.matchedRule).toBe(askRule);
@@ -292,36 +291,35 @@ describe("sandbox auto-approve", () => {
     expect(result.reason).toContain("deny rule");
   });
 
-  test("strict mode blocks sandbox auto-approve", () => {
+  test("autoApproveUpTo 'none' blocks sandbox auto-approve", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
       hasSandboxAutoApprove: true,
       isContainerized: true,
-      permissionsMode: "strict",
+      autoApproveUpTo: "none",
     });
-    // Strict mode requires explicit rules — sandbox auto-approve only
-    // fires in workspace mode.
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("Strict mode");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 });
 
 // ── No rule: third-party skill tool ──────────────────────────────────────────
 
 describe("no rule — third-party skill tool", () => {
-  test("skill origin, not bundled → prompt", () => {
+  test("skill origin, not bundled, strict threshold → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "custom_tool",
       toolOrigin: "skill",
       isSkillBundled: false,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("skill origin, not bundled, Medium risk → prompt", () => {
+  test("skill origin, not bundled, Medium risk → prompt (above default threshold)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "custom_tool",
@@ -332,11 +330,12 @@ describe("no rule — third-party skill tool", () => {
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("no tool origin but hasManifestOverride → prompt (unregistered skill tool)", () => {
+  test("no tool origin but hasManifestOverride, strict threshold → prompt (unregistered skill tool)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "unknown_tool",
       hasManifestOverride: true,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
@@ -353,134 +352,124 @@ describe("no rule — third-party skill tool", () => {
     expect(result.decision).toBe("allow");
   });
 
-  test("skill origin, not bundled, gateway threshold covers risk → allow", () => {
+  test("skill origin, not bundled, threshold covers risk → allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "custom_tool",
       toolOrigin: "skill",
       isSkillBundled: false,
       autoApproveUpTo: "medium",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("within auto-approve threshold");
   });
 
-  test("skill origin, not bundled, gateway threshold does not cover risk → prompt", () => {
+  test("skill origin, not bundled, threshold does not cover risk → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "custom_tool",
       toolOrigin: "skill",
       isSkillBundled: false,
       autoApproveUpTo: "medium",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("hasManifestOverride, gateway threshold covers risk → allow", () => {
+  test("hasManifestOverride, threshold covers risk → allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "unknown_tool",
       hasManifestOverride: true,
       autoApproveUpTo: "low",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("within auto-approve threshold");
   });
 });
 
-// ── No rule: strict mode ─────────────────────────────────────────────────────
+// ── No rule: autoApproveUpTo "none" (strict-equivalent) ────────────────────
 
-describe("no rule — strict mode", () => {
-  test("strict mode, Low risk → prompt", () => {
+describe("no rule — autoApproveUpTo 'none'", () => {
+  test("none threshold, Low risk, not workspace-scoped → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
-      permissionsMode: "strict",
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("Strict mode");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 
-  test("strict mode, Medium risk → prompt", () => {
+  test("none threshold, Medium risk → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "file_read",
-      permissionsMode: "strict",
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("Strict mode");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 
-  test("strict mode, High risk → prompt", () => {
+  test("none threshold, High risk → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "file_read",
-      permissionsMode: "strict",
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("Strict mode");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 
-  test("strict mode blocks bundled skill tools without explicit rule", () => {
-    const result = evaluate({
-      riskLevel: RiskLevel.Low,
-      toolName: "bundled_tool",
-      permissionsMode: "strict",
-      toolOrigin: "skill",
-      isSkillBundled: true,
-    });
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("Strict mode");
-  });
-
-  test("strict mode, gateway threshold covers risk → allow", () => {
+  test("none threshold, Low risk, workspace-scoped → prompt (threshold respected)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
-      permissionsMode: "strict",
+      autoApproveUpTo: "none",
+      isWorkspaceScoped: true,
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("above auto-approve threshold");
+  });
+
+  test("none threshold with low autoApproveUpTo → allow", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "file_read",
       autoApproveUpTo: "low",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("within auto-approve threshold");
   });
 
-  test("strict mode, gateway threshold does not cover risk → prompt", () => {
+  test("medium risk with low threshold → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "file_read",
-      permissionsMode: "strict",
       autoApproveUpTo: "low",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("Strict mode");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 });
 
-// ── No rule: workspace mode ──────────────────────────────────────────────────
+// ── No rule: workspace-scoped operations ──────────────────────────────────────
 
-describe("no rule — workspace mode", () => {
-  test("workspace mode, Low risk, workspace-scoped → allow", () => {
+describe("no rule — workspace-scoped operations", () => {
+  test("Low risk, workspace-scoped, within threshold → allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
-      permissionsMode: "workspace",
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
   });
 
-  test("workspace mode, Low risk, NOT workspace-scoped → falls through", () => {
+  test("Low risk, NOT workspace-scoped → falls through to threshold allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
-      permissionsMode: "workspace",
       isWorkspaceScoped: false,
     });
     // Falls through to risk-based: Low → allow (within default "low" threshold)
@@ -488,39 +477,47 @@ describe("no rule — workspace mode", () => {
     expect(result.reason).toContain("low risk");
   });
 
-  test("workspace mode, Medium risk → falls through to risk-based prompt", () => {
+  test("Medium risk, workspace-scoped → falls through to risk-based prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "file_write",
-      permissionsMode: "workspace",
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("medium risk");
   });
 
-  test("workspace mode, bash, NOT containerized, Low risk, workspace-scoped → allow via workspace mode", () => {
+  test("bash, NOT containerized, Low risk, workspace-scoped → allow via workspace-scoped check", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
-      permissionsMode: "workspace",
       isContainerized: false,
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
   });
 
-  test("workspace mode, bash, containerized, Low risk, workspace-scoped → allow via workspace mode", () => {
+  test("bash, containerized, Low risk, workspace-scoped → allow via workspace-scoped check", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
-      permissionsMode: "workspace",
       isContainerized: true,
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
+  });
+
+  test("Low risk, workspace-scoped, autoApproveUpTo 'none' → prompt (threshold not met)", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "file_read",
+      isWorkspaceScoped: true,
+      autoApproveUpTo: "none",
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 });
 
@@ -531,7 +528,6 @@ describe("no rule — bundled skill tool", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bundled_tool",
-      permissionsMode: "workspace",
       toolOrigin: "skill",
       isSkillBundled: true,
     });
@@ -543,7 +539,6 @@ describe("no rule — bundled skill tool", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "bundled_tool",
-      permissionsMode: "workspace",
       toolOrigin: "skill",
       isSkillBundled: true,
     });
@@ -555,12 +550,23 @@ describe("no rule — bundled skill tool", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bundled_tool",
-      permissionsMode: "workspace",
       toolOrigin: "skill",
       isSkillBundled: true,
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("high risk");
+  });
+
+  test("bundled skill, Low risk, autoApproveUpTo 'none' → prompt (threshold respected)", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "bundled_tool",
+      toolOrigin: "skill",
+      isSkillBundled: true,
+      autoApproveUpTo: "none",
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("above auto-approve threshold");
   });
 });
 
@@ -606,7 +612,6 @@ describe("edge cases", () => {
       matchedRule: denyRule,
       isContainerized: true,
       isWorkspaceScoped: true,
-      permissionsMode: "workspace",
     });
     expect(result.decision).toBe("deny");
   });
@@ -618,21 +623,21 @@ describe("edge cases", () => {
       toolName: "bash",
       matchedRule: askRule,
       isContainerized: true,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
   });
 
-  test("allow rule High risk falls through to prompt even with workspace mode", () => {
+  test("allow rule High risk falls through to prompt", () => {
     const allowRule = makeRule({ decision: "allow" });
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "file_write",
       matchedRule: allowRule,
-      permissionsMode: "workspace",
       isContainerized: false,
       isWorkspaceScoped: true,
     });
-    // Allow rule + High risk + non-bash → falls through to risk-based: High → prompt
+    // Allow rule + High risk → falls through to risk-based: High → prompt
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("high risk");
   });
@@ -655,29 +660,26 @@ describe("edge cases", () => {
     expect(result.reason).toContain("rm -rf /");
   });
 
-  test("strict mode with matched allow rule at Low risk → allow (rule takes precedence)", () => {
+  test("matched allow rule at Low risk → allow (rule takes precedence over threshold)", () => {
     const allowRule = makeRule({ decision: "allow" });
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "file_read",
       matchedRule: allowRule,
-      permissionsMode: "strict",
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("allow");
   });
 
-  test("workspace mode non-containerized bash, Low risk, workspace-scoped → workspace allow", () => {
-    // Non-containerized bash auto-allows via workspace mode like any other
-    // workspace-scoped tool when risk is Low.
+  test("non-containerized bash, Low risk, workspace-scoped → workspace-scoped allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
-      permissionsMode: "workspace",
       isContainerized: false,
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
   });
 
   test("hasManifestOverride with toolOrigin set to skill — third-party check triggers on origin", () => {
@@ -687,6 +689,7 @@ describe("edge cases", () => {
       toolOrigin: "skill",
       isSkillBundled: false,
       hasManifestOverride: true,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
@@ -851,45 +854,43 @@ describe("autoApproveUpTo threshold", () => {
       expect(result.matchedRule).toBe(denyRule);
     });
 
-    test("ask rule still prompts without gateway threshold flag", () => {
+    test("ask rule auto-approves when risk is within threshold", () => {
       const askRule = makeRule({ decision: "ask" });
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "bash",
         matchedRule: askRule,
         autoApproveUpTo: "medium",
-      });
-      expect(result.decision).toBe("prompt");
-      expect(result.matchedRule).toBe(askRule);
-    });
-
-    test("ask rule auto-approves when gateway threshold covers the risk", () => {
-      const askRule = makeRule({ decision: "ask" });
-      const result = evaluate({
-        riskLevel: RiskLevel.Low,
-        toolName: "bash",
-        matchedRule: askRule,
-        autoApproveUpTo: "medium",
-        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("within auto-approve threshold");
     });
 
-    test("ask rule still prompts when gateway threshold does not cover the risk", () => {
+    test("ask rule still prompts when threshold does not cover the risk", () => {
       const askRule = makeRule({ decision: "ask" });
       const result = evaluate({
         riskLevel: RiskLevel.High,
         toolName: "bash",
         matchedRule: askRule,
         autoApproveUpTo: "medium",
-        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("prompt");
       expect(result.matchedRule).toBe(askRule);
     });
 
-    test("skill_load_dynamic ask rule always prompts even with gateway threshold", () => {
+    test("ask rule prompts when threshold is strict (none)", () => {
+      const askRule = makeRule({ decision: "ask" });
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "bash",
+        matchedRule: askRule,
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.matchedRule).toBe(askRule);
+    });
+
+    test("skill_load_dynamic ask rule always prompts even with high threshold", () => {
       const dynamicSkillAskRule = makeRule({
         decision: "ask",
         pattern: "skill_load_dynamic:my-skill",
@@ -899,7 +900,6 @@ describe("autoApproveUpTo threshold", () => {
         toolName: "skill_load",
         matchedRule: dynamicSkillAskRule,
         autoApproveUpTo: "high",
-        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("prompt");
       expect(result.matchedRule).toBe(dynamicSkillAskRule);
@@ -918,43 +918,36 @@ describe("autoApproveUpTo threshold", () => {
     });
   });
 
-  describe("threshold interacts correctly with strict mode", () => {
-    test("strict mode still prompts even with medium threshold", () => {
+  describe("threshold controls workspace-scoped operations", () => {
+    test("workspace-scoped Low with 'medium' threshold → allow via workspace-scoped path", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "file_read",
-        permissionsMode: "strict",
+        isWorkspaceScoped: true,
         autoApproveUpTo: "medium",
       });
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("Workspace-scoped");
     });
-  });
 
-  describe("threshold interacts correctly with workspace mode", () => {
-    test("workspace mode workspace-scoped Low still allows via workspace path (before threshold)", () => {
+    test("workspace-scoped Low with 'none' threshold → prompt (threshold gates workspace-scoped too)", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "file_read",
-        permissionsMode: "workspace",
         isWorkspaceScoped: true,
         autoApproveUpTo: "none",
       });
-      // Workspace mode auto-allow fires before the threshold fallback
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("Workspace mode");
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
-    test("workspace mode non-workspace-scoped Low with none threshold → prompt", () => {
+    test("non-workspace-scoped Low with 'none' threshold → prompt", () => {
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "file_read",
-        permissionsMode: "workspace",
         isWorkspaceScoped: false,
         autoApproveUpTo: "none",
       });
-      // Falls through workspace check (not workspace-scoped), then threshold
-      // "none" means Low risk is above threshold → prompt
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("above auto-approve threshold");
     });

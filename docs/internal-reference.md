@@ -160,26 +160,17 @@ If a proxied command receives a 401 or 403 despite having the correct credential
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 
-### Permission Modes and Trust Rules
+### Auto-Approve Threshold and Trust Rules
 
-The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Permission behavior is configured via `permissions.mode`:
+The assistant uses a permission system to control which tool actions the agent can execute without explicit user approval. Auto-approve thresholds are **gateway-owned** — they live in the gateway's SQLite database, not in config.json. The assistant reads them via IPC (`get_global_thresholds`, `get_conversation_threshold`). When the gateway is unreachable, the assistant defaults to `"none"` (Strict) — fail-closed with no local fallback.
 
-| Mode | Default? | Behavior |
+Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or the **per-conversation risk tolerance picker**. The three execution contexts each have their own default:
+
+| Context | Default threshold | Behavior |
 |---|---|---|
-| `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
-| `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
-
-To switch modes:
-
-```bash
-# Workspace mode (default) — workspace-scoped ops auto-allowed, others follow risk-based policy
-assistant config set permissions.mode '"workspace"'
-
-# Strict — ALL tools require an explicit trust rule, no implicit auto-allow
-assistant config set permissions.mode '"strict"'
-```
-
-Existing users with `permissions.mode: "strict"` explicitly in their config will continue to use that mode unchanged.
+| `conversation` (interactive) | `"low"` | Low-risk tools auto-approved; Medium and High risk prompt. |
+| `background` (scheduled/guardian) | `"medium"` | Low and Medium risk auto-approved; High risk prompts. |
+| `headless` (non-guardian automated) | `"none"` | All tool invocations prompt — no implicit auto-allow. |
 
 #### Trust rules
 
@@ -212,7 +203,7 @@ When you approve a skill-originated action, the trust rule can record the skill'
 
 #### Starter approval bundle
 
-In strict mode, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
+When `autoApproveUpTo` is `"none"`, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
 
 #### Skill source mutation protection
 

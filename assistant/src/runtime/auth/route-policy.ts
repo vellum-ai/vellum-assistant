@@ -317,7 +317,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Lifecycle telemetry
   { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
 
-  // Debug
+  // Debug / introspection
+  { endpoint: "clients", scopes: ["settings.read"] },
   { endpoint: "debug", scopes: ["settings.read"] },
 
   // Workspace file browsing

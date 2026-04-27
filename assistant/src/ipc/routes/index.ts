@@ -7,7 +7,6 @@ import { cacheRoutes } from "./cache.js";
 import { credentialPromptRoute } from "./credential-prompt.js";
 import { deferRoutes } from "./defer.js";
 import { getContactRoute } from "./get-contact.js";
-import { listClientsRoute } from "./list-clients.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
 import { renameConversationRoute } from "./rename-conversation.js";
@@ -32,7 +31,6 @@ export const cliIpcRoutes: IpcRoute[] = [
   credentialPromptRoute,
   ...deferRoutes,
   getContactRoute,
-  listClientsRoute,
   mergeContactsRoute,
   renameConversationRoute,
   searchContactsRoute,

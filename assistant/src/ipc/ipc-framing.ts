@@ -4,8 +4,13 @@
  * Wire format: [4-byte big-endian length][payload bytes]
  *
  * Messages use a JSON envelope. When the envelope's `headers` map contains
- * a `content-length` key, a binary data frame immediately follows the JSON
- * frame.
+ * a `content-length` key, a single binary data frame immediately follows
+ * the JSON frame.
+ *
+ * Chunked streaming: when `headers["transfer-encoding"]` is `"chunked"`,
+ * multiple binary data frames follow the JSON envelope. A zero-length
+ * frame (4 bytes of 0x00) terminates the stream. This enables streaming
+ * responses (e.g. audio, SSE) over IPC without buffering the full payload.
  *
  * Backward compatibility: the reader detects legacy newline-delimited JSON
  * by checking if the first byte is `{` (0x7B). New-format frames always
@@ -27,7 +32,9 @@ export interface IpcEnvelope {
   // Response fields
   result?: unknown;
   error?: string;
-  // Shared — when headers["content-length"] is present, a binary frame follows
+  // Shared — when headers["content-length"] is present, a binary frame follows.
+  // When headers["transfer-encoding"] is "chunked", multiple binary frames
+  // follow until a zero-length terminator.
   headers?: Record<string, string>;
 }
 
@@ -70,25 +77,63 @@ export function writeLegacyMessage(
   socket.write(JSON.stringify(envelope) + "\n");
 }
 
+/**
+ * Write a single chunk in a chunked transfer stream.
+ * The envelope must have already been sent with transfer-encoding: chunked.
+ */
+export function writeStreamChunk(socket: Socket, chunk: Uint8Array): void {
+  writeFrame(socket, chunk);
+}
+
+/**
+ * Write a zero-length frame to signal the end of a chunked transfer stream.
+ */
+export function writeStreamEnd(socket: Socket): void {
+  const terminator = Buffer.alloc(4); // 4 bytes of 0x00 = length 0
+  socket.write(terminator);
+}
+
 // ---------------------------------------------------------------------------
 // Reading
 // ---------------------------------------------------------------------------
 
+/** Callback for complete messages (non-streaming). */
+export type OnMessageCallback = (
+  envelope: IpcEnvelope,
+  binary: Uint8Array | undefined,
+) => void;
+
+/** Callbacks for chunked streaming responses. */
+export interface StreamCallbacks {
+  onStreamStart: (envelope: IpcEnvelope) => void;
+  onStreamChunk: (chunk: Uint8Array) => void;
+  onStreamEnd: () => void;
+}
+
 /**
  * Streaming reader that accumulates socket data and emits parsed messages.
  * Handles both legacy newline-delimited JSON and new length-prefixed frames.
+ *
+ * Supports three response modes:
+ * 1. JSON-only: envelope with no binary follow-up
+ * 2. Binary: envelope with content-length → single binary frame
+ * 3. Chunked: envelope with transfer-encoding: chunked → multiple binary
+ *    frames terminated by a zero-length frame
  */
 export class IpcFrameReader {
   private buffer = Buffer.alloc(0);
-  private onMessage: (
-    envelope: IpcEnvelope,
-    binary: Uint8Array | undefined,
-  ) => void;
+  private onMessage: OnMessageCallback;
   private onError: (err: Error) => void;
+  private streamCallbacks: StreamCallbacks | undefined;
 
   // State machine for length-prefixed reading
-  private state: "detect" | "read-length" | "read-payload" | "read-binary" =
-    "detect";
+  private state:
+    | "detect"
+    | "read-length"
+    | "read-payload"
+    | "read-binary"
+    | "read-stream-chunk-length"
+    | "read-stream-chunk" = "detect";
   private pendingLength = 0;
   private pendingEnvelope: IpcEnvelope | null = null;
   private expectBinary = false;
@@ -97,14 +142,13 @@ export class IpcFrameReader {
   isLegacy = false;
 
   constructor(
-    onMessage: (
-      envelope: IpcEnvelope,
-      binary: Uint8Array | undefined,
-    ) => void,
+    onMessage: OnMessageCallback,
     onError?: (err: Error) => void,
+    streamCallbacks?: StreamCallbacks,
   ) {
     this.onMessage = onMessage;
     this.onError = onError ?? (() => {});
+    this.streamCallbacks = streamCallbacks;
   }
 
   /** Feed incoming socket data into the reader. */
@@ -114,7 +158,6 @@ export class IpcFrameReader {
   }
 
   private drain(): void {
-     
     while (true) {
       if (this.state === "detect") {
         if (this.buffer.length === 0) return;
@@ -149,6 +192,15 @@ export class IpcFrameReader {
           continue;
         }
 
+        const transferEncoding = envelope.headers?.["transfer-encoding"];
+        if (transferEncoding === "chunked") {
+          // Chunked streaming — emit start, then read chunks until terminator
+          this.pendingEnvelope = envelope;
+          this.streamCallbacks?.onStreamStart(envelope);
+          this.state = "read-stream-chunk-length";
+          continue;
+        }
+
         const contentLength = envelope.headers?.["content-length"];
         if (contentLength != null) {
           // Binary frame follows
@@ -174,6 +226,35 @@ export class IpcFrameReader {
         this.pendingEnvelope = null;
         this.expectBinary = false;
         this.state = "detect";
+        continue;
+      }
+
+      // Chunked streaming states
+      if (this.state === "read-stream-chunk-length") {
+        if (this.buffer.length < 4) return;
+        this.pendingLength = this.buffer.readUInt32BE(0);
+        this.buffer = this.buffer.subarray(4);
+
+        if (this.pendingLength === 0) {
+          // Zero-length frame = end of stream
+          this.streamCallbacks?.onStreamEnd();
+          this.pendingEnvelope = null;
+          this.state = "detect";
+          continue;
+        }
+
+        this.state = "read-stream-chunk";
+      }
+
+      if (this.state === "read-stream-chunk") {
+        if (this.buffer.length < this.pendingLength) return;
+        const chunk = new Uint8Array(
+          this.buffer.subarray(0, this.pendingLength),
+        );
+        this.buffer = this.buffer.subarray(this.pendingLength);
+
+        this.streamCallbacks?.onStreamChunk(chunk);
+        this.state = "read-stream-chunk-length";
         continue;
       }
     }

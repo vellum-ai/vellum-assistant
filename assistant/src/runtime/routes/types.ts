@@ -58,6 +58,13 @@ export interface RouteDefinition {
    */
   requireGuardian?: boolean;
   /**
+   * When true, the route is unauthenticated — served pre-auth on HTTP
+   * and excluded from IPC registration. Public routes use capability
+   * tokens (unguessable IDs) instead of caller auth. Long-term these
+   * will be served directly by the gateway (ATL-314).
+   */
+  isPublic?: boolean;
+  /**
    * Response headers for this route. Can be:
    * - A static map of header name → value
    * - A function that computes headers from path/query params + request headers

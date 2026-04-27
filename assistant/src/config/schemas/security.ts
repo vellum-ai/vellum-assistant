@@ -1,9 +1,6 @@
 import { z } from "zod";
 
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
-const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
-
-export { VALID_PERMISSIONS_MODES };
 
 const CustomSecretPatternSchema = z
   .object({
@@ -67,53 +64,4 @@ export const SecretDetectionConfigSchema = z
     "Automatic secret detection and redaction to prevent leaking sensitive data",
   );
 
-export const PermissionsConfigSchema = z
-  .object({
-    mode: z
-      .enum(VALID_PERMISSIONS_MODES, {
-        error: `permissions.mode must be one of: ${VALID_PERMISSIONS_MODES.join(
-          ", ",
-        )}`,
-      })
-      .default("workspace")
-      .describe(
-        "Permission mode — 'strict' requires explicit approval for all operations, 'workspace' allows operations within the workspace",
-      ),
-    autoApproveUpTo: z
-      .union([
-        z.enum(["none", "low", "medium", "high"], {
-          error:
-            "permissions.autoApproveUpTo must be one of: none, low, medium, high",
-        }),
-        z.object({
-          conversation: z
-            .enum(["none", "low", "medium", "high"])
-            .default("low")
-            .describe(
-              "Threshold for interactive conversation sessions (default: low)",
-            ),
-          background: z
-            .enum(["none", "low", "medium", "high"])
-            .default("medium")
-            .describe(
-              "Threshold for non-interactive guardian sessions (default: medium)",
-            ),
-          headless: z
-            .enum(["none", "low", "medium", "high"])
-            .default("none")
-            .describe(
-              "Threshold for non-interactive non-guardian sessions (default: none)",
-            ),
-        }),
-      ])
-      .default({ conversation: "low", background: "medium", headless: "none" })
-      .describe(
-        "Auto-approve tools at or below this risk level without prompting. " +
-          "Accepts a scalar ('none', 'low', 'medium', 'high') applied to all contexts, " +
-          "or an object with per-context overrides: { conversation, background, headless }.",
-      ),
-  })
-  .describe("Permission enforcement mode for tool operations");
-
 export type SecretDetectionConfig = z.infer<typeof SecretDetectionConfigSchema>;
-export type PermissionsConfig = z.infer<typeof PermissionsConfigSchema>;

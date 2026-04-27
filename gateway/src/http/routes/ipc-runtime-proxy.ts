@@ -141,7 +141,7 @@ export async function tryIpcProxy(
     );
 
     if (result === undefined || result === null) {
-      return Response.json(null, { status: 200 });
+      return new Response(null, { status: 204 });
     }
 
     if (typeof result === "string") {

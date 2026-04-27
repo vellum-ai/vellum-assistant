@@ -1,0 +1,34 @@
+# Socket.dev supply-chain policy. Gates the `socket-security` GitHub App
+# checks on every PR.
+# Schema is booleans — `{ action: ... }` is silently rejected.
+# See docs/socket.md.
+
+version: 2
+
+projectIgnorePaths:
+  - "**/node_modules/**"
+  - "**/.build/**"
+  - "clients/.build/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.build-ios/**"
+  - "**/*.tsbuildinfo"
+  - "**/*.bun-build"
+
+issueRules:
+  malware: true
+  gptMalware: true
+  didYouMean: true
+  installScripts: true
+  hasNativeCode: true
+  shellAccess: true
+
+  licenseChange: true
+  deprecated: true
+  unmaintained: true
+  dynamicRequire: true
+
+  criticalCVE: true
+  cve: true
+  mediumCVE: false
+  mildCVE: false

@@ -98,7 +98,7 @@ import { verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
-import { httpError } from "./http-errors.js";
+import { httpError, type HttpErrorCode } from "./http-errors.js";
 import type { HTTPRouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
@@ -127,7 +127,7 @@ import {
 } from "./middleware/twilio-validation.js";
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
-import { handleGetAudio } from "./routes/audio-routes.js";
+import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
 import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
@@ -154,6 +154,7 @@ import { conversationQueryRouteDefinitions } from "./routes/conversation-query-r
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
+import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
@@ -945,10 +946,33 @@ export class RuntimeHttpServer {
     if (twilioResponse) return twilioResponse;
 
     // Audio serving endpoint — before auth check because Twilio
-    // fetches these URLs directly. The audioId is an unguessable UUID.
+    // fetches these URLs directly (isPublic route, ATL-314).
     const audioMatch = path.match(/^\/v1\/audio\/([^/]+)$/);
     if (audioMatch && req.method === "GET") {
-      return handleGetAudio(audioMatch[1]);
+      const audioDef = AUDIO_ROUTES.find((r) => r.operationId === "audio_get")!;
+      const args = { pathParams: { audioId: audioMatch[1] } };
+      try {
+        const result = await audioDef.handler(args);
+        const headers =
+          typeof audioDef.responseHeaders === "function"
+            ? audioDef.responseHeaders(args)
+            : audioDef.responseHeaders;
+        if (result instanceof ReadableStream) {
+          return new Response(result as ReadableStream<Uint8Array>, {
+            headers,
+          });
+        }
+        return new Response(result as BodyInit, { headers });
+      } catch (err) {
+        if (err instanceof RouteError) {
+          return httpError(
+            err.code as HttpErrorCode,
+            err.message,
+            err.statusCode,
+          );
+        }
+        throw err;
+      }
     }
 
     // Skill-registered routes (e.g. meet-bot event ingress). Handled before

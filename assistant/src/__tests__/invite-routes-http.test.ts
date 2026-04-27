@@ -1,16 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { upsertContact } from "../contacts/contact-store.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
-import { RouteError } from "../runtime/routes/errors.js";
-import {
-  handleCreateInvite as _handleCreateInvite,
-  handleListInvites as _handleListInvites,
-  handleRedeemInvite as _handleRedeemInvite,
-  handleRevokeInvite as _handleRevokeInvite,
-  handleTriggerInviteCall as _handleTriggerInviteCall,
-} from "../runtime/routes/invite-routes.js";
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -44,6 +33,17 @@ let mockStartInviteCallResult:
 mock.module("../calls/call-domain.js", () => ({
   startInviteCall: async () => mockStartInviteCallResult,
 }));
+
+import { upsertContact } from "../contacts/contact-store.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
+import { RouteError } from "../runtime/routes/errors.js";
+import {
+  handleCreateInvite as _handleCreateInvite,
+  handleListInvites as _handleListInvites,
+  handleRedeemInvite as _handleRedeemInvite,
+  handleRevokeInvite as _handleRevokeInvite,
+  handleTriggerInviteCall as _handleTriggerInviteCall,
+} from "../runtime/routes/invite-routes.js";
 
 /**
  * Compatibility wrappers: translate old handler call signatures into the new

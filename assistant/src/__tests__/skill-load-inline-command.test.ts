@@ -77,14 +77,14 @@ mock.module("../skills/catalog-install.js", () => ({
 }));
 
 interface TestConfig {
-  permissions: { mode: "strict" | "workspace" };
+  permissions: { autoApproveUpTo?: "none" | "low" | "medium" | "high" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
   [key: string]: unknown;
 }
 
 const testConfig: TestConfig = {
-  permissions: { mode: "workspace" },
+  permissions: {},
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
 };

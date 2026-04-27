@@ -1,8 +1,10 @@
 /**
  * Gateway-backed auto-approve threshold reader.
  *
- * Reads thresholds from the gateway via IPC. Returns undefined when the
- * gateway is unreachable so callers fall back to local config thresholds.
+ * Reads thresholds from the gateway via IPC. The gateway is the sole source
+ * of truth for auto-approve thresholds. When the gateway is unreachable,
+ * defaults to "none" (Strict) so no tools are auto-approved without an
+ * explicit gateway-supplied threshold.
  */
 
 import { ipcCall } from "../ipc/gateway-client.js";
@@ -79,12 +81,13 @@ function isValidThreshold(value: string): value is Threshold {
  * the conversation override is absent.
  *
  * Caches global thresholds for 30 seconds to avoid hammering the gateway.
- * On any IPC error, logs a warning and returns undefined.
+ * On any IPC error or unexpected response, returns `"none"` (Strict) so
+ * no tools are silently auto-approved when the gateway is unreachable.
  */
 export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
-): Promise<Threshold | undefined> {
+): Promise<Threshold> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
   // For conversation context with a conversationId, try per-conversation override first
@@ -138,20 +141,17 @@ export async function getAutoApproveThreshold(
     if (isValidThreshold(value)) {
       return value;
     }
-    // Unexpected value from gateway — return undefined so checker falls back
-    // to the local config threshold (isGatewayThreshold stays false).
-    log.warn({ field, value }, "Gateway returned unexpected threshold value");
-    return undefined;
+    // Unexpected value from gateway — default to "none" (Strict).
+    log.warn({ field, value }, "Gateway returned unexpected threshold value, defaulting to none");
+    return "none";
   } catch (err) {
-    // Gateway unreachable — return undefined so checker.ts falls back to
-    // resolveThreshold(config.permissions.autoApproveUpTo). This preserves
-    // isGatewayThreshold = false, keeping ask-rule overrides inactive when
-    // the gateway is down.
+    // Gateway unreachable — default to "none" (Strict) so no tools are
+    // silently auto-approved when the gateway is down.
     log.warn(
       { error: String(err) },
-      "Failed to fetch global thresholds, falling back to local config",
+      "Failed to fetch global thresholds, defaulting to none",
     );
-    return undefined;
+    return "none";
   }
 }
 

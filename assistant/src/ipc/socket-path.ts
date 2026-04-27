@@ -100,3 +100,8 @@ export function resolveIpcSocketPath(
     source: "tmp-short-hash",
   };
 }
+
+/** Shorthand — resolves the assistant CLI IPC socket path. */
+export function getAssistantSocketPath(): string {
+  return resolveIpcSocketPath("assistant").path;
+}

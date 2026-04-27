@@ -44,9 +44,7 @@ const mockConfig = {
     action: "warn" as const,
     entropyThreshold: 4.0,
   },
-  permissions: {
-    mode: "workspace" as const,
-  },
+  permissions: {},
 };
 
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
@@ -770,7 +768,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     // Simulate workspace mode returning 'allow' for a workspace-scoped file_write
     checkResultOverride = {
       decision: "allow",
-      reason: "Workspace mode: workspace-scoped operation auto-allowed",
+      reason: "Workspace-scoped low-risk operation auto-allowed",
     };
 
     const executor = new ToolExecutor(makeTrackingPrompter());

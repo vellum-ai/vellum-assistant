@@ -26,7 +26,6 @@ import {
 import {
   type ApprovalContext,
   DefaultApprovalPolicy,
-  resolveThreshold,
 } from "./approval-policy.js";
 import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
 import type { RiskAssessment } from "./risk-types.js";
@@ -511,21 +510,13 @@ export async function check(
 
   // Build approval context from local variables
   const tool = getTool(toolName);
-  const config = getConfig();
-  const gatewayThreshold = await getAutoApproveThreshold(
+  const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,
     policyContext?.executionContext,
   );
-  const resolvedThreshold =
-    gatewayThreshold ??
-    resolveThreshold(
-      config.permissions.autoApproveUpTo,
-      policyContext?.executionContext,
-    );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
-    permissionsMode: config.permissions.mode,
     isContainerized: getIsContainerized(),
     isWorkspaceScoped:
       risk === RiskLevel.Low
@@ -539,8 +530,7 @@ export async function check(
           : undefined,
     isSkillBundled: tool?.ownerSkillBundled ?? false,
     hasManifestOverride: !!manifestOverride,
-    autoApproveUpTo: resolvedThreshold,
-    isGatewayThreshold: gatewayThreshold != null,
+    autoApproveUpTo: threshold,
     hasSandboxAutoApprove,
   };
 
