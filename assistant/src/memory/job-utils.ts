@@ -27,13 +27,13 @@ const log = getLogger("memory-jobs-worker");
 // ── Vector BLOB encoding/decoding ───────────────────────────────────
 
 /** Encode a number[] into a compact Float32Array BLOB for SQLite storage. */
-function vectorToBlob(vector: number[]): Buffer {
+export function vectorToBlob(vector: number[]): Buffer {
   const f32 = new Float32Array(vector);
   return Buffer.from(f32.buffer, f32.byteOffset, f32.byteLength);
 }
 
 /** Decode a BLOB (Buffer/Uint8Array) back into a number[]. */
-function blobToVector(buf: Buffer | Uint8Array): number[] {
+export function blobToVector(buf: Buffer | Uint8Array): number[] {
   const f32 = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
   return Array.from(f32);
 }
