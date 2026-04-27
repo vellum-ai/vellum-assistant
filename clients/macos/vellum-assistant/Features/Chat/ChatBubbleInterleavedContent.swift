@@ -343,7 +343,9 @@ extension ChatBubble {
                     onAlwaysAllow: onAlwaysAllow,
                     onTemporaryAllow: onTemporaryAllow,
                     activeConfirmationRequestId: activeConfirmationRequestId,
-                    progressUIState: $progressUIState
+                    progressUIState: $progressUIState,
+                    suggestRuleToolCall: $suggestRuleToolCall,
+                    suggestRuleSuggestion: $suggestRuleSuggestion
                 )
                 Spacer(minLength: 0)
             }

@@ -30,6 +30,58 @@ const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
 
 /**
+ * Warn when an assistant appears to have legacy data in the global workspace.
+ *
+ * Old local startup paths could launch the daemon without
+ * `VELLUM_WORKSPACE_DIR`, causing writes to fall back to `~/.vellum/workspace`.
+ * New local instance launches pin the workspace under
+ * `<instanceDir>/.vellum/workspace`. If we detect data only in the legacy
+ * global path, warn with migration instructions so users are not surprised by
+ * missing history/settings after the fix.
+ */
+function warnIfLegacyWorkspaceFallbackDetected(
+  resources: LocalInstanceResources,
+): void {
+  const instanceWorkspace = join(resources.instanceDir, ".vellum", "workspace");
+  const instanceDbPath = join(instanceWorkspace, "data", "db", "assistant.db");
+
+  const legacyWorkspace = join(homedir(), ".vellum", "workspace");
+  const legacyDbPath = join(legacyWorkspace, "data", "db", "assistant.db");
+
+  // Legacy "first local" entries use ~/.vellum directly; no drift possible.
+  if (instanceWorkspace === legacyWorkspace) return;
+
+  if (existsSync(legacyDbPath) && !existsSync(instanceDbPath)) {
+    console.warn("");
+    console.warn(
+      "WARNING: Detected legacy workspace data in ~/.vellum/workspace for this local assistant.",
+    );
+    console.warn("   What this means:");
+    console.warn(
+      "   - An older startup path likely wrote assistant data to the global workspace.",
+    );
+    console.warn(
+      "   - This assistant now uses its instance workspace instead:",
+    );
+    console.warn(`     ${instanceWorkspace}`);
+    console.warn("   What to do:");
+    console.warn(
+      "   1. Stop the assistant before migrating files (retire/sleep or quit app).",
+    );
+    console.warn(
+      "   2. Copy needed data from ~/.vellum/workspace into the instance workspace.",
+    );
+    console.warn(
+      `      Example: cp -a ~/.vellum/workspace/data/db/assistant.db* ${join(instanceWorkspace, "data", "db")}/`,
+    );
+    console.warn(
+      "   3. Re-launch and confirm history/settings appear as expected.",
+    );
+    console.warn("");
+  }
+}
+
+/**
  * On macOS, if `{workspaceDir}/assistant-skill.sock` would exceed the
  * 103-byte AF_UNIX path limit, compute a short tmpdir-based IPC socket
  * directory and return it.  Returns `undefined` when no override is needed
@@ -341,6 +393,11 @@ async function startDaemonFromSource(
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
+    env.VELLUM_WORKSPACE_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "workspace",
+    );
     env.GATEWAY_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
@@ -467,6 +524,11 @@ async function startDaemonWatchFromSource(
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
+    env.VELLUM_WORKSPACE_DIR = join(
+      resources.instanceDir,
+      ".vellum",
+      "workspace",
+    );
     env.GATEWAY_SECURITY_DIR = join(
       resources.instanceDir,
       ".vellum",
@@ -819,6 +881,8 @@ export async function startLocalDaemon(
   resources: LocalInstanceResources,
   options?: DaemonStartOptions,
 ): Promise<void> {
+  warnIfLegacyWorkspaceFallbackDetected(resources);
+
   const foreground = options?.foreground ?? false;
   // Check for a compiled daemon binary adjacent to the CLI executable.
   // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
@@ -952,6 +1016,11 @@ export async function startLocalDaemon(
       // all paths under the instance directory and listens on its own port.
       if (resources) {
         daemonEnv.BASE_DATA_DIR = resources.instanceDir;
+        daemonEnv.VELLUM_WORKSPACE_DIR = join(
+          resources.instanceDir,
+          ".vellum",
+          "workspace",
+        );
         daemonEnv.GATEWAY_SECURITY_DIR = join(
           resources.instanceDir,
           ".vellum",
@@ -1123,23 +1192,17 @@ export async function startGateway(
           VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
         }
       : {}),
-    // Set GATEWAY_SECURITY_DIR so the gateway loads credentials for this
-    // instance. VELLUM_WORKSPACE_DIR is inherited from the parent process
-    // (matching the daemon) — overriding it here would desync the gateway
-    // and daemon workspace paths, causing the gateway's direct assistant-DB
-    // access (e.g. bootstrapGuardian) to resolve to the wrong file.
+    // Pin gateway workspace/security paths to the named instance so parent
+    // env vars cannot leak a different workspace. The gateway opens the
+    // assistant DB directly for guardian bootstrap.
     ...(resources
       ? {
           BASE_DATA_DIR: resources.instanceDir,
-          ...(!process.env.VELLUM_WORKSPACE_DIR
-            ? {
-                VELLUM_WORKSPACE_DIR: join(
-                  resources.instanceDir,
-                  ".vellum",
-                  "workspace",
-                ),
-              }
-            : {}),
+          VELLUM_WORKSPACE_DIR: join(
+            resources.instanceDir,
+            ".vellum",
+            "workspace",
+          ),
           GATEWAY_SECURITY_DIR: join(
             resources.instanceDir,
             ".vellum",
