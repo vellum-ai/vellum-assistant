@@ -108,6 +108,10 @@ import {
   createApprovalCopyGenerator,
 } from "./approval-generators.js";
 import {
+  findConversation,
+  findConversationBySurfaceId,
+} from "./conversation-store.js";
+import {
   cleanupPidFile,
   cleanupPidFileIfOwner,
   writePid,
@@ -973,10 +977,9 @@ export async function runDaemon(): Promise<void> {
           }));
         },
       },
-      findConversation: (conversationId) =>
-        server.findConversation(conversationId),
+      findConversation: (conversationId) => findConversation(conversationId),
       findConversationBySurfaceId: (surfaceId) =>
-        server.findConversationBySurfaceId(surfaceId),
+        findConversationBySurfaceId(surfaceId),
       getSkillContext: () => server.getSkillContext(),
       getModelSetContext: () => server.getHandlerContext(),
       conversationManagementDeps: {

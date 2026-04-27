@@ -19,7 +19,7 @@ import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import {
   conversationEntries,
-  findConversation as storeFindConversation,
+  findConversation,
 } from "../conversation-store.js";
 import type {
   ConfirmationResponse,
@@ -235,7 +235,7 @@ export async function switchConversation(
 
   // If the target conversation is headless-locked (actively executing a task run),
   // skip rebinding so tool confirmations stay suppressed.
-  const existingConversation = storeFindConversation(conversationId);
+  const existingConversation = findConversation(conversationId);
   const isHeadlessLocked = existingConversation?.headlessLock;
 
   if (isHeadlessLocked) {
@@ -274,7 +274,7 @@ export function cancelGeneration(
   conversationId: string,
   ctx: HandlerContext,
 ): boolean {
-  const conversation = storeFindConversation(conversationId);
+  const conversation = findConversation(conversationId);
   if (!conversation) {
     return false;
   }

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  clearConversations,
+  findConversation,
+  setConversation,
+} from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message } from "../providers/types.js";
 import { SubagentManager } from "../subagent/manager.js";
@@ -318,19 +323,14 @@ describe("SubagentManager fork spawn", () => {
     expect(systemPrompt).toBe(parentPrompt);
   });
 
-  test("fork resolves system prompt via resolveParentConversation when parentSystemPrompt is absent", () => {
-    const manager = new SubagentManager();
+  test("fork resolves system prompt via conversation store when parentSystemPrompt is absent", () => {
+    clearConversations();
     const parentPrompt = "Resolved parent system prompt.";
 
-    // Wire the resolveParentConversation callback.
-    manager.resolveParentConversation = (id: string) => {
-      if (id === "parent-sess-1") {
-        return {
-          getCurrentSystemPrompt: () => parentPrompt,
-        } as any;
-      }
-      return undefined;
-    };
+    // Populate the store with a mock parent conversation.
+    setConversation("parent-sess-1", {
+      getCurrentSystemPrompt: () => parentPrompt,
+    } as any);
 
     // Simulate the fallback logic from spawn():
     const config: SubagentConfig = makeConfig({
@@ -340,15 +340,9 @@ describe("SubagentManager fork spawn", () => {
     });
 
     let systemPrompt: string | undefined;
-    if (
-      config.fork &&
-      !config.parentSystemPrompt &&
-      manager.resolveParentConversation
-    ) {
-      const parentConv = manager.resolveParentConversation(
-        config.parentConversationId,
-      );
-      systemPrompt = (parentConv as any)?.getCurrentSystemPrompt?.();
+    if (config.fork && !config.parentSystemPrompt) {
+      const parentConv = findConversation(config.parentConversationId);
+      systemPrompt = parentConv?.getCurrentSystemPrompt?.();
     }
 
     expect(systemPrompt).toBe(parentPrompt);

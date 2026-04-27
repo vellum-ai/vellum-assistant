@@ -22,7 +22,7 @@ import {
 import { initializeProviders } from "../../providers/registry.js";
 import {
   conversationEntries,
-  deleteConversation as storeDelete,
+  deleteConversation,
 } from "../conversation-store.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
 
@@ -195,7 +195,7 @@ export async function setModel(
   for (const [id, conversation] of conversationEntries()) {
     if (!conversation.isProcessing()) {
       conversation.dispose();
-      storeDelete(id);
+      deleteConversation(id);
     } else {
       conversation.markStale();
     }

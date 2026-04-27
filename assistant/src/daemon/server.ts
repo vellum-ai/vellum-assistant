@@ -109,11 +109,10 @@ import {
   conversationCount,
   conversationEntries,
   conversationIds,
-  deleteConversation as storeDelete,
-  findConversation as storeFindConversation,
-  findConversationBySurfaceId as storeFindBySurfaceId,
+  deleteConversation,
+  findConversation,
   getConversationMap,
-  setConversation as storeSet,
+  setConversation,
 } from "./conversation-store.js";
 import {
   refreshSurfacesForApp,
@@ -451,8 +450,6 @@ export class DaemonServer {
     this.evictor = new ConversationEvictor(getConversationMap());
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
-    getSubagentManager().resolveParentConversation = (id) =>
-      storeFindConversation(id);
     setBroadcastToAllClients((msg) => this.broadcast(msg));
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     // Wire the skill IPC server into the meet-host supervisor's lazy
@@ -476,7 +473,7 @@ export class DaemonServer {
       sendToClient,
       notification,
     ) => {
-      const parentConversation = storeFindConversation(parentConversationId);
+      const parentConversation = findConversation(parentConversationId);
       if (!parentConversation) {
         log.warn(
           { parentConversationId },
@@ -517,7 +514,7 @@ export class DaemonServer {
       message,
       sendToClient,
     ) => {
-      const parentConversation = storeFindConversation(parentConversationId);
+      const parentConversation = findConversation(parentConversationId);
       if (!parentConversation) {
         log.warn(
           { parentConversationId },
@@ -701,7 +698,7 @@ export class DaemonServer {
     });
 
     registerCancelCallback((conversationId) => {
-      const conversation = storeFindConversation(conversationId);
+      const conversation = findConversation(conversationId);
       if (!conversation) return false;
       this.evictor.touch(conversationId);
       conversation.abort(
@@ -879,7 +876,7 @@ export class DaemonServer {
     // cancelled with no_interactive_surface. We skip that wasted work
     // and return conversation_not_found directly.
     registerInteractiveUiResolver(async (request) => {
-      const conversation = storeFindConversation(request.conversationId);
+      const conversation = findConversation(request.conversationId);
 
       if (!conversation) {
         log.warn(
@@ -910,7 +907,7 @@ export class DaemonServer {
     // extension connectivity instead of always falling back to a synthetic
     // browser-cli session that has no hostBrowserProxy.
     registerBrowserIpcContextResolver((conversationId) => {
-      const conversation = storeFindConversation(conversationId);
+      const conversation = findConversation(conversationId);
       if (!conversation) return null;
       return {
         conversationId,
@@ -1061,12 +1058,12 @@ export class DaemonServer {
    * conversation map. No-op if no conversation exists for the given ID.
    */
   destroyConversation(conversationId: string): void {
-    const conversation = storeFindConversation(conversationId);
+    const conversation = findConversation(conversationId);
     if (!conversation) return;
     this.evictor.remove(conversationId);
     getSubagentManager().abortAllForParent(conversationId);
     conversation.dispose();
-    storeDelete(conversationId);
+    deleteConversation(conversationId);
     this.conversationOptions.delete(conversationId);
   }
 
@@ -1076,7 +1073,7 @@ export class DaemonServer {
       if (!conversation.isProcessing()) {
         subagentManager.abortAllForParent(id);
         conversation.dispose();
-        storeDelete(id);
+        deleteConversation(id);
         this.evictor.remove(id);
       } else {
         conversation.markStale();
@@ -1110,7 +1107,7 @@ export class DaemonServer {
     conversationId: string,
     options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    let conversation = storeFindConversation(conversationId);
+    let conversation = findConversation(conversationId);
     const sendToClient = () => {};
 
     const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
@@ -1206,7 +1203,7 @@ export class DaemonServer {
           await newConversation.ensureActorScopedHistory();
         }
         this.applyTransportMetadata(newConversation, storedOptions);
-        storeSet(conversationId, newConversation);
+        setConversation(conversationId, newConversation);
         return newConversation;
       })();
 
@@ -1808,20 +1805,6 @@ export class DaemonServer {
     options?: ConversationCreateOptions,
   ): Promise<Conversation> {
     return this.getOrCreateConversation(conversationId, options);
-  }
-
-  /**
-   * Look up an active conversation by ID without creating one.
-   */
-  findConversation(conversationId: string): Conversation | undefined {
-    return storeFindConversation(conversationId);
-  }
-
-  /**
-   * Look up an active conversation that owns a given surfaceId.
-   */
-  findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
-    return storeFindBySurfaceId(surfaceId);
   }
 
   /**

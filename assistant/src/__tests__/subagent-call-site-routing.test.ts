@@ -140,6 +140,10 @@ mock.module("../util/logger.js", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
 import { LLMSchema } from "../config/schemas/llm.js";
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-store.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { SubagentManager } from "../subagent/manager.js";
 
@@ -235,16 +239,14 @@ describe("SubagentManager — provider call-site routing", () => {
     };
 
     capturedConversations.length = 0;
+    clearConversations();
     const manager = new SubagentManager();
-    manager.resolveParentConversation = (id) =>
-      id === "parent-perms"
-        ? ({
-            trustContext: parentTrustContext,
-            getAuthContext: () => parentAuthContext,
-            assistantId: "self",
-            getCurrentSystemPrompt: () => "parent system",
-          } as any)
-        : undefined;
+    setConversation("parent-perms", {
+      trustContext: parentTrustContext,
+      getAuthContext: () => parentAuthContext,
+      assistantId: "self",
+      getCurrentSystemPrompt: () => "parent system",
+    } as any);
 
     await manager.spawn(
       {
