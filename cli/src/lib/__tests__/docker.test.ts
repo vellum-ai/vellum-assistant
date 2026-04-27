@@ -134,14 +134,11 @@ describe("VELLUM_AVATAR_DEVICE passthrough", () => {
     ).toBe("/dev/video11");
   });
 
-  test("assistant args always include VELLUM_AVATAR_DEVICE env var", () => {
+  test("assistant args omit --device and env var when device node is absent", () => {
     const args = buildAssistantArgs();
-    expect(args).toContain(`${AVATAR_DEVICE_ENV_VAR}=/dev/video10`);
-  });
-
-  test("assistant args use custom device path from VELLUM_AVATAR_DEVICE", () => {
-    process.env[AVATAR_DEVICE_ENV_VAR] = "/dev/video11";
-    const args = buildAssistantArgs();
-    expect(args).toContain(`${AVATAR_DEVICE_ENV_VAR}=/dev/video11`);
+    expect(args).not.toContain("--device");
+    expect(args.some((a) => a.startsWith(`${AVATAR_DEVICE_ENV_VAR}=`))).toBe(
+      false,
+    );
   });
 });

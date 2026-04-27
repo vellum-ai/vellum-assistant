@@ -720,9 +720,13 @@ export function serviceDockerRunArgs(opts: {
         }
       }
       const avatarDevice = resolveAvatarDevicePath();
-      args.push("-e", `${AVATAR_DEVICE_ENV_VAR}=${avatarDevice}`);
       if (existsSync(avatarDevice)) {
-        args.push("--device", `${avatarDevice}:${avatarDevice}`);
+        args.push(
+          "--device",
+          `${avatarDevice}:${avatarDevice}`,
+          "-e",
+          `${AVATAR_DEVICE_ENV_VAR}=${avatarDevice}`,
+        );
       }
       args.push(imageTags.assistant);
       return args;
