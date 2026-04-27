@@ -26,18 +26,9 @@ export const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
  * these in generated plain-text prompts so text fallback remains actionable.
  */
 export function requiredDecisionKeywords(
-  actions: ApprovalUIMetadata["actions"],
+  _actions: ApprovalUIMetadata["actions"],
 ): string[] {
-  const hasAlways = actions.some((action) => action.id === "approve_always");
-  const has10m = actions.some((action) => action.id === "approve_10m");
-  const hasConversation = actions.some(
-    (action) => action.id === "approve_conversation",
-  );
-  const keywords = ["yes", "no"];
-  if (has10m) keywords.push("approve for 10 minutes");
-  if (hasConversation) keywords.push("approve for conversation");
-  if (hasAlways) keywords.push("always");
-  return keywords;
+  return ["yes", "no"];
 }
 
 // ---------------------------------------------------------------------------
@@ -46,11 +37,15 @@ export function requiredDecisionKeywords(
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
-  "approve_10m",
-  "approve_conversation",
-  "approve_always",
   "reject",
 ]);
+
+/** Map legacy callback actions to canonical ones for in-flight buttons. */
+const LEGACY_CALLBACK_MAP: Record<string, string> = {
+  approve_10m: "approve_once",
+  approve_conversation: "approve_once",
+  approve_always: "approve_once",
+};
 
 export function parseCallbackData(
   data: string,
@@ -59,7 +54,8 @@ export function parseCallbackData(
   const parts = data.split(":");
   if (parts.length < 3 || parts[0] !== "apr") return null;
   const requestId = parts[1];
-  const action = parts.slice(2).join(":");
+  const rawAction = parts.slice(2).join(":");
+  const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
   if (!requestId || !VALID_ACTIONS.has(action)) return null;
   const source =
     sourceChannel === "whatsapp"
@@ -82,10 +78,10 @@ export function parseCallbackData(
 const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
   ["+1", "approve_once"],
   ["thumbsup", "approve_once"],
+  ["white_check_mark", "approve_once"],
+  ["alarm_clock", "approve_once"],
   ["-1", "reject"],
   ["thumbsdown", "reject"],
-  ["alarm_clock", "approve_10m"],
-  ["white_check_mark", "approve_always"],
 ]);
 
 /**

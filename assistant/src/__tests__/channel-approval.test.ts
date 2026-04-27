@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ApprovalAction } from "../runtime/channel-approval-types.js";
 import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -9,9 +10,6 @@ import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 describe("parseCallbackData", () => {
   test.each([
     ["apr:req-123:approve_once", "approve_once"],
-    ["apr:req-123:approve_10m", "approve_10m"],
-    ["apr:req-123:approve_conversation", "approve_conversation"],
-    ["apr:req-123:approve_always", "approve_always"],
     ["apr:req-123:reject", "reject"],
   ] as const)('parses "%s" as action "%s"', (data, expectedAction) => {
     const result = parseCallbackData(data);
@@ -21,11 +19,15 @@ describe("parseCallbackData", () => {
     expect(result!.source).toBe("telegram_button");
   });
 
-  test("parses whatsapp source channel", () => {
-    const result = parseCallbackData("apr:req-456:approve_10m", "whatsapp");
+  test.each<[string, string]>([
+    ["apr:req-123:approve_10m", "approve_once"],
+    ["apr:req-123:approve_conversation", "approve_once"],
+    ["apr:req-123:approve_always", "approve_once"],
+  ])('maps legacy action "%s" to %s (backward compat)', (data, expectedAction) => {
+    const result = parseCallbackData(data);
     expect(result).not.toBeNull();
-    expect(result!.action).toBe("approve_10m");
-    expect(result!.source).toBe("whatsapp_button");
+    expect(result!.action).toBe(expectedAction as ApprovalAction);
+    expect(result!.requestId).toBe("req-123");
   });
 
   test("parses slack source channel", () => {

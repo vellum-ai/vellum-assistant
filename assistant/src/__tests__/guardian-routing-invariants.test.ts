@@ -1178,13 +1178,13 @@ describe("routing invariant: resolver registry covers all built-in kinds", () =>
 });
 
 // ===========================================================================
-// SECTION 7: approve_always downgrade invariant
+// SECTION 7: valid action invariant
 // ===========================================================================
 
-describe("routing invariant: approve_always downgraded for guardian-on-behalf", () => {
+describe("routing invariant: only approve_once and reject are valid actions", () => {
   beforeEach(() => resetTables());
 
-  test("approve_always is silently downgraded to approve_once by canonical primitive", async () => {
+  test("approve_once is accepted by canonical primitive", async () => {
     const req = createCanonicalGuardianRequest({
       kind: "tool_approval",
       sourceType: "channel",
@@ -1198,15 +1198,39 @@ describe("routing invariant: approve_always downgraded for guardian-on-behalf", 
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
-      action: "approve_always",
+      action: "approve_once",
       actorContext: guardianActor(),
     });
 
     expect(result.applied).toBe(true);
 
-    // Status should be 'approved' (not some 'always_approved' state)
     const resolved = getCanonicalGuardianRequest(req.id);
     expect(resolved!.status).toBe("approved");
+  });
+
+  test("approve_always is rejected as an invalid action", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "shell",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      // @ts-expect-error - approve_always is no longer a valid action
+      action: "approve_always",
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(false);
+    if (!result.applied) {
+      expect(result.reason).toBe("invalid_action");
+    }
   });
 });
 

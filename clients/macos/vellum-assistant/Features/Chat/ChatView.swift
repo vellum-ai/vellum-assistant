@@ -327,7 +327,7 @@ struct ChatView: View {
                 onConfirmationAllow: isReadonly ? nil : { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
                 onConfirmationDeny: isReadonly ? nil : { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
                 onAlwaysAllow: isReadonly ? nil : { requestId, selectedPattern, selectedScope, decision in
-                    viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+                    viewModel.respondToConfirmation(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope)
                 },
                 onTemporaryAllow: isReadonly ? nil : { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
                 onSurfaceAction: isReadonly ? nil : { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },

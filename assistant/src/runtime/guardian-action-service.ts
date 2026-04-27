@@ -26,12 +26,14 @@ const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
 /**
  * Legacy actions that map to canonical ones during client rollout.
  * All temporal/persistent approval variants collapse to approve_once.
+ * Keep until all clients are updated and no in-flight buttons remain.
  */
 const LEGACY_ACTION_MAP: Record<string, string> = {
   approve_10m: "approve_once",
   approve_conversation: "approve_once",
   approve_always: "approve_once",
 };
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +71,8 @@ export type ProcessGuardianDecisionResult =
  * Validates the action, checks conversation scope if applicable, applies the
  * canonical decision, and maps the result to a caller-agnostic shape that
  * both HTTP and message handlers can interpret.
+ *
+ * Only `approve_once` and `reject` are valid actions.
  */
 export async function processGuardianDecision(
   params: ProcessGuardianDecisionParams,

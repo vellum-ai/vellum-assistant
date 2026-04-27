@@ -781,14 +781,13 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let diff: ConfirmationRequestDiff?
     public let sandboxed: Bool?
     public let conversationId: String?
-    /// When false, the client should hide "always allow" / trust-rule persistence affordances.
+    /// Whether persistent decisions (always allow) are available for this prompt.
+    /// Used to discriminate host-access enable prompts (false) from regular prompts (true).
     public let persistentDecisionsAllowed: Bool?
-    /// Which temporary approval options the client should render (e.g. "Allow for 10 minutes", "Allow for this conversation").
-    public let temporaryOptionsAvailable: [String]?
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, riskReason: String? = nil, isContainerized: Bool? = nil, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil, diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, riskReason: String? = nil, isContainerized: Bool? = nil, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil, diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, toolUseId: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
@@ -804,7 +803,6 @@ public struct ConfirmationRequest: Codable, Sendable {
         self.sandboxed = sandboxed
         self.conversationId = conversationId
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
-        self.temporaryOptionsAvailable = temporaryOptionsAvailable
         self.toolUseId = toolUseId
     }
 }
@@ -4798,12 +4796,10 @@ public struct ToolPermissionSimulateResponse: Codable, Sendable {
 public struct ToolPermissionSimulateResponsePromptPayload: Codable, Sendable {
     public let allowlistOptions: [ToolPermissionSimulateResponsePromptPayloadAllowlistOption]
     public let scopeOptions: [ToolPermissionSimulateResponsePromptPayloadScopeOption]
-    public let persistentDecisionsAllowed: Bool
 
-    public init(allowlistOptions: [ToolPermissionSimulateResponsePromptPayloadAllowlistOption], scopeOptions: [ToolPermissionSimulateResponsePromptPayloadScopeOption], persistentDecisionsAllowed: Bool) {
+    public init(allowlistOptions: [ToolPermissionSimulateResponsePromptPayloadAllowlistOption], scopeOptions: [ToolPermissionSimulateResponsePromptPayloadScopeOption]) {
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
-        self.persistentDecisionsAllowed = persistentDecisionsAllowed
     }
 }
 

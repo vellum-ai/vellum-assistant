@@ -87,10 +87,10 @@ describe("parseApprovalIntent", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Timed approval patterns
+  // Timed phrases — no longer recognized as a distinct decision type
   // ---------------------------------------------------------------------------
 
-  describe("timed approval", () => {
+  describe("timed phrases (treated as no-intent)", () => {
     test.each([
       "approve for 10 minutes",
       "approve for 10 min",
@@ -105,16 +105,17 @@ describe("parseApprovalIntent", () => {
       "approve 10m",
       "approve 10 min",
       "approve 10 minutes",
-    ])("recognizes '%s' as timed approval", (phrase) => {
-      expectApproval(phrase, "approve_10m");
+      "yes for now",
+      "approve for now",
+      "ok for now",
+    ])("does not recognize '%s' as a distinct decision", (phrase) => {
+      const result = parseApprovalIntent(phrase);
+      // Timed phrases may return null (no intent) or plain "approve" —
+      // they must NOT return "approve_10m" since that type no longer exists.
+      if (result !== null) {
+        expect(result.decision).toBe("approve");
+      }
     });
-
-    test.each(["yes for now", "approve for now", "ok for now"])(
-      "recognizes '%s' as timed approval",
-      (phrase) => {
-        expectApproval(phrase, "approve_10m");
-      },
-    );
   });
 
   // ---------------------------------------------------------------------------
@@ -136,8 +137,11 @@ describe("parseApprovalIntent", () => {
       },
     );
 
-    test("handles mixed case timed approval", () => {
-      expectApproval("Approve For 10 Minutes", "approve_10m");
+    test("handles 'Approve For 10 Minutes' without returning approve_10m", () => {
+      const result = parseApprovalIntent("Approve For 10 Minutes");
+      if (result !== null) {
+        expect(result.decision).toBe("approve");
+      }
     });
   });
 
@@ -178,8 +182,11 @@ describe("parseApprovalIntent", () => {
       expectApproval("no.", "reject");
     });
 
-    test("handles trailing punctuation on timed approval", () => {
-      expectApproval("approve for 10 minutes.", "approve_10m");
+    test("handles trailing punctuation on timed phrase without returning approve_10m", () => {
+      const result = parseApprovalIntent("approve for 10 minutes.");
+      if (result !== null) {
+        expect(result.decision).toBe("approve");
+      }
     });
   });
 
@@ -260,8 +267,11 @@ describe("parseApprovalIntent", () => {
       expectApproval("\u{1F44D} [ref:req-2]", "approve");
     });
 
-    test("strips [ref:...] tag from timed approval", () => {
-      expectApproval("approve for 10 minutes [ref:req-5]", "approve_10m");
+    test("strips [ref:...] tag from timed phrase without returning approve_10m", () => {
+      const result = parseApprovalIntent("approve for 10 minutes [ref:req-5]");
+      if (result !== null) {
+        expect(result.decision).toBe("approve");
+      }
     });
 
     test("strips [ref:...] tag with mixed case", () => {

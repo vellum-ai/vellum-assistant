@@ -44,14 +44,13 @@ public struct ToolConfirmationData: Equatable {
     public let scopeOptions: [ConfirmationRequestScopeOption]
     public let directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]
     public let executionTarget: String?
-    /// When false, hide "Always Allow" and trust-rule persistence controls.
+    /// Whether persistent decisions (always allow) are offered. Used as a discriminator
+    /// for host-access enable prompts (which set this to false).
     public let persistentDecisionsAllowed: Bool
-    /// Which temporary approval options the daemon supports for this request (e.g. "allow_10m", "allow_conversation").
-    public let temporaryOptionsAvailable: [String]
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
     public var state: ToolConfirmationState = .pending
-    /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_conversation", "always_allow").
+    /// The decision string that was used to approve (e.g. "allow").
     /// Set when the state transitions to `.approved`.
     public var approvedDecision: String?
     /// When set, `toolCategory` returns this instead of deriving from `toolName`.
@@ -562,7 +561,7 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], directoryScopeOptions: [ConfirmationRequestDirectoryScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -574,7 +573,6 @@ public struct ToolConfirmationData: Equatable {
         self.directoryScopeOptions = directoryScopeOptions
         self.executionTarget = executionTarget
         self.persistentDecisionsAllowed = persistentDecisionsAllowed
-        self.temporaryOptionsAvailable = temporaryOptionsAvailable
         self.toolUseId = toolUseId
         self.state = state
     }
@@ -606,8 +604,7 @@ public struct ToolConfirmationData: Equatable {
             riskLevel: riskLevel,
             allowlistOptions: allowlistOptions,
             scopeOptions: scopeOptions,
-            executionTarget: executionTarget,
-            persistentDecisionsAllowed: promptPayload.persistentDecisionsAllowed
+            executionTarget: executionTarget
         )
     }
 }

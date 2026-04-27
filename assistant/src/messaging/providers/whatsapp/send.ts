@@ -69,21 +69,13 @@ function splitText(text: string, maxLen: number): string[] {
 
 /**
  * Select up to WHATSAPP_MAX_BUTTONS actions for WhatsApp interactive buttons.
- * Preserves reject and approve_always when there are too many actions.
+ * With only approve_once and reject, this limit is never exceeded, but we
+ * keep the cap in case future action types are added.
  */
 function selectButtons(
   actions: Array<{ id: string; label: string }>,
 ): Array<{ id: string; label: string }> {
-  if (actions.length <= WHATSAPP_MAX_BUTTONS) return actions;
-
-  const pinned = actions.filter(
-    (a) => a.id === "reject" || a.id === "approve_always",
-  );
-  const rest = actions.filter(
-    (a) => a.id !== "reject" && a.id !== "approve_always",
-  );
-  const slotsForRest = WHATSAPP_MAX_BUTTONS - pinned.length;
-  return [...rest.slice(0, slotsForRest), ...pinned];
+  return actions.slice(0, WHATSAPP_MAX_BUTTONS);
 }
 
 // ---------------------------------------------------------------------------

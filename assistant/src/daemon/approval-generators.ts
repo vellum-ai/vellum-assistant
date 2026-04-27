@@ -44,19 +44,10 @@ const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
     properties: {
       disposition: {
         type: "string",
-        enum: [
-          "keep_pending",
-          "approve_once",
-          "approve_10m",
-          "approve_conversation",
-          "approve_always",
-          "reject",
-        ],
+        enum: ["keep_pending", "approve_once", "reject"],
         description:
           "The decision: keep_pending if the user is asking questions or unclear, " +
-          "approve_once to approve this single request, approve_10m to approve all " +
-          "requests for 10 minutes, approve_conversation to approve all requests in this " +
-          "conversation, approve_always to approve this tool permanently, reject to deny the request.",
+          "approve_once to approve this single request, reject to deny the request.",
       },
       replyText: {
         type: "string",
@@ -76,9 +67,6 @@ const APPROVAL_CONVERSATION_TOOL_SCHEMA = {
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
   "keep_pending",
   "approve_once",
-  "approve_10m",
-  "approve_conversation",
-  "approve_always",
   "reject",
 ]);
 

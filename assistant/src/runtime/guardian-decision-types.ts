@@ -61,58 +61,12 @@ export const GUARDIAN_DECISION_ACTIONS = {
     label: "Approve once",
     description: "This tool, this call only",
   },
-  approve_10m: {
-    action: "approve_10m",
-    label: "Allow all, 10 min",
-    description: "All tools for 10 minutes",
-  },
-  approve_conversation: {
-    action: "approve_conversation",
-    label: "Allow all, convo",
-    description: "All tools for this conversation",
-  },
-  approve_always: {
-    action: "approve_always",
-    label: "Approve always",
-    description: "This tool, permanently",
-  },
   reject: { action: "reject", label: "Reject", description: "Deny this call" },
 } as const satisfies Record<string, GuardianDecisionAction>;
 
 export function buildOneTimeDecisionActions(): GuardianDecisionAction[] {
   return [
     GUARDIAN_DECISION_ACTIONS.approve_once,
-    GUARDIAN_DECISION_ACTIONS.reject,
-  ];
-}
-
-/**
- * Build the set of `GuardianDecisionAction` items appropriate for a prompt,
- * respecting whether persistent decisions (approve_always) are allowed.
- *
- * When `persistentDecisionsAllowed` is `false`, the `approve_always` action
- * and temporary modes are excluded. When `forGuardianOnBehalf` is `true`
- * (guardian acting on behalf of a requester), only `approve_always` is excluded
- * — temporary modes (`approve_10m`, `approve_conversation`) are permitted
- * because grants are scoped to the tool+input signature via scopeMode:
- * "tool_signature".
- */
-export function buildDecisionActions(opts?: {
-  persistentDecisionsAllowed?: boolean;
-  forGuardianOnBehalf?: boolean;
-}): GuardianDecisionAction[] {
-  const showAlways =
-    opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
-  const showTemporary = opts?.persistentDecisionsAllowed !== false;
-  return [
-    GUARDIAN_DECISION_ACTIONS.approve_once,
-    ...(showTemporary
-      ? [
-          GUARDIAN_DECISION_ACTIONS.approve_10m,
-          GUARDIAN_DECISION_ACTIONS.approve_conversation,
-        ]
-      : []),
-    ...(showAlways ? [GUARDIAN_DECISION_ACTIONS.approve_always] : []),
     GUARDIAN_DECISION_ACTIONS.reject,
   ];
 }
@@ -144,29 +98,14 @@ export function buildActionLegend(
 }
 
 /**
- * Build the plain-text fallback instruction string that matches the given
- * set of decision actions. Ensures the text always includes parser-compatible
- * keywords so text-based fallback remains actionable.
+ * Build the plain-text fallback instruction string for an approval prompt.
+ * Always returns the simple "yes/no" form since only approve_once and reject
+ * are valid actions.
  */
 export function buildPlainTextFallback(
   promptText: string,
-  actions: GuardianDecisionAction[],
+  _actions: GuardianDecisionAction[],
 ): string {
-  const hasAlways = actions.some((a) => a.action === "approve_always");
-  const has10m = actions.some((a) => a.action === "approve_10m");
-  const hasConversation = actions.some(
-    (a) => a.action === "approve_conversation",
-  );
-
-  if (hasAlways && has10m && hasConversation) {
-    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for conversation", "always" to approve always, or "no" to reject.`;
-  }
-  if (hasAlways) {
-    return `${promptText}\n\nReply "yes" to approve once, "always" to approve always, or "no" to reject.`;
-  }
-  if (has10m && hasConversation) {
-    return `${promptText}\n\nReply "yes" to approve once, "approve for 10 minutes", "approve for conversation", or "no" to reject.`;
-  }
   return `${promptText}\n\nReply "yes" to approve or "no" to reject.`;
 }
 

@@ -25,7 +25,6 @@ import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { getDb, initializeDb } from "../memory/db.js";
 import {
   createApprovalRequest,
-  getPendingApprovalForRequest,
   type GuardianApprovalRequest,
 } from "../memory/guardian-approvals.js";
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
@@ -219,19 +218,14 @@ describe("guardian grant minting on tool-approval decisions", () => {
     composeSpy.mockRestore();
   });
 
-  test("guardian reaction approve_always is downgraded to one-time approval", async () => {
+  test("guardian reaction white_check_mark maps to approve_once (legacy compat)", async () => {
     const requestId = "req-grant-reaction-1";
-    const approval = createTestGuardianApproval(requestId, {
+    createTestGuardianApproval(requestId, {
       conversationId: CONVERSATION_ID,
       channel: "slack",
       guardianChatId: GUARDIAN_CHAT,
     });
-    const handleConfirmationResponse = registerPendingInteraction(
-      requestId,
-      CONVERSATION_ID,
-      TOOL_NAME,
-      TOOL_INPUT,
-    );
+    registerPendingInteraction(requestId, CONVERSATION_ID, TOOL_NAME);
     const approvalMessageTs = "1700000000.000100";
     trackApprovalPromptTs("slack", GUARDIAN_CHAT, approvalMessageTs);
 
@@ -248,12 +242,11 @@ describe("guardian grant minting on tool-approval decisions", () => {
       approvalMessageTs,
     });
 
+    // white_check_mark is mapped to approve_once (backward compat) — the
+    // pending approval is resolved and a grant is minted.
     expect(result.handled).toBe(true);
     expect(result.type).toBe("guardian_decision_applied");
-    expect(handleConfirmationResponse).toHaveBeenCalledWith(requestId, "allow");
-
-    const updatedApproval = getPendingApprovalForRequest(approval.requestId);
-    expect(updatedApproval).toBeNull();
+    expect(countGrants()).toBe(1);
   });
 
   // ── 2. approve_once for non-tool-approval does NOT mint a grant ──

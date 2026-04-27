@@ -94,7 +94,7 @@ struct MessageCellContent: View {
             },
             onRegenerate: isLastAssistant ? { viewModel.regenerateLastMessage() } : nil,
             onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
-                viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+                viewModel.respondToConfirmation(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope)
             },
             onGuardianAction: { requestId, action in
                 viewModel.submitGuardianDecision(requestId: requestId, action: action)

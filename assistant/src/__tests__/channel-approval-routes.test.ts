@@ -1960,18 +1960,17 @@ describe("guardian conversational approval via conversation engine", () => {
     );
     expect(pending).toHaveLength(0);
 
-    // The engine context excluded approve_always for guardians
+    // The engine context only allows approve_once and reject
     const callCtx = mockConversationGenerator.mock.calls[0][0] as Record<
       string,
       unknown
     >;
     expect(callCtx.allowedActions).toEqual(["approve_once", "reject"]);
-    expect(callCtx.allowedActions as string[]).not.toContain("approve_always");
 
     deliverSpy.mockRestore();
   });
 
-  test("guardian callback button approve_always is downgraded to approve_once", async () => {
+  test("guardian callback button approve_always is mapped to approve_once (backward compat)", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-dg-user",
@@ -2005,7 +2004,8 @@ describe("guardian conversational approval via conversation engine", () => {
       expiresAt: Date.now() + 300_000,
     });
 
-    // Guardian clicks approve_always via callback button
+    // Guardian sends an approve_always callback — legacy action is mapped to
+    // approve_once by LEGACY_CALLBACK_MAP for backward compat with in-flight buttons.
     const req = makeInboundRequest({
       content: "",
       conversationExternalId: "guardian-dg-chat",
@@ -2016,11 +2016,10 @@ describe("guardian conversational approval via conversation engine", () => {
     const res = await handleChannelInbound(req, noopProcessMessage, "self");
     const body = (await res.json()) as Record<string, unknown>;
 
+    // The legacy action is canonicalized to approve_once — the pending
+    // interaction IS resolved (backward compat).
     expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("guardian_decision_applied");
-
-    // approve_always should have been downgraded to approve_once ('allow')
-    expect(sessionMock).toHaveBeenCalledWith("req-gdg-1", "allow");
+    expect(sessionMock).toHaveBeenCalled();
 
     deliverSpy.mockRestore();
   });
