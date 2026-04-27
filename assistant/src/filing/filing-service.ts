@@ -73,6 +73,13 @@ export interface FilingDeps {
 }
 
 export class FilingService {
+  private static instance?: FilingService;
+
+  /** Access the running FilingService instance (set at startup). */
+  static getInstance(): FilingService | undefined {
+    return FilingService.instance;
+  }
+
   private readonly deps: FilingDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private compactionTimer: ReturnType<typeof setInterval> | null = null;
@@ -85,6 +92,7 @@ export class FilingService {
 
   constructor(deps: FilingDeps) {
     this.deps = deps;
+    FilingService.instance = this;
   }
 
   get lastRunAt(): number | null {

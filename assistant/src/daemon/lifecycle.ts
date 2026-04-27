@@ -1022,7 +1022,6 @@ export async function runDaemon(): Promise<void> {
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),
       getHeartbeatService: () => server.getHeartbeatService(),
-      getFilingService: () => server.getFilingService(),
     });
 
     // Fire-and-forget: Qdrant init and memory worker startup run concurrently
@@ -1334,7 +1333,6 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     filing.start();
-    server.setFilingService(filing);
     log.info(
       {
         enabled: filingConfig.enabled,
