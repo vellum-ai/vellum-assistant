@@ -4,11 +4,11 @@ import {
   getFilePathForAttachment,
   setAttachmentThumbnail,
 } from "../memory/attachments-store.js";
-import type { PermissionPrompter } from "../permissions/prompter.js";
 import {
   CONVERSATION_HOST_ACCESS_PROMPT,
   isConversationHostAccessEnabled,
-} from "../permissions/v2-consent-policy.js";
+} from "../permissions/host-access-policy.js";
+import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {

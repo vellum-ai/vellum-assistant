@@ -5,7 +5,7 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import { isConversationHostAccessEnabled } from "../permissions/v2-consent-policy.js";
+import { isConversationHostAccessEnabled } from "../permissions/host-access-policy.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";

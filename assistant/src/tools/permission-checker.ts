@@ -9,13 +9,13 @@ import {
   getCachedAssessment,
 } from "../permissions/checker.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
-import type { PermissionPrompter } from "../permissions/prompter.js";
-import { RiskLevel } from "../permissions/types.js";
 import {
   CONVERSATION_HOST_ACCESS_PROMPT,
   evaluateV2ConsentDisposition,
   isConversationHostAccessDecision,
-} from "../permissions/v2-consent-policy.js";
+} from "../permissions/host-access-policy.js";
+import type { PermissionPrompter } from "../permissions/prompter.js";
+import { RiskLevel } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";

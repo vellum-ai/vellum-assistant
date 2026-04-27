@@ -27,15 +27,6 @@
  * in-process CLI caller get the reset for free. Tests can inject a fake via
  * `opts.resetDbImpl`.
  *
- * `commitImport` does NOT invalidate cached config or clear the trust cache.
- * Callers are responsible for:
- *   1. Calling `invalidateConfigCache()` and `clearTrustCache()` AFTER a
- *      successful restore so the daemon re-reads the restored `config.json`
- *      and `trust.json` instead of serving stale in-process caches.
- *   2. Considering a daemon restart as the simplest, most reliable recovery
- *      path — a CLI caller should refuse to restore against a live daemon
- *      unless explicitly forced.
- *
  * Credentials are intentionally excluded from backups — they live in the OS
  * keychain / CES and are not restored by this path. Users re-authenticate
  * integrations after a restore.
