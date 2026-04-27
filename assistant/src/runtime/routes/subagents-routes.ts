@@ -13,8 +13,8 @@ import {
 } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("subagents-routes");
 
@@ -149,155 +149,136 @@ function getSubagentDetail(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function subagentRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "subagents/:id",
-      method: "GET",
-      policyKey: "subagents",
-      summary: "Get subagent detail",
-      description: "Return subagent objective and event history.",
-      tags: ["subagents"],
-      queryParams: [
-        {
-          name: "conversationId",
-          schema: { type: "string" },
-          description: "Parent conversation ID (required)",
-        },
-      ],
-      responseBody: z.object({
-        subagentId: z.string(),
-        objective: z.string(),
-        events: z.array(z.unknown()).describe("Subagent event objects"),
-      }),
-      handler: ({ url, params }) => {
-        const conversationId = url.searchParams.get("conversationId");
-        if (!conversationId) {
-          return httpError(
-            "BAD_REQUEST",
-            "conversationId query parameter is required",
-            400,
-          );
-        }
-
-        // Ownership check: if the subagent is still in memory, verify via state.
-        // After daemon restart getState() returns null — allow the request
-        // since the conversationId itself acts as a capability token.
-        const manager = getSubagentManager();
-        const state = manager.getState(params.id);
-        // For HTTP routes, we don't have socket-based session binding.
-        // The conversationId acts as a capability token.
-        if (state) {
-          // Subagent is still live in memory — allowed
-        }
-
-        const result = getSubagentDetail(params.id, conversationId);
-        return Response.json(result);
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "getSubagentDetail",
+    endpoint: "subagents/:id",
+    method: "GET",
+    policyKey: "subagents",
+    summary: "Get subagent detail",
+    description: "Return subagent objective and event history.",
+    tags: ["subagents"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        description: "Parent conversation ID (required)",
       },
-    },
-
-    {
-      endpoint: "subagents/:id/abort",
-      method: "POST",
-      policyKey: "subagents/abort",
-      summary: "Abort subagent",
-      description: "Abort a running subagent.",
-      tags: ["subagents"],
-      requestBody: z.object({
-        conversationId: z.string(),
-      }),
-      responseBody: z.object({
-        subagentId: z.string(),
-        aborted: z.boolean(),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as { conversationId?: string };
-        const conversationId = body.conversationId;
-        if (!conversationId || typeof conversationId !== "string") {
-          return httpError("BAD_REQUEST", "conversationId is required", 400);
-        }
-
-        const manager = getSubagentManager();
-        const aborted = manager.abort(
-          params.id,
-          () => {}, // No send callback needed for HTTP
-          conversationId,
+    ],
+    responseBody: z.object({
+      subagentId: z.string(),
+      objective: z.string(),
+      events: z.array(z.unknown()).describe("Subagent event objects"),
+    }),
+    handler: ({ pathParams, queryParams }) => {
+      const conversationId = queryParams?.conversationId;
+      if (!conversationId) {
+        throw new BadRequestError(
+          "conversationId query parameter is required",
         );
+      }
 
-        if (!aborted) {
-          log.warn(
-            { subagentId: params.id },
-            "HTTP abort request for unknown or terminal subagent",
-          );
-          return httpError(
-            "NOT_FOUND",
-            "Subagent not found or already in terminal state",
-            404,
-          );
-        }
+      const manager = getSubagentManager();
+      manager.getState(pathParams!.id);
 
-        return Response.json({ subagentId: params.id, aborted: true });
-      },
+      return getSubagentDetail(pathParams!.id, conversationId);
     },
+  },
 
-    {
-      endpoint: "subagents/:id/message",
-      method: "POST",
-      policyKey: "subagents/message",
-      summary: "Send message to subagent",
-      description: "Send a text message to a running subagent.",
-      tags: ["subagents"],
-      requestBody: z.object({
-        conversationId: z.string(),
-        content: z.string(),
-      }),
-      responseBody: z.object({
-        subagentId: z.string(),
-        sent: z.boolean(),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as {
-          conversationId?: string;
-          content?: string;
-        };
-        const conversationId = body.conversationId;
-        if (!conversationId || typeof conversationId !== "string") {
-          return httpError("BAD_REQUEST", "conversationId is required", 400);
-        }
-        if (!body.content || typeof body.content !== "string") {
-          return httpError("BAD_REQUEST", "content is required", 400);
-        }
+  {
+    operationId: "abortSubagent",
+    endpoint: "subagents/:id/abort",
+    method: "POST",
+    policyKey: "subagents/abort",
+    summary: "Abort subagent",
+    description: "Abort a running subagent.",
+    tags: ["subagents"],
+    requestBody: z.object({
+      conversationId: z.string(),
+    }),
+    responseBody: z.object({
+      subagentId: z.string(),
+      aborted: z.boolean(),
+    }),
+    handler: ({ pathParams, body }) => {
+      const { conversationId } = (body ?? {}) as {
+        conversationId?: string;
+      };
+      if (!conversationId || typeof conversationId !== "string") {
+        throw new BadRequestError("conversationId is required");
+      }
 
-        const manager = getSubagentManager();
+      const manager = getSubagentManager();
+      const aborted = manager.abort(
+        pathParams!.id,
+        () => {},
+        conversationId,
+      );
 
-        // Ownership check
-        const state = manager.getState(params.id);
-        if (!state || state.config.parentConversationId !== conversationId) {
-          return httpError(
-            "NOT_FOUND",
-            `Subagent "${params.id}" not found or in terminal state.`,
-            404,
-          );
-        }
+      if (!aborted) {
+        log.warn(
+          { subagentId: pathParams!.id },
+          "abort request for unknown or terminal subagent",
+        );
+        throw new NotFoundError(
+          "Subagent not found or already in terminal state",
+        );
+      }
 
-        const result = await manager.sendMessage(params.id, body.content);
-
-        if (result === "empty") {
-          return httpError(
-            "BAD_REQUEST",
-            "Message content is empty or whitespace-only.",
-            400,
-          );
-        } else if (result !== "sent") {
-          return httpError(
-            "NOT_FOUND",
-            `Subagent "${params.id}" not found or in terminal state.`,
-            404,
-          );
-        }
-
-        return Response.json({ subagentId: params.id, sent: true });
-      },
+      return { subagentId: pathParams!.id, aborted: true };
     },
-  ];
-}
+  },
+
+  {
+    operationId: "sendSubagentMessage",
+    endpoint: "subagents/:id/message",
+    method: "POST",
+    policyKey: "subagents/message",
+    summary: "Send message to subagent",
+    description: "Send a text message to a running subagent.",
+    tags: ["subagents"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      content: z.string(),
+    }),
+    responseBody: z.object({
+      subagentId: z.string(),
+      sent: z.boolean(),
+    }),
+    handler: async ({ pathParams, body }) => {
+      const { conversationId, content } = (body ?? {}) as {
+        conversationId?: string;
+        content?: string;
+      };
+      if (!conversationId || typeof conversationId !== "string") {
+        throw new BadRequestError("conversationId is required");
+      }
+      if (!content || typeof content !== "string") {
+        throw new BadRequestError("content is required");
+      }
+
+      const manager = getSubagentManager();
+
+      const state = manager.getState(pathParams!.id);
+      if (!state || state.config.parentConversationId !== conversationId) {
+        throw new NotFoundError(
+          `Subagent "${pathParams!.id}" not found or in terminal state.`,
+        );
+      }
+
+      const result = await manager.sendMessage(pathParams!.id, content);
+
+      if (result === "empty") {
+        throw new BadRequestError(
+          "Message content is empty or whitespace-only.",
+        );
+      } else if (result !== "sent") {
+        throw new NotFoundError(
+          `Subagent "${pathParams!.id}" not found or in terminal state.`,
+        );
+      }
+
+      return { subagentId: pathParams!.id, sent: true };
+    },
+  },
+];
