@@ -2054,7 +2054,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let risk = decision == "deny" ? "high" : "low"
         Task {
             do {
-                try await trustRuleClient.createRule(
+                _ = try await trustRuleClient.createRule(
                     tool: toolName,
                     pattern: pattern,
                     risk: risk,

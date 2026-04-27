@@ -456,7 +456,7 @@ struct ChatBubble: View, Equatable {
         }
         .contentShape(Rectangle())
         .sheet(item: $suggestRuleToolCall) { tc in
-            V3RuleEditorModal(
+            RuleEditorModal(
                 toolName: tc.toolName,
                 commandText: tc.inputSummary,
                 commandDescription: tc.reasonDescription ?? "",
@@ -466,13 +466,16 @@ struct ChatBubble: View, Equatable {
                 suggestion: suggestRuleSuggestion,
                 onSave: { rule in
                     Task {
-                        try? await TrustRuleV3Client().createRule(
+                        try? await TrustRuleClient().createRule(
                             tool: rule.toolName,
                             pattern: rule.pattern,
                             risk: rule.riskLevel,
                             description: {
                                 let desc = tc.reasonDescription ?? ""
-                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                                if desc.isEmpty {
+                                    return rule.toolName + " — " + rule.pattern
+                                }
+                                return desc
                             }(),
                             scope: rule.scope
                         )
