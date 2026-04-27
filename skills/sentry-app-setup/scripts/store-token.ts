@@ -7,6 +7,10 @@
 
 const species = process.env.SPECIES;
 
+// ---------------------------------------------------------------------------
+// Vellum — secure UI prompt via `assistant credentials prompt`
+// ---------------------------------------------------------------------------
+
 async function storeVellum(): Promise<void> {
   const args = [
     "credentials",
@@ -45,14 +49,95 @@ async function storeVellum(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// OpenClaw — writes to ~/.openclaw/credentials.json
+// ---------------------------------------------------------------------------
+
+async function storeOpenClaw(): Promise<void> {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const credDir = `${home}/.openclaw`;
+  const credPath = `${credDir}/credentials.json`;
+
+  // Read the token from stdin (OpenClaw pipes secrets through stdin)
+  const proc = Bun.spawn(
+    ["openclaw", "secret", "collect", "--label", "Sentry Auth Token"],
+    { stdout: "pipe", stderr: "inherit" },
+  );
+  const token = (await new Response(proc.stdout).text()).trim();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0 || !token) {
+    console.error("Failed to collect token");
+    process.exitCode = 1;
+    return;
+  }
+
+  // Ensure directory exists
+  await Bun.spawn(["mkdir", "-p", credDir]).exited;
+
+  // Read existing credentials or start fresh
+  const file = Bun.file(credPath);
+  let creds: Record<string, unknown> = {};
+  if (await file.exists()) {
+    try {
+      creds = (await file.json()) as Record<string, unknown>;
+    } catch {
+      // Corrupted file — start fresh
+    }
+  }
+
+  creds["sentry_auth_token"] = token;
+  await Bun.write(credPath, JSON.stringify(creds, null, 2) + "\n");
+
+  // Restrict file permissions
+  await Bun.spawn(["chmod", "600", credPath]).exited;
+
+  console.log("✓ Sentry auth token stored in ~/.openclaw/credentials.json");
+}
+
+// ---------------------------------------------------------------------------
+// Hermes — stores in the Hermes keyring via `hermes secret set`
+// ---------------------------------------------------------------------------
+
+async function storeHermes(): Promise<void> {
+  const proc = Bun.spawn(
+    [
+      "hermes",
+      "secret",
+      "set",
+      "sentry/auth_token",
+      "--label",
+      "Sentry Auth Token",
+      "--prompt",
+      "--allowed-hosts",
+      "sentry.io",
+      "--inject-as",
+      "header:Authorization:Bearer",
+    ],
+    { stdout: "inherit", stderr: "inherit" },
+  );
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    process.exitCode = 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 async function main(): Promise<void> {
   switch (species) {
     case "vellum":
       await storeVellum();
       break;
+    case "openclaw":
+      await storeOpenClaw();
+      break;
+    case "hermes":
+      await storeHermes();
+      break;
     default:
       console.error(
-        `Unsupported species: ${species ?? "(not set)"}. This skill currently only supports species=vellum.`,
+        `Unsupported species: ${species ?? "(not set)"}. Supported: vellum, openclaw, hermes.`,
       );
       process.exitCode = 1;
   }
