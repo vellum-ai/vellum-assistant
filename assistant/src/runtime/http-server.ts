@@ -125,7 +125,6 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
-import { appManagementRouteDefinitions } from "./routes/app-management-routes.js";
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
@@ -1774,7 +1773,6 @@ export class RuntimeHttpServer {
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
       ...appRouteDefinitions(),
-      ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions({
         getCesClient: this.getCesClient,
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,

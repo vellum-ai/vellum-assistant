@@ -106,8 +106,8 @@ async function spawnSession({ body }: RouteHandlerArgs) {
   return { acpSessionId, protocolSessionId, agent };
 }
 
-async function steerSession({ params, body }: RouteHandlerArgs) {
-  const id = params?.id as string;
+async function steerSession({ pathParams, body }: RouteHandlerArgs) {
+  const id = pathParams?.id as string;
   const instruction = body?.instruction as string | undefined;
 
   if (!instruction) {
@@ -123,8 +123,8 @@ async function steerSession({ params, body }: RouteHandlerArgs) {
   return { acpSessionId: id, steered: true };
 }
 
-async function cancelSession({ params }: RouteHandlerArgs) {
-  const id = params?.id as string;
+async function cancelSession({ pathParams }: RouteHandlerArgs) {
+  const id = pathParams?.id as string;
   const manager = getAcpSessionManager();
   try {
     await manager.cancel(id);
@@ -134,8 +134,8 @@ async function cancelSession({ params }: RouteHandlerArgs) {
   return { acpSessionId: id, cancelled: true };
 }
 
-function closeSession({ params }: RouteHandlerArgs) {
-  const id = params?.id as string;
+function closeSession({ pathParams }: RouteHandlerArgs) {
+  const id = pathParams?.id as string;
   const manager = getAcpSessionManager();
   try {
     manager.close(id);
@@ -145,15 +145,15 @@ function closeSession({ params }: RouteHandlerArgs) {
   return { acpSessionId: id, closed: true };
 }
 
-function listSessions({ params }: RouteHandlerArgs) {
-  const limit = parseLimit(params?.limit as string | undefined);
-  const conversationId = (params?.conversationId as string) ?? undefined;
+function listSessions({ queryParams }: RouteHandlerArgs) {
+  const limit = parseLimit(queryParams?.limit);
+  const conversationId = queryParams?.conversationId;
   const sessions = listMergedSessions({ limit, conversationId });
   return { sessions };
 }
 
-function bulkDeleteSessions({ params }: RouteHandlerArgs) {
-  const status = params?.status as string | undefined;
+function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {
+  const status = queryParams?.status;
   if (status !== "completed") {
     throw new BadRequestError(
       "status query param is required and must be 'completed'",
@@ -168,8 +168,8 @@ function bulkDeleteSessions({ params }: RouteHandlerArgs) {
   return { deleted };
 }
 
-function deleteSession({ params }: RouteHandlerArgs) {
-  const id = params?.id as string;
+function deleteSession({ pathParams }: RouteHandlerArgs) {
+  const id = pathParams?.id as string;
 
   try {
     const state = getAcpSessionManager().getStatus(id);

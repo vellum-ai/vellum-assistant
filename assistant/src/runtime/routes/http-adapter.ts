@@ -24,15 +24,17 @@ export function routeDefinitionsToHTTPRoutes(
     responseBody: r.responseBody,
     handler: async ({ req, url, params }) => {
       try {
-        const queryParams: Record<string, unknown> = {};
+        const pathParams: Record<string, string> = {};
+        if (params) {
+          for (const [key, value] of Object.entries(params)) {
+            pathParams[key] = String(value);
+          }
+        }
+
+        const queryParams: Record<string, string> = {};
         for (const [key, value] of url.searchParams.entries()) {
           queryParams[key] = value;
         }
-
-        const pathParams: Record<string, unknown> = {
-          ...params,
-          ...queryParams,
-        };
 
         let body: Record<string, unknown> | undefined;
         if (
@@ -55,7 +57,12 @@ export function routeDefinitionsToHTTPRoutes(
           headers[key] = value;
         });
 
-        const result = await r.handler({ params: pathParams, body, headers });
+        const result = await r.handler({
+          pathParams,
+          queryParams,
+          body,
+          headers,
+        });
         return Response.json(result);
       } catch (err) {
         if (err instanceof RouteError) {
