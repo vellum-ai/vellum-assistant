@@ -44,6 +44,7 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from "./job-utils.js";
+import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import {
   claimMemoryJobs,
@@ -452,6 +453,8 @@ async function processJob(
       await bootstrapFromHistory();
       return;
     case "embed_concept_page":
+      await embedConceptPageJob(job, config);
+      return;
     case "memory_v2_sweep":
     case "memory_v2_consolidate":
     case "memory_v2_migrate":
