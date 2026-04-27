@@ -512,15 +512,10 @@ export function failOneShot(id: string): void {
 export function retryOneShot(id: string): void {
   const db = getDb();
   const now = Date.now();
-  const row = db
-    .select({ retryCount: scheduleJobs.retryCount })
-    .from(scheduleJobs)
-    .where(eq(scheduleJobs.id, id))
-    .get();
   db.update(scheduleJobs)
     .set({
       status: "active",
-      retryCount: (row?.retryCount ?? 0) + 1,
+      retryCount: sql`${scheduleJobs.retryCount} + 1`,
       updatedAt: now,
     })
     .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
