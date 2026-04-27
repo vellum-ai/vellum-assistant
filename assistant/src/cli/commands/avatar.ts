@@ -205,7 +205,7 @@ Examples:
             const traits = JSON.parse(
               readFileSync(traitsPath, "utf-8"),
             ) as CharacterTraits;
-            writeTraitsAndRenderAvatar(traits);
+            await writeTraitsAndRenderAvatar(traits);
           } catch {
             // Best-effort — the character will regenerate on next access
           }
@@ -261,7 +261,9 @@ Examples:
         if (existsSync(traitsPath)) {
           try {
             const raw = readFileSync(traitsPath, "utf-8");
-            writeTraitsAndRenderAvatar(JSON.parse(raw) as CharacterTraits);
+            await writeTraitsAndRenderAvatar(
+              JSON.parse(raw) as CharacterTraits,
+            );
           } catch {
             // Best-effort regeneration
           }
@@ -344,7 +346,7 @@ Examples:
     )
     .action(
       async (opts: { bodyShape: string; eyeStyle: string; color: string }) => {
-        const components = getCharacterComponents();
+        const components = await getCharacterComponents();
 
         const validBodyShapes = components.bodyShapes.map((b) => b.id);
         if (!validBodyShapes.includes(opts.bodyShape)) {
@@ -373,7 +375,7 @@ Examples:
           return;
         }
 
-        const result = writeTraitsAndRenderAvatar({
+        const result = await writeTraitsAndRenderAvatar({
           bodyShape: opts.bodyShape,
           eyeStyle: opts.eyeStyle,
           color: opts.color,
@@ -425,8 +427,8 @@ Examples:
   $ assistant avatar character components
   $ assistant avatar character components --json`,
     )
-    .action((opts: { json?: boolean }, cmd: Command) => {
-      const components = getCharacterComponents();
+    .action(async (opts: { json?: boolean }, cmd: Command) => {
+      const components = await getCharacterComponents();
 
       if (opts.json) {
         writeOutput(cmd, components);
@@ -515,7 +517,7 @@ Examples:
         return;
       }
 
-      const asciiArt = renderCharacterAscii(
+      const asciiArt = await renderCharacterAscii(
         traits.bodyShape,
         traits.eyeStyle,
         traits.color,

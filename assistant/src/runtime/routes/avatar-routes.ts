@@ -37,7 +37,7 @@ export function avatarRouteDefinitions(): HTTPRouteDefinition[] {
       summary: "Get character components",
       description: "Return available avatar character components.",
       tags: ["avatar"],
-      handler: () => Response.json(getCharacterComponents()),
+      handler: async () => Response.json(await getCharacterComponents()),
     },
     {
       endpoint: "avatar/render-from-traits",
@@ -75,7 +75,7 @@ export function avatarRouteDefinitions(): HTTPRouteDefinition[] {
           );
         }
 
-        const result = writeTraitsAndRenderAvatar(body);
+        const result = await writeTraitsAndRenderAvatar(body);
 
         if (!result.ok) {
           // Map each failure reason to an HTTP status that reflects its

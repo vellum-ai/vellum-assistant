@@ -107,7 +107,7 @@ describe("writeTraitsAndRenderAvatar — native module missing", () => {
   test("returns native_unavailable without attempting disk writes", async () => {
     const { writeTraitsAndRenderAvatar } = await import("./traits-png-sync.js");
 
-    const result = writeTraitsAndRenderAvatar({
+    const result = await writeTraitsAndRenderAvatar({
       bodyShape: "blob",
       eyeStyle: "curious",
       color: "green",
@@ -123,7 +123,7 @@ describe("writeTraitsAndRenderAvatar — native module missing", () => {
     const { writeTraitsAndRenderAvatar } = await import("./traits-png-sync.js");
 
     // Empty traits object fails the shape check before we ever consult resvg.
-    const result = writeTraitsAndRenderAvatar({
+    const result = await writeTraitsAndRenderAvatar({
       bodyShape: "",
       eyeStyle: "",
       color: "",

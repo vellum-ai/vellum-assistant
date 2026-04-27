@@ -29,11 +29,11 @@ export type TraitsSyncResult =
  * Renders avatar PNG and ASCII art into memory without touching the filesystem.
  * Call this before any disk writes so a render failure leaves all files untouched.
  */
-function renderAvatarBuffers(traits: CharacterTraits): {
+async function renderAvatarBuffers(traits: CharacterTraits): Promise<{
   pngBuffer: Buffer;
   asciiArt: string | null;
-} {
-  const pngBuffer = renderCharacterPng(
+}> {
+  const pngBuffer = await renderCharacterPng(
     traits.bodyShape,
     traits.eyeStyle,
     traits.color,
@@ -41,7 +41,7 @@ function renderAvatarBuffers(traits: CharacterTraits): {
 
   let asciiArt: string | null = null;
   try {
-    asciiArt = renderCharacterAscii(
+    asciiArt = await renderCharacterAscii(
       traits.bodyShape,
       traits.eyeStyle,
       traits.color,
@@ -99,9 +99,9 @@ function writeAvatarFiles(
  * avatar files, so a render failure leaves all files untouched and a disk
  * failure after traits are written never leaves the PNG ahead of the traits.
  */
-export function writeTraitsAndRenderAvatar(
+export async function writeTraitsAndRenderAvatar(
   traits: CharacterTraits,
-): TraitsSyncResult {
+): Promise<TraitsSyncResult> {
   if (
     !traits ||
     typeof traits !== "object" ||
@@ -117,9 +117,27 @@ export function writeTraitsAndRenderAvatar(
     };
   }
 
+  // Short-circuit before any network calls or disk writes when the native
+  // rasterizer is missing. Both PNG and ASCII rendering route through
+  // @resvg/resvg-js, so without it we cannot produce either artifact.
+  if (!isResvgAvailable()) {
+    log.warn(
+      { traits },
+      "Skipping avatar render — native @resvg/resvg-js binding is unavailable",
+    );
+    return {
+      ok: false,
+      reason: "native_unavailable",
+      message:
+        "Avatar PNG rendering is unavailable on this platform because the " +
+        "@resvg/resvg-js native binding failed to load. Reinstall dependencies " +
+        "to pull the platform-specific optional package.",
+    };
+  }
+
   // Validate trait IDs against the known component set so that unknown values
   // are surfaced as input-validation errors (400) rather than server errors (500).
-  const components = getCharacterComponents();
+  const components = await getCharacterComponents();
   const validBodyShapes = components.bodyShapes.map((b) => b.id);
   if (!validBodyShapes.includes(traits.bodyShape)) {
     return {
@@ -145,25 +163,6 @@ export function writeTraitsAndRenderAvatar(
     };
   }
 
-  // Short-circuit before touching disk when the native rasterizer is missing.
-  // Both PNG and ASCII rendering route through @resvg/resvg-js, so without it
-  // we cannot produce either artifact. Callers translate this into a 503 so
-  // the HTTP route returns an actionable status rather than a 500.
-  if (!isResvgAvailable()) {
-    log.warn(
-      { traits },
-      "Skipping avatar render — native @resvg/resvg-js binding is unavailable",
-    );
-    return {
-      ok: false,
-      reason: "native_unavailable",
-      message:
-        "Avatar PNG rendering is unavailable on this platform because the " +
-        "@resvg/resvg-js native binding failed to load. Reinstall dependencies " +
-        "to pull the platform-specific optional package.",
-    };
-  }
-
   const avatarDir = getAvatarDir();
   const traitsPath = join(avatarDir, "character-traits.json");
 
@@ -172,7 +171,7 @@ export function writeTraitsAndRenderAvatar(
 
     // Phase 1: Render everything into memory — no disk writes yet.
     // If rendering fails, all files remain untouched.
-    const { pngBuffer, asciiArt } = renderAvatarBuffers(traits);
+    const { pngBuffer, asciiArt } = await renderAvatarBuffers(traits);
 
     // Phase 2: Write traits file atomically first.
     const traitsJson = JSON.stringify(traits, null, 2);

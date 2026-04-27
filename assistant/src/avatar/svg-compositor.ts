@@ -14,13 +14,13 @@ import { getCharacterComponents } from "./character-components.js";
  * @param size - Output SVG width/height in px (default 512)
  * @returns A complete SVG document string
  */
-export function composeSvg(
+export async function composeSvg(
   bodyShapeId: string,
   eyeStyleId: string,
   colorId: string,
   size: number = 512,
-): string {
-  const components = getCharacterComponents();
+): Promise<string> {
+  const components = await getCharacterComponents();
 
   const bodyShape = components.bodyShapes.find((b) => b.id === bodyShapeId);
   if (!bodyShape) {
