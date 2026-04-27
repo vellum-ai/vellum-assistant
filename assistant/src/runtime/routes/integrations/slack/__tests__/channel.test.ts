@@ -1,9 +1,8 @@
 /**
- * Unit tests for the POST /v1/integrations/slack/channel/config HTTP route.
+ * Unit tests for the POST /v1/integrations/slack/channel/config route handler.
  *
- * Mocks `setSlackChannelConfig` in the config-slack-channel handler module so
- * the test can observe which arguments the HTTP handler forwards from the
- * request body — particularly the optional `userToken` field.
+ * Mocks `setSlackChannelConfig` to observe which arguments the handler
+ * forwards from the request body — particularly the optional `userToken` field.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -54,6 +53,7 @@ mock.module("../../../../../daemon/handlers/config-slack-channel.js", () => ({
   }),
 }));
 
+import { BadRequestError } from "../../../errors.js";
 const { handleSetSlackChannelConfig } = await import("../channel.js");
 
 describe("POST /v1/integrations/slack/channel/config", () => {
@@ -69,13 +69,10 @@ describe("POST /v1/integrations/slack/channel/config", () => {
   });
 
   test("forwards userToken from request body as the third argument", async () => {
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({ userToken: "xoxp-test-user-token" }),
+    const result = await handleSetSlackChannelConfig({
+      body: { userToken: "xoxp-test-user-token" },
     });
-
-    const res = await handleSetSlackChannelConfig(req);
-    expect(res.status).toBe(200);
+    expect(result).toHaveProperty("success", true);
 
     expect(lastSetConfigCall).not.toBeNull();
     expect(lastSetConfigCall?.botToken).toBeUndefined();
@@ -84,17 +81,14 @@ describe("POST /v1/integrations/slack/channel/config", () => {
   });
 
   test("forwards all three tokens when present in body", async () => {
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({
+    const result = await handleSetSlackChannelConfig({
+      body: {
         botToken: "xoxb-bot",
         appToken: "xapp-app",
         userToken: "xoxp-user",
-      }),
+      },
     });
-
-    const res = await handleSetSlackChannelConfig(req);
-    expect(res.status).toBe(200);
+    expect(result).toHaveProperty("success", true);
 
     expect(lastSetConfigCall?.botToken).toBe("xoxb-bot");
     expect(lastSetConfigCall?.appToken).toBe("xapp-app");
@@ -102,36 +96,35 @@ describe("POST /v1/integrations/slack/channel/config", () => {
   });
 
   test("leaves userToken undefined when absent from body", async () => {
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({ botToken: "xoxb-bot", appToken: "xapp-app" }),
+    const result = await handleSetSlackChannelConfig({
+      body: { botToken: "xoxb-bot", appToken: "xapp-app" },
     });
-
-    const res = await handleSetSlackChannelConfig(req);
-    expect(res.status).toBe(200);
+    expect(result).toHaveProperty("success", true);
 
     expect(lastSetConfigCall?.botToken).toBe("xoxb-bot");
     expect(lastSetConfigCall?.appToken).toBe("xapp-app");
     expect(lastSetConfigCall?.userToken).toBeUndefined();
   });
 
-  test("returns 400 when handler reports success: false", async () => {
+  test("throws BadRequestError when handler reports success: false", async () => {
     mockSetConfigResult = {
       success: false,
       hasBotToken: false,
       hasAppToken: false,
       hasUserToken: false,
       connected: false,
-      error: "Invalid user token: must start with \"xoxp-\"",
+      error: 'Invalid user token: must start with "xoxp-"',
     };
 
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({ userToken: "abc-123" }),
-    });
-
-    const res = await handleSetSlackChannelConfig(req);
-    expect(res.status).toBe(400);
+    expect(
+      handleSetSlackChannelConfig({ body: { userToken: "abc-123" } }),
+    ).rejects.toThrow(BadRequestError);
+    // Wait for promise to settle before checking call
+    try {
+      await handleSetSlackChannelConfig({ body: { userToken: "abc-123" } });
+    } catch {
+      // expected
+    }
     expect(lastSetConfigCall?.userToken).toBe("abc-123");
   });
 });
