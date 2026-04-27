@@ -20,6 +20,7 @@ public struct VNavItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
     public var subtitle: String?
+    public var tooltip: String?
     public var isActive: Bool
     public var isExpanded: Bool
     /// When `true`, applies the keyboard-focus highlight background (same as hover).
@@ -38,6 +39,7 @@ public struct VNavItem<Trailing: View>: View {
         icon: String? = nil,
         label: String,
         subtitle: String? = nil,
+        tooltip: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
         isKeyboardFocused: Bool = false,
@@ -47,6 +49,7 @@ public struct VNavItem<Trailing: View>: View {
         self.icon = icon
         self.label = label
         self.subtitle = subtitle
+        self.tooltip = tooltip
         self.isActive = isActive
         self.isExpanded = isExpanded
         self.isKeyboardFocused = isKeyboardFocused
@@ -103,7 +106,7 @@ public struct VNavItem<Trailing: View>: View {
         .contentShape(Rectangle())
         .onTapGesture { action() }
         .padding(.horizontal, 0)
-        .vTooltip(label)
+        .vTooltip(tooltip ?? label)
         .pointerCursor(onHover: { isHovered = $0 })
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
