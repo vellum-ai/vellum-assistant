@@ -521,7 +521,7 @@
           "user-invocable": "true"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants"
+      "compatibility": "Supports Vellum, OpenClaw, and Hermes assistants"
     },
     {
       "id": "slack",
