@@ -5651,55 +5651,69 @@ paths:
   /v1/integrations/twilio/config:
     get:
       operationId: integrations_twilio_config_get
+      summary: Get Twilio config
+      description: Return current Twilio configuration status.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/credentials:
     delete:
       operationId: integrations_twilio_credentials_delete
+      summary: Clear Twilio credentials
+      description: Remove stored Twilio credentials.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_twilio_credentials_post
+      summary: Set Twilio credentials
+      description: Validate and store Twilio account SID and auth token.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers:
     get:
       operationId: integrations_twilio_numbers_get
+      summary: List Twilio numbers
+      description: List phone numbers on the Twilio account.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/assign:
     post:
       operationId: integrations_twilio_numbers_assign_post
+      summary: Assign Twilio number
+      description: Assign an existing phone number to this assistant.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/provision:
     post:
       operationId: integrations_twilio_numbers_provision_post
+      summary: Provision Twilio number
+      description: Search for and provision a new phone number.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/release:
     post:
       operationId: integrations_twilio_numbers_release_post
+      summary: Release Twilio number
+      description: Release a phone number back to Twilio.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response

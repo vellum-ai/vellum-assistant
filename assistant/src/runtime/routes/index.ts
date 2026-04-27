@@ -36,6 +36,7 @@ import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as SLACK_CHANNEL_ROUTES } from "./integrations/slack/channel.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
+import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
@@ -105,6 +106,7 @@ export const ROUTES: RouteDefinition[] = [
   ...STT_ROUTES,
   ...SUBAGENT_ROUTES,
   ...TELEGRAM_ROUTES,
+  ...TWILIO_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,
   ...TTS_ROUTES,
