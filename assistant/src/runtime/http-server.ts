@@ -177,7 +177,6 @@ import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
 import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
 import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
-import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
@@ -1795,7 +1794,6 @@ export class RuntimeHttpServer {
       ...filingRouteDefinitions({
         getFilingService: this.getFilingService,
       }),
-      ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
       ...profilerRouteDefinitions(),
       ...workItemHttpOnlyRouteDefinitions(
