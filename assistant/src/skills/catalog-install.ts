@@ -313,11 +313,19 @@ export async function installSkillLocally(
     ? join(repoSkillsDir, skillId)
     : undefined;
 
+  let installSource: "repo" | "platform";
   if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
+    installSource = "repo";
     cpSync(repoSkillSource, skillDir, { recursive: true });
   } else {
+    installSource = "platform";
     await fetchAndExtractSkill(skillId, skillDir);
   }
+  log.info(
+    { skillId, source: installSource },
+    "Installed skill from %s",
+    installSource,
+  );
 
   // Write install metadata
   writeInstallMeta(skillDir, {
@@ -365,6 +373,10 @@ export async function resolveCatalog(
     if (local.length > 0) {
       // If no specific skill requested, or it exists locally, skip remote fetch
       if (!skillId || local.some((s) => s.id === skillId)) {
+        log.info(
+          { skillId, source: "local", count: local.length },
+          "Resolved skills catalog from local repo",
+        );
         return local;
       }
       // Skill not found locally — merge with remote so remote-only skills
@@ -372,13 +384,23 @@ export async function resolveCatalog(
       try {
         const remote = await fetchCatalog();
         const localIds = new Set(local.map((s) => s.id));
-        return [...local, ...remote.filter((s) => !localIds.has(s.id))];
+        const merged = [...local, ...remote.filter((s) => !localIds.has(s.id))];
+        log.info(
+          { skillId, source: "merged", localCount: local.length, remoteCount: remote.length },
+          "Resolved skills catalog from local+remote merge",
+        );
+        return merged;
       } catch {
+        log.info(
+          { skillId, source: "local-fallback", count: local.length },
+          "Resolved skills catalog from local repo (remote fetch failed)",
+        );
         return local;
       }
     }
   }
 
+  log.info({ skillId, source: "remote" }, "Resolved skills catalog from platform API");
   return fetchCatalog();
 }
 
@@ -419,6 +441,7 @@ export async function autoInstallFromCatalog(
   // of attempting a fresh install that would fail.
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   if (existsSync(join(skillDir, "SKILL.md"))) {
+    log.info({ skillId, source: "disk-reindex" }, "Skill already on disk, re-indexing");
     upsertSkillsIndex(skillId);
     return true;
   }
