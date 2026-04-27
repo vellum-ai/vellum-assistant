@@ -227,6 +227,7 @@ export interface MessageComplete {
 
 export interface ErrorMessage {
   type: "error";
+  code?: string;
   message: string;
   /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
   category?: string;
