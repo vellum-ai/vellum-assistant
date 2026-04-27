@@ -57,7 +57,6 @@ const mockConfig = {
     action: "warn" as const,
     entropyThreshold: 4.0,
   },
-  permissions: {},
 };
 
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };
@@ -125,6 +124,11 @@ mock.module("../tools/registry.js", () => ({
     };
   },
   getAllTools: () => [],
+}));
+
+mock.module("../permissions/gateway-threshold-reader.js", () => ({
+  getAutoApproveThreshold: async () => "medium",
+  _clearGlobalCacheForTesting: () => {},
 }));
 
 mock.module("../tools/shared/filesystem/path-policy.js", () => ({
