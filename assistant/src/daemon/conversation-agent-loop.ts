@@ -148,7 +148,6 @@ import type {
   ChannelCapabilities,
   InboundActorContext,
   InjectionMode,
-  TrustContext,
 } from "./conversation-runtime-assembly.js";
 import {
   applyRuntimeInjections,
@@ -179,6 +178,7 @@ import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import type { TrustContext } from "./trust-context.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");

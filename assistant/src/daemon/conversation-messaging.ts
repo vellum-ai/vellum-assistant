@@ -40,13 +40,13 @@ import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
-import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
+import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-messaging");
 

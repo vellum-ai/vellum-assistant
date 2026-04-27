@@ -40,10 +40,7 @@ import type {
   QueuedMessage,
   QueueDrainReason,
 } from "./conversation-queue-manager.js";
-import type {
-  ChannelCapabilities,
-  TrustContext,
-} from "./conversation-runtime-assembly.js";
+import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
   classifySlash,
   resolveSlash,
@@ -59,6 +56,7 @@ import type {
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { buildTransportHints } from "./transport-hints.js";
+import type { TrustContext } from "./trust-context.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");

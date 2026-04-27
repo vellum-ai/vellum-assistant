@@ -39,7 +39,6 @@ import type {
 } from "../tools/types.js";
 import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
-import type { TrustContext } from "./conversation-runtime-assembly.js";
 import {
   projectSkillTools,
   type SkillProjectionCache,
@@ -52,6 +51,7 @@ import {
 } from "./doordash-steps.js";
 import type { ServerMessage, UiSurfaceShow } from "./message-protocol.js";
 import { runPostExecutionSideEffects } from "./tool-side-effects.js";
+import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 

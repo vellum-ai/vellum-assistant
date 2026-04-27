@@ -19,9 +19,9 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";

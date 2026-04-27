@@ -16,7 +16,7 @@ mock.module("../util/logger.js", () => ({
 
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";

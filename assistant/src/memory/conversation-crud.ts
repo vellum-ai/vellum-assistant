@@ -22,7 +22,7 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";

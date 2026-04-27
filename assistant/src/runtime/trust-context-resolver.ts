@@ -10,7 +10,7 @@
  * {@link toTrustContext}.
  */
 import type { ChannelId } from "../channels/types.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   resolveActorTrust,
   type ResolveActorTrustInput,

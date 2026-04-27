@@ -21,9 +21,9 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
-import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-launch");
 

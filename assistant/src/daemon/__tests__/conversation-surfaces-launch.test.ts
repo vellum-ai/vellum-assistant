@@ -84,7 +84,7 @@ const { registerLaunchConversationDeps, resetLaunchConversationDeps } =
   await import("../conversation-launch.js");
 type SurfaceConversationContext =
   import("../conversation-surfaces.js").SurfaceConversationContext;
-type TrustContext = import("../conversation-runtime-assembly.js").TrustContext;
+type TrustContext = import("../trust-context.js").TrustContext;
 type ServerMessage = import("../message-protocol.js").ServerMessage;
 type SurfaceData = import("../message-protocol.js").SurfaceData;
 type SurfaceType = import("../message-protocol.js").SurfaceType;

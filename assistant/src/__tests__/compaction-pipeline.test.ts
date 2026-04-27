@@ -16,7 +16,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   DEFAULT_COMPACTION_PLUGIN_NAME,
   defaultCompactionTerminal,

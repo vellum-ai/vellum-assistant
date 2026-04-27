@@ -25,8 +25,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   COMPACTION_CIRCUIT_COOLDOWN_MS,
   COMPACTION_CIRCUIT_FAILURE_THRESHOLD,

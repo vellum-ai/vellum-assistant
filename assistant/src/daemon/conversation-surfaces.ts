@@ -22,7 +22,6 @@ import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
-import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
   CardSurfaceData,
@@ -41,6 +40,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
+import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-surfaces");
 

@@ -9,7 +9,7 @@
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
-import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../../../daemon/trust-context.js";
 import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
 import { linkMessage } from "../../../memory/delivery-crud.js";
 import {

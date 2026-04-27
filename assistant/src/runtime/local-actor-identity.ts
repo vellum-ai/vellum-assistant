@@ -13,7 +13,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { CURRENT_POLICY_EPOCH } from "./auth/policy.js";

@@ -27,11 +27,11 @@ import type {
   ChannelCapabilities,
   ChannelCommandContext,
   InjectionMode,
-  TrustContext,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { RepairResult } from "../daemon/history-repair.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type {
   ContentBlock,

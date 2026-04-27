@@ -5,7 +5,6 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type {
   ConversationCreateOptions,
   SlackInboundMessageMetadata,
@@ -40,6 +39,7 @@ export type {
   GuardianActionMessageContext,
   GuardianActionMessageScenario,
 } from "./message-composer-types.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation flow types

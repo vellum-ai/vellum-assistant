@@ -19,7 +19,7 @@
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   addMessage,
   createConversation,
