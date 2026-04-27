@@ -26,10 +26,8 @@ export async function setSecureKeyViaDaemon(
   name: string,
   value: string,
 ): Promise<boolean> {
-  const ipc = await cliIpcCall<{ success: boolean }>("secrets/write", {
-    type,
-    name,
-    value,
+  const ipc = await cliIpcCall<{ success: boolean }>("secrets_write", {
+    body: { type, name, value },
   });
 
   if (ipc.ok && ipc.result) {
@@ -61,9 +59,8 @@ export async function deleteSecureKeyViaDaemon(
   type: string,
   name: string,
 ): Promise<DeleteResult> {
-  const ipc = await cliIpcCall<{ success: boolean }>("secrets/delete", {
-    type,
-    name,
+  const ipc = await cliIpcCall<{ success: boolean }>("secrets_delete", {
+    body: { type, name },
   });
 
   if (ipc.ok && ipc.result) {

@@ -35,8 +35,10 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
+import type { HttpErrorResponse } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
 const MANAGED_PROXY_CREDENTIALS = [
@@ -666,3 +668,153 @@ export function secretRouteDefinitions(
     },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// Daemon-owned dependency — set at startup via registerSecretRouteDeps()
+// ---------------------------------------------------------------------------
+
+let registeredDeps: SecretRouteDeps | null = null;
+
+export function registerSecretRouteDeps(deps: SecretRouteDeps): void {
+  registeredDeps = deps;
+}
+
+function getDeps(): SecretRouteDeps {
+  if (!registeredDeps) {
+    throw new Error("secrets: SecretRouteDeps not registered");
+  }
+  return registeredDeps;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for extracting error messages from Response bodies
+// ---------------------------------------------------------------------------
+
+function extractErrorMessage(
+  body: Record<string, unknown>,
+  fallback: string,
+): string {
+  const err = body.error;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object" && "message" in err) {
+    return (err as HttpErrorResponse["error"]).message;
+  }
+  return fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Transport-agnostic routes (IPC + HTTP via ROUTES array)
+// ---------------------------------------------------------------------------
+
+const SecretWriteParams = z.object({
+  type: z.string().min(1),
+  name: z.string().min(1),
+  value: z.string().min(1),
+});
+
+const SecretDeleteParams = z.object({
+  type: z.string().min(1),
+  name: z.string().min(1),
+});
+
+const SecretReadParams = z.object({
+  type: z.string().min(1),
+  name: z.string().min(1),
+  reveal: z.boolean().optional(),
+});
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "secrets_write",
+    endpoint: "secrets/write",
+    method: "POST",
+    summary: "Write a secret",
+    description: "Store a secret (API key or credential) in the vault.",
+    tags: ["secrets"],
+    requestBody: SecretWriteParams,
+    responseBody: z.object({
+      success: z.boolean(),
+      type: z.string(),
+      name: z.string(),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const deps = getDeps();
+      const { type, name, value } = SecretWriteParams.parse(body);
+      const fakeReq = new Request("http://localhost/v1/secrets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, name, value }),
+      });
+      const res = await handleAddSecret(fakeReq, deps);
+      const resBody = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          extractErrorMessage(resBody, `Secret write failed (${res.status})`),
+        );
+      }
+      return resBody;
+    },
+  },
+  {
+    operationId: "secrets_delete",
+    endpoint: "secrets/delete",
+    method: "POST",
+    summary: "Delete a secret",
+    description: "Remove a secret from the vault.",
+    tags: ["secrets"],
+    requestBody: SecretDeleteParams,
+    responseBody: z.object({
+      success: z.boolean(),
+      type: z.string(),
+      name: z.string(),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const deps = getDeps();
+      const { type, name } = SecretDeleteParams.parse(body);
+      const fakeReq = new Request("http://localhost/v1/secrets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, name }),
+      });
+      const res = await handleDeleteSecret(fakeReq, deps);
+      const resBody = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          extractErrorMessage(resBody, `Secret delete failed (${res.status})`),
+        );
+      }
+      return resBody;
+    },
+  },
+  {
+    operationId: "secrets_read",
+    endpoint: "secrets/read",
+    method: "POST",
+    summary: "Read a secret",
+    description: "Retrieve the value or masked version of a stored secret.",
+    tags: ["secrets"],
+    requestBody: SecretReadParams,
+    responseBody: z.object({
+      found: z.boolean(),
+      value: z.string().optional(),
+      masked: z.string().optional(),
+      unreachable: z.boolean().optional(),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const { type, name, reveal } = SecretReadParams.parse(body);
+      const fakeReq = new Request("http://localhost/v1/secrets/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, name, reveal }),
+      });
+      const res = await handleReadSecret(fakeReq);
+      const resBody = (await res.json()) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error(
+          extractErrorMessage(resBody, `Secret read failed (${res.status})`),
+        );
+      }
+      return resBody;
+    },
+  },
+];

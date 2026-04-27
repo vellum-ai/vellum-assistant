@@ -27,7 +27,6 @@ import type { CesProcessManager } from "../credential-execution/process-manager.
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
-import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
 import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -66,6 +65,7 @@ import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { registerSecretRouteDeps } from "../runtime/routes/secret-routes.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
