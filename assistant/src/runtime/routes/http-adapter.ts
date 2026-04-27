@@ -3,6 +3,7 @@
  * for the HTTP server's route table.
  */
 
+import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
@@ -31,8 +32,13 @@ export function routeDefinitionsToHTTPRoutes(
     queryParams: r.queryParams,
     requestBody: r.requestBody,
     responseBody: r.responseBody,
-    handler: async ({ req, url, params }) => {
+    handler: async ({ req, url, params, authContext }) => {
       try {
+        if (r.requireGuardian) {
+          const guardianError = requireBoundGuardian(authContext);
+          if (guardianError) return guardianError;
+        }
+
         const pathParams: Record<string, string> = {};
         if (params) {
           for (const [key, value] of Object.entries(params)) {
@@ -48,15 +54,8 @@ export function routeDefinitionsToHTTPRoutes(
         const contentType = req.headers.get("content-type") ?? "";
         let body: Record<string, unknown> | undefined;
         let rawBody: Uint8Array | undefined;
-        if (
-          r.method === "POST" ||
-          r.method === "PUT" ||
-          r.method === "PATCH"
-        ) {
-          if (
-            contentType.includes("application/json") ||
-            contentType === ""
-          ) {
+        if (r.method === "POST" || r.method === "PUT" || r.method === "PATCH") {
+          if (contentType.includes("application/json") || contentType === "") {
             try {
               const parsed = (await req.json()) as Record<string, unknown>;
               if (parsed && typeof parsed === "object") {

@@ -26,6 +26,13 @@ export class BadRequestError extends RouteError {
   }
 }
 
+export class ForbiddenError extends RouteError {
+  constructor(message: string) {
+    super(message, "FORBIDDEN", 403);
+    this.name = "ForbiddenError";
+  }
+}
+
 export class NotFoundError extends RouteError {
   constructor(message: string) {
     super(message, "NOT_FOUND", 404);
