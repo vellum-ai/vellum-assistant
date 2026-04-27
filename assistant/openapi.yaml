@@ -3064,6 +3064,121 @@ paths:
                 - keepId
                 - mergeId
               additionalProperties: false
+  /v1/contacts/merge-by-id:
+    post:
+      operationId: contacts_mergebyid_post
+      summary: Merge two contacts
+      description: Merge two contacts by ID, keeping one and absorbing the other.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keepId:
+                  type: string
+                  minLength: 1
+                mergeId:
+                  type: string
+                  minLength: 1
+              required:
+                - keepId
+                - mergeId
+              additionalProperties: false
+  /v1/contacts/search:
+    post:
+      operationId: contacts_search_post
+      summary: Search contacts
+      description: Search contacts by query, channel address, or channel type.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties: {}
+                  additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                channelAddress:
+                  type: string
+                channelType:
+                  type: string
+                limit:
+                  type: number
+              additionalProperties: false
+  /v1/contacts/upsert:
+    post:
+      operationId: contacts_upsert_post
+      summary: Create or update a contact
+      description: Create a new contact or update an existing one by ID.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                displayName:
+                  type: string
+                  minLength: 1
+                notes:
+                  type: string
+                channels:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      address:
+                        type: string
+                      isPrimary:
+                        type: boolean
+                    required:
+                      - type
+                      - address
+                    additionalProperties: false
+              required:
+                - displayName
+              additionalProperties: false
   /v1/conversation-starters:
     get:
       operationId: conversationstarters_get
