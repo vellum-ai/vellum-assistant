@@ -107,7 +107,10 @@ describe("route policy coverage", () => {
 
     // These endpoints are in the route table but intentionally don't need
     // a route policy (they are unprotected utility endpoints).
-    const UNPROTECTED_ENDPOINTS = new Set(["health"]);
+    const UNPROTECTED_ENDPOINTS = new Set([
+      "audio", // Twilio fetches audio URLs directly — audioId is a capability token
+      "health",
+    ]);
 
     // Extract registered policy endpoint strings from route-policy.ts.
     // Match: `{ endpoint: 'foo' }` entries, `registerPolicy('foo', ...)`
