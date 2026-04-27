@@ -15,7 +15,6 @@ import type {
 export type { SlackInboundMessageMetadata };
 import type { ModelSetContext } from "../daemon/handlers/config-model.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
 import type {
   ApprovalCopyGenerator,
@@ -199,8 +198,6 @@ export interface RuntimeHttpServerOptions {
    * can be recreated with fresh provider instances.
    */
   onProviderCredentialsChanged?: () => void | Promise<void>;
-  /** Accessor for the heartbeat service (for run-now and config routes). */
-  getHeartbeatService?: () => HeartbeatService | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

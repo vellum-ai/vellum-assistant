@@ -24,7 +24,7 @@ import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
 import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
@@ -391,17 +391,6 @@ export class DaemonServer {
   updateCesClient(client: CesClient | undefined): void {
     this.cesClientGeneration++;
     this.cesClientRef = client;
-  }
-
-  /** Optional heartbeat service reference for "Run Now" from the UI. */
-  private _heartbeatService?: HeartbeatService;
-
-  setHeartbeatService(service: HeartbeatService): void {
-    this._heartbeatService = service;
-  }
-
-  getHeartbeatService(): HeartbeatService | undefined {
-    return this._heartbeatService;
   }
 
   constructor() {
@@ -1085,7 +1074,7 @@ export class DaemonServer {
       getOrCreateConversation: (id, options?) =>
         getOrCreateActiveConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),
-      heartbeatService: this._heartbeatService,
+      heartbeatService: HeartbeatService.getInstance(),
     };
   }
 
