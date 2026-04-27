@@ -38,6 +38,7 @@ export type TitleOrigin =
   | "local"
   | "task_submit"
   | "updates_bulletin"
+  | "memory_consolidation"
   | "misc";
 
 export interface TitleContext {

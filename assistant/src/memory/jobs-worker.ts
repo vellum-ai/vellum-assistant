@@ -60,6 +60,7 @@ import {
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
+import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -460,6 +461,8 @@ async function processJob(
       await memoryV2SweepJob(job, config);
       return;
     case "memory_v2_consolidate":
+      await memoryV2ConsolidateJob(job, config);
+      return;
     case "memory_v2_migrate":
     case "memory_v2_rebuild_edges":
     case "memory_v2_reembed":
