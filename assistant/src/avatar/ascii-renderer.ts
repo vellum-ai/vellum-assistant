@@ -16,14 +16,14 @@ const RAMP = " .·:;+=xX$&@";
  * @param width - Output width in characters (default 60)
  * @returns A multi-line ASCII art string
  */
-export function renderCharacterAscii(
+export async function renderCharacterAscii(
   bodyShapeId: string,
   eyeStyleId: string,
   colorId: string,
   width: number = 60,
-): string {
+): Promise<string> {
   const renderSize = width * 2;
-  const svg = composeSvg(bodyShapeId, eyeStyleId, colorId, renderSize);
+  const svg = await composeSvg(bodyShapeId, eyeStyleId, colorId, renderSize);
   const Resvg = getResvg();
   const resvg = new Resvg(svg, {
     fitTo: { mode: "width", value: renderSize },
