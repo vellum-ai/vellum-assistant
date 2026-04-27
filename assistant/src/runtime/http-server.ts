@@ -171,7 +171,6 @@ import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
-import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workItemHttpOnlyRouteDefinitions } from "./routes/work-items-routes.js";
@@ -2101,7 +2100,6 @@ export class RuntimeHttpServer {
             getSkillContext: this.getSkillContext,
           })
         : []),
-      ...surfaceActionRouteDefinitions(),
       ...surfaceContentRouteDefinitions(),
       ...guardianActionRouteDefinitions(),
 

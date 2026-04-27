@@ -52,6 +52,7 @@ import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
+import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
@@ -106,6 +107,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
   ...SUBAGENT_ROUTES,
+  ...SURFACE_ACTION_ROUTES,
   ...TELEGRAM_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,

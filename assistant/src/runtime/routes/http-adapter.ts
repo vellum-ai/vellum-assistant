@@ -79,6 +79,13 @@ export function routeDefinitionsToHTTPRoutes(
           headers[key] = value;
         });
 
+        // Inject the authenticated actor principal ID so transport-agnostic
+        // handlers can resolve trust context without importing auth internals.
+        if (authContext?.actorPrincipalId) {
+          headers["x-vellum-actor-principal-id"] =
+            authContext.actorPrincipalId;
+        }
+
         const result = await r.handler({
           pathParams,
           queryParams,
