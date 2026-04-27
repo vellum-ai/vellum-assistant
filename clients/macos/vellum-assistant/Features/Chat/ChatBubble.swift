@@ -122,6 +122,11 @@ struct ChatBubble: View, Equatable {
     /// path switch that destroys and recreates AssistantProgressView mid-stream.
     @State var progressUIState: ProgressCardUIState = ProgressCardUIState()
 
+    /// Rule editor modal state. Lives here (not in AssistantProgressView)
+    /// so the modal survives the trailing→interleaved rendering path switch.
+    @State var suggestRuleToolCall: ToolCallData?
+    @State var suggestRuleSuggestion: TrustRuleSuggestion?
+
     init(
         message: ChatMessage,
         decidedConfirmation: ToolConfirmationData?,
@@ -450,6 +455,35 @@ struct ChatBubble: View, Equatable {
             if !isUser { Spacer(minLength: 0) }
         }
         .contentShape(Rectangle())
+        .sheet(item: $suggestRuleToolCall) { tc in
+            V3RuleEditorModal(
+                toolName: tc.toolName,
+                commandText: tc.inputSummary,
+                commandDescription: tc.reasonDescription ?? "",
+                riskLevel: tc.riskLevel ?? "medium",
+                scopeOptions: ToolCallStepDetailRow.v3ScopeOptions(from: tc),
+                directoryScopeOptions: tc.riskDirectoryScopeOptions ?? [],
+                suggestion: suggestRuleSuggestion,
+                onSave: { rule in
+                    Task {
+                        try? await TrustRuleV3Client().createRule(
+                            tool: rule.toolName,
+                            pattern: rule.pattern,
+                            risk: rule.riskLevel,
+                            description: {
+                                let desc = tc.reasonDescription ?? ""
+                                return desc.isEmpty ? "\(rule.toolName) — \(rule.pattern)" : desc
+                            }(),
+                            scope: rule.scope
+                        )
+                    }
+                },
+                onDismiss: {
+                    suggestRuleToolCall = nil
+                    suggestRuleSuggestion = nil
+                }
+            )
+        }
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
