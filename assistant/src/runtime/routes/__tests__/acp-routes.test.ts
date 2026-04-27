@@ -306,7 +306,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const body = (await handler({ params: { limit: "2" } })) as ResponseShape;
+    const body = (await handler({ queryParams: { limit: "2" } })) as ResponseShape;
     expect(body.sessions).toHaveLength(2);
     expect(body.sessions.map((s) => s.id)).toEqual(["live-newest", "hist-mid"]);
   });
@@ -349,7 +349,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
 
     const handler = getSessionsHandler();
     const body = (await handler({
-      params: { conversationId: "conv-target" },
+      queryParams: { conversationId: "conv-target" },
     })) as ResponseShape;
     expect(body.sessions.map((s) => s.id)).toEqual([
       "live-match",
@@ -387,7 +387,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
 
     const handler = getSessionsHandler();
     const body = (await handler({
-      params: { limit: "9999" },
+      queryParams: { limit: "9999" },
     })) as ResponseShape;
     expect(body.sessions).toHaveLength(3);
   });

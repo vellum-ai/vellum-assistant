@@ -539,6 +539,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: method
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Must be 'query' for GET requests
     post:
       operationId: apps_by_id_data_post
       summary: Mutate app data
@@ -607,6 +613,16 @@ paths:
           required: true
           schema:
             type: string
+        - name: fromCommit
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: toCommit
+          in: query
+          required: false
+          schema:
+            type: string
   /v1/apps/{id}/history:
     get:
       operationId: apps_by_id_history_get
@@ -637,6 +653,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: number
   /v1/apps/{id}/open:
     post:
       operationId: apps_by_id_open_post
@@ -1012,7 +1033,6 @@ paths:
                   description: Canonical JSON payload to sign
                 signature:
                   type: string
-                  description: Ed25519 signature (optional, completes signing)
                 keyId:
                   type: string
                 publicKey:
