@@ -35,6 +35,7 @@ class RememberTool implements Tool {
       typedInput,
       context.conversationId,
       context.memoryScopeId ?? "default",
+      getConfig(),
     );
     return {
       content: result.message,
