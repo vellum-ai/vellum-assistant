@@ -14,9 +14,37 @@ export class RouteError extends Error {
   }
 }
 
+export class BadRequestError extends RouteError {
+  constructor(message: string) {
+    super(message);
+    this.name = "BadRequestError";
+  }
+}
+
 export class NotFoundError extends RouteError {
   constructor(message: string) {
     super(message);
     this.name = "NotFoundError";
+  }
+}
+
+export class ConflictError extends RouteError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConflictError";
+  }
+}
+
+export class FailedDependencyError extends RouteError {
+  constructor(message: string) {
+    super(message);
+    this.name = "FailedDependencyError";
+  }
+}
+
+export class ServiceUnavailableError extends RouteError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ServiceUnavailableError";
   }
 }

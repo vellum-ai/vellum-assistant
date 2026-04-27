@@ -136,11 +136,7 @@ paths:
     delete:
       operationId: acp_sessions_delete
       summary: Bulk-clear terminal ACP sessions
-      description:
-        Remove every terminal-state row (completed/failed/cancelled) from the persisted `acp_session_history`
-        table. Active sessions (running/initializing) are untouched. The `?status=completed` query param is a UX
-        shorthand for all terminal statuses — it is the only value currently accepted; other values are rejected with
-        400.
+      description: Remove every terminal-state row (completed/failed/cancelled) from the persisted acp_session_history table.
       tags:
         - acp
       responses:
@@ -164,7 +160,7 @@ paths:
           required: true
           schema:
             type: string
-          description: Must be `completed`. Shorthand for all terminal statuses (completed/failed/cancelled).
+          description: Must be 'completed'. Shorthand for all terminal statuses (completed/failed/cancelled).
     get:
       operationId: acp_sessions_get
       summary: List ACP sessions

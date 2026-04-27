@@ -4,6 +4,13 @@
 
 import type { z } from "zod";
 
+export interface RouteQueryParam {
+  name: string;
+  type?: string;
+  required?: boolean;
+  description?: string;
+}
+
 export interface RouteDefinition {
   operationId: string;
   endpoint: string;
@@ -13,5 +20,7 @@ export interface RouteDefinition {
   summary?: string;
   description?: string;
   tags?: string[];
+  queryParams?: RouteQueryParam[];
+  requestBody?: z.ZodType;
   responseBody?: z.ZodType;
 }

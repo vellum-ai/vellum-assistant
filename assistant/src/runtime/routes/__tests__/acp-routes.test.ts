@@ -45,8 +45,7 @@ mock.module("../../../acp/index.js", () => ({
 }));
 
 import { getSqlite, initializeDb } from "../../../memory/db.js";
-import type { RouteContext } from "../../http-router.js";
-import { acpRouteDefinitions } from "../acp-routes.js";
+import { ROUTES } from "../acp-routes.js";
 
 initializeDb();
 
@@ -98,26 +97,11 @@ function insertHistoryRow(row: {
 }
 
 function getSessionsHandler() {
-  const routes = acpRouteDefinitions();
-  const route = routes.find(
+  const route = ROUTES.find(
     (r) => r.endpoint === "acp/sessions" && r.method === "GET",
   );
   if (!route) throw new Error("acp/sessions GET route not found");
   return route.handler;
-}
-
-function makeCtx(query: Record<string, string> = {}): RouteContext {
-  const url = new URL("http://localhost/v1/acp/sessions");
-  for (const [k, v] of Object.entries(query)) {
-    url.searchParams.set(k, v);
-  }
-  return {
-    req: new Request(url),
-    url,
-    server: {} as RouteContext["server"],
-    authContext: {} as never,
-    params: {},
-  };
 }
 
 interface ResponseShape {
@@ -143,9 +127,7 @@ beforeEach(() => {
 describe("GET /v1/acp/sessions — merged in-memory + history", () => {
   test("returns an empty array when no sessions exist", async () => {
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler()) as ResponseShape;
     expect(body.sessions).toEqual([]);
   });
 
@@ -162,9 +144,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     ];
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler()) as ResponseShape;
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0]).toMatchObject({
       id: "live-1",
@@ -199,9 +179,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler()) as ResponseShape;
     expect(body.sessions).toHaveLength(1);
     const s = body.sessions[0];
     expect(s.id).toBe("hist-1");
@@ -246,8 +224,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx());
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler()) as ResponseShape;
     expect(body.sessions).toHaveLength(1);
     expect(body.sessions[0].agentId).toBe("agent-live");
     expect(body.sessions[0].status).toBe("running");
@@ -276,8 +253,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx());
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler()) as ResponseShape;
     expect(body.sessions).toHaveLength(2);
     // Sorted newest-first by startedAt.
     expect(body.sessions[0].id).toBe("live-1");
@@ -330,8 +306,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx({ limit: "2" }));
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler({ limit: "2" })) as ResponseShape;
     expect(body.sessions).toHaveLength(2);
     expect(body.sessions.map((s) => s.id)).toEqual(["live-newest", "hist-mid"]);
   });
@@ -373,8 +348,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx({ conversationId: "conv-target" }));
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler({ conversationId: "conv-target" })) as ResponseShape;
     expect(body.sessions.map((s) => s.id)).toEqual([
       "live-match",
       "hist-match",
@@ -410,8 +384,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     });
 
     const handler = getSessionsHandler();
-    const res = await handler(makeCtx({ limit: "9999" }));
-    const body = (await res.json()) as ResponseShape;
+    const body = (await handler({ limit: "9999" })) as ResponseShape;
     expect(body.sessions).toHaveLength(3);
   });
 });

@@ -125,7 +125,6 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
-import { acpRouteDefinitions } from "./routes/acp-routes.js";
 import { appManagementRouteDefinitions } from "./routes/app-management-routes.js";
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
@@ -1822,7 +1821,6 @@ export class RuntimeHttpServer {
             }
           : undefined,
       ),
-      ...acpRouteDefinitions(),
       ...subagentRouteDefinitions(),
       ...conversationQueryRouteDefinitions({
         getModelSetContext: this.getModelSetContext,
