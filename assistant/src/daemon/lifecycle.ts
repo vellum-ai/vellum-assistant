@@ -79,6 +79,7 @@ import {
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -1017,6 +1018,10 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
+    });
+
+    // Wire secrets route deps now that the server is available.
+    registerSecretsDeps({
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),

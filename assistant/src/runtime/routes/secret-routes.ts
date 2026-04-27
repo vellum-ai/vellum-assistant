@@ -1,3 +1,12 @@
+/**
+ * Route definitions for secret and credential management.
+ *
+ * POST   /v1/secrets      — add a secret (API key or credential)
+ * DELETE /v1/secrets      — delete a secret
+ * GET    /v1/secrets      — list all stored secrets
+ * POST   /v1/secrets/read — read (masked or revealed) a secret value
+ */
+
 import { z } from "zod";
 
 import {
@@ -35,8 +44,9 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { getSecretsDeps } from "./secrets-deps.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
 const MANAGED_PROXY_CREDENTIALS = [
@@ -53,15 +63,8 @@ function isManagedProxyCredential(service: string, field: string): boolean {
 const CES_READY_POLL_INTERVAL_MS = 500;
 const CES_READY_POLL_TIMEOUT_MS = 30_000;
 
-/** Monotonic counter that increments each time a new assistant API key is handled.
- *  Queued propagation attempts check this before pushing to avoid overwriting
- *  a newer key with a stale one. */
 let apiKeyGeneration = 0;
 
-/**
- * Poll the CES client until it becomes ready, then push the API key —
- * but only if no newer key has been handled in the meantime.
- */
 async function queueApiKeyPropagation(
   cesClient: CesClient,
   apiKey: string,
@@ -108,31 +111,51 @@ async function queueApiKeyPropagation(
   );
 }
 
-export async function handleAddSecret(
-  req: Request,
-  deps?: SecretRouteDeps,
-): Promise<Response> {
-  let body: { type?: string; name?: string; value?: string };
+// ---------------------------------------------------------------------------
+// Provider refresh after secret changes
+// ---------------------------------------------------------------------------
+
+async function refreshProvidersAfterSecretChange(): Promise<void> {
+  clearEmbeddingBackendCache();
+  invalidateConfigCache();
+  await initializeProviders(getConfig());
+
+  const deps = getSecretsDeps();
+  if (!deps?.onProviderCredentialsChanged) return;
+
   try {
-    body = (await req.json()) as {
-      type?: string;
-      name?: string;
-      value?: string;
-    };
-  } catch {
-    return httpError("BAD_REQUEST", "Request body must be valid JSON", 400);
+    await deps.onProviderCredentialsChanged();
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Error notifying provider credentials change (non-fatal)",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+async function handleAddSecret({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
 
-  const { type, name, value } = body;
+  const { type, name, value } = body as {
+    type?: string;
+    name?: string;
+    value?: string;
+  };
 
   if (!type || typeof type !== "string") {
-    return httpError("BAD_REQUEST", "type is required", 400);
+    throw new BadRequestError("type is required");
   }
   if (!name || typeof name !== "string") {
-    return httpError("BAD_REQUEST", "name is required", 400);
+    throw new BadRequestError("name is required");
   }
   if (!value || typeof value !== "string") {
-    return httpError("BAD_REQUEST", "value is required", 400);
+    throw new BadRequestError("value is required");
   }
 
   try {
@@ -140,15 +163,11 @@ export async function handleAddSecret(
       if (
         !API_KEY_PROVIDERS.includes(name as (typeof API_KEY_PROVIDERS)[number])
       ) {
-        return httpError(
-          "BAD_REQUEST",
-          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(
-            ", ",
-          )}`,
-          400,
+        throw new BadRequestError(
+          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      // Validate API keys before storing (Anthropic, OpenAI, Gemini)
+
       if (name === "anthropic") {
         const validation = await validateAnthropicApiKey(value);
         if (!validation.valid) {
@@ -156,10 +175,7 @@ export async function handleAddSecret(
             { provider: name, reason: validation.reason },
             "API key validation failed",
           );
-          return Response.json(
-            { success: false, error: validation.reason },
-            { status: 422 },
-          );
+          return { success: false, error: validation.reason };
         }
       } else if (name === "openai") {
         const validation = await validateOpenAIApiKey(value);
@@ -168,10 +184,7 @@ export async function handleAddSecret(
             { provider: name, reason: validation.reason },
             "API key validation failed",
           );
-          return Response.json(
-            { success: false, error: validation.reason },
-            { status: 422 },
-          );
+          return { success: false, error: validation.reason };
         }
       } else if (name === "gemini") {
         const validation = await validateGeminiApiKey(value);
@@ -180,34 +193,26 @@ export async function handleAddSecret(
             { provider: name, reason: validation.reason },
             "API key validation failed",
           );
-          return Response.json(
-            { success: false, error: validation.reason },
-            { status: 422 },
-          );
+          return { success: false, error: validation.reason };
         }
       }
-      // fireworks, openrouter, ollama — no validation (allow storage)
 
       const stored = await setSecureKeyAsync(name, value);
       if (!stored) {
-        return httpError(
-          "INTERNAL_ERROR",
+        throw new InternalError(
           `Failed to store API key in secure storage (backend: ${getActiveBackendName()})`,
-          500,
         );
       }
-      await refreshProvidersAfterSecretChange(deps);
+      await refreshProvidersAfterSecretChange();
       log.info({ provider: name }, "API key updated via HTTP");
-      return Response.json({ success: true, type, name }, { status: 201 });
+      return { success: true, type, name };
     }
 
     if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
-        return httpError(
-          "BAD_REQUEST",
+        throw new BadRequestError(
           'For credential type, name must be in "service:field" format (e.g. "github:api_token")',
-          400,
         );
       }
       assertMetadataWritable();
@@ -215,10 +220,6 @@ export async function handleAddSecret(
       const field = name.slice(colonIdx + 1);
       const key = credentialKey(service, field);
 
-      // For identity fields, trim whitespace before persisting so the
-      // credential store matches the in-memory value.  Whitespace-only
-      // input is treated as a no-op: nothing is stored and in-memory
-      // state is cleared.
       const TRIMMED_IDENTITY_FIELDS = new Set([
         "platform_assistant_id",
         "platform_organization_id",
@@ -229,15 +230,10 @@ export async function handleAddSecret(
       const effectiveValue = isTrimmedIdentity ? value.trim() : value;
 
       if (isTrimmedIdentity && effectiveValue === "") {
-        // Whitespace-only → remove stale credential from the secure store,
-        // then clear in-memory state. Delete first so that if it fails we
-        // return 500 without having mutated in-memory identity.
         const deleteResult = await deleteSecureKeyAsync(key);
         if (deleteResult === "error") {
-          return httpError(
-            "INTERNAL_ERROR",
+          throw new InternalError(
             `Failed to delete stale credential from secure storage: ${service}:${field}`,
-            500,
           );
         }
         if (field === "platform_assistant_id") {
@@ -253,10 +249,8 @@ export async function handleAddSecret(
       } else {
         const stored = await setSecureKeyAsync(key, effectiveValue);
         if (!stored) {
-          return httpError(
-            "INTERNAL_ERROR",
+          throw new InternalError(
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
-            500,
           );
         }
         upsertCredentialMetadata(service, field, {});
@@ -277,11 +271,10 @@ export async function handleAddSecret(
         }
       }
       if (isManagedProxyCredential(service, field)) {
-        await refreshProvidersAfterSecretChange(deps);
+        await refreshProvidersAfterSecretChange();
         if (service === "vellum" && field === "assistant_api_key") {
-          // Push the API key to CES so managed credential materialization
-          // works even though the handshake ran before the key was available.
           const generation = ++apiKeyGeneration;
+          const deps = getSecretsDeps();
           const cesClient = deps?.getCesClient?.();
           if (cesClient) {
             if (cesClient.isReady()) {
@@ -300,43 +293,48 @@ export async function handleAddSecret(
                 );
               }
             } else {
-              // CES handshake is still in flight — queue the key propagation
-              // so it fires once CES becomes ready.
               void queueApiKeyPropagation(cesClient, value, generation);
             }
           }
         }
       }
       log.info({ service, field }, "Credential added via HTTP");
-      return Response.json({ success: true, type, name }, { status: 201 });
+      return { success: true, type, name };
     }
 
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Unknown secret type: ${type}. Valid types: api_key, credential`,
-      400,
     );
   } catch (err) {
+    if (
+      err instanceof BadRequestError ||
+      err instanceof InternalError ||
+      err instanceof NotFoundError
+    ) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, type, name }, "Failed to add secret via HTTP");
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new InternalError(message);
   }
 }
 
-export async function handleReadSecret(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
+async function handleReadSecret({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const { type, name, reveal } = body as {
     type?: string;
     name?: string;
     reveal?: boolean;
   };
 
-  const { type, name, reveal } = body;
-
   if (!type || typeof type !== "string") {
-    return httpError("BAD_REQUEST", "type is required", 400);
+    throw new BadRequestError("type is required");
   }
   if (!name || typeof name !== "string") {
-    return httpError("BAD_REQUEST", "name is required", 400);
+    throw new BadRequestError("name is required");
   }
 
   try {
@@ -346,77 +344,69 @@ export async function handleReadSecret(req: Request): Promise<Response> {
       if (
         !API_KEY_PROVIDERS.includes(name as (typeof API_KEY_PROVIDERS)[number])
       ) {
-        return httpError(
-          "BAD_REQUEST",
-          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(
-            ", ",
-          )}`,
-          400,
+        throw new BadRequestError(
+          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
       accountKey = name;
     } else if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
-        return httpError(
-          "BAD_REQUEST",
+        throw new BadRequestError(
           'For credential type, name must be in "service:field" format (e.g. "github:api_token")',
-          400,
         );
       }
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       accountKey = credentialKey(service, field);
     } else {
-      return httpError(
-        "BAD_REQUEST",
+      throw new BadRequestError(
         `Unknown secret type: ${type}. Valid types: api_key, credential`,
-        400,
       );
     }
 
     const { value, unreachable } = await getSecureKeyResultAsync(accountKey);
     if (value === undefined) {
-      return Response.json({ found: false, unreachable });
+      return { found: false, unreachable };
     }
 
     if (reveal) {
-      return Response.json({ found: true, value, unreachable: false });
+      return { found: true, value, unreachable: false };
     }
 
-    // Mask the value: show first 10 chars and last 4, hiding at least 3
     const minHidden = 3;
     const maxVisible = Math.max(1, value.length - minHidden);
     const prefixLen = Math.min(10, maxVisible);
     const suffixLen = Math.min(4, Math.max(0, maxVisible - prefixLen));
     const masked = `${value.slice(0, prefixLen)}...${suffixLen > 0 ? value.slice(-suffixLen) : ""}`;
 
-    return Response.json({ found: true, masked, unreachable: false });
+    return { found: true, masked, unreachable: false };
   } catch (err) {
+    if (
+      err instanceof BadRequestError ||
+      err instanceof InternalError ||
+      err instanceof NotFoundError
+    ) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, type, name }, "Failed to read secret via HTTP");
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new InternalError(message);
   }
 }
 
-export async function handleDeleteSecret(
-  req: Request,
-  deps?: SecretRouteDeps,
-): Promise<Response> {
-  let body: { type?: string; name?: string };
-  try {
-    body = (await req.json()) as { type?: string; name?: string };
-  } catch {
-    return httpError("BAD_REQUEST", "Request body must be valid JSON", 400);
+async function handleDeleteSecret({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
 
-  const { type, name } = body;
+  const { type, name } = body as { type?: string; name?: string };
 
   if (!type || typeof type !== "string") {
-    return httpError("BAD_REQUEST", "type is required", 400);
+    throw new BadRequestError("type is required");
   }
   if (!name || typeof name !== "string") {
-    return httpError("BAD_REQUEST", "name is required", 400);
+    throw new BadRequestError("name is required");
   }
 
   try {
@@ -424,58 +414,44 @@ export async function handleDeleteSecret(
       if (
         !API_KEY_PROVIDERS.includes(name as (typeof API_KEY_PROVIDERS)[number])
       ) {
-        return httpError(
-          "BAD_REQUEST",
-          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(
-            ", ",
-          )}`,
-          400,
+        throw new BadRequestError(
+          `Unknown API key provider: ${name}. Valid providers: ${API_KEY_PROVIDERS.join(", ")}`,
         );
       }
-      // Check existence first — the broker always returns "deleted" even
-      // for keys that don't exist, so we need a pre-check for 404 semantics.
       const existing = await getSecureKeyAsync(name);
       if (existing === undefined) {
-        return httpError("NOT_FOUND", `API key not found: ${name}`, 404);
+        throw new NotFoundError(`API key not found: ${name}`);
       }
       const deleteResult = await deleteSecureKeyAsync(name);
       if (deleteResult === "error") {
-        return httpError(
-          "INTERNAL_ERROR",
+        throw new InternalError(
           `Failed to delete API key from secure storage: ${name}`,
-          500,
         );
       }
-      await refreshProvidersAfterSecretChange(deps);
+      await refreshProvidersAfterSecretChange();
       log.info({ provider: name }, "API key deleted via HTTP");
-      return Response.json({ success: true, type, name });
+      return { success: true, type, name };
     }
 
     if (type === "credential") {
       const colonIdx = name.lastIndexOf(":");
       if (colonIdx < 1 || colonIdx === name.length - 1) {
-        return httpError(
-          "BAD_REQUEST",
+        throw new BadRequestError(
           'For credential type, name must be in "service:field" format (e.g. "github:api_token")',
-          400,
         );
       }
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = credentialKey(service, field);
-      // Check existence first — the broker always returns "deleted" even
-      // for keys that don't exist, so we need a pre-check for 404 semantics.
       const existing = await getSecureKeyAsync(key);
       if (existing === undefined) {
-        return httpError("NOT_FOUND", `Credential not found: ${name}`, 404);
+        throw new NotFoundError(`Credential not found: ${name}`);
       }
       const deleteResult = await deleteSecureKeyAsync(key);
       if (deleteResult === "error") {
-        return httpError(
-          "INTERNAL_ERROR",
+        throw new InternalError(
           `Failed to delete credential from secure storage: ${name}`,
-          500,
         );
       }
       deleteCredentialMetadata(service, field);
@@ -494,39 +470,40 @@ export async function handleDeleteSecret(
         setSentryUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
-        await refreshProvidersAfterSecretChange(deps);
+        await refreshProvidersAfterSecretChange();
       }
       log.info({ service, field }, "Credential deleted via HTTP");
-      return Response.json({ success: true, type, name });
+      return { success: true, type, name };
     }
 
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Unknown secret type: ${type}. Valid types: api_key, credential`,
-      400,
     );
   } catch (err) {
+    if (
+      err instanceof BadRequestError ||
+      err instanceof InternalError ||
+      err instanceof NotFoundError
+    ) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, type, name }, "Failed to delete secret via HTTP");
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new InternalError(message);
   }
 }
 
 const CREDENTIAL_KEY_PREFIX = "credential/";
 
-async function handleListSecrets(): Promise<Response> {
+async function handleListSecrets() {
   try {
     const { accounts, unreachable } = await listSecureKeysAsync();
     if (unreachable) {
-      return Response.json(
-        { error: "Credential store is unreachable" },
-        { status: 503 },
-      );
+      throw new InternalError("Credential store is unreachable");
     }
 
     const secrets = accounts.map((account) => {
       if (account.startsWith(CREDENTIAL_KEY_PREFIX)) {
-        // credential/{service}/{field} → service:field
         const rest = account.slice(CREDENTIAL_KEY_PREFIX.length);
         const slashIdx = rest.indexOf("/");
         if (slashIdx > 0 && slashIdx < rest.length - 1) {
@@ -536,133 +513,110 @@ async function handleListSecrets(): Promise<Response> {
           };
         }
       }
-      // API key providers are stored with their raw provider name
       return { type: "api_key" as const, name: account };
     });
 
-    return Response.json({ secrets, accounts: secrets });
+    return { secrets, accounts: secrets };
   } catch (err) {
+    if (
+      err instanceof BadRequestError ||
+      err instanceof InternalError ||
+      err instanceof NotFoundError
+    ) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new InternalError(message);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
 
-export interface SecretRouteDeps {
-  /** Accessor for the CES client, used to push API key updates after hatch. */
-  getCesClient?: () => CesClient | undefined;
-  /**
-   * Called after provider-affecting credentials change so live conversations
-   * can be reloaded with fresh provider instances.
-   */
-  onProviderCredentialsChanged?: () => void | Promise<void>;
-}
-
-async function refreshProvidersAfterSecretChange(
-  deps?: SecretRouteDeps,
-): Promise<void> {
-  clearEmbeddingBackendCache();
-  invalidateConfigCache();
-  await initializeProviders(getConfig());
-
-  if (!deps?.onProviderCredentialsChanged) return;
-
-  try {
-    await deps.onProviderCredentialsChanged();
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to refresh live conversations after provider credential change",
-    );
-  }
-}
-
-export function secretRouteDefinitions(
-  deps?: SecretRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "secrets",
-      method: "POST",
-      handler: async ({ req }) => handleAddSecret(req, deps),
-      summary: "Add a secret",
-      description:
-        "Store a new secret (API key, OAuth token, etc.) in the credential vault.",
-      tags: ["secrets"],
-      requestBody: z.object({
-        type: z.string().describe("Secret type: 'api_key' or 'credential'"),
-        name: z.string().describe("Unique name for the secret"),
-        value: z.string().describe("Secret value to store"),
-      }),
-      responseBody: z.object({
-        success: z.boolean(),
-        type: z.string(),
-        name: z.string(),
-      }),
-    },
-    {
-      endpoint: "secrets",
-      method: "DELETE",
-      handler: async ({ req }) => handleDeleteSecret(req, deps),
-      summary: "Delete a secret",
-      description: "Remove a secret from the credential vault by name.",
-      tags: ["secrets"],
-      requestBody: z.object({
-        type: z.string().describe("Secret type: 'api_key' or 'credential'"),
-        name: z.string().describe("Name of the secret to delete"),
-      }),
-      responseBody: z.object({
-        success: z.boolean(),
-        type: z.string(),
-        name: z.string(),
-      }),
-    },
-    {
-      endpoint: "secrets",
-      method: "GET",
-      handler: async () => handleListSecrets(),
-      summary: "List secrets",
-      description: "Return the names (not values) of all stored secrets.",
-      tags: ["secrets"],
-      responseBody: z.object({
-        secrets: z
-          .array(z.unknown())
-          .describe("List of secret metadata entries, each with type and name"),
-        accounts: z
-          .array(z.unknown())
-          .describe("Alias for secrets (same data)"),
-      }),
-    },
-    {
-      endpoint: "secrets/read",
-      method: "POST",
-      handler: async ({ req }) => handleReadSecret(req),
-      summary: "Read a secret value",
-      description: "Retrieve the decrypted value of a stored secret by name.",
-      tags: ["secrets"],
-      requestBody: z.object({
-        type: z.string().describe("Secret type: 'api_key' or 'credential'"),
-        name: z.string().describe("Name of the secret to read"),
-        reveal: z
-          .boolean()
-          .describe(
-            "If true, return the decrypted value; otherwise return a masked version",
-          )
-          .optional(),
-      }),
-      responseBody: z.object({
-        found: z.boolean(),
-        value: z
-          .string()
-          .describe("Decrypted value (only when reveal=true and found)"),
-        masked: z
-          .string()
-          .describe("Masked value (when reveal=false and found)"),
-        unreachable: z.boolean(),
-      }),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "secrets_add",
+    endpoint: "secrets",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "Add a secret",
+    description:
+      "Store a new secret (API key, OAuth token, etc.) in the credential vault.",
+    tags: ["secrets"],
+    requestBody: z.object({
+      type: z.string().describe("Secret type: 'api_key' or 'credential'"),
+      name: z.string().describe("Unique name for the secret"),
+      value: z.string().describe("Secret value to store"),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      type: z.string(),
+      name: z.string(),
+    }),
+    handler: handleAddSecret,
+  },
+  {
+    operationId: "secrets_delete",
+    endpoint: "secrets",
+    method: "DELETE",
+    policyKey: "secrets",
+    summary: "Delete a secret",
+    description: "Remove a secret from the credential vault by name.",
+    tags: ["secrets"],
+    requestBody: z.object({
+      type: z.string().describe("Secret type: 'api_key' or 'credential'"),
+      name: z.string().describe("Name of the secret to delete"),
+    }),
+    responseBody: z.object({
+      success: z.boolean(),
+      type: z.string(),
+      name: z.string(),
+    }),
+    handler: handleDeleteSecret,
+  },
+  {
+    operationId: "secrets_list",
+    endpoint: "secrets",
+    method: "GET",
+    policyKey: "secrets",
+    summary: "List secrets",
+    description: "Return the names (not values) of all stored secrets.",
+    tags: ["secrets"],
+    responseBody: z.object({
+      secrets: z
+        .array(z.unknown())
+        .describe("List of secret metadata entries, each with type and name"),
+      accounts: z.array(z.unknown()).describe("Alias for secrets (same data)"),
+    }),
+    handler: handleListSecrets,
+  },
+  {
+    operationId: "secrets_read",
+    endpoint: "secrets/read",
+    method: "POST",
+    policyKey: "secrets",
+    summary: "Read a secret value",
+    description: "Retrieve the decrypted value of a stored secret by name.",
+    tags: ["secrets"],
+    requestBody: z.object({
+      type: z.string().describe("Secret type: 'api_key' or 'credential'"),
+      name: z.string().describe("Name of the secret to read"),
+      reveal: z
+        .boolean()
+        .describe(
+          "If true, return the decrypted value; otherwise return a masked version",
+        )
+        .optional(),
+    }),
+    responseBody: z.object({
+      found: z.boolean(),
+      value: z
+        .string()
+        .describe("Decrypted value (only when reveal=true and found)"),
+      masked: z.string().describe("Masked value (when reveal=false and found)"),
+      unreachable: z.boolean(),
+    }),
+    handler: handleReadSecret,
+  },
+];

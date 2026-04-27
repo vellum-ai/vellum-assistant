@@ -3,7 +3,6 @@
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { CesClient } from "../credential-execution/client.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type {
   ConversationCreateOptions,
@@ -188,13 +187,6 @@ export interface RuntimeHttpServerOptions {
   sendMessageDeps?: SendMessageDeps;
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
-  /** Accessor for the CES client, used to push API key updates to CES after hatch. */
-  getCesClient?: () => CesClient | undefined;
-  /**
-   * Called after provider-affecting credentials reload so live conversations
-   * can be recreated with fresh provider instances.
-   */
-  onProviderCredentialsChanged?: () => void | Promise<void>;
 }
 
 export interface RuntimeAttachmentMetadata {

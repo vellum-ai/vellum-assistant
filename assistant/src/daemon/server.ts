@@ -27,7 +27,6 @@ import type { CesProcessManager } from "../credential-execution/process-manager.
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
-import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
 import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -130,7 +129,6 @@ import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
-
 
 const log = getLogger("server");
 
@@ -316,7 +314,6 @@ function makePendingInteractionRegistrar(
 }
 
 export class DaemonServer {
-
   private sharedRequestTimestamps: number[] = [];
   private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
@@ -804,7 +801,8 @@ export class DaemonServer {
           );
           return "archived";
         }
-        const conversation = await getOrCreateActiveConversation(conversationId);
+        const conversation =
+          await getOrCreateActiveConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
         log.warn(
@@ -870,11 +868,6 @@ export class DaemonServer {
     });
 
     registerDestroyConversation((id) => this.destroyConversation(id));
-    registerSecretRouteDeps({
-      getCesClient: () => this.getCesClient(),
-      onProviderCredentialsChanged: () =>
-        this.refreshConversationsForProviderChange(),
-    });
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
