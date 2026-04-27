@@ -29,6 +29,9 @@ struct ChatEmptyStateView: View {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
+    var assistantConversationId: String? = nil
+    var draftThresholdOverride: String? = nil
+    var onDraftThresholdOverrideChange: ((String?) -> Void)? = nil
     var daemonGreeting: String? = nil
     var onRequestGreeting: (() -> Void)? = nil
     var conversationStarters: [ConversationStarter] = []
@@ -188,6 +191,9 @@ struct ChatEmptyStateView: View {
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: fallbackPlaceholder,
                 conversationId: conversationId,
+                assistantConversationId: assistantConversationId,
+                draftThresholdOverride: draftThresholdOverride,
+                onDraftThresholdOverrideChange: onDraftThresholdOverrideChange,
                 showThresholdPicker: showThresholdPicker,
                 inferenceProfilePicker: inferenceProfilePicker
             )

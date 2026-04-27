@@ -5706,6 +5706,13 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                riskThreshold:
+                  type: string
+                  enum:
+                    - none
+                    - low
+                    - medium
+                    - high
               required:
                 - content
               additionalProperties: false

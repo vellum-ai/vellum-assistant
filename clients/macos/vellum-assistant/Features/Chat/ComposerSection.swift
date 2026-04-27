@@ -31,6 +31,7 @@ struct ComposerSection: View, Equatable {
             && lhs.recordingAmplitude == rhs.recordingAmplitude
             && lhs.conversationId == rhs.conversationId
             && lhs.assistantConversationId == rhs.assistantConversationId
+            && lhs.draftThresholdOverride == rhs.draftThresholdOverride
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
             && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
             && lhs.contextWindowTokens == rhs.contextWindowTokens
@@ -41,6 +42,7 @@ struct ComposerSection: View, Equatable {
             && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
             && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
             && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
+            && (lhs.onDraftThresholdOverrideChange != nil) == (rhs.onDraftThresholdOverrideChange != nil)
             && lhs.showThresholdPicker == rhs.showThresholdPicker
             // Closure prevents Equatable conformance on the configuration; compare
             // the value-type fields that drive rendering plus nil/non-nil parity.
@@ -77,6 +79,8 @@ struct ComposerSection: View, Equatable {
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
     var assistantConversationId: String? = nil
+    var draftThresholdOverride: String? = nil
+    var onDraftThresholdOverrideChange: ((String?) -> Void)? = nil
     var isInteractionEnabled: Bool = true
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
@@ -121,6 +125,8 @@ struct ComposerSection: View, Equatable {
                 placeholderText: isAssistantBusy ? "Working on it..." : "What would you like to do?",
                 conversationId: conversationId,
                 assistantConversationId: assistantConversationId,
+                draftThresholdOverride: draftThresholdOverride,
+                onDraftThresholdOverrideChange: onDraftThresholdOverrideChange,
                 isInteractionEnabled: isInteractionEnabled,
                 contextWindowFillRatio: contextWindowFillRatio,
                 contextWindowTokens: contextWindowTokens,

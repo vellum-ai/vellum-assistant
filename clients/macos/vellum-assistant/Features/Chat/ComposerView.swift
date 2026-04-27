@@ -33,6 +33,7 @@ struct ComposerView: View, Equatable {
             && lhs.composerCompactHeight == rhs.composerCompactHeight
             && lhs.conversationId == rhs.conversationId
             && lhs.assistantConversationId == rhs.assistantConversationId
+            && lhs.draftThresholdOverride == rhs.draftThresholdOverride
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
             && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
             && lhs.contextWindowTokens == rhs.contextWindowTokens
@@ -43,6 +44,7 @@ struct ComposerView: View, Equatable {
             && (lhs.onEndVoiceMode != nil) == (rhs.onEndVoiceMode != nil)
             && (lhs.onDictateToggle != nil) == (rhs.onDictateToggle != nil)
             && (lhs.onVoiceModeToggle != nil) == (rhs.onVoiceModeToggle != nil)
+            && (lhs.onDraftThresholdOverrideChange != nil) == (rhs.onDraftThresholdOverrideChange != nil)
             && lhs.showThresholdPicker == rhs.showThresholdPicker
             // Closure prevents Equatable conformance on the configuration; compare
             // the value-type fields that drive rendering plus nil/non-nil parity.
@@ -100,6 +102,8 @@ struct ComposerView: View, Equatable {
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
     var assistantConversationId: String? = nil
+    var draftThresholdOverride: String? = nil
+    var onDraftThresholdOverrideChange: ((String?) -> Void)? = nil
     var isInteractionEnabled: Bool = true
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
@@ -452,7 +456,11 @@ struct ComposerView: View, Equatable {
             }
 
             if showThresholdPicker {
-                ComposerThresholdPicker(assistantConversationId: assistantConversationId)
+                ComposerThresholdPicker(
+                    assistantConversationId: assistantConversationId,
+                    draftInteractiveOverride: draftThresholdOverride,
+                    onDraftInteractiveOverrideChange: onDraftThresholdOverrideChange
+                )
             }
 
             if let inferenceProfilePicker, !inferenceProfilePicker.profiles.isEmpty {

@@ -60,6 +60,20 @@ final class ComposerThresholdPickerTests: XCTestCase {
         XCTAssertTrue(mock.setCalls.isEmpty)
         XCTAssertTrue(mock.deleteCalls.isEmpty)
     }
+
+    func testStagedDraftOverrideStrictAndDefault() {
+        let strict = ComposerThresholdPicker.stagedDraftOverride(
+            for: .strict,
+            globalInteractive: RiskThreshold.low.rawValue
+        )
+        XCTAssertEqual(strict, RiskThreshold.none.rawValue)
+
+        let `default` = ComposerThresholdPicker.stagedDraftOverride(
+            for: .default,
+            globalInteractive: RiskThreshold.low.rawValue
+        )
+        XCTAssertNil(`default`)
+    }
 }
 
 private final class MockThresholdClient: ThresholdClientProtocol {

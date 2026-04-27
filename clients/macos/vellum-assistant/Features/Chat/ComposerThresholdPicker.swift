@@ -110,6 +110,8 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
 @MainActor
 struct ComposerThresholdPicker: View {
     let assistantConversationId: String?
+    let draftInteractiveOverride: String?
+    let onDraftInteractiveOverrideChange: ((String?) -> Void)?
     var thresholdClient: ThresholdClientProtocol = ThresholdClient()
 
     /// The currently displayed preset. Updated optimistically on selection and
@@ -168,7 +170,7 @@ struct ComposerThresholdPicker: View {
                 }
             }
         }
-        .task(id: assistantConversationId) {
+        .task(id: assistantConversationId ?? "draft:\(draftInteractiveOverride ?? "nil")") {
             hasUserInteracted = false
             await loadState()
         }
@@ -186,12 +188,22 @@ struct ComposerThresholdPicker: View {
         writeTask?.cancel()
         writeTask = Task { @MainActor in
             do {
-                try await Self.applyPresetSelection(
-                    preset: preset,
-                    globalInteractive: globalInteractive,
-                    assistantConversationId: assistantConversationId,
-                    thresholdClient: thresholdClient
+                onDraftInteractiveOverrideChange?(
+                    Self.stagedDraftOverride(
+                        for: preset,
+                        globalInteractive: globalInteractive
+                    )
                 )
+                if assistantConversationId == nil {
+                    return
+                } else {
+                    try await Self.applyPresetSelection(
+                        preset: preset,
+                        globalInteractive: globalInteractive,
+                        assistantConversationId: assistantConversationId,
+                        thresholdClient: thresholdClient
+                    )
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 log.error("Failed to write conversation threshold override: \(error.localizedDescription, privacy: .public)")
@@ -213,9 +225,16 @@ struct ComposerThresholdPicker: View {
 
                 var override: String? = nil
                 if let conversationIdString = Self.canonicalConversationId(assistantConversationId) {
-                    override = try await thresholdClient.getConversationOverride(
+                    let conversationOverride = try await thresholdClient.getConversationOverride(
                         conversationId: conversationIdString
                     )
+                    // During first-send bootstrap, the client can receive a
+                    // conversation ID before the server has persisted the new
+                    // override row. Fall back to the staged draft value to
+                    // avoid a one-frame "Default" flash.
+                    override = conversationOverride ?? draftInteractiveOverride
+                } else {
+                    override = draftInteractiveOverride
                 }
 
                 guard !Task.isCancelled, !hasUserInteracted else { return }
@@ -274,6 +293,16 @@ struct ComposerThresholdPicker: View {
             try await thresholdClient.deleteConversationOverride(
                 conversationId: canonicalConversationId
             )
+        }
+    }
+
+    static func stagedDraftOverride(
+        for preset: ThresholdPreset,
+        globalInteractive: String
+    ) -> String? {
+        switch overrideAction(for: preset, globalInteractive: globalInteractive) {
+        case .set(let threshold): threshold
+        case .clear: nil
         }
     }
 }

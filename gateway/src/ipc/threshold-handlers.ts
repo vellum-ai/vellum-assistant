@@ -1,11 +1,11 @@
 /**
- * IPC route definitions for auto-approve threshold reads.
+ * IPC route definitions for auto-approve threshold reads/writes.
  *
  * Exposes gateway-owned threshold data to the assistant daemon over
- * the IPC socket. Read-only — writes go through the HTTP control plane.
+ * the IPC socket.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getGatewayDb } from "../db/connection.js";
@@ -23,6 +23,11 @@ const GLOBAL_DEFAULTS = {
 
 const GetConversationThresholdSchema = z.object({
   conversationId: z.string().min(1),
+});
+
+const SetConversationThresholdSchema = z.object({
+  conversationId: z.string().min(1),
+  threshold: z.enum(["none", "low", "medium", "high"]),
 });
 
 export const thresholdRoutes: IpcRoute[] = [
@@ -61,6 +66,31 @@ export const thresholdRoutes: IpcRoute[] = [
 
       if (!row) return null;
       return { threshold: row.threshold };
+    },
+  },
+  {
+    method: "set_conversation_threshold",
+    schema: SetConversationThresholdSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const parsed = SetConversationThresholdSchema.parse(params ?? {});
+      const db = getGatewayDb();
+      db.insert(conversationThresholdOverrides)
+        .values({
+          conversationId: parsed.conversationId,
+          threshold: parsed.threshold,
+        })
+        .onConflictDoUpdate({
+          target: conversationThresholdOverrides.conversationId,
+          set: {
+            threshold: parsed.threshold,
+            updatedAt: sql`datetime('now')`,
+          },
+        })
+        .run();
+      return {
+        conversationId: parsed.conversationId,
+        threshold: parsed.threshold,
+      };
     },
   },
 ];

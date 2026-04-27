@@ -62,6 +62,7 @@ import {
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
 import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
+import { ipcCall } from "../../ipc/gateway-client.js";
 import {
   getAttachmentById,
   getAttachmentMetadataForMessage,
@@ -128,6 +129,15 @@ const log = getLogger("conversation-routes");
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 
 const SUGGESTION_CACHE_MAX = 100;
+const VALID_RISK_THRESHOLDS = ["none", "low", "medium", "high"] as const;
+type RiskThreshold = (typeof VALID_RISK_THRESHOLDS)[number];
+
+function isValidRiskThreshold(value: unknown): value is RiskThreshold {
+  return (
+    typeof value === "string" &&
+    VALID_RISK_THRESHOLDS.includes(value as RiskThreshold)
+  );
+}
 
 function collectCanonicalGuardianRequestHintIds(
   conversationId: string,
@@ -1437,6 +1447,7 @@ export async function handleSendMessage(
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
+    riskThreshold?: string;
     onboarding?: {
       tools: string[];
       tasks: string[];
@@ -1453,6 +1464,7 @@ export async function handleSendMessage(
     typeof body.inferenceProfile === "string"
       ? body.inferenceProfile
       : undefined;
+  const requestedRiskThreshold = body.riskThreshold;
   if (
     body.inferenceProfile != null &&
     typeof body.inferenceProfile !== "string"
@@ -1481,6 +1493,16 @@ export async function handleSendMessage(
         400,
       );
     }
+  }
+  if (
+    requestedRiskThreshold !== undefined &&
+    !isValidRiskThreshold(requestedRiskThreshold)
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      `riskThreshold must be one of: ${VALID_RISK_THRESHOLDS.join(", ")}`,
+      400,
+    );
   }
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
     return httpError("BAD_REQUEST", "sourceChannel is required", 400);
@@ -1579,6 +1601,27 @@ export async function handleSendMessage(
   const mapping = getOrCreateConversation(resolvedConversationKey, {
     conversationType: "standard",
   });
+
+  if (requestedRiskThreshold !== undefined) {
+    const result = await ipcCall("set_conversation_threshold", {
+      conversationId: mapping.conversationId,
+      threshold: requestedRiskThreshold,
+    });
+    if (result === undefined) {
+      log.error(
+        {
+          conversationId: mapping.conversationId,
+          threshold: requestedRiskThreshold,
+        },
+        "Failed to set conversation risk threshold override via gateway IPC",
+      );
+      return httpError(
+        "INTERNAL_ERROR",
+        "Failed to persist risk threshold override",
+        500,
+      );
+    }
+  }
 
   const smDeps = deps.sendMessageDeps;
 
@@ -2710,6 +2753,7 @@ export function conversationRouteDefinitions(deps: {
         conversationType: z.string().optional(),
         slashCommand: z.string().optional(),
         inferenceProfile: z.string().nullable().optional(),
+        riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
       }),
       handler: async ({ req, authContext }) =>
         handleSendMessage(

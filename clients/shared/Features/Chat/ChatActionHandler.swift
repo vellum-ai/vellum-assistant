@@ -398,7 +398,6 @@ final class ChatActionHandler {
 
             vm.conversationId = info.conversationId
             vm.bootstrapCorrelationId = nil
-            vm.onConversationCreated?(info.conversationId)
             log.info("Chat conversation created: \(info.conversationId)")
 
             // Fetch pending guardian prompts for this conversation
@@ -411,12 +410,15 @@ final class ChatActionHandler {
                 let automated = vm.pendingUserMessageAutomated
                 let pendingClientMessageId = vm.pendingUserMessageClientMessageId
                 let pendingInferenceProfile = vm.pendingUserInferenceProfile
+                let pendingInteractiveThresholdOverride = vm.pendingUserInteractiveThresholdOverride
                 vm.pendingUserMessage = nil
                 vm.pendingUserMessageDisplayText = nil
                 vm.pendingUserAttachments = nil
                 vm.pendingUserMessageAutomated = false
                 vm.pendingUserMessageClientMessageId = nil
                 vm.pendingUserInferenceProfile = nil
+                vm.pendingUserInteractiveThresholdOverride = nil
+                vm.onConversationCreated?(info.conversationId)
                 vm.eventStreamClient.sendUserMessage(
                     content: pending,
                     conversationId: info.conversationId,
@@ -425,11 +427,13 @@ final class ChatActionHandler {
                     automated: automated ? true : nil,
                     bypassSecretCheck: nil,
                     clientMessageId: pendingClientMessageId,
-                    inferenceProfile: pendingInferenceProfile
+                    inferenceProfile: pendingInferenceProfile,
+                    riskThreshold: pendingInteractiveThresholdOverride
                 )
             } else {
                 // Message-less conversation create — conversation is claimed,
                 // reset UI state.
+                vm.onConversationCreated?(info.conversationId)
                 vm.isSending = false
                 vm.isThinking = false
             }
