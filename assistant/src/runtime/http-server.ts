@@ -157,7 +157,6 @@ import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
-import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
@@ -1913,8 +1912,6 @@ export class RuntimeHttpServer {
         }
         return conversationAnalysisRouteDefinitions(analysisDeps);
       })(),
-
-      ...groupRouteDefinitions(),
 
       {
         endpoint: "conversations/seen",

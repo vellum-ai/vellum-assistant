@@ -32,6 +32,8 @@ export function routeDefinitionsToHTTPRoutes(
     queryParams: r.queryParams,
     requestBody: r.requestBody,
     responseBody: r.responseBody,
+    responseStatus: r.responseStatus,
+    additionalResponses: r.additionalResponses,
     handler: async ({ req, url, params, authContext }) => {
       try {
         if (r.requireGuardian) {
@@ -89,15 +91,24 @@ export function routeDefinitionsToHTTPRoutes(
           headers,
         });
 
+        const status = r.responseStatus ? Number(r.responseStatus) : 200;
+
+        // 204 No Content — discard handler result, return empty body
+        if (status === 204) {
+          return new Response(null, { status: 204, headers: responseHeaders });
+        }
+
         // Non-JSON responses: handler returned string or Uint8Array
         if (typeof result === "string" || result instanceof Uint8Array) {
           return new Response(result as BodyInit, {
+            status,
             headers: responseHeaders,
           });
         }
 
         // JSON responses: use responseHeaders if specified, otherwise default
         return Response.json(result, {
+          status,
           headers: responseHeaders,
         });
       } catch (err) {

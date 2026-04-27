@@ -42,6 +42,13 @@ export interface RouteDefinition {
   requestBody?: z.ZodType;
   responseBody?: z.ZodType;
   /**
+   * HTTP status code for the success response. Defaults to "200".
+   * Use "201" for resource creation, "204" for no-content responses.
+   * When "204", the HTTP adapter returns an empty body regardless of
+   * what the handler returns.
+   */
+  responseStatus?: string;
+  /**
    * When true, the HTTP adapter verifies the caller is the bound guardian
    * before invoking the handler. The IPC adapter excludes these routes
    * entirely — they will migrate to the gateway which owns guardian

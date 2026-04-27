@@ -3722,8 +3722,10 @@ paths:
       tags:
         - groups
       responses:
-        "200":
+        "201":
           description: Successful response
+        "400":
+          description: Missing or invalid name, or sort_position ceiling reached
       requestBody:
         required: true
         content:
@@ -3745,8 +3747,12 @@ paths:
       tags:
         - groups
       responses:
-        "200":
+        "204":
           description: Successful response
+        "403":
+          description: System groups cannot be deleted
+        "404":
+          description: Group not found
       parameters:
         - name: groupId
           in: path
@@ -3762,6 +3768,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: System group sort position cannot be changed
+        "404":
+          description: Group not found
       parameters:
         - name: groupId
           in: path
@@ -3790,6 +3800,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: Cannot reorder system groups
       requestBody:
         required: true
         content:
