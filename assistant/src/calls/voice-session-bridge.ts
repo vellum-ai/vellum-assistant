@@ -466,7 +466,6 @@ export async function startVoiceTurn(
             allowlistOptions: msg.allowlistOptions,
             scopeOptions: msg.scopeOptions,
             persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-            temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
             acpToolKind: msg.acpToolKind,
             acpOptions: msg.acpOptions,
           },
