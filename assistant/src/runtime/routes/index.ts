@@ -59,6 +59,7 @@ import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
+import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
@@ -119,6 +120,7 @@ export const ROUTES: RouteDefinition[] = [
   ...STT_ROUTES,
   ...SUBAGENT_ROUTES,
   ...SURFACE_ACTION_ROUTES,
+  ...SURFACE_CONTENT_ROUTES,
   ...TELEGRAM_ROUTES,
   ...TWILIO_ROUTES,
   ...TELEMETRY_ROUTES,
