@@ -157,7 +157,6 @@ import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { filingRouteDefinitions } from "./routes/filing-routes.js";
-import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
@@ -2143,7 +2142,6 @@ export class RuntimeHttpServer {
           return { id: persisted.id };
         },
       }),
-      ...globalSearchRouteDefinitions(),
       ...hostBashRouteDefinitions(),
       ...hostBrowserRouteDefinitions(),
       ...hostCuRouteDefinitions(),

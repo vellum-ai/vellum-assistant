@@ -21,8 +21,8 @@ import { rawAll } from "../../memory/raw-query.js";
 import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("global-search");
 
@@ -86,7 +86,7 @@ const ALL_CATEGORIES = [
 ] as const;
 type Category = (typeof ALL_CATEGORIES)[number];
 
-function parseCategories(raw: string | null): Set<Category> {
+function parseCategories(raw: string | undefined): Set<Category> {
   if (!raw) return new Set(ALL_CATEGORIES);
   const requested = raw
     .split(",")
@@ -153,7 +153,6 @@ async function searchMemoriesSemantic(
       limit,
     );
 
-    // Only include item-type candidates (not segments/summaries) for cleaner results
     const results: GlobalSearchMemory[] = [];
     for (const c of candidates) {
       if (c.type !== "item") continue;
@@ -199,18 +198,17 @@ function searchScheduleJobs(
 // Route handler
 // ---------------------------------------------------------------------------
 
-async function handleGlobalSearch(url: URL): Promise<Response> {
-  const query = url.searchParams.get("q") ?? "";
+async function handleGlobalSearch({
+  queryParams = {},
+}: RouteHandlerArgs): Promise<GlobalSearchResponse> {
+  const query = queryParams.q ?? "";
   if (!query.trim()) {
-    return httpError("BAD_REQUEST", "q query parameter is required", 400);
+    throw new BadRequestError("q query parameter is required");
   }
 
-  const limit = Math.max(
-    1,
-    Math.min(Number(url.searchParams.get("limit") ?? 20), 100),
-  );
-  const categories = parseCategories(url.searchParams.get("categories"));
-  const deep = url.searchParams.get("deep") === "true";
+  const limit = Math.max(1, Math.min(Number(queryParams.limit ?? 20), 100));
+  const categories = parseCategories(queryParams.categories);
+  const deep = queryParams.deep === "true";
 
   const results: GlobalSearchResponse["results"] = {
     conversations: [],
@@ -264,53 +262,49 @@ async function handleGlobalSearch(url: URL): Promise<Response> {
     }));
   }
 
-  const response: GlobalSearchResponse = { query, results };
-  return Response.json(response);
+  return { query, results };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function globalSearchRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "search/global",
-      method: "GET",
-      summary: "Global search",
-      description:
-        "Federated search across conversations, memories, schedules, and contacts.",
-      tags: ["search"],
-      queryParams: [
-        {
-          name: "q",
-          schema: { type: "string" },
-          description: "Search query (required)",
-        },
-        {
-          name: "limit",
-          schema: { type: "integer" },
-          description: "Max results per category (1–100, default 20)",
-        },
-        {
-          name: "categories",
-          schema: { type: "string" },
-          description: "Comma-separated categories to search",
-        },
-        {
-          name: "deep",
-          schema: { type: "string" },
-          description: "Enable semantic search for memories (true/false)",
-        },
-      ],
-      responseBody: z.object({
-        query: z.string(),
-        results: z
-          .object({})
-          .passthrough()
-          .describe("Results grouped by category"),
-      }),
-      handler: async ({ url }) => handleGlobalSearch(url),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "search_global",
+    endpoint: "search/global",
+    method: "GET",
+    handler: handleGlobalSearch,
+    summary: "Global search",
+    description:
+      "Federated search across conversations, memories, schedules, and contacts.",
+    tags: ["search"],
+    queryParams: [
+      {
+        name: "q",
+        description: "Search query (required)",
+        required: true,
+      },
+      {
+        name: "limit",
+        type: "integer",
+        description: "Max results per category (1–100, default 20)",
+      },
+      {
+        name: "categories",
+        description: "Comma-separated categories to search",
+      },
+      {
+        name: "deep",
+        description: "Enable semantic search for memories (true/false)",
+      },
+    ],
+    responseBody: z.object({
+      query: z.string(),
+      results: z
+        .object({})
+        .passthrough()
+        .describe("Results grouped by category"),
+    }),
+  },
+];

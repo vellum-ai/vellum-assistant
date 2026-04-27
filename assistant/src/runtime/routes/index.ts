@@ -17,6 +17,7 @@ import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
+import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import type { RouteDefinition } from "./types.js";
@@ -32,6 +33,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_ROUTES,
+  ...GLOBAL_SEARCH_ROUTES,
   ...IDENTITY_ROUTES,
   ...PS_ROUTES,
   ...WORKSPACE_ROUTES,

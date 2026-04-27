@@ -337,5 +337,10 @@ export const ROUTES: RouteDefinition[] = [
       deleted: z.boolean(),
       id: z.string(),
     }),
+    additionalResponses: {
+      "404": {
+        description: "Conversation starter not found",
+      },
+    },
   },
 ];
