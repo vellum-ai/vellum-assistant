@@ -777,9 +777,6 @@ final class VoiceModeManager {
     /// Classify a voice response into a specific permission decision.
     enum PermissionDecision {
         case allow
-        case allowTenMinutes
-        case allowConversation
-        case alwaysAllow
         case denied
         case ambiguous
 
@@ -787,9 +784,6 @@ final class VoiceModeManager {
         var decisionString: String {
             switch self {
             case .allow: return "allow"
-            case .allowTenMinutes: return "allow_10m"
-            case .allowConversation: return "allow_conversation"
-            case .alwaysAllow: return "always_allow"
             case .denied: return "deny"
             case .ambiguous: return "deny"
             }
@@ -801,29 +795,6 @@ final class VoiceModeManager {
 
         let negative = ["no", "nope", "don't", "deny", "stop", "cancel", "reject"]
         let hasNegative = negative.contains(where: { lower.contains($0) })
-
-        // Check specific approval scopes before generic approval.
-        // Order matters: more specific patterns first.
-
-        // "allow for 10 minutes" / "10 minutes" / "ten minutes"
-        let tenMinPatterns = ["10 minute", "ten minute", "for 10", "for ten"]
-        if tenMinPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
-            return .allowTenMinutes
-        }
-
-        // "allow for this conversation" / "this conversation" / "for the conversation"
-        // Also accept "thread" as a legacy synonym for backward compatibility.
-        let conversationPatterns = ["this conversation", "the conversation", "for conversation", "allow conversation",
-                                    "this thread", "the thread", "for thread", "allow thread"]
-        if conversationPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
-            return .allowConversation
-        }
-
-        // "always allow" / "always approve"
-        let alwaysPatterns = ["always allow", "always approve", "allow always"]
-        if alwaysPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
-            return .alwaysAllow
-        }
 
         // Generic approval
         let affirmative = ["yes", "yeah", "yep", "go ahead", "allow", "approve",
@@ -847,7 +818,7 @@ final class VoiceModeManager {
         }
 
         switch decision {
-        case .allow, .allowTenMinutes, .allowConversation, .alwaysAllow:
+        case .allow:
             log.info("Voice mode: permissions \(decision.decisionString, privacy: .public) via voice")
             for requestId in pendingPermissionIds {
                 chatViewModel.respondToConfirmation(requestId: requestId, decision: decision.decisionString)
@@ -869,7 +840,7 @@ final class VoiceModeManager {
             log.info("Voice mode: unclear permission response — \(text, privacy: .public)")
             state = .speaking
             voiceService.resetStreamingTTS()
-            voiceService.feedTextDelta("Sorry, I didn't quite catch that. You can say yes, no, allow for 10 minutes, allow for this conversation, or always allow.")
+            voiceService.feedTextDelta("Sorry, I didn't quite catch that. You can say yes to allow or no to deny.")
             voiceService.finishTextStream { [weak self] in
                 guard let self else { return }
                 self.voiceService.stopBargeInMonitor()

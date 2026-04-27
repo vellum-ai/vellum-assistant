@@ -861,8 +861,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored public var onInlineConfirmationResponse: ((String, String) -> Void)?
 
     /// Tracks requestIds for which onInlineConfirmationResponse has already been called locally
-    /// (via respondToConfirmation / respondToAlwaysAllow). When the daemon's confirmationStateChanged
-    /// event arrives for the same requestId, we skip the duplicate callback.
+    /// (via respondToConfirmation). When the daemon's confirmationStateChanged event arrives
+    /// for the same requestId, we skip the duplicate callback.
     @ObservationIgnored var inlineResponseHandledRequestIds = Set<String>()
 
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
@@ -1921,53 +1921,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
-    /// Respond to a tool confirmation with "always_allow", sending the selected pattern and scope
-    /// so the backend atomically persists the trust rule alongside the confirmation response.
-    /// On send errors, attempts a one-time allow fallback and only claims success if the
-    /// fallback actually went through.
-    public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
-        markConfirmationInFlight(requestId: requestId, decision: decision)
-        inlineResponseHandledRequestIds.insert(requestId)
-        Task {
-            let result = await interactionClient.sendConfirmationResponse(
-                requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
-            )
-            switch result {
-            case .success:
-                if let index = self.messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-                    self.messages[index].confirmation?.approvedDecision = decision
-                }
-                self.clearPendingConfirmation(requestId: requestId)
-                self.onInlineConfirmationResponse?(requestId, "allow")
-                self.inlineResponseHandledRequestIds.insert(requestId)
-            case .alreadyResolved:
-                log.info("[confirm-flow] respondToAlwaysAllow: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
-                self.collapseStaleConfirmation(requestId: requestId)
-            case .failed:
-                log.warning("Always-allow send failed, trying one-time allow fallback")
-                let fallbackResult = await self.performConfirmationResponse(
-                    requestId: requestId, decision: "allow", selectedPattern: nil, selectedScope: nil
-                )
-                switch fallbackResult {
-                case .success:
-                    self.errorText = "Preference could not be saved. This action was allowed once."
-                case .alreadyResolved:
-                    log.info("[confirm-flow] respondToAlwaysAllow fallback: already resolved, collapsing silently: requestId=\(requestId, privacy: .public)")
-                    self.collapseStaleConfirmation(requestId: requestId)
-                case .failed:
-                    self.revertConfirmationInFlight(requestId: requestId)
-                    self.inlineResponseHandledRequestIds.remove(requestId)
-                }
-            }
-        }
-    }
-
     /// Optimistically update confirmation UI to prevent duplicate submissions while
     /// the gateway request is in flight.
     private func markConfirmationInFlight(requestId: String, decision: String) {
         guard let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) else { return }
-        let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
-            || decision == "always_allow"
+        let isApproval = decision == "allow"
         messages[index].confirmation?.state = isApproval ? .approved : .denied
         if isApproval {
             messages[index].confirmation?.approvedDecision = decision
@@ -2005,7 +1963,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         )
         guard result == .success else { return result }
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
-            let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
+            let isApproval = decision == "allow"
             messages[index].confirmation?.state = isApproval ? .approved : .denied
             if isApproval {
                 messages[index].confirmation?.approvedDecision = decision
@@ -2022,7 +1980,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public func updateConfirmationState(requestId: String, decision: String) {
         if let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) {
             switch decision {
-            case "allow", "allow_10m", "allow_conversation":
+            case "allow":
                 messages[index].confirmation?.state = .approved
                 messages[index].confirmation?.approvedDecision = decision
             case "deny":

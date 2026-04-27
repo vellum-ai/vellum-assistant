@@ -45,11 +45,6 @@ public struct ToolConfirmationBubble: View {
         confirmation.state != .pending
     }
 
-    /// The decision value to send when "Always Allow" is clicked.
-    private var alwaysAllowDecision: String {
-        "always_allow"
-    }
-
     /// Label shown in the collapsed state after a decision is made.
     private var collapsedLabel: String {
         if confirmation.isConversationHostAccessPrompt {
@@ -67,14 +62,7 @@ public struct ToolConfirmationBubble: View {
 
         switch confirmation.state {
         case .approved:
-            switch confirmation.approvedDecision {
-            case "allow_10m":
-                return "\(confirmation.toolCategory) allowed for 10 minutes"
-            case "allow_conversation":
-                return "\(confirmation.toolCategory) allowed for this conversation"
-            default:
-                return "\(confirmation.toolCategory) allowed"
-            }
+            return "\(confirmation.toolCategory) allowed"
         case .denied:
             return "\(confirmation.toolCategory) denied"
         case .timedOut:

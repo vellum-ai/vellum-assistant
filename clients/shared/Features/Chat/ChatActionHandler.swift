@@ -1185,8 +1185,6 @@ final class ChatActionHandler {
             scopeOptions: msg.scopeOptions,
             directoryScopeOptions: msg.directoryScopeOptions ?? [],
             executionTarget: msg.executionTarget,
-            persistentDecisionsAllowed: msg.persistentDecisionsAllowed ?? true,
-            temporaryOptionsAvailable: msg.temporaryOptionsAvailable ?? [],
             toolUseId: msg.toolUseId
         )
         // Attach confirmation to matching tool call if toolUseId is available
@@ -1428,10 +1426,10 @@ final class ChatActionHandler {
                 }
             }
 
-            // Clean up the native notification path. If respondToConfirmation /
-            // respondToAlwaysAllow already called onInlineConfirmationResponse
-            // for this requestId, skip the duplicate call; otherwise forward
-            // so externally-resolved confirmations still dismiss notifications.
+            // Clean up the native notification path. If respondToConfirmation
+            // already called onInlineConfirmationResponse for this requestId,
+            // skip the duplicate call; otherwise forward so externally-resolved
+            // confirmations still dismiss notifications.
             if vm.inlineResponseHandledRequestIds.remove(msg.requestId) == nil {
                 log.info("[confirm-flow] confirmationStateChanged: forwarding to notification cleanup (not in handledSet): requestId=\(msg.requestId, privacy: .public) state=\(msg.state, privacy: .public)")
                 let decisionString = msg.state == "approved" ? "allow" : "deny"
