@@ -156,7 +156,6 @@ import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
-import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
@@ -1732,9 +1731,6 @@ export class RuntimeHttpServer {
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
       ...workspaceHttpOnlyRouteDefinitions(),
-      ...scheduleHttpOnlyRouteDefinitions({
-        sendMessageDeps: this.sendMessageDeps,
-      }),
 
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped

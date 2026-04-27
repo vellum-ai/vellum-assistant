@@ -1,13 +1,13 @@
 /**
  * Route handlers for schedule management.
  *
- * Shared ROUTES are served by both the HTTP server and the IPC server.
- * The `run` endpoint requires SendMessageDeps and remains HTTP-only
- * via scheduleHttpOnlyRouteDefinitions().
+ * All routes are served by both the HTTP server and the IPC server via
+ * the shared ROUTES array.
  */
 
 import { z } from "zod";
 
+import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { runScript } from "../../schedule/run-script.js";
@@ -24,10 +24,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
-import type { SendMessageDeps } from "../http-types.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
@@ -172,7 +169,10 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   return handleListSchedules({});
 }
 
-function handleListScheduleRuns(id: string, queryParams: Record<string, string>) {
+function handleListScheduleRuns(
+  id: string,
+  queryParams: Record<string, string>,
+) {
   const schedule = getSchedule(id);
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
@@ -318,35 +318,38 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleCancelSchedule(pathParams!.id),
   },
+  {
+    operationId: "runScheduleNow",
+    endpoint: "schedules/:id/run",
+    method: "POST",
+    policyKey: "schedules/run",
+    summary: "Run schedule now",
+    description: "Trigger an immediate execution of a schedule.",
+    tags: ["schedules"],
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+    }),
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleRunScheduleNow(pathParams!.id),
+  },
 ];
 
-// ---------------------------------------------------------------------------
-// HTTP-only route definitions (require SendMessageDeps DI)
-// ---------------------------------------------------------------------------
-
-async function handleRunScheduleNow(
-  id: string,
-  sendMessageDeps?: SendMessageDeps,
-): Promise<Response> {
+async function handleRunScheduleNow(id: string) {
   const schedule = getSchedule(id);
   if (!schedule) {
-    return httpError("NOT_FOUND", "Schedule not found", 404);
+    throw new NotFoundError("Schedule not found");
   }
 
   // ── Script mode (shell command, no LLM) ──────────────────────────
   if (schedule.mode === "script") {
     if (!schedule.script) {
-      return httpError(
-        "BAD_REQUEST",
-        "Script schedule has no script command",
-        400,
-      );
+      throw new BadRequestError("Script schedule has no script command");
     }
     const runId = createScheduleRun(schedule.id, `script:${schedule.id}`);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name },
-        "Executing script schedule manually via HTTP (run now)",
+        "Executing script schedule manually (run now)",
       );
       const result = await runScript(schedule.script);
       completeScheduleRun(runId, {
@@ -362,7 +365,7 @@ async function handleRunScheduleNow(
       );
       completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
-    return Response.json(handleListSchedules({}));
+    return handleListSchedules({});
   }
 
   // Check if message is a task invocation (run_task:<task_id>)
@@ -372,29 +375,21 @@ async function handleRunScheduleNow(
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name, taskId },
-        "Executing scheduled task manually via HTTP (run now)",
+        "Executing scheduled task manually (run now)",
       );
       const { runTask } = await import("../../tasks/task-runner.js");
       const result = await runTask(
         { taskId, workingDir: process.cwd(), source: "schedule" },
         async (conversationId, message, taskRunId) => {
-          if (!sendMessageDeps) {
-            throw new Error(
-              "sendMessageDeps not available for schedule execution",
-            );
-          }
-          const conversation = await sendMessageDeps.getOrCreateConversation(
-            conversationId,
-            {
-              trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
-            },
-          );
+          const conversation = await getOrCreateConversation(conversationId, {
+            trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+          });
           conversation.taskRunId = taskRunId;
           try {
             await conversation.processMessage(
               message,
               [],
-              () => {}, // no event callback for HTTP mode
+              () => {},
               undefined,
               undefined,
               undefined,
@@ -430,17 +425,13 @@ async function handleRunScheduleNow(
       const runId = createScheduleRun(schedule.id, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
     }
-    return Response.json(handleListSchedules({}));
+    return handleListSchedules({});
   }
 
   // ── Wake mode (resume an existing conversation, no new message) ────
   if (schedule.mode === "wake") {
     if (!schedule.wakeConversationId) {
-      return httpError(
-        "BAD_REQUEST",
-        "Wake schedule has no target conversation",
-        400,
-      );
+      throw new BadRequestError("Wake schedule has no target conversation");
     }
     const { wakeAgentForOpportunity } =
       await import("../../runtime/agent-wake.js");
@@ -453,9 +444,9 @@ async function handleRunScheduleNow(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn({ err, jobId: schedule.id }, "Manual wake execution failed");
-      return httpError("INTERNAL_ERROR", message, 500);
+      throw new InternalError(message);
     }
-    return Response.json(handleListSchedules({}));
+    return handleListSchedules({});
   }
 
   // Regular message-based schedule — respect reuseConversation flag
@@ -485,22 +476,16 @@ async function handleRunScheduleNow(
         name: schedule.name,
         conversationId,
       },
-      "Executing schedule manually via HTTP (run now)",
+      "Executing schedule manually (run now)",
     );
-    if (!sendMessageDeps) {
-      throw new Error("sendMessageDeps not available for schedule execution");
-    }
-    const activeConversation = await sendMessageDeps.getOrCreateConversation(
-      conversationId,
-      {
-        trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
-      },
-    );
+    const activeConversation = await getOrCreateConversation(conversationId, {
+      trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
+    });
     activeConversation.taskRunId = undefined;
     await activeConversation.processMessage(
       schedule.message,
       [],
-      () => {}, // no event callback for HTTP mode
+      () => {},
       undefined,
       undefined,
       undefined,
@@ -515,25 +500,5 @@ async function handleRunScheduleNow(
     );
     completeScheduleRun(runId, { status: "error", error: message });
   }
-  return Response.json(handleListSchedules({}));
-}
-
-export function scheduleHttpOnlyRouteDefinitions(deps: {
-  sendMessageDeps?: SendMessageDeps;
-}): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "schedules/:id/run",
-      method: "POST",
-      policyKey: "schedules/run",
-      summary: "Run schedule now",
-      description: "Trigger an immediate execution of a schedule.",
-      tags: ["schedules"],
-      responseBody: z.object({
-        schedules: z.array(z.unknown()).describe("Updated schedule list"),
-      }),
-      handler: async ({ params }) =>
-        handleRunScheduleNow(params.id, deps.sendMessageDeps),
-    },
-  ];
+  return handleListSchedules({});
 }

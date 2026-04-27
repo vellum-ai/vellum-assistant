@@ -7,12 +7,41 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+const getOrCreateCalls: Array<{
+  conversationId: string;
+  options?: Record<string, unknown>;
+}> = [];
+const processCalls: Array<unknown[]> = [];
+let fakeConversation: {
+  taskRunId?: string;
+  processMessage: (...args: unknown[]) => Promise<string>;
+};
+
+function resetConversationMock() {
+  getOrCreateCalls.length = 0;
+  processCalls.length = 0;
+  fakeConversation = {
+    taskRunId: "stale-task-run",
+    async processMessage(...args: unknown[]) {
+      processCalls.push(args);
+      return "message-id";
+    },
+  };
+}
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async (
+    conversationId: string,
+    options?: Record<string, unknown>,
+  ) => {
+    getOrCreateCalls.push({ conversationId, options });
+    return fakeConversation;
+  },
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  ROUTES,
-  scheduleHttpOnlyRouteDefinitions,
-} from "../runtime/routes/schedule-routes.js";
+import { ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import {
   createSchedule,
@@ -42,27 +71,10 @@ function findRoute(endpoint: string, method: string): RouteDefinition {
   return route;
 }
 
-function getRunNowHandler(sendMessageDeps: {
-  getOrCreateConversation: (
-    conversationId: string,
-    options?: Record<string, unknown>,
-  ) => Promise<unknown>;
-}) {
-  const route = scheduleHttpOnlyRouteDefinitions({
-    sendMessageDeps: sendMessageDeps as never,
-  }).find(
-    (candidate) =>
-      candidate.endpoint === "schedules/:id/run" && candidate.method === "POST",
-  );
-  if (!route) {
-    throw new Error("Run-now schedule route not found");
-  }
-  return route.handler;
-}
-
 describe("schedule run-now trust propagation", () => {
   beforeEach(() => {
     clearTables();
+    resetConversationMock();
   });
 
   test("manual run-now executes plain schedules with guardian trust", async () => {
@@ -73,40 +85,12 @@ describe("schedule run-now trust propagation", () => {
       syntax: "cron",
     });
 
-    const getOrCreateCalls: Array<{
-      conversationId: string;
-      options?: Record<string, unknown>;
-    }> = [];
-    const processCalls: Array<unknown[]> = [];
-    const fakeConversation: {
-      taskRunId?: string;
-      processMessage: (...args: unknown[]) => Promise<string>;
-    } = {
-      taskRunId: "stale-task-run",
-      async processMessage(...args: unknown[]) {
-        processCalls.push(args);
-        return "message-id";
-      },
-    };
+    const route = findRoute("schedules/:id/run", "POST");
+    const result = (await route.handler({
+      pathParams: { id: schedule.id },
+    })) as { schedules: unknown[] };
 
-    const handler = getRunNowHandler({
-      getOrCreateConversation: async (conversationId, options) => {
-        getOrCreateCalls.push({ conversationId, options });
-        return fakeConversation;
-      },
-    });
-
-    const response = await handler({
-      req: new Request(`http://localhost/v1/schedules/${schedule.id}/run`, {
-        method: "POST",
-      }),
-      url: new URL(`http://localhost/v1/schedules/${schedule.id}/run`),
-      server: {} as never,
-      authContext: {} as never,
-      params: { id: schedule.id },
-    });
-
-    expect(response.status).toBe(200);
+    expect(result.schedules).toBeDefined();
     expect(getOrCreateCalls).toHaveLength(1);
     expect(getOrCreateCalls[0].options?.trustContext).toEqual({
       sourceChannel: "vellum",
@@ -129,16 +113,8 @@ describe("schedule run-now trust propagation", () => {
       cronExpression: "* * * * *",
     });
 
-    const getOrCreateCalls: Array<{
-      conversationId: string;
-      options?: Record<string, unknown>;
-    }> = [];
     const observedTaskRunIds: Array<string | undefined> = [];
-    const processCalls: Array<unknown[]> = [];
-    const fakeConversation: {
-      taskRunId?: string;
-      processMessage: (...args: unknown[]) => Promise<string>;
-    } = {
+    fakeConversation = {
       taskRunId: undefined,
       async processMessage(...args: unknown[]) {
         observedTaskRunIds.push(fakeConversation.taskRunId);
@@ -147,24 +123,12 @@ describe("schedule run-now trust propagation", () => {
       },
     };
 
-    const handler = getRunNowHandler({
-      getOrCreateConversation: async (conversationId, options) => {
-        getOrCreateCalls.push({ conversationId, options });
-        return fakeConversation;
-      },
-    });
+    const route = findRoute("schedules/:id/run", "POST");
+    const result = (await route.handler({
+      pathParams: { id: schedule.id },
+    })) as { schedules: unknown[] };
 
-    const response = await handler({
-      req: new Request(`http://localhost/v1/schedules/${schedule.id}/run`, {
-        method: "POST",
-      }),
-      url: new URL(`http://localhost/v1/schedules/${schedule.id}/run`),
-      server: {} as never,
-      authContext: {} as never,
-      params: { id: schedule.id },
-    });
-
-    expect(response.status).toBe(200);
+    expect(result.schedules).toBeDefined();
     expect(getOrCreateCalls).toHaveLength(1);
     expect(getOrCreateCalls[0].options?.trustContext).toEqual({
       sourceChannel: "vellum",
