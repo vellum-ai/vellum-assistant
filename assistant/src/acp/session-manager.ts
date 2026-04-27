@@ -5,7 +5,12 @@
 
 import { randomUUID } from "node:crypto";
 
+import { inArray } from "drizzle-orm";
+
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
+import { getDb } from "../memory/db.js";
+import { acpSessionHistory } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
@@ -14,10 +19,23 @@ import type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 const log = getLogger("acp:session-manager");
 
+/** Maximum number of update events kept in a session's ring buffer. */
+const MAX_BUFFER_EVENTS = 200;
+/** Maximum aggregate JSON size of a session's ring buffer, in bytes. */
+const MAX_BUFFER_BYTES = 256 * 1024;
+
+interface BufferedAcpUpdate {
+  /** The wire-shaped update — exactly what was forwarded to clients. */
+  update: AcpSessionUpdate;
+  /** Cached UTF-8 byte length of `JSON.stringify(update)` for cap math. */
+  byteSize: number;
+}
+
 interface SessionEntry {
   process: AcpAgentProcess;
   state: AcpSessionState;
   clientHandler: VellumAcpClientHandler;
+  /** Wrapped sender that also appends to the ring buffer. */
   sendToVellum: (msg: ServerMessage) => void;
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
@@ -29,6 +47,13 @@ interface SessionEntry {
 
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
+  /**
+   * Per-session ring buffer of wire-shaped update events forwarded to
+   * clients. Bounded by event count and aggregate JSON byte size; oldest
+   * events are dropped first when caps are exceeded. Persisted to
+   * `acp_session_history` on terminal transition, then cleared.
+   */
+  private eventBuffers = new Map<string, BufferedAcpUpdate[]>();
 
   /**
    * Optional callback to inject a completion/failure message into the parent
@@ -43,7 +68,40 @@ export class AcpSessionManager {
       ) => Promise<void>)
     | null = null;
 
-  constructor(private readonly maxConcurrent: number) {}
+  constructor(private readonly maxConcurrent: number) {
+    this.cleanupStaleRunningRows();
+  }
+
+  /**
+   * On daemon boot, flip any `running`/`initializing` rows in
+   * `acp_session_history` to `cancelled` with a `daemon_restarted` stop
+   * reason. The in-memory ACP sessions they represent died with the
+   * previous daemon process, so the persisted rows would otherwise lie to
+   * the sessions UI about their status.
+   *
+   * Idempotent: a second invocation finds no matching rows (status is
+   * already `cancelled`) and is a no-op. Best-effort: a DB failure is
+   * logged but does not propagate, since failing to clean up stale rows
+   * must not block daemon startup.
+   */
+  private cleanupStaleRunningRows(): void {
+    try {
+      getDb()
+        .update(acpSessionHistory)
+        .set({
+          status: "cancelled",
+          stopReason: "daemon_restarted",
+          completedAt: Date.now(),
+        })
+        .where(inArray(acpSessionHistory.status, ["running", "initializing"]))
+        .run();
+    } catch (err) {
+      log.error(
+        { err },
+        "Failed to mark stale ACP sessions as daemon_restarted",
+      );
+    }
+  }
 
   /**
    * Spawns a new ACP agent session. Returns the generated acpSessionId.
@@ -78,9 +136,22 @@ export class AcpSessionManager {
       "ACP spawn requested",
     );
 
+    // Initialize the per-session ring buffer before any update can fire.
+    this.eventBuffers.set(acpSessionId, []);
+
+    // Wrap the sender so every emitted message is mirrored into the buffer
+    // when it's an `acp_session_update`. The wrapper preserves the original
+    // call semantics — it forwards every message unchanged.
+    const wrappedSend = (msg: ServerMessage) => {
+      if (msg.type === "acp_session_update") {
+        this.appendToBuffer(acpSessionId, msg);
+      }
+      sendToVellum(msg);
+    };
+
     const clientHandler = new VellumAcpClientHandler(
       acpSessionId,
-      sendToVellum,
+      wrappedSend,
       parentConversationId,
     );
 
@@ -96,6 +167,7 @@ export class AcpSessionManager {
       id: acpSessionId,
       agentId,
       acpSessionId: "", // placeholder until createSession resolves
+      parentConversationId,
       status: "initializing",
       startedAt: Date.now(),
     };
@@ -104,7 +176,7 @@ export class AcpSessionManager {
       process: agentProcess,
       state,
       clientHandler,
-      sendToVellum,
+      sendToVellum: wrappedSend,
       currentPrompt: null,
       parentConversationId,
       cwd,
@@ -134,10 +206,11 @@ export class AcpSessionManager {
       // Kill the orphaned child process and remove the reserved slot.
       agentProcess.kill();
       this.sessions.delete(acpSessionId);
+      this.eventBuffers.delete(acpSessionId);
       throw err;
     }
 
-    sendToVellum({
+    wrappedSend({
       type: "acp_session_spawned",
       acpSessionId,
       agent: agentId,
@@ -199,6 +272,11 @@ export class AcpSessionManager {
 
   /**
    * Cancels an ongoing prompt in the specified session.
+   *
+   * The session's in-flight `prompt()` will reject in response, and the
+   * catch handler in `firePromptInBackground` performs the terminal
+   * persistence + teardown. We just flip the status here so that handler
+   * preserves "cancelled" instead of overwriting with "failed".
    */
   async cancel(acpSessionId: string): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
@@ -233,6 +311,9 @@ export class AcpSessionManager {
     }
     entry.process.kill();
     this.sessions.delete(acpSessionId);
+    // Free the buffer in case persistTerminal hasn't already (e.g. close()
+    // before terminal transition).
+    this.eventBuffers.delete(acpSessionId);
   }
 
   /**
@@ -257,6 +338,68 @@ export class AcpSessionManager {
       return entry.state;
     }
     return Array.from(this.sessions.values()).map((e) => e.state);
+  }
+
+  /**
+   * Appends a wire-shaped update to the ring buffer, evicting oldest events
+   * when either the count or aggregate-byte cap is exceeded. Byte
+   * accounting tracks the sum of element JSON sizes; the cap is a soft
+   * target (off by at most `buffer.length` for delimiters in the eventual
+   * `JSON.stringify(buffer)` output).
+   */
+  private appendToBuffer(acpSessionId: string, update: AcpSessionUpdate): void {
+    const buffer = this.eventBuffers.get(acpSessionId);
+    if (!buffer) return; // Session already torn down.
+    const byteSize = Buffer.byteLength(JSON.stringify(update), "utf8");
+    buffer.push({ update, byteSize });
+    let totalBytes = 0;
+    for (const entry of buffer) totalBytes += entry.byteSize;
+
+    while (
+      buffer.length > 0 &&
+      (buffer.length > MAX_BUFFER_EVENTS || totalBytes > MAX_BUFFER_BYTES)
+    ) {
+      const dropped = buffer.shift();
+      if (dropped !== undefined) totalBytes -= dropped.byteSize;
+    }
+  }
+
+  /**
+   * Persists the session's final state + buffered event log to
+   * `acp_session_history`, then frees the buffer entry. Best-effort: a DB
+   * failure is logged but does not propagate, since the session has already
+   * reached a terminal state and clients have been notified.
+   */
+  private persistTerminal(acpSessionId: string, entry: SessionEntry): void {
+    const buffer = this.eventBuffers.get(acpSessionId) ?? [];
+    // Serialize only the wire-shaped updates — drop the byte-size accounting
+    // metadata so persisted rows match the protocol shape clients receive.
+    const wireUpdates = buffer.map((buffered) => buffered.update);
+    try {
+      getDb()
+        .insert(acpSessionHistory)
+        .values({
+          id: acpSessionId,
+          agentId: entry.state.agentId,
+          acpSessionId: entry.state.acpSessionId,
+          parentConversationId: entry.parentConversationId,
+          startedAt: entry.state.startedAt,
+          completedAt: entry.state.completedAt ?? null,
+          status: entry.state.status,
+          stopReason: entry.state.stopReason ?? null,
+          error: entry.state.error ?? null,
+          eventLogJson: JSON.stringify(wireUpdates),
+        })
+        .onConflictDoNothing()
+        .run();
+    } catch (err) {
+      log.error(
+        { acpSessionId, err },
+        "Failed to persist ACP session history row",
+      );
+    }
+    // Drop the buffer entry to free memory regardless of write outcome.
+    this.eventBuffers.delete(acpSessionId);
   }
 
   /**
@@ -293,6 +436,10 @@ export class AcpSessionManager {
             acpSessionId,
             stopReason: response.stopReason,
           });
+
+          // Persist the terminal row + buffered event log before tearing
+          // down (teardown deletes the buffer entry).
+          this.persistTerminal(acpSessionId, current);
 
           // Free the session slot, deny any pending permissions, and
           // kill the agent process.
@@ -341,6 +488,9 @@ export class AcpSessionManager {
             acpSessionId,
             error: err.message,
           });
+
+          // Persist the terminal row before teardown clears the buffer.
+          this.persistTerminal(acpSessionId, current);
 
           // Free the session slot and deny any pending permissions.
           this.teardownSession(acpSessionId, current);

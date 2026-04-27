@@ -57,7 +57,7 @@ export interface TitleContext {
 // ── Placeholder / loading state ──────────────────────────────────────
 
 export const GENERATING_TITLE = "Generating title...";
-export const UNTITLED_FALLBACK = "Untitled Conversation";
+const UNTITLED_FALLBACK = "Untitled Conversation";
 
 // ── Replaceability check ─────────────────────────────────────────────
 

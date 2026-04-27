@@ -113,6 +113,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credential-execution audit list",
   "credentials",
   "credentials list",
+  "credentials prompt",
   "credentials set",
   "credentials delete",
   "credentials inspect",
@@ -296,6 +297,11 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "oauth token",
     risk: "high",
     reason: "Exposes OAuth access token",
+  },
+  {
+    path: "credentials prompt",
+    risk: "low",
+    reason: "Prompts user for credential via secure UI — user has full control",
   },
   {
     path: "credentials reveal",

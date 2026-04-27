@@ -93,18 +93,6 @@ export async function managedFallbackEnabledFor(
   return await hasManagedProxyPrereqs();
 }
 
-/**
- * Synchronous check for whether managed proxy prerequisites were satisfied
- * the last time `resolveManagedProxyContext()` ran.
- *
- * Returns `false` before the first async resolution or when the API key is
- * missing. Safe for use in synchronous code paths (e.g. system prompt
- * building) that cannot await the credential store.
- */
-export function isManagedProxyEnabledSync(): boolean {
-  return _managedProxyEnabled;
-}
-
 /** @internal Test-only: reset the cached managed-proxy-enabled flag. */
 export function _resetManagedProxyEnabledCache(): void {
   _managedProxyEnabled = false;

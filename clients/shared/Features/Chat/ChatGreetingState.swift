@@ -27,6 +27,7 @@ public final class ChatGreetingState {
     public var conversationStartersLoading: Bool = false
 
     @ObservationIgnored nonisolated(unsafe) var conversationStarterPollTask: Task<Void, Never>?
+    @ObservationIgnored private var removedConversationStarterIds = Set<String>()
 
     // MARK: - Fallback Greetings
 
@@ -130,9 +131,26 @@ public final class ChatGreetingState {
         }
     }
 
+    public func removeConversationStarter(_ starter: ConversationStarter) {
+        removedConversationStarterIds.insert(starter.id)
+        conversationStarters.removeAll { $0.id == starter.id }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let deleted = await self.conversationStarterClient.deleteConversationStarter(id: starter.id)
+            guard !Task.isCancelled else { return }
+            if !deleted {
+                self.removedConversationStarterIds.remove(starter.id)
+                self.fetchConversationStarters()
+            }
+        }
+    }
+
     private func applyConversationStarterResponse(_ response: ConversationStartersResponse?) -> Bool {
         if let response, !response.starters.isEmpty {
-            conversationStarters = response.starters
+            conversationStarters = response.starters.filter {
+                !removedConversationStarterIds.contains($0.id)
+            }
         }
 
         let shouldPoll = response?.status == "generating" || response?.status == "refreshing"

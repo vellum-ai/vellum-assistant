@@ -295,7 +295,7 @@ function saveConfigWithSuppression(
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-export function postInstallSkill(
+function postInstallSkill(
   skillId: string,
   _skillDir: string,
   ctx: SkillOperationContext,
@@ -439,7 +439,7 @@ export function listSkills(_ctx: SkillOperationContext): SlimSkillResponse[] {
  * List installed skills merged with available catalog skills.
  * Installed skills take precedence when deduplicating by ID.
  */
-export async function listSkillsWithCatalog(
+async function listSkillsWithCatalog(
   ctx: SkillOperationContext,
 ): Promise<SlimSkillResponse[]> {
   const installed = listSkills(ctx);
@@ -482,7 +482,7 @@ export interface SkillListFilter {
 }
 
 /** Human-readable labels matching Swift's `sourceLabel`. */
-export function originDisplayLabel(origin: string): string {
+function originDisplayLabel(origin: string): string {
   switch (origin) {
     case "vellum":
       return "Vellum";
@@ -498,7 +498,7 @@ export function originDisplayLabel(origin: string): string {
 }
 
 /** Check if a skill's origin matches a text query (matching Swift logic). */
-export function originMatchesQuery(origin: string, query: string): boolean {
+function originMatchesQuery(origin: string, query: string): boolean {
   const label = originDisplayLabel(origin).toLowerCase();
   if (label.includes(query)) return true;
   // "community" umbrella matches clawhub and skillssh

@@ -16,7 +16,7 @@ import * as pendingInteractions from "../pending-interactions.js";
  * POST /v1/host-bash-result — resolve a pending host bash request by requestId.
  * Requires AuthContext with guardian-bound actor.
  */
-export async function handleHostBashResult(
+async function handleHostBashResult(
   req: Request,
   authContext: AuthContext,
 ): Promise<Response> {

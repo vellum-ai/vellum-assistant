@@ -59,7 +59,7 @@ function buildDeterministicResult(
   };
 }
 
-export class ProviderCommitMessageGenerator {
+class ProviderCommitMessageGenerator {
   private consecutiveFailures = 0;
   private nextAllowedAttemptMs = 0;
 

@@ -80,6 +80,7 @@ final class ConversationManager: ConversationRestorerDelegate {
     private let conversationInferenceProfileClient: any ConversationInferenceProfileClientProtocol
     private let conversationAnalysisClient: ConversationAnalysisClientProtocol
     private let conversationRestorer: ConversationRestorer
+    private let acpSessionStore: ACPSessionStore?
 
     // MARK: - Pre-Chat Onboarding
 
@@ -205,6 +206,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         conversationHostAccessClient: any ConversationHostAccessClientProtocol = ConversationHostAccessClient(),
         conversationInferenceProfileClient: any ConversationInferenceProfileClientProtocol = ConversationInferenceProfileClient(),
         conversationAnalysisClient: ConversationAnalysisClientProtocol = ConversationAnalysisClient(),
+        acpSessionStore: ACPSessionStore? = nil,
         isFirstLaunch: Bool = false,
         preChatContext: PreChatOnboardingContext? = nil
     ) {
@@ -217,6 +219,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         self.conversationHostAccessClient = conversationHostAccessClient
         self.conversationInferenceProfileClient = conversationInferenceProfileClient
         self.conversationAnalysisClient = conversationAnalysisClient
+        self.acpSessionStore = acpSessionStore
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         self.selectionStore = ConversationSelectionStore(listStore: listStore)
 
@@ -260,6 +263,8 @@ final class ConversationManager: ConversationRestorerDelegate {
                         serverConversationId: message.conversationId,
                         profile: message.profile
                     )
+                case .acpSessionSpawned, .acpSessionUpdate, .acpSessionCompleted, .acpSessionError:
+                    self.acpSessionStore?.handle(message)
                 default:
                     break
                 }
@@ -532,6 +537,38 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
     }
 
+    @discardableResult
+    func prepareActiveConversationForVoiceMode(timeoutSeconds: TimeInterval = 3.0) async -> ChatViewModel? {
+        if activeViewModel == nil {
+            enterDraftMode()
+        }
+        guard let viewModel = activeViewModel else { return nil }
+
+        if selectionStore.activeConversationId == nil,
+           selectionStore.draftViewModel === viewModel {
+            promoteDraft(fromUserSend: false)
+        }
+
+        if viewModel.conversationId != nil {
+            return viewModel
+        }
+
+        viewModel.createConversationIfNeeded()
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if viewModel.conversationId != nil {
+                return viewModel
+            }
+            if !viewModel.isBootstrapping {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return viewModel.conversationId == nil ? nil : viewModel
+    }
+
     func enterDraftMode() {
         if let draftVM = selectionStore.draftViewModel, draftVM.messages.isEmpty, selectionStore.activeConversationId == nil {
             return
@@ -565,7 +602,12 @@ final class ConversationManager: ConversationRestorerDelegate {
         // references it (e.g. `.appEditing(_, draftLocalId)`) stays valid
         // without an extra state transition after promotion.
         let localId = selectionStore.draftLocalId ?? UUID()
-        let conversation = ConversationModel(id: localId, title: "Untitled", groupId: ConversationGroup.all.id)
+        let conversation = ConversationModel(
+            id: localId,
+            title: "Untitled",
+            groupId: ConversationGroup.all.id,
+            inferenceProfile: viewModel.pendingInferenceProfile
+        )
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
         activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
@@ -1128,6 +1170,12 @@ final class ConversationManager: ConversationRestorerDelegate {
     /// model is rolled back).
     @discardableResult
     func setConversationInferenceProfile(id localId: UUID, profile: String?) async -> Bool {
+        if localId == selectionStore.draftLocalId,
+           let draftViewModel = selectionStore.draftViewModel {
+            draftViewModel.pendingInferenceProfile = profile
+            return true
+        }
+
         guard let index = listStore.conversations.firstIndex(where: { $0.id == localId }),
               let conversationId = listStore.conversations[index].conversationId else {
             return false

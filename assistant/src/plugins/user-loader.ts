@@ -1,17 +1,16 @@
 /**
- * User plugin loader — discovers plugins under `~/.vellum/plugins/*` and
+ * User plugin loader — discovers plugins under `<workspaceDir>/plugins/*` and
  * invokes each plugin's registration side effect via a dynamic import.
  *
- * A user plugin is a directory under `vellumRoot()/plugins/` that contains a
+ * A user plugin is a directory under `getWorkspaceDir()/plugins/` that contains a
  * `register.ts` (or `register.js` after compilation). The file is expected to
  * call {@link registerPlugin} at import time so the plugin ends up in the
  * registry before {@link bootstrapPlugins} runs during daemon startup.
  *
  * The loader deliberately:
  *
- * - Uses {@link vellumRoot} rather than `homedir()` directly so the
- *   multi-instance invariant in the root CLAUDE.md holds — each instance
- *   loads its own plugin set from its own `.vellum` directory.
+ * - Uses `getWorkspaceDir()` so each instance loads its own plugin set
+ *   when `VELLUM_WORKSPACE_DIR` is set.
  * - Prefers `register.js` over `register.ts` when both exist (compiled plugins
  *   always win; this matches how `bun`/Node consumers resolve modules at
  *   runtime in the compiled binary).
@@ -39,7 +38,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../util/logger.js";
-import { vellumRoot } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { closeRegistration } from "./registry.js";
 
 const log = getLogger("user-plugin-loader");
@@ -56,13 +55,13 @@ const log = getLogger("user-plugin-loader");
 const USER_PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
 
 /**
- * Scan `vellumRoot()/plugins/` for subdirectories containing a
+ * Scan `getWorkspaceDir()/plugins/` for subdirectories containing a
  * `register.{ts,js}` file, and dynamic-import each one so the module's
  * side-effecting {@link registerPlugin} calls populate the registry.
  *
  * Invariants:
  *
- * - No-ops when `vellumRoot()/plugins/` does not exist — a clean install with
+ * - No-ops when `getWorkspaceDir()/plugins/` does not exist — a clean install with
  *   zero user plugins must not generate errors.
  * - Per-plugin isolation: a failing import is logged and skipped. The
  *   function resolves normally even when every plugin fails to load.
@@ -78,7 +77,7 @@ export async function loadUserPlugins(
 ): Promise<void> {
   const importTimeoutMs =
     options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
-  const pluginsDir = join(vellumRoot(), "plugins");
+  const pluginsDir = join(getWorkspaceDir(), "plugins");
   if (!existsSync(pluginsDir)) {
     log.debug(
       { pluginsDir },

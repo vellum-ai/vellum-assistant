@@ -15,8 +15,6 @@ import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
   addCoreColumns,
-  createActorRefreshTokenRecordsTable,
-  createActorTokenRecordsTable,
   createApprovalPromptTsTrackerTable,
   createAssistantInboxTables,
   createCallSessionsTables,
@@ -37,6 +35,8 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrate230AcpSessionHistory,
+  migrate231RepairMemoryGraphEventDates,
   migrateAddConversationInferenceProfile,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
@@ -273,8 +273,6 @@ export function initializeDb(): void {
     migrateVoiceInviteColumns,
     migrateVoiceInviteDisplayMetadata,
     migrateInviteCodeHashColumn,
-    createActorTokenRecordsTable,
-    createActorRefreshTokenRecordsTable,
     createApprovalPromptTsTrackerTable,
     migrateGuardianPrincipalIdColumns,
     migrateBackfillGuardianPrincipalId,
@@ -388,6 +386,8 @@ export function initializeDb(): void {
     migrateAddConversationInferenceProfile,
     migrateRenameInferenceProfileSnakeCase,
     migrateDeletePrivateConversations,
+    migrate230AcpSessionHistory,
+    migrate231RepairMemoryGraphEventDates,
   ];
 
   // Run each migration step, catching and logging individual failures so one

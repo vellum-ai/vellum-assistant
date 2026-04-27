@@ -32,6 +32,7 @@
 
 import { parseInterfaceId } from "../../channels/types.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
+import { getLogger } from "../../util/logger.js";
 import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
   AssistantEventFilter,
@@ -47,6 +48,8 @@ import { getClientRegistry } from "../client-registry.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
+const log = getLogger("events-routes");
+
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -60,7 +63,7 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  *
  * Headers (optional):
  *   X-Vellum-Client-Id    -- stable per-install UUID identifying this client.
- *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "vellum").
+ *   X-Vellum-Interface-Id -- interface type (e.g. "macos", "ios", "web").
  *
  *   When both are present the client is registered in the ClientRegistry on
  *   connect and unregistered on disconnect.
@@ -103,6 +106,10 @@ export function handleSubscribeAssistantEvents(
     : null;
 
   if (clientId && !interfaceId) {
+    log.error(
+      { clientId, rawInterfaceId },
+      "client registration failed: invalid or missing X-Vellum-Interface-Id",
+    );
     return httpError(
       "BAD_REQUEST",
       "X-Vellum-Interface-Id is required when X-Vellum-Client-Id is provided",
@@ -113,6 +120,10 @@ export function handleSubscribeAssistantEvents(
   const registry = getClientRegistry();
   if (clientId && interfaceId) {
     registry.register({ clientId, interfaceId });
+    log.info(
+      { clientId, interfaceId },
+      "client registered via /events SSE connect",
+    );
   }
 
   const hub = options?.hub ?? assistantEventHub;

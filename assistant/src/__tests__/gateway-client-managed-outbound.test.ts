@@ -140,14 +140,10 @@ describe("gateway-client managed outbound lane", () => {
   });
 
   test("falls back to standard callback delivery for non-managed callback URL", async () => {
-    await deliverChannelReply(
-      "https://gateway.test/deliver/voice",
-      {
-        chatId: "+15550001111",
-        text: "standard gateway callback",
-      },
-      "runtime-bearer",
-    );
+    await deliverChannelReply("https://gateway.test/deliver/voice", {
+      chatId: "+15550001111",
+      text: "standard gateway callback",
+    });
 
     expect(calls).toHaveLength(1);
     const call = calls[0];
@@ -155,7 +151,7 @@ describe("gateway-client managed outbound lane", () => {
 
     const headers = call.init.headers as Record<string, string>;
     expect(headers["Content-Type"]).toBe("application/json");
-    expect(headers.Authorization).toBe("Bearer runtime-bearer");
+    expect(headers.Authorization).toBeUndefined();
 
     const body = JSON.parse(String(call.init.body)) as {
       chatId: string;

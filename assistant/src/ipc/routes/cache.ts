@@ -55,32 +55,32 @@ function handleCacheDelete(params?: Record<string, unknown>): {
 
 // ── Route definitions ─────────────────────────────────────────────────
 
-export const cacheSetRoute: IpcRoute = {
+const cacheSetRoute: IpcRoute = {
   method: "cache/set",
   handler: handleCacheSet,
 };
 
-export const cacheSetAliasRoute: IpcRoute = {
+const cacheSetAliasRoute: IpcRoute = {
   method: "cache_set",
   handler: handleCacheSet,
 };
 
-export const cacheGetRoute: IpcRoute = {
+const cacheGetRoute: IpcRoute = {
   method: "cache/get",
   handler: handleCacheGet,
 };
 
-export const cacheGetAliasRoute: IpcRoute = {
+const cacheGetAliasRoute: IpcRoute = {
   method: "cache_get",
   handler: handleCacheGet,
 };
 
-export const cacheDeleteRoute: IpcRoute = {
+const cacheDeleteRoute: IpcRoute = {
   method: "cache/delete",
   handler: handleCacheDelete,
 };
 
-export const cacheDeleteAliasRoute: IpcRoute = {
+const cacheDeleteAliasRoute: IpcRoute = {
   method: "cache_delete",
   handler: handleCacheDelete,
 };

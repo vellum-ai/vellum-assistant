@@ -15,6 +15,8 @@ let mockConfig = {
   filing: {
     enabled: true,
     intervalMs: 60_000,
+    compactionEnabled: true,
+    compactionIntervalMs: 60_000,
     speed: "standard" as "standard" | "fast",
     activeHoursStart: null as number | null,
     activeHoursEnd: null as number | null,
@@ -109,6 +111,8 @@ describe("FilingService", () => {
       filing: {
         enabled: true,
         intervalMs: 60_000,
+        compactionEnabled: true,
+        compactionIntervalMs: 60_000,
         speed: "standard",
         activeHoursStart: null,
         activeHoursEnd: null,
@@ -186,6 +190,118 @@ describe("FilingService", () => {
     expect(createdConversations).toHaveLength(1);
     expect(createdConversations[0].title).toBe("Generating title...");
     expect(createdConversations[0].conversationType).toBe("background");
+  });
+
+  describe("runCompactionOnce()", () => {
+    test("passes callSite: 'compactionAgent' to processMessage", async () => {
+      const service = createService();
+      await service.runCompactionOnce();
+
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].options).toEqual({
+        callSite: "compactionAgent",
+      });
+    });
+
+    test("runs even when buffer is empty", async () => {
+      // Filing skips when the buffer has no content; compaction must not.
+      const bufferPath = join(testWorkspaceDir, "pkb", "buffer.md");
+      writeFileSync(bufferPath, "");
+
+      const service = createService();
+      const ran = await service.runCompactionOnce();
+
+      expect(ran).toBe(true);
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].options?.callSite).toBe("compactionAgent");
+    });
+
+    test("invokes processMessage with the compaction prompt template", async () => {
+      const service = createService();
+      await service.runCompactionOnce();
+
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].content).toContain(
+        "daily PKB compaction job",
+      );
+      expect(processMessageCalls[0].content).toContain("Step 1 — Audit");
+    });
+
+    test("creates background conversation labelled 'compaction'", async () => {
+      const service = createService();
+      await service.runCompactionOnce();
+
+      expect(createdConversations).toHaveLength(1);
+      expect(createdConversations[0].conversationType).toBe("background");
+    });
+
+    test("does not run when force=false and compactionEnabled=false", async () => {
+      mockConfig.filing.compactionEnabled = false;
+      const service = createService();
+      const ran = await service.runCompactionOnce();
+
+      expect(ran).toBe(false);
+      expect(processMessageCalls).toHaveLength(0);
+    });
+
+    test("force=true overrides compactionEnabled=false", async () => {
+      mockConfig.filing.compactionEnabled = false;
+      const service = createService();
+      const ran = await service.runCompactionOnce({ force: true });
+
+      expect(ran).toBe(true);
+      expect(processMessageCalls).toHaveLength(1);
+    });
+
+    test("respects active hours", async () => {
+      mockConfig.filing.activeHoursStart = 9;
+      mockConfig.filing.activeHoursEnd = 17;
+      const service = new FilingService({
+        processMessage: async (
+          conversationId: string,
+          content: string,
+          options?: { speed?: string; callSite?: string },
+        ) => {
+          processMessageCalls.push({ conversationId, content, options });
+          return { messageId: "msg-1" };
+        },
+        getCurrentHour: () => 3, // 3 AM, outside 9-17 window
+      });
+
+      const ran = await service.runCompactionOnce();
+      expect(ran).toBe(false);
+      expect(processMessageCalls).toHaveLength(0);
+    });
+  });
+
+  describe("FilingService runs filing and compaction independently", () => {
+    test("runOnce only fires the filingAgent call site", async () => {
+      const service = createService();
+      await service.runOnce();
+
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].options?.callSite).toBe("filingAgent");
+    });
+
+    test("runCompactionOnce only fires the compactionAgent call site", async () => {
+      const service = createService();
+      await service.runCompactionOnce();
+
+      expect(processMessageCalls).toHaveLength(1);
+      expect(processMessageCalls[0].options?.callSite).toBe("compactionAgent");
+    });
+
+    test("filing prompt no longer contains audit/review instructions", async () => {
+      // The "review 3 random files" step moved to the compaction job. Buffer
+      // filing must stay focused on draining the buffer.
+      const service = createService();
+      await service.runOnce();
+
+      const content = processMessageCalls[0].content;
+      expect(content).not.toContain("Pick 3 random topic files");
+      expect(content).not.toContain("Part 2");
+      expect(content).toContain("focused on the buffer");
+    });
   });
 
   describe("llm.callSites.filingAgent resolution", () => {

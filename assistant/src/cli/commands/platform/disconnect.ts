@@ -5,11 +5,9 @@ import type { Command } from "commander";
 
 import { isPlatformRemote } from "../../../config/env-registry.js";
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getSignalsDir } from "../../../util/platform.js";
-import {
-  deleteSecureKeyViaDaemon,
-  getSecureKeyViaDaemon,
-} from "../../lib/daemon-credential-client.js";
+import { deleteSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import { CREDENTIAL_KEYS } from "./connect.js";
@@ -63,13 +61,13 @@ Examples:
         // ---------------------------------------------------------------
         // 2. Check if connected
         // ---------------------------------------------------------------
-        const baseUrl = await getSecureKeyViaDaemon(
+        const baseUrl = await getSecureKeyAsync(
           credentialKey(
             CREDENTIAL_KEYS.baseUrl.service,
             CREDENTIAL_KEYS.baseUrl.field,
           ),
         );
-        const apiKey = await getSecureKeyViaDaemon(
+        const apiKey = await getSecureKeyAsync(
           credentialKey(
             CREDENTIAL_KEYS.apiKey.service,
             CREDENTIAL_KEYS.apiKey.field,

@@ -2,27 +2,6 @@
  * Single-key debouncer. Delays execution until no new calls arrive
  * within the specified delay period.
  */
-export class Debouncer {
-  private timer: ReturnType<typeof setTimeout> | null = null;
-
-  constructor(private readonly delayMs: number) {}
-
-  schedule(fn: () => void): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      fn();
-    }, this.delayMs);
-  }
-
-  cancel(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-  }
-}
-
 /**
  * Multi-key debouncer. Each key gets its own independent timer.
  * Includes an optional entry limit with eviction of oldest non-protected entries.

@@ -195,3 +195,25 @@ export const trustRules = sqliteTable(
     uniqueIndex("idx_trust_rules_tool_pattern").on(table.tool, table.pattern),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Channel denial reply log (rate-limiting outbound denial replies)
+// ---------------------------------------------------------------------------
+
+export const channelDenialReplyLog = sqliteTable(
+  "channel_denial_reply_log",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").notNull(),
+    sourceAddress: text("source_address").notNull(),
+    sentAt: integer("sent_at").notNull(),
+  },
+  (table) => [
+    index("idx_channel_denial_source_sent").on(
+      table.channel,
+      table.sourceAddress,
+      table.sentAt,
+    ),
+    index("idx_channel_denial_sent").on(table.sentAt),
+  ],
+);

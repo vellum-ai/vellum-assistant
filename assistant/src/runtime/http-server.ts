@@ -43,6 +43,16 @@ import {
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { normalizeConversationType } from "../daemon/message-types/shared.js";
+import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
+import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
+import {
+  type LiveVoiceClientFrame,
+  type LiveVoiceProtocolError,
+  LiveVoiceProtocolErrorCode,
+  type LiveVoiceServerFrame,
+  parseLiveVoiceBinaryAudioFrame,
+  parseLiveVoiceClientTextFrame,
+} from "../live-voice/protocol.js";
 import {
   type AttentionState,
   type Confidence,
@@ -68,7 +78,7 @@ import {
   listPinnedConversations,
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
-import * as externalConversationStore from "../memory/external-conversation-store.js";
+import { getBindingsForConversations } from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
@@ -92,11 +102,7 @@ import {
   authenticateRequest,
 } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
-import {
-  mintDaemonDeliveryToken,
-  mintUiPageToken,
-  verifyToken,
-} from "./auth/token-service.js";
+import { verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
@@ -204,6 +210,7 @@ import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
+import { psRouteDefinitions } from "./routes/ps-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
@@ -241,6 +248,7 @@ export type {
   SendMessageDeps,
 } from "./http-types.js";
 
+import type { Conversation } from "../daemon/conversation.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -327,11 +335,21 @@ interface SttStreamWebSocketData {
   session?: SttStreamSession;
 }
 
+/**
+ * WebSocket data attached to `/v1/live-voice` connections. The `wsType`
+ * discriminator routes frames to the live voice protocol shell instead of
+ * the other WebSocket handlers.
+ */
+interface LiveVoiceWebSocketData {
+  wsType: "live-voice";
+  sessionId?: string;
+  lastSeq: number;
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private hostname: string;
-  private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
@@ -353,12 +371,12 @@ export class RuntimeHttpServer {
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
   private getFilingService?: RuntimeHttpServerOptions["getFilingService"];
+  private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
-    this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
@@ -377,6 +395,9 @@ export class RuntimeHttpServer {
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
     this.getFilingService = options.getFilingService;
+    this.liveVoiceSessionManager = new LiveVoiceSessionManager({
+      createSession: (context) => createLiveVoiceSession(context),
+    });
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -390,7 +411,8 @@ export class RuntimeHttpServer {
       | RelayWebSocketData
       | BrowserRelayWebSocketData
       | MediaStreamWebSocketData
-      | SttStreamWebSocketData;
+      | SttStreamWebSocketData
+      | LiveVoiceWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -398,7 +420,7 @@ export class RuntimeHttpServer {
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       fetch: (req, server) => this.handleRequest(req, server),
       websocket: {
-        open(ws) {
+        open: (ws) => {
           const data = ws.data as AllWebSocketData;
           if ("wsType" in data && data.wsType === "browser-relay") {
             // When the JWT sub resolved to a guardian principal at upgrade
@@ -505,6 +527,10 @@ export class RuntimeHttpServer {
             );
             return;
           }
+          if ("wsType" in data && data.wsType === "live-voice") {
+            log.info("Live voice WebSocket opened");
+            return;
+          }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info({ callSessionId }, "ConversationRelay WebSocket opened");
           if (callSessionId) {
@@ -515,7 +541,7 @@ export class RuntimeHttpServer {
             activeRelayConnections.set(callSessionId, connection);
           }
         },
-        message(ws, message) {
+        message: (ws, message) => {
           const data = ws.data as AllWebSocketData;
           const raw =
             typeof message === "string"
@@ -666,13 +692,32 @@ export class RuntimeHttpServer {
             }
             return;
           }
+          if ("wsType" in data && data.wsType === "live-voice") {
+            void this.handleLiveVoiceMessage(
+              ws as ServerWebSocket<LiveVoiceWebSocketData>,
+              message,
+            ).catch((err) => {
+              log.warn(
+                { error: err instanceof Error ? err.message : String(err) },
+                "Live voice WebSocket message handler failed",
+              );
+              this.sendLiveVoiceError(
+                ws as ServerWebSocket<LiveVoiceWebSocketData>,
+                {
+                  code: LiveVoiceProtocolErrorCode.InvalidFrame,
+                  message: "Live voice frame handling failed",
+                },
+              );
+            });
+            return;
+          }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           if (callSessionId) {
             const connection = activeRelayConnections.get(callSessionId);
             connection?.handleMessage(raw);
           }
         },
-        close(ws, code, reason) {
+        close: (ws, code, reason) => {
           const data = ws.data as AllWebSocketData;
           if ("wsType" in data && data.wsType === "browser-relay") {
             // Always attempt to unregister — the registry uses connectionId
@@ -733,6 +778,18 @@ export class RuntimeHttpServer {
             }
             return;
           }
+          if ("wsType" in data && data.wsType === "live-voice") {
+            log.info(
+              {
+                sessionId: data.sessionId,
+                code,
+                reason: reason?.toString(),
+              },
+              "Live voice WebSocket closed",
+            );
+            this.releaseLiveVoiceSession(data, "websocket_close");
+            return;
+          }
           const callSessionId = (data as RelayWebSocketData).callSessionId;
           log.info(
             { callSessionId, code, reason: reason?.toString() },
@@ -773,7 +830,6 @@ export class RuntimeHttpServer {
       {
         port: this.actualPort,
         hostname: this.hostname,
-        auth: !!this.bearerToken,
       },
       "Runtime HTTP server listening",
     );
@@ -792,11 +848,10 @@ export class RuntimeHttpServer {
   private startBackgroundSweeps(): void {
     if (this.processMessage && !this.retrySweepTimer) {
       const pm = this.processMessage;
-      const mintBt = () => mintDaemonDeliveryToken();
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(pm, mintBt).finally(() => {
+        sweepFailedEvents(pm).finally(() => {
           this.sweepInProgress = false;
         });
       }, 30_000);
@@ -899,6 +954,14 @@ export class RuntimeHttpServer {
       activeSttStreamSessions.delete(sessionId);
     }
 
+    const liveVoiceSessionId = this.liveVoiceSessionManager.activeSessionId;
+    if (liveVoiceSessionId) {
+      await this.liveVoiceSessionManager.releaseSession(
+        liveVoiceSessionId,
+        "manager_shutdown",
+      );
+    }
+
     if (this.server) {
       this.server.stop(true);
       this.server = null;
@@ -971,6 +1034,15 @@ export class RuntimeHttpServer {
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
     ) {
       return this.handleSttStreamUpgrade(req, server);
+    }
+
+    // WebSocket upgrade for live voice — same private-network restrictions
+    // and gateway-service token verification as STT streaming.
+    if (
+      path === "/v1/live-voice" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleLiveVoiceUpgrade(req, server);
     }
 
     // Twilio webhook endpoints — before auth check because Twilio
@@ -1224,6 +1296,28 @@ export class RuntimeHttpServer {
     return undefined!;
   }
 
+  private verifyGatewayServiceToken(req: Request): Response | null {
+    if (isHttpAuthDisabled()) return null;
+
+    const wsUrl = new URL(req.url);
+    const token = wsUrl.searchParams.get("token");
+    if (!token) {
+      return httpError("UNAUTHORIZED", "Unauthorized", 401);
+    }
+
+    const jwtResult = verifyToken(token, "vellum-daemon");
+    if (!jwtResult.ok) {
+      return httpError("UNAUTHORIZED", "Unauthorized", 401);
+    }
+
+    const subResult = parseSub(jwtResult.claims.sub);
+    if (!subResult.ok || subResult.principalType !== "svc_gateway") {
+      return httpError("UNAUTHORIZED", "Unauthorized", 401);
+    }
+
+    return null;
+  }
+
   private handleRelayUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
@@ -1237,21 +1331,8 @@ export class RuntimeHttpServer {
     }
 
     // Verify the gateway service token before accepting the upgrade.
-    if (!isHttpAuthDisabled()) {
-      const wsUrl = new URL(req.url);
-      const token = wsUrl.searchParams.get("token");
-      if (!token) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const jwtResult = verifyToken(token, "vellum-daemon");
-      if (!jwtResult.ok) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const subResult = parseSub(jwtResult.claims.sub);
-      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-    }
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) return tokenError;
 
     const wsUrl = new URL(req.url);
     const callSessionId = wsUrl.searchParams.get("callSessionId");
@@ -1279,21 +1360,8 @@ export class RuntimeHttpServer {
     }
 
     // Verify the gateway service token before accepting the upgrade.
-    if (!isHttpAuthDisabled()) {
-      const wsUrl = new URL(req.url);
-      const token = wsUrl.searchParams.get("token");
-      if (!token) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const jwtResult = verifyToken(token, "vellum-daemon");
-      if (!jwtResult.ok) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const subResult = parseSub(jwtResult.claims.sub);
-      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-    }
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) return tokenError;
 
     const wsUrl = new URL(req.url);
     const callSessionId = wsUrl.searchParams.get("callSessionId");
@@ -1336,23 +1404,8 @@ export class RuntimeHttpServer {
     }
 
     // Verify the gateway service token before accepting the upgrade.
-    if (!isHttpAuthDisabled()) {
-      const wsUrl = new URL(req.url);
-      const token = wsUrl.searchParams.get("token");
-      if (!token) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      const jwtResult = verifyToken(token, "vellum-daemon");
-      if (!jwtResult.ok) {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-      // Accept gateway service tokens (svc:gateway:*) — these are the
-      // only tokens the gateway mints for upstream connections.
-      const subResult = parseSub(jwtResult.claims.sub);
-      if (!subResult.ok || subResult.principalType !== "svc_gateway") {
-        return httpError("UNAUTHORIZED", "Unauthorized", 401);
-      }
-    }
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) return tokenError;
 
     const wsUrl = new URL(req.url);
     // provider is optional compatibility metadata — the runtime resolves
@@ -1383,6 +1436,175 @@ export class RuntimeHttpServer {
     }
     // Bun's WebSocket upgrade consumes the request — no Response is sent.
     return undefined!;
+  }
+
+  /**
+   * Handle WebSocket upgrade for `/v1/live-voice`.
+   *
+   * The gateway owns downstream client auth and forwards this upstream with
+   * a short-lived gateway service token. The runtime accepts only private
+   * network peers/origins so the shell is not publicly reachable.
+   */
+  private handleLiveVoiceUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        "Direct live voice access disabled — only private network peers allowed",
+        403,
+      );
+    }
+
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) return tokenError;
+
+    const upgraded = server.upgrade(req, {
+      data: {
+        wsType: "live-voice",
+        lastSeq: 0,
+      } satisfies LiveVoiceWebSocketData,
+    });
+    if (!upgraded) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    return undefined!;
+  }
+
+  private async handleLiveVoiceMessage(
+    ws: ServerWebSocket<LiveVoiceWebSocketData>,
+    message: string | ArrayBuffer | ArrayBufferView,
+  ): Promise<void> {
+    if (typeof message === "string") {
+      const result = parseLiveVoiceClientTextFrame(message);
+      if (!result.ok) {
+        this.sendLiveVoiceError(ws, result.error);
+        return;
+      }
+      await this.dispatchLiveVoiceClientFrame(ws, result.frame);
+      return;
+    }
+
+    const result = parseLiveVoiceBinaryAudioFrame(message);
+    if (!result.ok) {
+      this.sendLiveVoiceError(ws, result.error);
+      return;
+    }
+
+    const sessionId = ws.data.sessionId;
+    if (!sessionId) {
+      this.sendLiveVoiceStateError(
+        ws,
+        "Live voice binary audio received before start",
+      );
+      return;
+    }
+
+    const handled = await this.liveVoiceSessionManager.handleBinaryAudio(
+      sessionId,
+      result.frame.data,
+    );
+    if (handled.status === "not_found") {
+      ws.data.sessionId = undefined;
+      this.sendLiveVoiceStateError(ws, "Live voice session is not active");
+    }
+  }
+
+  private async dispatchLiveVoiceClientFrame(
+    ws: ServerWebSocket<LiveVoiceWebSocketData>,
+    frame: LiveVoiceClientFrame,
+  ): Promise<void> {
+    if (frame.type === "start") {
+      if (ws.data.sessionId) {
+        this.sendLiveVoiceStateError(ws, "Live voice session already started");
+        return;
+      }
+
+      const result = await this.liveVoiceSessionManager.startSession(frame, {
+        sendFrame: async (serverFrame) => {
+          this.sendLiveVoiceFrame(ws, serverFrame);
+        },
+      });
+      if (result.status === "accepted") {
+        ws.data.sessionId = result.sessionId;
+      }
+      return;
+    }
+
+    const sessionId = ws.data.sessionId;
+    if (!sessionId) {
+      this.sendLiveVoiceStateError(
+        ws,
+        `Live voice ${frame.type} frame received before start`,
+      );
+      return;
+    }
+
+    const handled = await this.liveVoiceSessionManager.handleClientFrame(
+      sessionId,
+      frame,
+    );
+    if (handled.status === "not_found") {
+      ws.data.sessionId = undefined;
+      this.sendLiveVoiceStateError(ws, "Live voice session is not active");
+      return;
+    }
+
+    if (frame.type === "end") {
+      ws.data.sessionId = undefined;
+    }
+  }
+
+  private sendLiveVoiceStateError(
+    ws: ServerWebSocket<LiveVoiceWebSocketData>,
+    message: string,
+  ): void {
+    this.sendLiveVoiceError(ws, {
+      code: LiveVoiceProtocolErrorCode.InvalidFrame,
+      message,
+    });
+  }
+
+  private sendLiveVoiceError(
+    ws: ServerWebSocket<LiveVoiceWebSocketData>,
+    error: Pick<LiveVoiceProtocolError, "code" | "message">,
+  ): void {
+    this.sendLiveVoiceFrame(ws, {
+      type: "error",
+      seq: ws.data.lastSeq + 1,
+      code: error.code,
+      message: error.message,
+    });
+  }
+
+  private sendLiveVoiceFrame(
+    ws: ServerWebSocket<LiveVoiceWebSocketData>,
+    frame: LiveVoiceServerFrame,
+  ): void {
+    ws.data.lastSeq = Math.max(ws.data.lastSeq, frame.seq);
+    ws.send(JSON.stringify(frame));
+  }
+
+  private releaseLiveVoiceSession(
+    data: LiveVoiceWebSocketData,
+    reason: "websocket_close",
+  ): void {
+    const sessionId = data.sessionId;
+    data.sessionId = undefined;
+    if (!sessionId) return;
+
+    void this.liveVoiceSessionManager
+      .releaseSession(sessionId, reason)
+      .catch((err) => {
+        log.warn(
+          {
+            error: err instanceof Error ? err.message : String(err),
+            sessionId,
+          },
+          "Failed to release live voice session",
+        );
+      });
   }
 
   private async handleTwilioWebhook(
@@ -1576,9 +1798,7 @@ export class RuntimeHttpServer {
       return null;
     }
 
-    const bindings = externalConversationStore.getBindingsForConversations([
-      conversation.id,
-    ]);
+    const bindings = getBindingsForConversations([conversation.id]);
     const attentionStates = getAttentionStateByConversationIds([
       conversation.id,
     ]);
@@ -1649,6 +1869,7 @@ export class RuntimeHttpServer {
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
       ...identityRouteDefinitions(),
+      ...psRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),
       ...workspaceCommitRouteDefinitions(),
       ...migrationRollbackRouteDefinitions(),
@@ -1685,7 +1906,7 @@ export class RuntimeHttpServer {
                 ? (conversationId) => {
                     const s = this.findConversation!(conversationId);
                     if (!s || !("abort" in s)) return undefined;
-                    return s as import("../daemon/conversation.js").Conversation;
+                    return s as Conversation;
                   }
                 : undefined,
             }
@@ -1731,10 +1952,7 @@ export class RuntimeHttpServer {
           }
           const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
-          const bindings =
-            externalConversationStore.getBindingsForConversations(
-              conversationIds,
-            );
+          const bindings = getBindingsForConversations(conversationIds);
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
@@ -1969,7 +2187,7 @@ export class RuntimeHttpServer {
             // wired the hydration-capable accessor (e.g. unit tests).
             const s = this.findConversation?.(id);
             if (!s || !("abort" in s)) return undefined;
-            return s as import("../daemon/conversation.js").Conversation;
+            return s as Conversation;
           }
           return sendDeps.getOrCreateConversation(id);
         },
@@ -2138,7 +2356,7 @@ export class RuntimeHttpServer {
         },
       },
 
-      ...brainGraphRouteDefinitions({ mintUiPageToken }),
+      ...brainGraphRouteDefinitions(),
       ...eventsRouteDefinitions(),
       ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),

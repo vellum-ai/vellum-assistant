@@ -24,18 +24,12 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: () =>
     mockResolvePlatformCallbackRegistrationContext(),
   registerCallbackRoute: async () => "",
-  shouldUsePlatformCallbacks: () => false,
   resolveCallbackUrl: async () => "",
 }));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: async () => undefined,
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
   setSecureKeyViaDaemon: async () => false,
-  getSecureKeyResultViaDaemon: async () => ({
-    value: undefined,
-    unreachable: false,
-  }),
 }));
 
 const realLogger = await import("../../../../util/logger.js");

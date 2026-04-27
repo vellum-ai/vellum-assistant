@@ -34,7 +34,7 @@ const log = getLogger("host-shell-tool");
 const HOST_BASH_PROXY_ENV_KEYS = [
   // Preserve per-instance routing so nested `assistant` CLI commands invoked
   // over host_bash proxy target the same daemon/socket as the origin turn.
-  "BASE_DATA_DIR",
+
   "VELLUM_WORKSPACE_DIR",
   // Keep legacy/diagnostic workspace + environment context aligned.
   "VELLUM_DATA_DIR",

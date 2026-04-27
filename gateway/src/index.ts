@@ -47,6 +47,11 @@ import {
   getSttStreamWebsocketHandlers,
   type SttStreamSocketData,
 } from "./http/routes/stt-stream-websocket.js";
+import {
+  createLiveVoiceWebsocketHandler,
+  getLiveVoiceWebsocketHandlers,
+  type LiveVoiceSocketData,
+} from "./http/routes/live-voice-websocket.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
@@ -81,6 +86,7 @@ import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
 import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
+import { createPsHandler } from "./http/routes/ps.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
@@ -217,6 +223,14 @@ function isSttStreamSocketData(data: unknown): data is SttStreamSocketData {
   );
 }
 
+function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "live-voice"
+  );
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -299,10 +313,12 @@ async function main() {
   });
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
+  const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
+  const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, {
       credentials: credentialCache,
@@ -340,6 +356,7 @@ async function main() {
   const oauthAppsProxy = createOAuthAppsProxyHandler(config);
   const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
+  const psHandler = createPsHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
@@ -492,6 +509,14 @@ async function main() {
       method: "GET",
       auth: "edge",
       handler: (req) => runtimeHealthProxy.handleRuntimeHealth(req),
+    },
+
+    // ── Process status ──
+    {
+      path: "/v1/ps",
+      method: "GET",
+      auth: "edge",
+      handler: () => psHandler.handlePs(),
     },
 
     // ── Brain graph ──
@@ -1247,6 +1272,10 @@ async function main() {
           sttStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isLiveVoiceSocketData(ws.data)) {
+          liveVoiceWebsocketHandlers.open(ws as never);
+          return;
+        }
         twilioRelayWebsocketHandlers.open(ws as never);
       },
       message(ws, message) {
@@ -1262,6 +1291,10 @@ async function main() {
           sttStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isLiveVoiceSocketData(ws.data)) {
+          liveVoiceWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         twilioRelayWebsocketHandlers.message(ws as never, message);
       },
       close(ws, code, reason) {
@@ -1275,6 +1308,10 @@ async function main() {
         }
         if (isSttStreamSocketData(ws.data)) {
           sttStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isLiveVoiceSocketData(ws.data)) {
+          liveVoiceWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         twilioRelayWebsocketHandlers.close(ws as never, code, reason);
@@ -1420,6 +1457,12 @@ async function main() {
         return undefined as unknown as Response;
       }
 
+      if (url.pathname === "/v1/live-voice") {
+        const upgradeResult = handleLiveVoiceWs(req, server);
+        if (upgradeResult !== undefined) return upgradeResult;
+        return undefined as unknown as Response;
+      }
+
       // Attach a trace ID to every non-healthcheck request for
       // end-to-end correlation across webhook -> runtime -> reply.
       if (!req.headers.has("x-trace-id")) {
@@ -1531,10 +1574,7 @@ async function main() {
           credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
         ]);
 
-      const assistantId =
-        assistantIdRaw?.trim() ||
-        process.env.PLATFORM_ASSISTANT_ID?.trim() ||
-        undefined;
+      const assistantId = assistantIdRaw?.trim() || undefined;
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
 

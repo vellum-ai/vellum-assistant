@@ -6,6 +6,7 @@
 
 import { Command } from "commander";
 
+import { getDb } from "../../memory/db.js";
 import {
   getGuardrailConfig,
   setGuardrailConfig,
@@ -18,7 +19,6 @@ import {
   listSequences,
   updateSequence,
 } from "../../sequence/store.js";
-import { initializeDb } from "../db.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,7 +107,7 @@ Examples:
   $ assistant sequence list --status paused --json`,
     )
     .action((opts: { status?: string }, cmd: Command) => {
-      initializeDb();
+      getDb();
       const json = getJson(cmd);
       const filter = opts.status
         ? { status: opts.status as "active" | "paused" | "archived" }
@@ -153,7 +153,7 @@ Examples:
   $ assistant sequence get seq_abc123 --json`,
     )
     .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
-      initializeDb();
+      getDb();
       const json = getJson(cmd);
       const seq = getSequence(id);
       if (!seq) return exitError(`Sequence not found: ${id}`);
@@ -226,7 +226,7 @@ Examples:
   $ assistant sequence pause seq_abc123 --json`,
     )
     .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
-      initializeDb();
+      getDb();
       const json = getJson(cmd);
       const seq = getSequence(id);
       if (!seq) return exitError(`Sequence not found: ${id}`);
@@ -256,7 +256,7 @@ Examples:
   $ assistant sequence resume seq_abc123 --json`,
     )
     .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
-      initializeDb();
+      getDb();
       const json = getJson(cmd);
       const seq = getSequence(id);
       if (!seq) return exitError(`Sequence not found: ${id}`);
@@ -290,7 +290,7 @@ Examples:
     )
     .action(
       (enrollmentId: string, _opts: Record<string, unknown>, cmd: Command) => {
-        initializeDb();
+        getDb();
         const json = getJson(cmd);
         exitEnrollment(enrollmentId, "cancelled");
         output(
@@ -315,7 +315,7 @@ Examples:
   $ assistant sequence stats --json`,
     )
     .action((_opts: Record<string, unknown>, cmd: Command) => {
-      initializeDb();
+      getDb();
       const json = getJson(cmd);
       const seqs = listSequences();
       const activeSeqs = seqs.filter((s) => s.status === "active").length;

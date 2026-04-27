@@ -586,7 +586,7 @@ async function main(): Promise<void> {
   // are available to handlers at call time (after the handshake completes).
   const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
   const apiKeyRef: ApiKeyRef = { current: "" };
-  const assistantIdRef: AssistantIdRef = { current: process.env["PLATFORM_ASSISTANT_ID"] ?? "" };
+  const assistantIdRef: AssistantIdRef = { current: "" };
   const handlers = buildHandlers(sessionIdRef, apiKeyRef, assistantIdRef, secureKeyBackend);
 
   const rpcLog = getLogger("rpc");

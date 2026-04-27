@@ -57,6 +57,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
         func fetchPlatformConfig() async -> PlatformConfigResponseMessage? { nil }
         func setPlatformConfig(baseUrl: String) async -> PlatformConfigResponseMessage? { nil }
         func patchConfig(_ partial: [String: Any]) async -> Bool { false }
+        func replaceInferenceProfile(name: String, fragment: [String: Any]) async -> Bool { false }
         func fetchConfig() async -> [String: Any]? { nil }
         func checkApiKeyExists(provider: String) async -> Bool { false }
     }

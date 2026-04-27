@@ -77,6 +77,12 @@ struct ConversationListView: View {
     /// Nil on compact, where the chat header hosts the Settings gear instead.
     var onShowSettings: (() -> Void)?
 
+    /// Invoked when the user taps the Coding Agents entry point in the iPad
+    /// sidebar toolbar. The presenting sheet itself is owned by
+    /// `IOSRootNavigationView`. Nil on compact, where the chat header hosts
+    /// the Coding Agents button instead.
+    var onShowACPSessions: (() -> Void)?
+
     /// Invoked when the user archives the currently active conversation.
     /// The parent is responsible for (a) choosing a replacement conversation
     /// and (b) marking it as *seeded* (not an explicit open), so the
@@ -224,6 +230,14 @@ struct ConversationListView: View {
                         VIconView(.settings, size: 20)
                     }
                     .accessibilityLabel("Settings")
+                }
+            }
+            if let onShowACPSessions {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowACPSessions) {
+                        VIconView(.terminal, size: 20)
+                    }
+                    .accessibilityLabel("Coding Agents")
                 }
             }
         }
@@ -568,6 +582,14 @@ struct ConversationListView: View {
                     .accessibilityLabel("Settings")
                 }
             }
+            if let onShowACPSessions {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowACPSessions) {
+                        VIconView(.terminal, size: 20)
+                    }
+                    .accessibilityLabel("Coding Agents")
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     let conversation = store.newConversation()
@@ -761,6 +783,9 @@ struct ConversationChatView: View {
     /// Presents the Settings bottom sheet. Non-nil only on compact size classes;
     /// iPad reaches Settings via the persistent sidebar toolbar instead.
     var onShowSettings: (() -> Void)?
+    /// Presents the Coding Agents (ACP sessions) sheet. Non-nil only on compact
+    /// size classes; iPad reaches it via the persistent sidebar toolbar.
+    var onShowACPSessions: (() -> Void)?
 
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
@@ -808,6 +833,15 @@ struct ConversationChatView: View {
                         VIconView(.settings, size: 20)
                     }
                     .accessibilityLabel("Settings")
+                }
+                .hideSharedToolbarBackgroundIfAvailable()
+            }
+            if horizontalSizeClass == .compact, let onShowACPSessions {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowACPSessions) {
+                        VIconView(.terminal, size: 20)
+                    }
+                    .accessibilityLabel("Coding Agents")
                 }
                 .hideSharedToolbarBackgroundIfAvailable()
             }

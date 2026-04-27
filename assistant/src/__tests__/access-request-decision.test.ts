@@ -218,7 +218,6 @@ describe("access request notification delivery", () => {
       requesterIdentifier: "user-unknown-456",
       verificationCode: "123456",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(result.ok).toBe(true);
@@ -240,7 +239,6 @@ describe("access request notification delivery", () => {
       requesterIdentifier: "user-unknown-456",
       verificationCode: "123456",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(result.ok).toBe(false);
@@ -256,7 +254,6 @@ describe("access request notification delivery", () => {
       replyCallbackUrl: "http://localhost:7830/deliver/telegram",
       requesterChatId: "chat-123",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -272,7 +269,6 @@ describe("access request notification delivery", () => {
       replyCallbackUrl: "http://localhost:7830/deliver/telegram",
       requesterChatId: "chat-123",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -287,7 +283,6 @@ describe("access request notification delivery", () => {
       replyCallbackUrl: "http://localhost:7830/deliver/telegram",
       requesterChatId: "chat-123",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -307,7 +302,6 @@ describe("access request notification delivery", () => {
       requesterExternalUserId: "U98765-user",
       channel: "slack",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -326,7 +320,6 @@ describe("access request notification delivery", () => {
       requesterExternalUserId: "U98765-user",
       channel: "slack",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -343,7 +336,6 @@ describe("access request notification delivery", () => {
       requesterExternalUserId: "U98765-user",
       channel: "slack",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -360,7 +352,6 @@ describe("access request notification delivery", () => {
       requesterExternalUserId: "user-456",
       channel: "telegram",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);
@@ -375,7 +366,6 @@ describe("access request notification delivery", () => {
       requesterChatId: "C12345-channel",
       channel: "slack",
       assistantId: "self",
-      bearerToken: "test-token",
     });
 
     expect(deliverReplyCalls.length).toBe(1);

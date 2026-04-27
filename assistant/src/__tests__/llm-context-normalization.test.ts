@@ -774,7 +774,7 @@ describe("normalizeLlmContextPayloads", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_002,
       requestPayload: {
-        model: "gemini-3-flash",
+        model: "gemini-3-flash-preview",
         contents: [
           {
             role: "user",
@@ -818,7 +818,7 @@ describe("normalizeLlmContextPayloads", () => {
         },
       },
       responsePayload: {
-        model: "gemini-3-flash-001",
+        model: "gemini-3-flash-preview",
         text: "Here is the summary.",
         functionCalls: [
           {
@@ -837,7 +837,7 @@ describe("normalizeLlmContextPayloads", () => {
 
     expect(normalized.summary).toEqual({
       provider: "gemini",
-      model: "gemini-3-flash-001",
+      model: "gemini-3-flash-preview",
       inputTokens: 200,
       outputTokens: 31,
       stopReason: "STOP",
@@ -902,7 +902,7 @@ describe("normalizeLlmContextPayloads", () => {
         kind: "settings",
         label: "Generation config",
         data: {
-          model: "gemini-3-flash",
+          model: "gemini-3-flash-preview",
           config: {
             temperature: 0.4,
             responseMimeType: "application/json",

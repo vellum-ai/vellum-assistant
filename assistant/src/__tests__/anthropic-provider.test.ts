@@ -196,6 +196,14 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastStreamParams!.system).toBeUndefined();
   });
 
+  test("sends disabled thinking config natively", async () => {
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      config: { thinking: { type: "disabled" } },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "disabled" });
+  });
+
   test("splits system prompt into two cache blocks on boundary marker", async () => {
     const staticBlock = "You are a helpful assistant.";
     const dynamicBlock = "User workspace files here.";
@@ -1282,6 +1290,83 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }
   });
 
+  test("consecutive real assistant messages are merged into one", async () => {
+    // When two non-placeholder assistant messages appear consecutively
+    // (e.g. history reconstruction artifacts), the provider must merge
+    // their content blocks to satisfy Anthropic's strict role alternation.
+    const messages: Message[] = [
+      userMsg("Start"),
+      assistantMsg("First response"),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Second thought" }],
+      },
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    // Should be merged into 2 messages: user + single merged assistant
+    expect(sent).toHaveLength(2);
+    expect(sent[0].role).toBe("user");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toHaveLength(2);
+    expect(sent[1].content[0].text).toBe("First response");
+    expect(sent[1].content[1].text).toBe("Second thought");
+  });
+
+  test("consecutive real user messages are merged into one", async () => {
+    // Same as above but for user messages — ensures the merge logic
+    // handles both roles, not just assistant.
+    const messages: Message[] = [
+      userMsg("First question"),
+      userMsg("Actually, also this"),
+      assistantMsg("Response"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(2);
+    expect(sent[0].role).toBe("user");
+    expect(sent[0].content).toHaveLength(2);
+    expect(sent[0].content[0].text).toBe("First question");
+    expect(sent[0].content[1].text).toBe("Actually, also this");
+    expect(sent[1].role).toBe("assistant");
+  });
+
+  test("three consecutive text-only assistant messages are all merged into one", async () => {
+    // Regression test: after merging messages[i-1] and messages[i], the
+    // element formerly at i+1 shifts to i, forming a new same-role pair.
+    // The while loop must recheck that position rather than walking past it.
+    const messages: Message[] = [
+      userMsg("Start"),
+      assistantMsg("Response A"),
+      assistantMsg("Hint B"),
+      assistantMsg("Hint C"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; text?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(2);
+    expect(sent[0].role).toBe("user");
+    expect(sent[1].role).toBe("assistant");
+    expect(sent[1].content).toHaveLength(3);
+    expect(sent[1].content[0].text).toBe("Response A");
+    expect(sent[1].content[1].text).toBe("Hint B");
+    expect(sent[1].content[2].text).toBe("Hint C");
+  });
+
   test("streams normal text through without delay when text is not a sentinel prefix", async () => {
     scriptedStream = [
       { kind: "blockStart" },
@@ -2110,6 +2195,21 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
     expect(lastStreamParams!.thinking).toEqual({ type: "adaptive" });
     // The OpenAI-compat `reasoning` parameter must NOT be sent on the
     // native Messages API path.
+    expect(lastStreamParams!.reasoning).toBeUndefined();
+  });
+
+  test("disabled thinking config flows through to Anthropic Messages API natively", async () => {
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
+    const provider = new OpenRouterProvider(
+      "or-key",
+      "anthropic/claude-sonnet-4.6",
+    );
+    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+      config: { thinking: { type: "disabled" } },
+    });
+
+    expect(lastStreamParams!.thinking).toEqual({ type: "disabled" });
     expect(lastStreamParams!.reasoning).toBeUndefined();
   });
 

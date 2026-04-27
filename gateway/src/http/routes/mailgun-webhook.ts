@@ -4,6 +4,7 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
 import { normalizeEmailWebhook } from "../../email/normalize.js";
@@ -382,7 +383,77 @@ export function createMailgunWebhookHandler(
         );
       }
 
+      // ── Denial reply ────────────────────────────────────────────
+      // When the runtime denies the message (ACL rejection) and provides
+      // replyText, send a reply email so the unknown sender knows why
+      // their message was rejected. The runtime can't send email directly
+      // (no replyCallbackUrl for email), so the gateway handles it.
       const runtimeBody = result.runtimeResponse ?? {};
+      if (result.runtimeResponse?.denied && result.runtimeResponse.replyText) {
+        const mailgunApiKey = await resolveCredential(
+          credentialKey("mailgun", "api_key"),
+        );
+        if (mailgunApiKey) {
+          const senderAddress = gatewayEvent.actor.actorExternalId;
+          const mailgunDomain = recipientAddress.split("@")[1];
+          if (mailgunDomain) {
+            if (recordDenialReplyIfAllowed("email", senderAddress)) {
+              try {
+                const form = new URLSearchParams();
+                form.set("from", recipientAddress);
+                form.set("to", senderAddress);
+                form.set(
+                  "subject",
+                  `Re: ${vellumPayload.subject ?? "(no subject)"}`,
+                );
+                form.set("text", result.runtimeResponse.replyText);
+                if (vellumPayload.messageId) {
+                  form.set("h:In-Reply-To", vellumPayload.messageId);
+                }
+
+                const sendResponse = await fetch(
+                  `https://api.mailgun.net/v3/${mailgunDomain}/messages`,
+                  {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Basic ${Buffer.from(`api:${mailgunApiKey}`).toString("base64")}`,
+                    },
+                    body: form,
+                  },
+                );
+                if (sendResponse.ok) {
+                  tlog.info(
+                    { from: recipientAddress, to: senderAddress },
+                    "Sent denial reply via Mailgun",
+                  );
+                } else {
+                  tlog.warn(
+                    {
+                      status: sendResponse.status,
+                      from: recipientAddress,
+                      to: senderAddress,
+                    },
+                    "Failed to send denial reply via Mailgun",
+                  );
+                }
+              } catch (err) {
+                tlog.error(
+                  { err, from: recipientAddress, to: senderAddress },
+                  "Error sending denial reply via Mailgun",
+                );
+              }
+            } else {
+              tlog.info(
+                { from: recipientAddress, to: senderAddress },
+                "Denial reply rate-limited, skipping Mailgun send",
+              );
+            }
+          }
+        } else {
+          tlog.debug("Mailgun API key not configured — skipping denial reply");
+        }
+      }
+
       return Response.json({ ok: true, ...runtimeBody });
     } catch (err) {
       const cbResponse = handleCircuitBreakerError(

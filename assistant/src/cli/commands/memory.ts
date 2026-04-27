@@ -12,7 +12,7 @@ import {
   requestReextract,
 } from "../../memory/admin.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { initializeDb } from "../db.js";
+import { getDb } from "../../memory/db.js";
 import { log } from "../logger.js";
 
 export function registerMemoryCommand(program: Command): void {
@@ -61,7 +61,7 @@ Examples:
   $ assistant memory status`,
     )
     .action(async () => {
-      initializeDb();
+      getDb();
       const status = await getMemorySystemStatus();
       log.info(`Memory enabled: ${status.enabled ? "yes" : "no"}`);
       log.info(`Memory degraded: ${status.degraded ? "yes" : "no"}`);
@@ -101,7 +101,7 @@ Examples:
   $ assistant memory backfill --force`,
     )
     .action((opts: { force?: boolean }) => {
-      initializeDb();
+      getDb();
       const jobId = requestMemoryBackfill(Boolean(opts?.force));
       log.info(`Queued backfill job: ${jobId}`);
     });
@@ -125,7 +125,7 @@ Examples:
   $ assistant memory cleanup-segments --dry-run`,
     )
     .action(async (opts: { dryRun?: boolean }) => {
-      initializeDb();
+      getDb();
       const result = await cleanupShortSegments({ dryRun: opts.dryRun });
       if (opts.dryRun) {
         log.info(
@@ -168,7 +168,7 @@ Examples:
   $ assistant memory query "API rate limits"`,
     )
     .action(async (text: string, opts?: { conversation?: string }) => {
-      initializeDb();
+      getDb();
       let conversationId = opts?.conversation;
       if (!conversationId) {
         const latest = listConversations(1)[0];
@@ -212,7 +212,7 @@ Examples:
   $ assistant memory status`,
     )
     .action(() => {
-      initializeDb();
+      getDb();
       const jobId = requestMemoryRebuildIndex();
       log.info(`Queued rebuild-index job: ${jobId}`);
     });
@@ -253,7 +253,7 @@ Examples:
     )
     .action(
       (opts: { conversation?: string[]; top?: string; dryRun?: boolean }) => {
-        initializeDb();
+        getDb();
 
         const targets = [];
 
@@ -355,7 +355,7 @@ Examples:
     )
     .action(
       async (opts: { threshold: number; limit?: number; apply?: boolean }) => {
-        initializeDb();
+        getDb();
         const apply = Boolean(opts.apply);
 
         if (!Number.isFinite(opts.threshold) || opts.threshold <= 0) {

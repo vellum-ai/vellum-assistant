@@ -22,7 +22,7 @@ interface RequestEntry {
   path: string;
 }
 
-export class TokenRateLimiter {
+class TokenRateLimiter {
   private requests = new Map<string, RequestEntry[]>();
   private readonly maxRequests: number;
   private readonly windowMs: number;

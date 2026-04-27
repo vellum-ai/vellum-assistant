@@ -1,9 +1,7 @@
 import type { Command } from "commander";
 
-import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
 import { ensureDaemonRunning } from "../../daemon/daemon-control.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { cliIpcCall } from "../../ipc/cli-client.js";
@@ -16,6 +14,7 @@ import {
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
+import { getDb } from "../../memory/db.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,
@@ -25,14 +24,8 @@ import {
   initQdrantClient,
   resolveQdrantUrl,
 } from "../../memory/qdrant-client.js";
-import {
-  initAuthSigningKey,
-  loadOrCreateSigningKey,
-  mintDaemonDeliveryToken,
-} from "../../runtime/auth/token-service.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { timeAgo } from "../../util/time.js";
-import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
 import { registerConversationsDeferCommand } from "./conversations-defer.js";
 import { registerConversationsImportCommand } from "./conversations-import.js";
@@ -62,21 +55,33 @@ Examples:
 
   conversations
     .command("list")
-    .description("List all conversations")
+    .description("List conversations (excludes archived by default)")
+    .option(
+      "--include-archived",
+      "Include archived conversations in the output",
+    )
     .addHelpText(
       "after",
       `
-Shows all conversations with their ID, title, and a relative timestamp (e.g.
+Shows conversations with their ID, title, and a relative timestamp (e.g.
 "3 hours ago"). Conversations are listed in order of most recently updated.
+Archived conversations are excluded by default; pass --include-archived to
+include them.
 
 Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
-  $ assistant conversations list`,
+  $ assistant conversations list
+  $ assistant conversations list --include-archived`,
     )
-    .action(async () => {
-      initializeDb();
-      const all = listConversations(Number.MAX_SAFE_INTEGER);
+    .action(async (opts?: { includeArchived?: boolean }) => {
+      getDb();
+      const all = listConversations(
+        Number.MAX_SAFE_INTEGER,
+        false,
+        0,
+        opts?.includeArchived ?? false,
+      );
       if (all.length === 0) {
         log.info("No conversations");
       } else {
@@ -107,7 +112,7 @@ Examples:
     )
     .action(async (title?: string) => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-      initializeDb();
+      getDb();
       const conversation = createConversation(title);
       log.info(
         `Created conversation: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
@@ -195,7 +200,7 @@ Examples:
         conversationId?: string,
         opts?: { format: string; output?: string },
       ) => {
-        initializeDb();
+        getDb();
         const format = opts?.format ?? "md";
         if (format !== "md" && format !== "json") {
           log.error('Error: format must be "md" or "json"');
@@ -290,7 +295,7 @@ Examples:
         return;
       }
 
-      initializeDb();
+      getDb();
       const result = clearAllConversations();
       log.info(
         `Cleared ${result.conversations} conversations, ${result.messages} messages`,
@@ -342,7 +347,7 @@ Examples:
   $ assistant conversations wipe abc123 --yes`,
     )
     .action(async (conversationId: string, opts?: { yes?: boolean }) => {
-      initializeDb();
+      getDb();
 
       // Resolve conversation with prefix matching (same pattern as `export`)
       let conversation = getConversation(conversationId);
@@ -376,40 +381,35 @@ Examples:
         }
       }
 
-      // When the assistant is running, delegate to its HTTP wipe endpoint
-      // so it tears down in-memory conversation state before deleting DB
-      // rows — preventing FK constraint failures from follow-up writes.
-      if (await isHttpHealthy()) {
-        const port = getRuntimeHttpPort();
-        const host = healthCheckHost(getRuntimeHttpHost());
-        initAuthSigningKey(loadOrCreateSigningKey());
-        const token = mintDaemonDeliveryToken();
-        const res = await fetch(
-          `http://${host}:${port}/v1/conversations/${conversation.id}/wipe`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
-        if (!res.ok) {
-          const body = await res.text();
-          log.error(`Assistant wipe failed (${res.status}): ${body}`);
-          process.exit(1);
-        }
-        const json = (await res.json()) as {
-          unsupersededItems: number;
-          deletedSummaries: number;
-          cancelledJobs: number;
-        };
+      // When the assistant daemon is running, delegate via CLI IPC so it
+      // tears down in-memory conversation state before deleting DB rows.
+      const ipcWipe = await cliIpcCall<{
+        wiped: boolean;
+        unsupersededItems: number;
+        deletedSummaries: number;
+        cancelledJobs: number;
+      }>("wipe_conversation", { conversationId: conversation.id });
+      if (ipcWipe.ok && ipcWipe.result) {
         log.info(
           `Wiped conversation "${conversation.title ?? "Untitled"}". ` +
-            `Restored ${json.unsupersededItems} memory items, ` +
-            `deleted ${json.deletedSummaries} summaries, ` +
-            `cancelled ${json.cancelledJobs} jobs.`,
+            `Restored ${ipcWipe.result.unsupersededItems} memory items, ` +
+            `deleted ${ipcWipe.result.deletedSummaries} summaries, ` +
+            `cancelled ${ipcWipe.result.cancelledJobs} jobs.`,
         );
         return;
       }
+      if (
+        ipcWipe.ok === false &&
+        ipcWipe.error &&
+        ipcWipe.error !==
+          "Could not connect to assistant daemon. Is it running?"
+      ) {
+        log.error(`Daemon wipe failed: ${ipcWipe.error}`);
+        process.exitCode = 1;
+        return;
+      }
 
+      // Daemon not reachable — safe to wipe directly (no in-memory state).
       // Cancel the associated schedule job (if any) before wiping —
       // but only when this is the last conversation referencing it.
       if (
@@ -419,7 +419,6 @@ Examples:
         deleteSchedule(conversation.scheduleJobId);
       }
 
-      // Daemon not running — safe to wipe directly (no in-memory state).
       const result = wipeConversation(conversation.id);
 
       // Enqueue Qdrant cleanup
@@ -485,7 +484,7 @@ Examples:
         const result = await cliIpcCall<{
           invoked: boolean;
           producedToolCalls: boolean;
-          reason?: "not_found" | "timeout" | "no_resolver";
+          reason?: "not_found" | "archived" | "timeout" | "no_resolver";
         }>("wake_conversation", {
           conversationId,
           hint: opts.hint,
@@ -520,6 +519,11 @@ Examples:
           log.info(
             `Conversation ${conversationId} is busy — wake skipped (retry later)`,
           );
+        } else if (wake.reason === "archived") {
+          log.error(
+            `Could not wake conversation ${conversationId} — conversation is archived`,
+          );
+          process.exitCode = 1;
         } else {
           log.error(
             `Could not wake conversation ${conversationId} — conversation not found`,

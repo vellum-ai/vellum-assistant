@@ -1,5 +1,6 @@
 import { AnthropicProvider } from "../anthropic/client.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
+import { isThinkingConfigEnabled } from "../thinking-config.js";
 import type {
   Message,
   ProviderResponse,
@@ -143,15 +144,13 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   }
 
   // OpenRouter's unified `reasoning` parameter controls extended thinking on
-  // its OpenAI-compatible endpoint. Mirror the assistant's `thinking.enabled`
-  // config — loop.ts only sets `config.thinking` when enabled — so non-
-  // Anthropic reasoning models (e.g. xAI Grok) can be toggled the same way.
-  // Anthropic models skip this path entirely and go through AnthropicProvider.
+  // its OpenAI-compatible endpoint. Anthropic models skip this path entirely and
+  // go through AnthropicProvider, which receives the native `thinking` object.
   protected override buildExtraCreateParams(
     options?: SendMessageOptions,
   ): Record<string, unknown> {
     const config = options?.config as Record<string, unknown> | undefined;
-    const thinkingEnabled = config?.thinking !== undefined;
+    const thinkingEnabled = isThinkingConfigEnabled(config?.thinking);
     const extras: Record<string, unknown> = {
       reasoning: { enabled: thinkingEnabled },
     };

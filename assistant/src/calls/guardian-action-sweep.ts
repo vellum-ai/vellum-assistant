@@ -77,7 +77,7 @@ export async function sendGuardianExpiryNotices(
             userMessageChannel: "phone",
             assistantMessageChannel: "vellum",
             userMessageInterface: "phone",
-            assistantMessageInterface: "vellum",
+            assistantMessageInterface: "web",
           },
         );
       } else if (delivery.destinationChatId) {

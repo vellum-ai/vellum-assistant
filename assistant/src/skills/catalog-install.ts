@@ -47,7 +47,7 @@ export interface CatalogManifest {
 
 // ─── Path helpers ────────────────────────────────────────────────────────────
 
-export function getSkillsIndexPath(): string {
+function getSkillsIndexPath(): string {
   return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
@@ -212,7 +212,7 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
   return foundSkillMd;
 }
 
-export async function fetchAndExtractSkill(
+async function fetchAndExtractSkill(
   skillId: string,
   destDir: string,
 ): Promise<void> {
@@ -265,7 +265,7 @@ export function upsertSkillsIndex(id: string): void {
   atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
 }
 
-export function removeSkillsIndexEntry(id: string): void {
+function removeSkillsIndexEntry(id: string): void {
   const indexPath = getSkillsIndexPath();
   if (!existsSync(indexPath)) return;
 

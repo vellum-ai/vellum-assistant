@@ -21,7 +21,7 @@ final class InferenceProfileEditorTests: XCTestCase {
         // Tiny deterministic catalog so tests don't depend on the live
         // `LLMProviderRegistry` shape.
         let fixture = SettingsTestFixture.make(
-            providerCatalog: SettingsTestFixture.anthropicAndOpenAICatalog()
+            providerCatalog: Self.editorProviderCatalog()
         )
         store = fixture.store
         mockSettingsClient = fixture.mockClient
@@ -65,6 +65,51 @@ final class InferenceProfileEditorTests: XCTestCase {
         init(profile: InferenceProfile) { self.profile = profile }
     }
 
+    private func modelEntry(
+        id: String,
+        displayName: String,
+        maxOutputTokens: Int,
+        supportsThinking: Bool
+    ) -> LLMModelEntry {
+        LLMModelEntry(
+            id: id,
+            displayName: displayName,
+            maxOutputTokens: maxOutputTokens,
+            supportsThinking: supportsThinking
+        )
+    }
+
+    private static func editorProviderCatalog() -> [ProviderCatalogEntry] {
+        SettingsTestFixture.anthropicAndOpenAICatalog() + [
+            ProviderCatalogEntry(
+                id: "gemini",
+                displayName: "Google Gemini",
+                models: [
+                    CatalogModel(
+                        id: "gemini-3.1-pro-preview",
+                        displayName: "Gemini 3.1 Pro Preview"
+                    ),
+                    CatalogModel(
+                        id: "gemini-3.1-pro-preview-customtools",
+                        displayName: "Gemini 3.1 Pro Preview (Custom Tools)"
+                    ),
+                    CatalogModel(
+                        id: "gemini-3-flash-preview",
+                        displayName: "Gemini 3 Flash Preview"
+                    ),
+                    CatalogModel(
+                        id: "gemini-3.1-flash-lite-preview",
+                        displayName: "Gemini 3.1 Flash-Lite Preview"
+                    ),
+                    CatalogModel(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
+                    CatalogModel(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
+                    CatalogModel(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
+                ],
+                defaultModel: "gemini-2.5-flash"
+            ),
+        ]
+    }
+
     // MARK: - Form structure
 
     func testStaticOptionsCoverEverySegmentControl() {
@@ -95,6 +140,224 @@ final class InferenceProfileEditorTests: XCTestCase {
         XCTAssertNotNil(editor.body)
     }
 
+    func testOpenAIGPT55ShowsOnlyConsumedParameters() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openai",
+            model: "gpt-5.5",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gpt-5.5",
+                displayName: "GPT-5.5",
+                maxOutputTokens: 128000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: false,
+                verbosity: true,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testAnthropicOpusShowsAnthropicOnlyParameters() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-opus-4-7",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "claude-opus-4-7",
+                displayName: "Claude Opus 4.7",
+                maxOutputTokens: 32000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: true,
+                verbosity: false,
+                temperature: true,
+                thinking: true
+            )
+        )
+    }
+
+    func testAnthropicHaikuHidesEffortAndSpeed() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "claude-haiku-4-5-20251001",
+                displayName: "Claude Haiku 4.5",
+                maxOutputTokens: 16000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: true,
+                thinking: true
+            )
+        )
+    }
+
+    func testGeminiShowsOnlyMaxTokensWithCurrentProviderSupport() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "gemini",
+            model: "gemini-2.5-flash",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gemini-2.5-flash",
+                displayName: "Gemini 2.5 Flash",
+                maxOutputTokens: 65536,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testGemini3ShowsOnlyMaxTokensWithCurrentProviderSupport() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gemini-3.1-pro-preview",
+                displayName: "Gemini 3.1 Pro Preview",
+                maxOutputTokens: 65536,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testOpenRouterReasoningModelsShowEffortAndThinking() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openrouter",
+            model: "deepseek/deepseek-r1-0528",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "deepseek/deepseek-r1-0528",
+                displayName: "DeepSeek R1",
+                maxOutputTokens: 32000,
+                supportsThinking: true
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: true,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: true
+            )
+        )
+    }
+
+    func testOpenRouterNonReasoningModelsHideEffortAndThinking() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openrouter",
+            model: "deepseek/deepseek-chat-v3-0324",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "deepseek/deepseek-chat-v3-0324",
+                displayName: "DeepSeek V3",
+                maxOutputTokens: 32000,
+                supportsThinking: false
+            )
+        )
+
+        XCTAssertEqual(
+            visibility,
+            InferenceProfileParameterVisibility(
+                maxTokens: true,
+                effort: false,
+                speed: false,
+                verbosity: false,
+                temperature: false,
+                thinking: false
+            )
+        )
+    }
+
+    func testHiddenParametersAreClearedForOpenAIOnSave() {
+        let visibility = InferenceProfileParameterVisibility.resolve(
+            provider: "openai",
+            model: "gpt-5.5",
+            isKnownModel: true,
+            modelEntry: modelEntry(
+                id: "gpt-5.5",
+                displayName: "GPT-5.5",
+                maxOutputTokens: 128000,
+                supportsThinking: true
+            )
+        )
+        let profile = InferenceProfile(
+            name: "gpt-5.5-inline-thinking",
+            provider: "openai",
+            model: "gpt-5.5",
+            maxTokens: 16000,
+            effort: "high",
+            speed: "fast",
+            verbosity: "high",
+            temperature: 0.7,
+            thinkingEnabled: true,
+            thinkingStreamThinking: true
+        )
+
+        let sanitized = visibility.sanitized(profile)
+
+        XCTAssertEqual(sanitized.maxTokens, 16000)
+        XCTAssertEqual(sanitized.effort, "high")
+        XCTAssertEqual(sanitized.verbosity, "high")
+        XCTAssertNil(sanitized.speed)
+        XCTAssertEqual(sanitized.temperature, .unset)
+        XCTAssertNil(sanitized.thinkingEnabled)
+        XCTAssertNil(sanitized.thinkingStreamThinking)
+    }
+
     // MARK: - Validation
 
     func testCanSaveWhenProviderAndModelAreNil() {
@@ -110,6 +373,34 @@ final class InferenceProfileEditorTests: XCTestCase {
             provider: "anthropic",
             model: "claude-sonnet-4-6"
         ))
+        XCTAssertTrue(editor.canSave)
+    }
+
+    func testCanSelectGemini3ModelFromDynamicCatalog() {
+        let geminiModels = store.dynamicProviderModels("gemini")
+        XCTAssertEqual(
+            geminiModels.prefix(4).map(\.id),
+            [
+                "gemini-3.1-pro-preview",
+                "gemini-3.1-pro-preview-customtools",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+            ]
+        )
+        XCTAssertEqual(
+            geminiModels.first { $0.id == "gemini-3.1-pro-preview" }?.displayName,
+            "Gemini 3.1 Pro Preview"
+        )
+
+        let (editor, box) = makeEditor(profile: InferenceProfile(
+            name: "gemini-3",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview"
+        ))
+
+        XCTAssertEqual(box.profile.model, "gemini-3.1-pro-preview")
+        XCTAssertFalse(editor.isModelMissing)
+        XCTAssertFalse(editor.isModelInvalid)
         XCTAssertTrue(editor.canSave)
     }
 

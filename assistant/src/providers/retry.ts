@@ -10,6 +10,10 @@ import {
   sleep,
 } from "../util/retry.js";
 import {
+  isThinkingConfigDisabled,
+  normalizeThinkingConfigForWire,
+} from "./thinking-config.js";
+import {
   isContextOverflowError,
   type Message,
   type Provider,
@@ -30,8 +34,8 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
- * the wire; OpenRouter translates it into its unified `reasoning` parameter so
- * users can control extended thinking on Anthropic models served via OpenRouter.
+ * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
+ * translates it into the unified `reasoning` parameter on OpenAI-compat calls.
  */
 const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter"]);
 
@@ -168,16 +172,14 @@ function normalizeSendMessageOptions(
       nextConfig.temperature = resolved.temperature;
     }
     if (nextConfig.thinking === undefined) {
-      // Convert the schema-shape `{ enabled, streamThinking }` into the
-      // Anthropic wire-format `{ type: "adaptive" }` (or omit when disabled).
-      // Mirrors the non-callSite path in `agent/loop.ts` which sets
-      // `providerConfig.thinking = { type: "adaptive" }` only when enabled.
+      // Convert the schema-shape `{ enabled, streamThinking }` into Anthropic's
+      // discriminated wire-format (`{ type: "adaptive" | "disabled" }`).
       // Without this conversion, `thinking` arrives at `AnthropicProvider`
       // with a shape the SDK doesn't accept (`ThinkingConfigParam` requires
-      // a `type` discriminator), and OpenRouter's truthy check would treat
-      // a disabled config as enabled.
-      if (resolved.thinking?.enabled === true) {
-        nextConfig.thinking = { type: "adaptive" };
+      // a `type` discriminator).
+      const thinking = normalizeThinkingConfigForWire(resolved.thinking);
+      if (thinking !== undefined) {
+        nextConfig.thinking = thinking;
       }
     }
     // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
@@ -223,6 +225,7 @@ function normalizeSendMessageOptions(
   // and may support reasoning with forced tool_choice.
   const isThinkingForcedToolConflict = (() => {
     if (nextConfig.thinking == null) return false;
+    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
     const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
     if (tc == null || (tc.type !== "tool" && tc.type !== "any")) return false;
     if (providerName === "anthropic") return true;

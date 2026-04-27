@@ -44,17 +44,7 @@ interface PendingSigningResolve {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
-export const pendingSignBundlePayload = new Map<
-  string,
-  PendingSigningResolve
->();
-
-interface PendingIdentityResolve {
-  resolve: (result: { keyId: string; publicKey: string }) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-export const pendingSigningIdentity = new Map<string, PendingIdentityResolve>();
+const pendingSignBundlePayload = new Map<string, PendingSigningResolve>();
 
 export interface HistoryToolCall {
   name: string;
@@ -188,11 +178,11 @@ export interface HandlerContext {
   heartbeatService?: HeartbeatService;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null;
 }
 
-export function formatBytes(sizeBytes: number): string {
+function formatBytes(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   const kb = sizeBytes / 1024;
   if (kb < 1024) return `${kb.toFixed(1)} KB`;

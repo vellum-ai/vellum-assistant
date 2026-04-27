@@ -25,6 +25,8 @@
  * value.
  */
 
+import type { CdpWsTransport } from "./ws-transport.js";
+
 /**
  * Stable error codes surfaced by discovery helpers.
  *
@@ -704,7 +706,7 @@ interface CdpTargetInfo {
  * @param signal - Optional abort signal for the CDP call.
  */
 export async function discoverTargetsViaWs(opts: {
-  transport: import("./ws-transport.js").CdpWsTransport;
+  transport: CdpWsTransport;
   host: string;
   port: number;
   signal?: AbortSignal;

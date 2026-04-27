@@ -1,12 +1,17 @@
 /**
  * Route handlers for conversation starter endpoints.
  *
- * GET /v1/conversation-starters — list conversation starters (chips)
+ * GET    /v1/conversation-starters     — list conversation starters (chips)
+ * DELETE /v1/conversation-starters/:id — remove a conversation starter chip
  */
 
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  buildConversationStarterValidationContext,
+  isValidConversationStarterText,
+} from "../../memory/conversation-starter-validation.js";
 import { getDb } from "../../memory/db.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
@@ -15,6 +20,7 @@ import {
   memoryCheckpoints,
   memoryJobs,
 } from "../../memory/schema.js";
+import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
@@ -185,12 +191,17 @@ function handleListConversationStarters(url: URL): Response {
     )
     .all();
 
-  const total = allItems.length;
+  const validationContext = buildConversationStarterValidationContext();
+  const validItems = allItems.filter((item) =>
+    isValidConversationStarterText(item, validationContext),
+  );
+  const invalidItemCount = allItems.length - validItems.length;
+  const total = validItems.length;
 
   // If starters exist, return them immediately. If the batch is stale or
   // the generation checkpoint is ahead of the current active memory count,
   // kick off a background refresh but keep the existing chips visible.
-  if (total > 0) {
+  if (allItems.length > 0) {
     const totalActive =
       rawGet<{ c: number }>(
         `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
@@ -207,7 +218,9 @@ function handleListConversationStarters(url: URL): Response {
       db
         .select({ value: memoryCheckpoints.value })
         .from(memoryCheckpoints)
-        .where(eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)))
+        .where(
+          eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)),
+        )
         .get()?.value,
     );
     const staleByAge =
@@ -215,14 +228,17 @@ function handleListConversationStarters(url: URL): Response {
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
     let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
-    const shouldRefresh = staleByAge || checkpointAhead;
+    const shouldRefresh =
+      staleByAge ||
+      checkpointAhead ||
+      (invalidItemCount > 0 && totalActive > 0);
 
     if (shouldRefresh && !hasActiveJob) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });
       hasActiveJob = true;
     }
 
-    const ordered = orderStrongestFirst(allItems);
+    const ordered = orderStrongestFirst(validItems);
     const page = ordered.slice(offsetParam, offsetParam + limitParam);
     return Response.json({
       starters: page,
@@ -249,6 +265,39 @@ function handleListConversationStarters(url: URL): Response {
   }
 
   return Response.json({ starters: [], total: 0, status: "generating" });
+}
+
+function handleDeleteConversationStarter(starterId: string): Response {
+  const db = getDb();
+  const existing = db
+    .select({ id: conversationStarters.id })
+    .from(conversationStarters)
+    .where(
+      and(
+        eq(conversationStarters.id, starterId),
+        eq(conversationStarters.cardType, "chip"),
+      ),
+    )
+    .get();
+
+  if (!existing) {
+    return httpError(
+      "NOT_FOUND",
+      `Conversation starter not found: ${starterId}`,
+      404,
+    );
+  }
+
+  db.delete(conversationStarters)
+    .where(
+      and(
+        eq(conversationStarters.id, starterId),
+        eq(conversationStarters.cardType, "chip"),
+      ),
+    )
+    .run();
+
+  return Response.json({ deleted: true, id: starterId });
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +340,25 @@ export function conversationStarterRouteDefinitions(): RouteDefinition[] {
           .enum(["ready", "refreshing", "empty", "generating"])
           .describe("One of: ready, refreshing, empty, generating"),
       }),
+    },
+    {
+      endpoint: "conversation-starters/:id",
+      method: "DELETE",
+      policyKey: "conversation-starters",
+      summary: "Delete conversation starter",
+      description:
+        "Remove a generated conversation starter chip from the current starter set.",
+      tags: ["conversation-starters"],
+      handler: ({ params }) => handleDeleteConversationStarter(params.id),
+      responseBody: z.object({
+        deleted: z.boolean(),
+        id: z.string(),
+      }),
+      additionalResponses: {
+        "404": {
+          description: "Conversation starter not found",
+        },
+      },
     },
   ];
 }

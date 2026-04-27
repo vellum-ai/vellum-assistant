@@ -15,9 +15,7 @@ const log = getLogger("telemetry-routes");
 
 const VALID_EVENT_NAMES = new Set(["app_open", "hatch"]);
 
-export async function handleRecordLifecycleEvent(
-  req: Request,
-): Promise<Response> {
+async function handleRecordLifecycleEvent(req: Request): Promise<Response> {
   let body: { event_name?: string };
   try {
     body = (await req.json()) as { event_name?: string };

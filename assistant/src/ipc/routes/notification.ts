@@ -116,12 +116,12 @@ function handleListEvents(params?: Record<string, unknown>): Array<{
 
 // ── Route definitions ─────────────────────────────────────────────────
 
-export const emitNotificationSignalRoute: IpcRoute = {
+const emitNotificationSignalRoute: IpcRoute = {
   method: "emit_notification_signal",
   handler: handleEmitSignal,
 };
 
-export const listNotificationEventsRoute: IpcRoute = {
+const listNotificationEventsRoute: IpcRoute = {
   method: "list_notification_events",
   handler: handleListEvents,
 };

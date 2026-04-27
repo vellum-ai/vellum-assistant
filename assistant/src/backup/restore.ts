@@ -63,9 +63,9 @@ import { decryptFile } from "./stream-crypt.js";
  * live workspace. Production callers should leave this unset so the real
  * importer is used.
  */
-export type CommitImpl = typeof commitImport;
+type CommitImpl = typeof commitImport;
 
-export interface RestoreOptions {
+interface RestoreOptions {
   /** AES-256 decryption key. Required for `.vbundle.enc` snapshots. */
   key?: Buffer;
   /**
@@ -100,7 +100,7 @@ export interface RestoreResult {
   restoredFiles: number;
 }
 
-export interface VerifyOptions {
+interface VerifyOptions {
   /** AES-256 decryption key. Required for `.vbundle.enc` snapshots. */
   key?: Buffer;
 }

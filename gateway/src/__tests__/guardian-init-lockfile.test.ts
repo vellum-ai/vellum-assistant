@@ -13,6 +13,7 @@ import { Database } from "bun:sqlite";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 import { closeAssistantDb } from "../auth/guardian-bootstrap.js";
+import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -48,7 +49,7 @@ function consumedPath(): string {
   return join(securityDir, "guardian-init-consumed.json");
 }
 
-function setupTestDirs(): void {
+async function setupTestDirs(): Promise<void> {
   testRoot = mkdtempSync(join(tmpdir(), "guardian-bootstrap-test-"));
   securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
@@ -96,42 +97,15 @@ function setupTestDirs(): void {
       created_at INTEGER NOT NULL
     )
   `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS actor_token_records (
-      id TEXT PRIMARY KEY,
-      token_hash TEXT NOT NULL,
-      guardian_principal_id TEXT NOT NULL,
-      hashed_device_id TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      issued_at INTEGER NOT NULL,
-      expires_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS actor_refresh_token_records (
-      id TEXT PRIMARY KEY,
-      token_hash TEXT NOT NULL,
-      family_id TEXT NOT NULL,
-      guardian_principal_id TEXT NOT NULL,
-      hashed_device_id TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      issued_at INTEGER NOT NULL,
-      absolute_expires_at INTEGER NOT NULL,
-      inactivity_expires_at INTEGER NOT NULL,
-      last_used_at INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
+
   db.close();
 
   // Point gateway at temp dirs
   process.env.VELLUM_WORKSPACE_DIR = testRoot;
   process.env.GATEWAY_SECURITY_DIR = securityDir;
+
+  // Initialize gateway DB so token operations can write to it
+  await initGatewayDb();
 }
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -162,12 +136,13 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   };
 }
 
-beforeEach(() => {
-  setupTestDirs();
+beforeEach(async () => {
+  await setupTestDirs();
 });
 
 afterEach(() => {
   closeAssistantDb();
+  resetGatewayDb();
   fetchMock = mock(async () => new Response());
   delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
   try {
@@ -357,12 +332,12 @@ describe("guardian/init one-time-use lockfile", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // Verify records were written to the assistant DB
-    const db = new Database(join(testRoot, "data", "db", "assistant.db"), {
+    // Verify contact records were written to the assistant DB
+    const assistantDb = new Database(join(testRoot, "data", "db", "assistant.db"), {
       readonly: true,
     });
 
-    const contact = db
+    const contact = assistantDb
       .query<
         { role: string; principal_id: string },
         []
@@ -371,7 +346,7 @@ describe("guardian/init one-time-use lockfile", () => {
     expect(contact).toBeTruthy();
     expect(contact!.principal_id).toBe(body.guardianPrincipalId);
 
-    const channel = db
+    const channel = assistantDb
       .query<
         { type: string; status: string },
         []
@@ -380,7 +355,14 @@ describe("guardian/init one-time-use lockfile", () => {
     expect(channel).toBeTruthy();
     expect(channel!.status).toBe("active");
 
-    const tokenCount = db
+    assistantDb.close();
+
+    // Verify token records were written to the gateway DB
+    const gwDb = new Database(join(securityDir, "gateway.sqlite"), {
+      readonly: true,
+    });
+
+    const tokenCount = gwDb
       .query<
         { cnt: number },
         []
@@ -388,7 +370,7 @@ describe("guardian/init one-time-use lockfile", () => {
       .get();
     expect(tokenCount!.cnt).toBe(1);
 
-    const refreshCount = db
+    const refreshCount = gwDb
       .query<
         { cnt: number },
         []
@@ -396,7 +378,7 @@ describe("guardian/init one-time-use lockfile", () => {
       .get();
     expect(refreshCount!.cnt).toBe(1);
 
-    db.close();
+    gwDb.close();
   });
 });
 

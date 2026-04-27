@@ -67,6 +67,7 @@ import {
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
+import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
@@ -175,6 +176,7 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
+import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
@@ -305,7 +307,7 @@ async function runCompactionCircuitPipeline(
  * with no outcome. Async because the pipeline runner is async, but the
  * default plugin resolves synchronously on its microtask.
  */
-export async function isCompactionCircuitOpen(ctx: {
+async function isCompactionCircuitOpen(ctx: {
   readonly conversationId: string;
   consecutiveCompactionFailures: number;
   compactionCircuitOpenUntil: number | null;
@@ -361,7 +363,7 @@ export async function trackCompactionOutcome(
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
  * to a custom plugin reading `ctx.trust`.
  */
-export const FALLBACK_TURN_TRUST: TrustContext = {
+const FALLBACK_TURN_TRUST: TrustContext = {
   sourceChannel: "vellum",
   trustClass: "unknown",
 };
@@ -390,7 +392,7 @@ export const FALLBACK_TURN_TRUST: TrustContext = {
  *   don't need it can ignore it; the default compaction plugin reads it
  *   via the typed optional field on `TurnContext`.
  */
-export function buildPluginTurnContext(
+function buildPluginTurnContext(
   ctx: AgentLoopConversationContext,
   requestId: string,
 ): PluginTurnContext {
@@ -531,13 +533,10 @@ export interface AgentLoopConversationContext {
     statusText?: string,
   ): void;
   emitConfirmationStateChanged(
-    params: import("./message-types/messages.js").ConfirmationStateChanged extends {
+    params: ConfirmationStateChanged extends {
       type: infer _;
     }
-      ? Omit<
-          import("./message-types/messages.js").ConfirmationStateChanged,
-          "type"
-        >
+      ? Omit<ConfirmationStateChanged, "type">
       : never,
   ): void;
 
@@ -676,8 +675,8 @@ export async function runAgentLoopImpl(
         assistantMessageInterface: origin,
       };
     return {
-      userMessageInterface: "vellum" as InterfaceId,
-      assistantMessageInterface: "vellum" as InterfaceId,
+      userMessageInterface: "web" as InterfaceId,
+      assistantMessageInterface: "web" as InterfaceId,
     };
   })();
 
@@ -939,9 +938,7 @@ export async function runAgentLoopImpl(
     const defaultGraphPayload: GraphMemoryPayload | null =
       asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
     let pkbQueryVector: number[] | undefined;
-    let pkbSparseVector:
-      | import("../memory/qdrant-client.js").QdrantSparseVector
-      | undefined;
+    let pkbSparseVector: QdrantSparseVector | undefined;
     if (defaultGraphPayload) {
       const graphResult = defaultGraphPayload.result;
       runMessages = graphResult.runMessages;
@@ -2930,9 +2927,7 @@ export function applyCompactionResult(
   );
 }
 
-export function collapseRawResponses(
-  rawResponses?: unknown[],
-): unknown | undefined {
+function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }

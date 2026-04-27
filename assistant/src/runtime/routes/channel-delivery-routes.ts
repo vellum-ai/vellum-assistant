@@ -2,7 +2,7 @@
  * Channel delivery routes: delivery ack, dead letters, reply delivery,
  * and post-decision delivery scheduling.
  */
-import * as deliveryStatus from "../../memory/delivery-status.js";
+import { acknowledgeDelivery, getDeadLetterEvents, replayDeadLetters } from "../../memory/delivery-status.js";
 import { httpError } from "../http-errors.js";
 export {
   type DeliverReplyOptions,
@@ -14,7 +14,7 @@ export {
 // ---------------------------------------------------------------------------
 
 export function handleListDeadLetters(): Response {
-  const events = deliveryStatus.getDeadLetterEvents();
+  const events = getDeadLetterEvents();
   return Response.json({ events });
 }
 
@@ -26,7 +26,7 @@ export async function handleReplayDeadLetters(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "eventIds array is required", 400);
   }
 
-  const replayed = deliveryStatus.replayDeadLetters(eventIds);
+  const replayed = replayDeadLetters(eventIds);
   return Response.json({ replayed });
 }
 
@@ -55,7 +55,7 @@ export async function handleChannelDeliveryAck(
     return httpError("BAD_REQUEST", "externalMessageId is required", 400);
   }
 
-  const acked = deliveryStatus.acknowledgeDelivery(
+  const acked = acknowledgeDelivery(
     sourceChannel,
     conversationExternalId,
     externalMessageId,

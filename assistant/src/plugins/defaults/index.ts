@@ -52,7 +52,7 @@ import { defaultToolResultTruncatePlugin } from "./tool-result-truncate.js";
  * contents are read at call time, after every imported plugin identifier is
  * guaranteed initialized.
  */
-export function getAllDefaultPlugins(): readonly Plugin[] {
+function getAllDefaultPlugins(): readonly Plugin[] {
   return [
     defaultLlmCallPlugin,
     defaultToolExecutePlugin,

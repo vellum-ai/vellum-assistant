@@ -52,7 +52,6 @@ function writeLockfile(): void {
               daemonPort: DEFAULT_DAEMON_PORT,
               gatewayPort: DEFAULT_GATEWAY_PORT,
               qdrantPort: DEFAULT_QDRANT_PORT,
-              pidFile: join(assistantRootDir, "vellum.pid"),
             },
           },
         ],
@@ -158,7 +157,7 @@ describe("sleep command", () => {
     expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(2);
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       1,
-      join(assistantRootDir, "vellum.pid"),
+      join(assistantRootDir, "workspace", "vellum.pid"),
       "assistant",
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(

@@ -19,7 +19,11 @@ import {
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db.js";
-import { parseEpochMs } from "./extraction.js";
+import {
+  EVENT_DATE_PROMPT_RULES,
+  formatAuthoritativeConversationTimestamp,
+  parseEpochMs,
+} from "./extraction.js";
 import {
   createTrigger,
   deduplicateParagraphs,
@@ -77,16 +81,15 @@ function buildConsolidationPrompt(
           .join("\n")
       : "  (none)";
 
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const currentTimestamp = formatAuthoritativeConversationTimestamp(Date.now());
 
   return `You are consolidating the "${partitionName}" partition of a memory graph. These are memories stored by an AI assistant about its conversations and relationship with a user.
 
-Today is ${today}.
+## Authoritative Current Timestamp
+
+${currentTimestamp}
+
+${EVENT_DATE_PROMPT_RULES}
 
 ## Your Tasks
 
@@ -150,7 +153,7 @@ const CONSOLIDATE_TOOL_SCHEMA = {
             event_date: {
               type: ["number", "null"] as const,
               description:
-                "Epoch ms of the event this memory describes. Preserve from merged duplicates when the survivor lacks one. Set to null to clear a stale event date.",
+                "Epoch ms of the event this memory describes. Resolve partial dates from the authoritative current timestamp and do not infer a prior year unless stated. Preserve from merged duplicates when the survivor lacks one. Set to null to clear a stale event date.",
             },
           },
           required: ["id"] as const,

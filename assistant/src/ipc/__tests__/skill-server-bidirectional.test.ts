@@ -39,9 +39,12 @@ let tempDir: string | null = null;
 let socketPath: string | null = null;
 let server: SkillIpcServer | null = null;
 let client: SkillHostClient | null = null;
+let savedSkillIpcSocketDir: string | undefined;
 
 beforeEach(() => {
+  savedSkillIpcSocketDir = process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
   tempDir = mkdtempSync(join(tmpdir(), "skill-ipc-bidir-"));
+  process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = tempDir;
   socketPath = join(tempDir, "assistant-skill.sock");
 });
 
@@ -50,6 +53,11 @@ afterEach(async () => {
   client = null;
   server?.stop();
   server = null;
+  if (savedSkillIpcSocketDir === undefined) {
+    delete process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR;
+  } else {
+    process.env.ASSISTANT_SKILL_IPC_SOCKET_DIR = savedSkillIpcSocketDir;
+  }
   if (tempDir) {
     rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;
@@ -69,7 +77,7 @@ async function startPair(): Promise<{
   connection: SkillIpcConnection;
 }> {
   if (!socketPath) throw new Error("socketPath not initialized");
-  const srv = new SkillIpcServer({ socketPath });
+  const srv = new SkillIpcServer();
   await srv.start();
   const c = new SkillHostClient({
     socketPath,
@@ -181,7 +189,7 @@ describe("SkillIpcServer.sendRequest", () => {
 
   test("server rejects inbound skill-initiated requests whose ids start with `d:`", async () => {
     if (!socketPath) throw new Error("socketPath not initialized");
-    const srv = new SkillIpcServer({ socketPath });
+    const srv = new SkillIpcServer();
     await srv.start();
     server = srv;
     srv.registerMethod("test.echo", (params) => ({ ok: true, params }));

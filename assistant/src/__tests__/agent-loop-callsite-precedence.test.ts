@@ -210,12 +210,8 @@ describe("AgentLoop — call-site precedence", () => {
     );
 
     // Call-site override resolves `thinking.enabled: false`, so the
-    // RetryProvider normalizer must omit `thinking` entirely (matching the
-    // legacy non-callSite path which only sets `providerConfig.thinking`
-    // when enabled). Without the fix at agent/loop.ts, the conversation
-    // default's `thinking: { type: "adaptive" }` would be pre-set and mask
-    // the call-site override.
-    expect(lastConfig()!.thinking).toBeUndefined();
+    // RetryProvider normalizer must send Anthropic's explicit disabled shape.
+    expect(lastConfig()!.thinking).toEqual({ type: "disabled" });
   });
 
   test("call-site thinking is converted to Anthropic wire-format when enabled", async () => {

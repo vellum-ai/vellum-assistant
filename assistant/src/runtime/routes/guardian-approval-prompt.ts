@@ -87,7 +87,6 @@ export interface DeliverGeneratedApprovalPromptParams {
   chatId: string;
   sourceChannel: ChannelId;
   assistantId: string;
-  bearerToken?: string;
   prompt: ChannelApprovalPrompt;
   uiMetadata: ApprovalUIMetadata;
   messageContext: ApprovalMessageContext;
@@ -108,7 +107,6 @@ export async function deliverGeneratedApprovalPrompt(
     chatId,
     sourceChannel,
     assistantId,
-    bearerToken,
     prompt,
     uiMetadata,
     messageContext,
@@ -148,7 +146,6 @@ export async function deliverGeneratedApprovalPrompt(
         enrichedText,
         uiMetadata,
         assistantId,
-        bearerToken,
       );
       if (deliveryResult.ts) {
         trackApprovalPromptTs(sourceChannel, chatId, deliveryResult.ts);
@@ -172,15 +169,11 @@ export async function deliverGeneratedApprovalPrompt(
     const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.requestId}]`;
 
     try {
-      const fallbackResult = await deliverChannelReply(
-        replyCallbackUrl,
-        {
-          chatId,
-          text: taggedFallback,
-          assistantId,
-        },
-        bearerToken,
-      );
+      const fallbackResult = await deliverChannelReply(replyCallbackUrl, {
+        chatId,
+        text: taggedFallback,
+        assistantId,
+      });
       if (fallbackResult.ts) {
         trackApprovalPromptTs(sourceChannel, chatId, fallbackResult.ts);
       }
@@ -204,15 +197,11 @@ export async function deliverGeneratedApprovalPrompt(
   const taggedPlainText = `${plainText}\n[ref:${uiMetadata.requestId}]`;
 
   try {
-    const plainResult = await deliverChannelReply(
-      replyCallbackUrl,
-      {
-        chatId,
-        text: taggedPlainText,
-        assistantId,
-      },
-      bearerToken,
-    );
+    const plainResult = await deliverChannelReply(replyCallbackUrl, {
+      chatId,
+      text: taggedPlainText,
+      assistantId,
+    });
     if (plainResult.ts) {
       trackApprovalPromptTs(sourceChannel, chatId, plainResult.ts);
     }

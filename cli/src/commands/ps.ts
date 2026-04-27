@@ -3,14 +3,16 @@ import { join } from "path";
 import {
   findAssistantByName,
   getActiveAssistant,
+  getDaemonPidPath,
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { loadGuardianToken } from "../lib/guardian-token";
 import {
   checkHealth,
-  checkManagedConnectionStatus,
   checkManagedHealth,
+  fetchManagedPs,
+  type ManagedProcessEntry,
 } from "../lib/health-check";
 import { dockerResourceNames } from "../lib/docker";
 import { existsSync } from "fs";
@@ -67,6 +69,49 @@ function printTable(rows: TableRow[]): void {
   for (const row of rows) {
     console.log(formatRow(row, colWidths));
   }
+}
+
+// ── Managed process tree rendering ──────────────────────────────
+
+const STATUS_LABELS: Record<ManagedProcessEntry["status"], string> = {
+  running: "running",
+  not_running: "not running",
+  unreachable: "unreachable",
+};
+
+function flattenProcessTree(
+  entries: ManagedProcessEntry[],
+  depth = 0,
+): TableRow[] {
+  const rows: TableRow[] = [];
+  for (const entry of entries) {
+    const children = entry.children ?? [];
+
+    rows.push({
+      name:
+        depth === 0 ? entry.name : `${"  ".repeat(depth - 1)}├─ ${entry.name}`,
+      status: withStatusEmoji(STATUS_LABELS[entry.status]),
+      info: entry.info ?? "",
+    });
+
+    for (let j = 0; j < children.length; j++) {
+      const child = children[j];
+      const isLast = j === children.length - 1;
+      const prefix = `${"  ".repeat(depth)}${isLast ? "└─" : "├─"} ${child.name}`;
+      rows.push({
+        name: prefix,
+        status: withStatusEmoji(STATUS_LABELS[child.status]),
+        info: child.info ?? "",
+      });
+
+      // Recurse into grandchildren
+      const grandchildren = child.children ?? [];
+      if (grandchildren.length > 0) {
+        rows.push(...flattenProcessTree(grandchildren, depth + 2));
+      }
+    }
+  }
+  return rows;
 }
 
 // ── Remote process listing via SSH ──────────────────────────────
@@ -223,7 +268,7 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
     name: "assistant",
     pgrepName: "vellum-daemon",
     port: resources.daemonPort,
-    pidFile: resources.pidFile,
+    pidFile: getDaemonPidPath(resources),
   };
   const subSpecs: ProcessSpec[] = [
     {
@@ -343,12 +388,9 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
   if (cloud === "vellum") {
     console.log(`  Platform ID: ${entry.assistantId}\n`);
 
-    const connStatus = await checkManagedConnectionStatus(
-      entry.runtimeUrl,
-      entry.assistantId,
-    );
+    const psData = await fetchManagedPs(entry.runtimeUrl, entry.assistantId);
 
-    if (!connStatus) {
+    if (!psData) {
       const rows: TableRow[] = [
         {
           name: "assistant",
@@ -360,50 +402,7 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
       return;
     }
 
-    const stateToStatus = (state: string): string => {
-      switch (state) {
-        case "ready":
-          return "running";
-        case "waking":
-          return "waking";
-        case "crash_loop":
-          return "error";
-        case "not_found":
-          return "not running";
-        default:
-          return state;
-      }
-    };
-
-    const assistantStatus = stateToStatus(connStatus.state);
-    const rows: TableRow[] = [
-      {
-        name: "assistant",
-        status: withStatusEmoji(assistantStatus),
-        info: connStatus.detail ?? connStatus.state,
-      },
-      {
-        name: "├─ qdrant",
-        status: withStatusEmoji(
-          assistantStatus === "running" ? "running" : assistantStatus,
-        ),
-        info: "",
-      },
-      {
-        name: "└─ embed-worker",
-        status: withStatusEmoji(
-          assistantStatus === "running" ? "running" : assistantStatus,
-        ),
-        info: "",
-      },
-      {
-        name: "gateway",
-        status: withStatusEmoji(
-          assistantStatus === "running" ? "running" : assistantStatus,
-        ),
-        info: entry.runtimeUrl,
-      },
-    ];
+    const rows = flattenProcessTree(psData.processes);
     printTable(rows);
     return;
   }
@@ -527,7 +526,9 @@ async function listAllAssistants(): Promise<void> {
       let health: { status: string; detail: string | null; version?: string };
       const resources = a.resources;
       if (a.cloud === "local" && resources) {
-        const pid = readPidFile(resources.pidFile);
+        // TODO(ATL-306): Remove readPidFile/getDaemonPidPath in favor of
+        // fetching daemon PIDs via the health API (Gateway Security Migration).
+        const pid = readPidFile(getDaemonPidPath(resources));
         const alive = pid !== null && isProcessAlive(pid);
         if (!alive) {
           health = { status: "sleeping", detail: null };

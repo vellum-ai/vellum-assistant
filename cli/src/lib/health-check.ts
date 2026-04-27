@@ -71,17 +71,21 @@ export async function checkManagedHealth(
   }
 }
 
-export interface ManagedConnectionStatus {
-  state: string;
-  is_awake: boolean;
-  pod_status: string | null;
-  detail: string | null;
+export interface ManagedProcessEntry {
+  name: string;
+  status: "running" | "not_running" | "unreachable";
+  children?: ManagedProcessEntry[];
+  info?: string;
 }
 
-export async function checkManagedConnectionStatus(
+export interface ManagedPsResponse {
+  processes: ManagedProcessEntry[];
+}
+
+export async function fetchManagedPs(
   runtimeUrl: string,
   assistantId: string,
-): Promise<ManagedConnectionStatus | null> {
+): Promise<ManagedPsResponse | null> {
   const { readPlatformToken, authHeaders } =
     await import("./platform-client.js");
   const token = readPlatformToken();
@@ -94,6 +98,47 @@ export async function checkManagedConnectionStatus(
     return null;
   }
 
+  // Try the /ps endpoint first; fall back to legacy /connection-status
+  // for platform versions that haven't rolled it out yet.
+  try {
+    const psUrl = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/ps/`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(psUrl, {
+      signal: controller.signal,
+      headers,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      return (await response.json()) as ManagedPsResponse;
+    }
+
+    // /ps not available — fall back to legacy connection-status
+    if (response.status === 404 || response.status === 405) {
+      return fetchLegacyConnectionStatus(runtimeUrl, assistantId, headers);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+interface LegacyConnectionStatus {
+  state: string;
+  is_awake: boolean;
+  pod_status: string | null;
+  detail: string | null;
+}
+
+async function fetchLegacyConnectionStatus(
+  runtimeUrl: string,
+  assistantId: string,
+  headers: Record<string, string>,
+): Promise<ManagedPsResponse | null> {
   try {
     const url = `${runtimeUrl}/v1/assistants/${encodeURIComponent(assistantId)}/connection-status/`;
     const controller = new AbortController();
@@ -106,10 +151,19 @@ export async function checkManagedConnectionStatus(
     });
 
     clearTimeout(timeoutId);
-
     if (!response.ok) return null;
 
-    return (await response.json()) as ManagedConnectionStatus;
+    const data = (await response.json()) as LegacyConnectionStatus;
+
+    // Translate legacy shape into the ps process tree
+    const status: ManagedProcessEntry["status"] = data.is_awake
+      ? "running"
+      : "not_running";
+    return {
+      processes: [
+        { name: "assistant", status, info: data.detail ?? undefined },
+      ],
+    };
   } catch {
     return null;
   }

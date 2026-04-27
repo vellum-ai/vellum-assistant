@@ -42,7 +42,7 @@ function getIntegrityPath(): string {
   return join(getManagedSkillsDir(), ".integrity.json");
 }
 
-export function loadIntegrityManifest(): IntegrityManifest {
+function loadIntegrityManifest(): IntegrityManifest {
   const path = getIntegrityPath();
   if (!existsSync(path)) return {};
   try {
@@ -355,7 +355,7 @@ export async function clawhubSearch(
   return { skills };
 }
 
-export async function clawhubExplore(opts?: {
+async function clawhubExplore(opts?: {
   limit?: number;
   sort?: string;
 }): Promise<ClawhubSearchResult> {

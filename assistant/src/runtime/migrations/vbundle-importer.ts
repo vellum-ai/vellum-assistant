@@ -53,7 +53,7 @@ export const CONFIG_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
  * `readServiceCredentials` can still locate the platform API key after a
  * local→platform teleport. Both importers consult this constant.
  */
-export const CREDENTIAL_METADATA_ARCHIVE_PATH =
+const CREDENTIAL_METADATA_ARCHIVE_PATH =
   "workspace/data/credentials/metadata.json";
 
 /**

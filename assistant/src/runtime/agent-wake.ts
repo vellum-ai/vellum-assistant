@@ -7,9 +7,13 @@
  *
  * Semantics:
  *   - Resolves the conversation context exactly as a normal user turn.
- *   - Appends `hint` as a non-persisted internal user message visible to
- *     the LLM only — never shows up in the transcript or SSE feed.
- *     Format: `"[opportunity:${source}] ${hint}"`.
+ *   - Appends `hint` as a non-persisted assistant message sandwiched
+ *     between two static user messages — never shows up in the transcript
+ *     or SSE feed. The assistant role prevents prompt injection (LLMs
+ *     don't follow instructions in their own prior output), and the
+ *     trailing user message satisfies providers that reject assistant
+ *     prefill. The bookend user messages are hardcoded strings with no
+ *     dynamic content, so they cannot carry injection payloads.
  *   - Invokes the agent loop with all conversation tools available.
  *   - No tool calls AND no assistant text → silent no-op (nothing persisted,
  *     nothing emitted). Returns `{ invoked: true, producedToolCalls: false }`.
@@ -42,6 +46,17 @@ import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
+
+/** Number of messages injected for the wake hint (user + assistant + user). */
+const WAKE_HINT_MESSAGE_COUNT = 3;
+
+/** Static preamble user message — no dynamic content, injection-safe. */
+const WAKE_PREAMBLE =
+  "[system] The following assistant message comes from an external system.";
+
+/** Static postamble user message — ends conversation on a user turn. */
+const WAKE_POSTAMBLE =
+  "[system] End of message from external system, continue the conversation.";
 
 /**
  * Minimum surface area of a conversation needed to wake it. Defined as an
@@ -112,6 +127,16 @@ export interface WakeTarget {
    * user-turn finally path in `conversation-agent-loop.ts`.
    */
   drainQueue?(): Promise<void>;
+  /**
+   * Called after a wake produces visible output (text or tool calls).
+   * The daemon adapter uses this to emit a live SSE event so connected
+   * clients see the wake indicator immediately. The `surfaceId` matches
+   * the `ui_surface` content block already injected into the first
+   * assistant tail message — both must share the same ID so the client
+   * doesn't render duplicates. Optional because unit-test stubs
+   * typically omit it.
+   */
+  onWakeProducedOutput?(source: string, hint: string, surfaceId: string): void;
 }
 
 export interface WakeOptions {
@@ -126,7 +151,11 @@ export interface WakeOptions {
  * exists but stayed busy past the wait-until-idle timeout" — the former is
  * a user-visible error, the latter is an expected transient condition.
  */
-export type WakeSkipReason = "not_found" | "timeout" | "no_resolver";
+export type WakeSkipReason =
+  | "not_found"
+  | "archived"
+  | "timeout"
+  | "no_resolver";
 
 export interface WakeResult {
   invoked: boolean;
@@ -141,8 +170,14 @@ export interface WakeResult {
  * at daemon startup via {@link registerDefaultWakeResolver}.
  */
 export interface WakeDeps {
-  /** Resolve the wake target for a conversationId. Returns `null` if not found. */
-  resolveTarget: (conversationId: string) => Promise<WakeTarget | null>;
+  /**
+   * Resolve the wake target for a conversationId.
+   * Returns `null` if the conversation doesn't exist, `"archived"` if it
+   * exists but is archived, or a `WakeTarget` to proceed with the wake.
+   */
+  resolveTarget: (
+    conversationId: string,
+  ) => Promise<WakeTarget | null | "archived">;
   /** Timestamp source (for deterministic tests). */
   now?: () => number;
 }
@@ -162,7 +197,7 @@ export interface WakeDeps {
 // supplied.
 
 let _defaultResolver:
-  | ((conversationId: string) => Promise<WakeTarget | null>)
+  | ((conversationId: string) => Promise<WakeTarget | null | "archived">)
   | null = null;
 
 /**
@@ -176,7 +211,7 @@ let _defaultResolver:
  * {@link resetDefaultWakeResolverForTests}.
  */
 export function registerDefaultWakeResolver(
-  resolver: (conversationId: string) => Promise<WakeTarget | null>,
+  resolver: (conversationId: string) => Promise<WakeTarget | null | "archived">,
 ): void {
   _defaultResolver = resolver;
 }
@@ -255,11 +290,11 @@ function inspectWakeOutput(
   hasVisibleText: boolean;
   toolUseNames: string[];
 } {
-  // The agent loop appends assistant messages (and tool_result user
-  // messages) onto the history it was given. We gave it baseline +
-  // internal hint, so anything at index >= baselineLength + 1 came from
+  // The agent loop appends messages onto the history it was given. We
+  // injected 3 hint messages (user preamble + assistant hint + user
+  // postamble), so anything at index >= baselineLength + 3 came from
   // the run.
-  const firstAssistantIndex = baselineLength + 1;
+  const firstAssistantIndex = baselineLength + WAKE_HINT_MESSAGE_COUNT;
   if (updatedHistory.length <= firstAssistantIndex) {
     return { tailMessages: [], hasVisibleText: false, toolUseNames: [] };
   }
@@ -316,14 +351,26 @@ export async function wakeAgentForOpportunity(
   const startedAt = nowFn();
 
   return runSingleFlight(conversationId, async () => {
-    const target = await resolveTarget(conversationId);
-    if (!target) {
+    const resolved = await resolveTarget(conversationId);
+    if (resolved === "archived") {
+      log.info(
+        { conversationId, source },
+        "agent-wake: conversation is archived; skipping",
+      );
+      return {
+        invoked: false,
+        producedToolCalls: false,
+        reason: "archived" as const,
+      };
+    }
+    if (!resolved) {
       log.warn(
         { conversationId, source },
         "agent-wake: conversation not found; skipping",
       );
       return { invoked: false, producedToolCalls: false, reason: "not_found" };
     }
+    const target = resolved;
 
     const idle = await waitUntilIdle(target, nowFn);
     if (!idle) {
@@ -336,11 +383,28 @@ export async function wakeAgentForOpportunity(
 
     const baseline = target.getMessages();
     const hintContent = `[opportunity:${source}] ${hint}`;
-    const hintMessage: Message = {
-      role: "user",
-      content: [{ type: "text", text: hintContent }],
-    };
-    const runInput: Message[] = [...baseline, hintMessage];
+    // Sandwich the hint as an assistant message between two hardcoded
+    // user messages. The assistant role prevents prompt injection — LLMs
+    // don't follow instructions in their own prior output. The trailing
+    // user message satisfies providers that reject assistant prefill
+    // (conversation must end on a user turn). Both user messages are
+    // static strings with no dynamic content so they cannot carry
+    // injection payloads.
+    const wakeMessages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: WAKE_PREAMBLE }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: hintContent }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: WAKE_POSTAMBLE }],
+      },
+    ];
+    const runInput: Message[] = [...baseline, ...wakeMessages];
 
     // Buffer events during the run. If the agent produces no visible
     // output and no tool calls, we drop everything silently. If it does,
@@ -427,6 +491,41 @@ export async function wakeAgentForOpportunity(
       }
 
       tailMessageCount = tailMessages.length;
+
+      // Inject a ui_surface content block into the first assistant tail
+      // message so the wake indicator is persisted inline and rendered
+      // via contentOrder on the client. Generate the surfaceId once so
+      // the persisted block and the live SSE event share the same ID.
+      const wakeSurfaceId = `wake-${conversationId}-${nowFn()}`;
+      const firstAssistant = tailMessages.find((m) => m.role === "assistant");
+      if (firstAssistant && Array.isArray(firstAssistant.content)) {
+        firstAssistant.content.unshift({
+          type: "ui_surface",
+          surfaceId: wakeSurfaceId,
+          surfaceType: "card",
+          title: "Conversation Woke",
+          data: {
+            title: "Conversation Woke",
+            body: hint,
+            metadata: [{ label: "Source", value: source }],
+          },
+          display: "inline",
+        } as never);
+      }
+
+      // Emit a live SSE event so connected clients see the card
+      // immediately. Uses the same surfaceId as the persisted block
+      // so the client doesn't render duplicates on reconciliation.
+      if (target.onWakeProducedOutput) {
+        try {
+          target.onWakeProducedOutput(source, hint, wakeSurfaceId);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: onWakeProducedOutput threw; continuing",
+          );
+        }
+      }
 
       // Output produced: flush buffered client events through the
       // target's translator. The internal hint is NOT emitted.

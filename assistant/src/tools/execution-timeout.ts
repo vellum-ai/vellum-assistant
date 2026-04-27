@@ -2,7 +2,7 @@ import type { ToolExecutionResult } from "./types.js";
 
 const TIMEOUT_SENTINEL = Symbol("tool-timeout");
 
-export const DEFAULT_TOOL_TIMEOUT_SEC = 120;
+const DEFAULT_TOOL_TIMEOUT_SEC = 120;
 
 /**
  * Convert a config-provided seconds value to a safe milliseconds value,

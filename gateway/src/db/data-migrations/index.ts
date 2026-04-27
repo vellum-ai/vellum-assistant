@@ -20,6 +20,7 @@ import type { Database } from "bun:sqlite";
 import { getLogger } from "../../logger.js";
 
 import * as m0001 from "./m0001-guardian-init-lock.js";
+import * as m0002 from "./m0002-actor-token-tables-to-gateway.js";
 
 const log = getLogger("data-migrations");
 
@@ -32,6 +33,7 @@ type MigrationModule = {
 
 const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   { key: "m0001-guardian-init-lock", mod: m0001 },
+  { key: "m0002-actor-token-tables-to-gateway", mod: m0002 },
 ];
 
 /**

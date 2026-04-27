@@ -12,7 +12,7 @@ import type { InviteRedemptionOutcome } from "./invite-redemption-service.js";
 // Template strings
 // ---------------------------------------------------------------------------
 
-export const INVITE_REPLY_TEMPLATES = {
+const INVITE_REPLY_TEMPLATES = {
   redeemed: "Welcome! You've been granted access.",
   already_member: "You already have access.",
   invalid_token: "This invite is no longer valid.",

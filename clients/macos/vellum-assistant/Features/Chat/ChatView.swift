@@ -296,6 +296,10 @@ struct ChatView: View {
                     onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
                     onPaste: { viewModel.addAttachmentFromPasteboard() },
                     onMicrophoneToggle: onMicrophoneToggle,
+                    voiceModeManager: voiceModeManager,
+                    voiceModeState: voiceModeManager?.state ?? .off,
+                    voiceService: voiceService,
+                    onEndVoiceMode: onEndVoiceMode,
                     recordingAmplitude: viewModel.recordingAmplitude,
                     onDictateToggle: onDictateToggle,
                     onVoiceModeToggle: onVoiceModeToggle,
@@ -305,9 +309,11 @@ struct ChatView: View {
                     conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
                     conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
                     onSelectStarter: { starter in viewModel.inputText = starter.prompt },
+                    onRemoveStarter: { starter in viewModel.removeConversationStarter(starter) },
                     onFetchConversationStarters: { viewModel.fetchConversationStarters() },
                     conversationHostAccessControl: conversationHostAccessControl,
-                    showThresholdPicker: showThresholdPicker
+                    showThresholdPicker: showThresholdPicker,
+                    inferenceProfilePicker: inferenceProfilePicker
                 )
                 .id(conversationId)
             } else {
@@ -525,10 +531,14 @@ struct ChatView: View {
     private var inferenceProfilePicker: ChatProfilePickerConfiguration? {
         guard let conversationManager else { return nil }
         return ChatProfilePickerConfiguration(
-            current: currentConversation?.inferenceProfile,
+            current: currentConversation?.inferenceProfile ?? viewModel.pendingInferenceProfile,
             profiles: inferenceProfiles,
             activeProfile: activeInferenceProfile,
             onSelect: { profile in
+                if conversationId == nil {
+                    viewModel.pendingInferenceProfile = profile
+                    return
+                }
                 guard let conversationId else { return }
                 Task { @MainActor in
                     await conversationManager.setConversationInferenceProfile(

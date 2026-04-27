@@ -10,9 +10,12 @@
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
-import * as deliveryChannels from "../../../memory/delivery-channels.js";
-import * as deliveryCrud from "../../../memory/delivery-crud.js";
-import * as deliveryStatus from "../../../memory/delivery-status.js";
+import { updateDeliveredSegmentCount } from "../../../memory/delivery-channels.js";
+import { linkMessage } from "../../../memory/delivery-crud.js";
+import {
+  markProcessed,
+  recordProcessingFailure,
+} from "../../../memory/delivery-status.js";
 import {
   clearThreadTs,
   extractChannelFromCallbackUrl,
@@ -73,8 +76,6 @@ export interface BackgroundProcessingParams {
   metadataHints: string[];
   metadataUxBrief?: string;
   replyCallbackUrl?: string;
-  /** Factory that mints a fresh delivery JWT for each HTTP attempt. */
-  mintBearerToken: () => string;
   assistantId?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
@@ -109,7 +110,6 @@ export function processChannelMessageInBackground(
     metadataHints,
     metadataUxBrief,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     approvalCopyGenerator,
     commandIntent,
@@ -129,7 +129,6 @@ export function processChannelMessageInBackground(
       ? startTelegramTypingHeartbeat(
           typingCallbackUrl,
           externalChatId,
-          mintBearerToken,
           assistantId,
         )
       : undefined;
@@ -139,12 +138,7 @@ export function processChannelMessageInBackground(
       sourceChannel,
       replyCallbackUrl,
     )
-      ? setSlackThinkingStatus(
-          replyCallbackUrl!,
-          externalChatId,
-          mintBearerToken,
-          assistantId,
-        )
+      ? setSlackThinkingStatus(replyCallbackUrl!, externalChatId, assistantId)
       : undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
@@ -155,7 +149,6 @@ export function processChannelMessageInBackground(
           guardianExternalUserId: trustCtx.guardianExternalUserId,
           requesterExternalUserId: trustCtx.requesterExternalUserId,
           replyCallbackUrl,
-          mintBearerToken,
           assistantId,
           approvalCopyGenerator,
         })
@@ -168,7 +161,6 @@ export function processChannelMessageInBackground(
           trustClass: trustCtx.trustClass,
           guardianExternalUserId: trustCtx.guardianExternalUserId,
           replyCallbackUrl,
-          mintBearerToken,
           assistantId,
         })
       : undefined;
@@ -235,19 +227,18 @@ export function processChannelMessageInBackground(
         sourceChannel,
         sourceInterface,
       );
-      deliveryCrud.linkMessage(eventId, userMessageId);
-      deliveryStatus.markProcessed(eventId);
+      linkMessage(eventId, userMessageId);
+      markProcessed(eventId);
 
       if (replyCallbackUrl) {
         await deliverReplyViaCallback(
           conversationId,
           externalChatId,
           replyCallbackUrl,
-          mintBearerToken(),
           assistantId,
           {
             onSegmentDelivered: (count) =>
-              deliveryChannels.updateDeliveredSegmentCount(eventId, count),
+              updateDeliveredSegmentCount(eventId, count),
           },
         );
       }
@@ -277,7 +268,7 @@ export function processChannelMessageInBackground(
         { err, conversationId },
         "Background channel message processing failed",
       );
-      deliveryStatus.recordProcessingFailure(eventId, err);
+      recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
       clearSlackThinkingStatus?.();
@@ -293,7 +284,7 @@ export function processChannelMessageInBackground(
 
 const TELEGRAM_TYPING_INTERVAL_MS = 4_000;
 
-export function shouldEmitTelegramTyping(
+function shouldEmitTelegramTyping(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
@@ -305,10 +296,9 @@ export function shouldEmitTelegramTyping(
   }
 }
 
-export function startTelegramTypingHeartbeat(
+function startTelegramTypingHeartbeat(
   callbackUrl: string,
   chatId: string,
-  mintBearerToken: () => string,
   assistantId?: string,
 ): () => void {
   let active = true;
@@ -317,11 +307,11 @@ export function startTelegramTypingHeartbeat(
   const emitTyping = (): void => {
     if (!active || inFlight) return;
     inFlight = true;
-    void deliverChannelReply(
-      callbackUrl,
-      { chatId, chatAction: "typing", assistantId },
-      mintBearerToken(),
-    )
+    void deliverChannelReply(callbackUrl, {
+      chatId,
+      chatAction: "typing",
+      assistantId,
+    })
       .catch((err) => {
         log.debug(
           { err, chatId },
@@ -348,7 +338,7 @@ export function startTelegramTypingHeartbeat(
 // Slack Assistants API thinking status indicator
 // ---------------------------------------------------------------------------
 
-export function shouldEmitSlackReaction(
+function shouldEmitSlackReaction(
   sourceChannel: ChannelId,
   replyCallbackUrl?: string,
 ): boolean {
@@ -369,10 +359,9 @@ const SLACK_THINKING_MAX_DURATION_MS = 120_000;
  * A safety timer auto-clears the status after {@link SLACK_THINKING_MAX_DURATION_MS}
  * to prevent a stuck indicator when `processMessage` hangs.
  */
-export function setSlackThinkingStatus(
+function setSlackThinkingStatus(
   callbackUrl: string,
   chatId: string,
-  mintBearerToken: () => string,
   assistantId?: string,
 ): () => void {
   let cleared = false;
@@ -386,15 +375,11 @@ export function setSlackThinkingStatus(
     const messageTs = extractMessageTsFromCallbackUrl(callbackUrl);
     if (!messageTs) return () => {};
 
-    const addPromise = deliverChannelReply(
-      callbackUrl,
-      {
-        chatId,
-        assistantId,
-        reaction: { action: "add", name: "eyes", messageTs },
-      },
-      mintBearerToken(),
-    ).catch((err) => {
+    const addPromise = deliverChannelReply(callbackUrl, {
+      chatId,
+      assistantId,
+      reaction: { action: "add", name: "eyes", messageTs },
+    }).catch((err) => {
       log.debug(
         { err, chatId, messageTs },
         "Failed to add Slack eyes reaction",
@@ -406,15 +391,11 @@ export function setSlackThinkingStatus(
       cleared = true;
       clearTimeout(safetyTimer);
       void addPromise.then(() =>
-        deliverChannelReply(
-          callbackUrl,
-          {
-            chatId,
-            assistantId,
-            reaction: { action: "remove", name: "eyes", messageTs },
-          },
-          mintBearerToken(),
-        ).catch((err) => {
+        deliverChannelReply(callbackUrl, {
+          chatId,
+          assistantId,
+          reaction: { action: "remove", name: "eyes", messageTs },
+        }).catch((err) => {
           log.debug(
             { err, chatId, messageTs },
             "Failed to remove Slack eyes reaction",
@@ -434,19 +415,15 @@ export function setSlackThinkingStatus(
 
   // Track the set promise so clear waits for it to settle first,
   // preventing a race where clear arrives at Slack before set.
-  const setPromise = deliverChannelReply(
-    callbackUrl,
-    {
-      chatId,
-      assistantId,
-      assistantThreadStatus: {
-        channel: chatId,
-        threadTs,
-        status: "is thinking...",
-      },
+  const setPromise = deliverChannelReply(callbackUrl, {
+    chatId,
+    assistantId,
+    assistantThreadStatus: {
+      channel: chatId,
+      threadTs,
+      status: "is thinking...",
     },
-    mintBearerToken(),
-  ).catch((err) => {
+  }).catch((err) => {
     log.debug({ err, chatId, threadTs }, "Failed to set Slack thinking status");
   });
 
@@ -455,19 +432,15 @@ export function setSlackThinkingStatus(
     cleared = true;
     clearTimeout(safetyTimer);
     void setPromise.then(() =>
-      deliverChannelReply(
-        callbackUrl,
-        {
-          chatId,
-          assistantId,
-          assistantThreadStatus: {
-            channel: chatId,
-            threadTs,
-            status: "",
-          },
+      deliverChannelReply(callbackUrl, {
+        chatId,
+        assistantId,
+        assistantThreadStatus: {
+          channel: chatId,
+          threadTs,
+          status: "",
         },
-        mintBearerToken(),
-      ).catch((err) => {
+      }).catch((err) => {
         log.debug(
           { err, chatId, threadTs },
           "Failed to clear Slack thinking status",
@@ -488,7 +461,7 @@ export function setSlackThinkingStatus(
 
 const PENDING_APPROVAL_POLL_INTERVAL_MS = 300;
 
-export function startPendingApprovalPromptWatcher(params: {
+function startPendingApprovalPromptWatcher(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
@@ -496,7 +469,6 @@ export function startPendingApprovalPromptWatcher(params: {
   guardianExternalUserId?: string;
   requesterExternalUserId?: string;
   replyCallbackUrl: string;
-  mintBearerToken: () => string;
   assistantId?: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
 }): () => void {
@@ -508,7 +480,6 @@ export function startPendingApprovalPromptWatcher(params: {
     guardianExternalUserId,
     requesterExternalUserId,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     approvalCopyGenerator,
   } = params;
@@ -543,7 +514,6 @@ export function startPendingApprovalPromptWatcher(params: {
             chatId: externalChatId,
             sourceChannel,
             assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-            bearerToken: mintBearerToken(),
             prompt,
             uiMetadata: buildApprovalUIMetadata(prompt, info),
             messageContext: {
@@ -593,14 +563,13 @@ const globalNotifiedApprovalRequestIds = new Map<string, string>();
  *
  * Only activates for trusted-contact actors with a resolvable guardian route.
  */
-export function startTrustedContactApprovalNotifier(params: {
+function startTrustedContactApprovalNotifier(params: {
   conversationId: string;
   sourceChannel: ChannelId;
   externalChatId: string;
   trustClass: TrustContext["trustClass"];
   guardianExternalUserId?: string;
   replyCallbackUrl: string;
-  mintBearerToken: () => string;
   assistantId?: string;
 }): () => void {
   const {
@@ -610,7 +579,6 @@ export function startTrustedContactApprovalNotifier(params: {
     trustClass,
     guardianExternalUserId,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
   } = params;
 
@@ -647,15 +615,11 @@ export function startTrustedContactApprovalNotifier(params: {
           );
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
-            await deliverChannelReply(
-              replyCallbackUrl,
-              {
-                chatId: externalChatId,
-                text: waitingText,
-                assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-              },
-              mintBearerToken(),
-            );
+            await deliverChannelReply(replyCallbackUrl, {
+              chatId: externalChatId,
+              text: waitingText,
+              assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
+            });
           } catch (err) {
             log.warn(
               { err, conversationId },

@@ -8,7 +8,7 @@ const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockGetSecureKeyViaDaemon: (
+let mockGetSecureKeyAsync: (
   account: string,
 ) => Promise<string | undefined> = async () => undefined;
 
@@ -16,15 +16,28 @@ let mockGetSecureKeyViaDaemon: (
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: (account: string) =>
-    mockGetSecureKeyViaDaemon(account),
-  deleteSecureKeyViaDaemon: async () => "not-found" as const,
-  setSecureKeyViaDaemon: async () => true,
-  getSecureKeyResultViaDaemon: async () => ({
+mock.module("../../../../security/secure-keys.js", () => ({
+  getSecureKeyAsync: (account: string) => mockGetSecureKeyAsync(account),
+  getSecureKeyResultAsync: async () => ({
     value: undefined,
     unreachable: false,
   }),
+  setSecureKeyAsync: async () => true,
+  deleteSecureKeyAsync: async () => "deleted" as const,
+  getProviderKeyAsync: async () => undefined,
+  getMaskedProviderKey: async () => undefined,
+  bulkSetSecureKeysAsync: async () => {},
+  listSecureKeysAsync: async () => ({ credentials: [] }),
+  setCesClient: () => {},
+  onCesClientChanged: () => ({ unsubscribe: () => {} }),
+  setCesReconnect: () => {},
+  getActiveBackendName: () => "file",
+  _resetBackend: () => {},
+}));
+
+mock.module("../../../lib/daemon-credential-client.js", () => ({
+  deleteSecureKeyViaDaemon: async () => "not-found" as const,
+  setSecureKeyViaDaemon: async () => true,
 }));
 
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
@@ -38,7 +51,6 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
     enabled: false,
   }),
   registerCallbackRoute: async () => "",
-  shouldUsePlatformCallbacks: () => false,
   resolveCallbackUrl: async () => "",
 }));
 
@@ -140,7 +152,7 @@ async function runCommand(
 
 describe("assistant platform connect", () => {
   beforeEach(() => {
-    mockGetSecureKeyViaDaemon = async () => undefined;
+    mockGetSecureKeyAsync = async () => undefined;
     process.exitCode = 0;
     // Remove any signal file left by previous tests
     try {
@@ -152,7 +164,7 @@ describe("assistant platform connect", () => {
 
   test("writes emit-event signal file and reports success", async () => {
     // GIVEN no existing platform credentials
-    mockGetSecureKeyViaDaemon = async () => undefined;
+    mockGetSecureKeyAsync = async () => undefined;
 
     // WHEN the connect command is run with --json
     const { exitCode, stdout } = await runCommand([
@@ -178,7 +190,7 @@ describe("assistant platform connect", () => {
 
   test("already connected returns success with existing base URL", async () => {
     // GIVEN stored platform credentials already exist
-    mockGetSecureKeyViaDaemon = async (account: string) => {
+    mockGetSecureKeyAsync = async (account: string) => {
       if (account === "credential/vellum/platform_base_url")
         return "https://platform.vellum.ai";
       if (account === "credential/vellum/assistant_api_key")

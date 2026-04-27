@@ -78,7 +78,7 @@ export type GuardrailResult =
   | { ok: true }
   | { ok: false; reason: string; guardrail: string };
 
-export function checkDailyCap(): GuardrailResult {
+function checkDailyCap(): GuardrailResult {
   const count = getSendsToday();
   if (count >= config.dailySendCap) {
     return {
@@ -90,7 +90,7 @@ export function checkDailyCap(): GuardrailResult {
   return { ok: true };
 }
 
-export function checkHourlyRate(sequenceId: string): GuardrailResult {
+function checkHourlyRate(sequenceId: string): GuardrailResult {
   const count = getSendsThisHour(sequenceId);
   if (count >= config.perSequenceHourlyRate) {
     return {
@@ -102,7 +102,7 @@ export function checkHourlyRate(sequenceId: string): GuardrailResult {
   return { ok: true };
 }
 
-export function checkMinDelay(delaySec: number): GuardrailResult {
+function checkMinDelay(delaySec: number): GuardrailResult {
   if (delaySec > 0 && delaySec < config.minimumStepDelaySec) {
     return {
       ok: false,

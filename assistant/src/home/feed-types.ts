@@ -255,7 +255,7 @@ export const lowPriorityCollapsedSchema = z.object({
 });
 
 /** Schema for the on-disk `home-feed.json` file. */
-export const homeFeedFileSchema = z.object({
+const homeFeedFileSchema = z.object({
   version: z.literal(1),
   items: z.array(feedItemSchema),
   updatedAt: z.string(),

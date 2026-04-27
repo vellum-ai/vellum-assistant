@@ -443,7 +443,7 @@ function cleanupMaps(
  * Includes an idempotency guard so the same recording cannot be finalized
  * twice (prevents double-finalization during restart races).
  */
-export async function finalizeAndPublishRecording(params: {
+async function finalizeAndPublishRecording(params: {
   recordingId: string;
   conversationId: string;
   filePath?: string;

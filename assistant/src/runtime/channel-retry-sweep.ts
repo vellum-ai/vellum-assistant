@@ -8,9 +8,14 @@ import {
   parseInterfaceId,
 } from "../channels/types.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import * as deliveryCrud from "../memory/delivery-crud.js";
-import * as deliveryStatus from "../memory/delivery-status.js";
+import { updateDeliveredSegmentCount } from "../memory/delivery-channels.js";
+import { linkMessage } from "../memory/delivery-crud.js";
+import {
+  getRetryableEvents,
+  markProcessed,
+  markRetryableFailure,
+  recordProcessingFailure,
+} from "../memory/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
 import type { MessageProcessor } from "./http-types.js";
@@ -79,9 +84,8 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
  */
 export async function sweepFailedEvents(
   processMessage: MessageProcessor,
-  mintBearerToken: (() => string) | undefined,
 ): Promise<void> {
-  const events = deliveryStatus.getRetryableEvents();
+  const events = getRetryableEvents();
   if (events.length === 0) return;
 
   log.info({ count: events.length }, "Retrying failed channel inbound events");
@@ -89,7 +93,7 @@ export async function sweepFailedEvents(
   for (const event of events) {
     if (!event.rawPayload) {
       // No payload stored -- can't replay, move to dead letter
-      deliveryStatus.recordProcessingFailure(
+      recordProcessingFailure(
         event.id,
         new Error("No raw payload stored for replay"),
       );
@@ -100,7 +104,7 @@ export async function sweepFailedEvents(
     try {
       payload = JSON.parse(event.rawPayload) as Record<string, unknown>;
     } catch {
-      deliveryStatus.recordProcessingFailure(
+      recordProcessingFailure(
         event.id,
         new Error("Failed to parse stored raw payload"),
       );
@@ -114,7 +118,7 @@ export async function sweepFailedEvents(
       : undefined;
     const sourceChannel = parseChannelId(payload.sourceChannel);
     if (!sourceChannel) {
-      deliveryStatus.recordProcessingFailure(
+      recordProcessingFailure(
         event.id,
         new Error(`Invalid sourceChannel: ${String(payload.sourceChannel)}`),
       );
@@ -123,7 +127,7 @@ export async function sweepFailedEvents(
     const sourceInterface =
       parseInterfaceId(payload.interface) ??
       parseInterfaceId(payload.sourceChannel) ??
-      "vellum";
+      "web";
     const sourceMetadata = payload.sourceMetadata as
       | Record<string, unknown>
       | undefined;
@@ -142,7 +146,7 @@ export async function sweepFailedEvents(
         { eventId: event.id },
         "Stored trustCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation",
       );
-      deliveryStatus.markRetryableFailure(
+      markRetryableFailure(
         event.id,
         "Unparseable guardian context in stored payload — refusing to process without trust classification",
       );
@@ -196,8 +200,8 @@ export async function sweepFailedEvents(
         sourceChannel,
         sourceInterface,
       );
-      deliveryCrud.linkMessage(event.id, userMessageId);
-      deliveryStatus.markProcessed(event.id);
+      linkMessage(event.id, userMessageId);
+      markProcessed(event.id);
       log.info(
         { eventId: event.id },
         "Successfully replayed failed channel event",
@@ -217,24 +221,23 @@ export async function sweepFailedEvents(
           // previously tracked segment progress belongs to the old response and
           // must not carry over. Reset to 0 so we deliver all segments of the
           // new response.
-          deliveryChannels.updateDeliveredSegmentCount(event.id, 0);
+          updateDeliveredSegmentCount(event.id, 0);
           await deliverReplyViaCallback(
             event.conversationId,
             externalChatId,
             replyCallbackUrl,
-            mintBearerToken?.(),
             assistantId,
             {
               startFromSegment: 0,
               onSegmentDelivered: (count) =>
-                deliveryChannels.updateDeliveredSegmentCount(event.id, count),
+                updateDeliveredSegmentCount(event.id, count),
             },
           );
         }
       }
     } catch (err) {
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
-      deliveryStatus.recordProcessingFailure(event.id, err);
+      recordProcessingFailure(event.id, err);
     }
   }
 }

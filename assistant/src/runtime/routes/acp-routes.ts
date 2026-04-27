@@ -4,6 +4,7 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP.
  */
+import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -11,11 +12,50 @@ import {
   getAcpSessionManager,
 } from "../../acp/index.js";
 import { resolveAcpAgent } from "../../acp/resolve-agent.js";
+import type { AcpSessionState } from "../../acp/types.js";
+import { getDb } from "../../memory/db.js";
+import { rawChanges } from "../../memory/raw-query.js";
+import { acpSessionHistory } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
+/**
+ * Terminal-state values for `acp_session_history.status`. The bulk-delete
+ * route accepts `?status=completed` as a UX shorthand for "every terminal
+ * state" — sessions are only persisted to the history table on terminal
+ * transition, so clearing this set wipes the visible history without
+ * touching live (running/initializing) sessions.
+ */
+const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
+
 const log = getLogger("acp-routes");
+
+/** Default cap when no `?limit` query param is provided. */
+const DEFAULT_SESSION_LIMIT = 50;
+/** Hard ceiling on `?limit` to keep response sizes bounded. */
+const MAX_SESSION_LIMIT = 500;
+
+/**
+ * Wire shape for a single entry in `GET /v1/acp/sessions`. Combines the
+ * runtime state of an in-memory session (`AcpSessionState`) with the
+ * historical fields persisted on terminal transition. `eventLog` is the
+ * deserialized form of the DB's `event_log_json` column.
+ */
+const sessionEntrySchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  acpSessionId: z.string(),
+  parentConversationId: z.string().optional(),
+  status: z.string(),
+  startedAt: z.number(),
+  completedAt: z.number().nullable().optional(),
+  error: z.string().nullable().optional(),
+  stopReason: z.string().nullable().optional(),
+  eventLog: z.array(z.unknown()).optional(),
+});
+
+type SessionEntry = z.infer<typeof sessionEntrySchema>;
 
 export function acpRouteDefinitions(): RouteDefinition[] {
   return [
@@ -189,16 +229,207 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       policyKey: "acp",
       summary: "List ACP sessions",
-      description: "Return all active ACP sessions.",
+      description:
+        "Return the merged set of in-memory and persisted ACP sessions, " +
+        "newest first. In-memory sessions take precedence on id collision.",
       tags: ["acp"],
+      queryParams: [
+        {
+          name: "limit",
+          type: "integer",
+          required: false,
+          description: `Maximum number of sessions to return (default ${DEFAULT_SESSION_LIMIT}, max ${MAX_SESSION_LIMIT}).`,
+        },
+        {
+          name: "conversationId",
+          type: "string",
+          required: false,
+          description:
+            "Filter to sessions whose parentConversationId matches this value.",
+        },
+      ],
       responseBody: z.object({
-        sessions: z.array(z.unknown()).describe("ACP session status objects"),
+        sessions: z
+          .array(sessionEntrySchema)
+          .describe("Merged in-memory and persisted ACP sessions."),
       }),
-      handler: () => {
-        const manager = getAcpSessionManager();
-        const sessions = manager.getStatus();
+      handler: ({ url }) => {
+        const limit = parseLimit(url.searchParams.get("limit"));
+        const conversationId =
+          url.searchParams.get("conversationId") ?? undefined;
+        const sessions = listMergedSessions({ limit, conversationId });
         return Response.json({ sessions });
       },
     },
+
+    {
+      endpoint: "acp/sessions",
+      method: "DELETE",
+      summary: "Bulk-clear terminal ACP sessions",
+      description:
+        "Remove every terminal-state row (completed/failed/cancelled) from " +
+        "the persisted `acp_session_history` table. Active sessions " +
+        "(running/initializing) are untouched. The `?status=completed` query " +
+        "param is a UX shorthand for all terminal statuses — it is the only " +
+        "value currently accepted; other values are rejected with 400.",
+      tags: ["acp"],
+      queryParams: [
+        {
+          name: "status",
+          required: true,
+          description:
+            "Must be `completed`. Shorthand for all terminal statuses (completed/failed/cancelled).",
+        },
+      ],
+      responseBody: z.object({
+        deleted: z.number().int(),
+      }),
+      handler: ({ url }) => {
+        const status = url.searchParams.get("status");
+        if (status !== "completed") {
+          return httpError(
+            "BAD_REQUEST",
+            "status query param is required and must be 'completed'",
+            400,
+          );
+        }
+        getDb()
+          .delete(acpSessionHistory)
+          .where(inArray(acpSessionHistory.status, TERMINAL_SESSION_STATUSES))
+          .run();
+        const deleted = rawChanges();
+        log.info({ deleted }, "Bulk-cleared terminal ACP session history");
+        return Response.json({ deleted });
+      },
+    },
+
+    {
+      endpoint: "acp/sessions/:id",
+      method: "DELETE",
+      policyKey: "acp/sessions/delete",
+      summary: "Delete ACP session from history",
+      description:
+        "Remove a persisted ACP session row. Rejects with 409 when the " +
+        "session is still active in memory; idempotent for unknown ids.",
+      tags: ["acp"],
+      responseBody: z.object({
+        deleted: z.boolean(),
+      }),
+      handler: ({ params }) => {
+        const id = params.id;
+        // Refuse to delete while the session is still active in memory —
+        // a terminal-state transition would re-persist the row otherwise.
+        // getStatus(id) throws for unknown ids, which is the expected path
+        // for sessions whose only trace is the history row.
+        try {
+          const state = getAcpSessionManager().getStatus(id);
+          if (
+            !Array.isArray(state) &&
+            (state.status === "running" || state.status === "initializing")
+          ) {
+            return httpError(
+              "CONFLICT",
+              `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,
+              409,
+            );
+          }
+        } catch {
+          // Not in memory — fall through to the (idempotent) DB delete.
+        }
+
+        getDb()
+          .delete(acpSessionHistory)
+          .where(eq(acpSessionHistory.id, id))
+          .run();
+        const deleted = rawChanges() > 0;
+        log.info({ acpSessionId: id, deleted }, "ACP session history delete");
+        return Response.json({ deleted });
+      },
+    },
   ];
+}
+
+/**
+ * Parses the `?limit` query param. Falls back to the default when missing
+ * or non-numeric, and clamps positive values to `MAX_SESSION_LIMIT`. Zero
+ * and negative values fall back to the default rather than empty results.
+ */
+function parseLimit(raw: string | null): number {
+  if (raw === null) return DEFAULT_SESSION_LIMIT;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SESSION_LIMIT;
+  return Math.min(Math.floor(n), MAX_SESSION_LIMIT);
+}
+
+/**
+ * Merges in-memory sessions (`getStatus()`) with persisted history rows,
+ * deduping by id (in-memory wins), optionally filtering by parent
+ * conversation, sorting newest-first, and truncating to `limit`.
+ */
+function listMergedSessions(opts: {
+  limit: number;
+  conversationId?: string;
+}): SessionEntry[] {
+  const manager = getAcpSessionManager();
+  const inMemory = manager.getStatus() as AcpSessionState[];
+
+  const merged = new Map<string, SessionEntry>();
+  for (const s of inMemory) {
+    if (opts.conversationId && s.parentConversationId !== opts.conversationId) {
+      continue;
+    }
+    merged.set(s.id, {
+      id: s.id,
+      agentId: s.agentId,
+      acpSessionId: s.acpSessionId,
+      parentConversationId: s.parentConversationId,
+      status: s.status,
+      startedAt: s.startedAt,
+      completedAt: s.completedAt ?? null,
+      error: s.error ?? null,
+      stopReason: s.stopReason ?? null,
+    });
+  }
+
+  // The DB-side conversationId filter uses the
+  // `idx_acp_session_history_parent_conversation_id` index, and the
+  // newest-first sort uses `idx_acp_session_history_started_at`.
+  const db = getDb();
+  const baseQuery = db.select().from(acpSessionHistory);
+  const filtered = opts.conversationId
+    ? baseQuery.where(
+        eq(acpSessionHistory.parentConversationId, opts.conversationId),
+      )
+    : baseQuery;
+  const historyRows = filtered.orderBy(desc(acpSessionHistory.startedAt)).all();
+
+  for (const row of historyRows) {
+    if (merged.has(row.id)) continue; // in-memory wins on collision
+    let eventLog: unknown[] = [];
+    try {
+      const parsed = JSON.parse(row.eventLogJson) as unknown;
+      if (Array.isArray(parsed)) eventLog = parsed;
+    } catch (err) {
+      log.warn(
+        { id: row.id, err },
+        "Failed to parse event_log_json for ACP session history row",
+      );
+    }
+    merged.set(row.id, {
+      id: row.id,
+      agentId: row.agentId,
+      acpSessionId: row.acpSessionId,
+      parentConversationId: row.parentConversationId,
+      status: row.status,
+      startedAt: row.startedAt,
+      completedAt: row.completedAt,
+      error: row.error,
+      stopReason: row.stopReason,
+      eventLog,
+    });
+  }
+
+  return Array.from(merged.values())
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, opts.limit);
 }

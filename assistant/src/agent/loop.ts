@@ -23,13 +23,14 @@ import type {
   ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
+import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ToolDefinition,
+  ToolResultContent,
 } from "../providers/types.js";
-import type { ToolResultContent } from "../providers/types.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -432,8 +433,9 @@ export class AgentLoop {
         }
 
         if (!callSite) {
-          if (this.config.thinking?.enabled) {
-            providerConfig.thinking = { type: "adaptive" };
+          const thinking = normalizeThinkingConfigForWire(this.config.thinking);
+          if (thinking !== undefined) {
+            providerConfig.thinking = thinking;
           }
           if (this.config.effort) {
             providerConfig.effort = this.config.effort;

@@ -7,7 +7,7 @@
 
 import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
 
-import * as attachmentsStore from "../../../memory/attachments-store.js";
+import { getAttachmentContent } from "../../../memory/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -158,7 +158,7 @@ export async function sendWhatsAppAttachments(
     }
 
     try {
-      const content = attachmentsStore.getAttachmentContent(meta.id);
+      const content = getAttachmentContent(meta.id);
       if (!content) {
         log.error(
           { attachmentId: meta.id },

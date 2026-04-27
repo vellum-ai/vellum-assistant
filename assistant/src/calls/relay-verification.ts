@@ -68,7 +68,7 @@ export function parseDigitsFromSpeech(transcript: string): string {
 
 // ── Guardian code verification ─────────────────────────────────────────
 
-export interface VerificationCallParams {
+interface VerificationCallParams {
   verificationAssistantId: string;
   verificationFromNumber: string;
   enteredCode: string;
@@ -78,7 +78,7 @@ export interface VerificationCallParams {
   verificationMaxAttempts: number;
 }
 
-export type VerificationCallResult =
+type VerificationCallResult =
   | {
       outcome: "success";
       verificationType: "guardian" | "trusted_contact";
@@ -220,14 +220,14 @@ export function attemptVerificationCode(
 
 // ── Invite code redemption ─────────────────────────────────────────────
 
-export interface InviteRedemptionParams {
+interface InviteRedemptionParams {
   inviteRedemptionAssistantId: string;
   inviteRedemptionFromNumber: string;
   enteredCode: string;
   inviteRedemptionGuardianName: string | null;
 }
 
-export type InviteRedemptionResult =
+type InviteRedemptionResult =
   | {
       outcome: "success";
       memberId: string;

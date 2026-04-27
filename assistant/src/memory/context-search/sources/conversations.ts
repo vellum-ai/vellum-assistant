@@ -17,6 +17,54 @@ interface ConversationEvidenceRow {
   title: string | null;
 }
 
+const CONVERSATION_SEARCH_PREFETCH_MULTIPLIER = 5;
+
+const NON_SALIENT_RECALL_TERMS = new Set([
+  "a",
+  "about",
+  "and",
+  "any",
+  "as",
+  "asked",
+  "being",
+  "details",
+  "detail",
+  "find",
+  "for",
+  "from",
+  "get",
+  "give",
+  "happened",
+  "include",
+  "included",
+  "including",
+  "is",
+  "it",
+  "me",
+  "of",
+  "on",
+  "or",
+  "recipient",
+  "referred",
+  "relevant",
+  "should",
+  "tell",
+  "that",
+  "the",
+  "thing",
+  "timing",
+  "to",
+  "was",
+  "were",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "why",
+  "with",
+]);
+
 export async function searchConversationSource(
   query: string,
   context: RecallSearchContext,
@@ -31,29 +79,47 @@ export async function searchConversationSource(
     return { evidence: [] };
   }
 
-  const ftsMatch = buildFtsMatchQuery(trimmedQuery);
+  const queryLimit = Math.max(
+    normalizedLimit,
+    normalizedLimit * CONVERSATION_SEARCH_PREFETCH_MULTIPLIER,
+  );
+  const ftsMatches = buildRecallFtsMatchQueries(trimmedQuery);
   let rows: ConversationEvidenceRow[] = [];
 
-  if (ftsMatch) {
+  for (const ftsMatch of ftsMatches) {
     try {
-      rows = searchWithFts(ftsMatch, context.memoryScopeId, normalizedLimit);
+      rows = mergeConversationRows(
+        rows,
+        searchWithFts(ftsMatch, context.memoryScopeId, queryLimit),
+      );
     } catch {
-      rows = [];
+      // Try the next, broader query shape.
     }
+
+    if (rows.length >= normalizedLimit) break;
   }
 
   if (rows.length === 0) {
-    rows = searchWithLike(trimmedQuery, context.memoryScopeId, normalizedLimit);
+    rows = searchWithLike(trimmedQuery, context.memoryScopeId, queryLimit);
   }
 
+  const sortedRows = rows
+    .map((row) => ({
+      row,
+      score: scoreConversationRow(row, trimmedQuery),
+    }))
+    .sort(compareScoredConversationRows)
+    .slice(0, normalizedLimit);
+
   return {
-    evidence: rows.map((row) => ({
+    evidence: sortedRows.map(({ row, score }) => ({
       id: `conversations:${row.conversation_id}:${row.message_id}`,
       source: "conversations",
       title: row.title?.trim() || "Untitled conversation",
       locator: `${row.conversation_id}#${row.message_id}`,
       excerpt: buildExcerpt(row.content, trimmedQuery),
       timestampMs: row.created_at,
+      score,
       metadata: {
         role: row.role,
         conversationId: row.conversation_id,
@@ -123,6 +189,85 @@ function searchWithLike(
     AUTO_ANALYSIS_SOURCE,
     limit,
   );
+}
+
+function buildRecallFtsMatchQueries(query: string): string[] {
+  const queries: string[] = [];
+  const exact = buildFtsMatchQuery(query);
+  if (exact) {
+    queries.push(exact);
+  }
+
+  const salientTerms = tokenizeSalientRecallTerms(query);
+  if (salientTerms.length > 0) {
+    const salientAnd = salientTerms.map(quoteFtsToken).join(" ");
+    if (salientAnd && !queries.includes(salientAnd)) {
+      queries.push(salientAnd);
+    }
+
+    if (salientTerms.length > 1) {
+      const salientOr = salientTerms.map(quoteFtsToken).join(" OR ");
+      if (!queries.includes(salientOr)) {
+        queries.push(salientOr);
+      }
+    }
+  }
+
+  return queries;
+}
+
+function quoteFtsToken(token: string): string {
+  return `"${token.replace(/"/g, '""')}"`;
+}
+
+function tokenizeSalientRecallTerms(text: string): string[] {
+  const terms = (text.toLowerCase().match(/[a-z0-9_]+/g) ?? []).filter(
+    (term) => term.length >= 2 && !NON_SALIENT_RECALL_TERMS.has(term),
+  );
+  return [...new Set(terms)].slice(0, 12);
+}
+
+function mergeConversationRows(
+  existing: readonly ConversationEvidenceRow[],
+  next: readonly ConversationEvidenceRow[],
+): ConversationEvidenceRow[] {
+  const seen = new Set(existing.map((row) => row.message_id));
+  const merged = [...existing];
+  for (const row of next) {
+    if (seen.has(row.message_id)) {
+      continue;
+    }
+    seen.add(row.message_id);
+    merged.push(row);
+  }
+  return merged;
+}
+
+function scoreConversationRow(
+  row: ConversationEvidenceRow,
+  query: string,
+): number {
+  const queryTerms = tokenizeSalientRecallTerms(query);
+  if (queryTerms.length === 0) {
+    return 0;
+  }
+
+  const haystackTerms = new Set(
+    tokenizeSalientRecallTerms(`${row.title ?? ""}\n${row.content}`),
+  );
+  const matchedTerms = queryTerms.filter((term) => haystackTerms.has(term));
+  const titleTerms = new Set(tokenizeSalientRecallTerms(row.title ?? ""));
+  const titleMatches = queryTerms.filter((term) => titleTerms.has(term));
+  return matchedTerms.length / queryTerms.length + titleMatches.length * 0.05;
+}
+
+function compareScoredConversationRows(
+  a: { row: ConversationEvidenceRow; score: number },
+  b: { row: ConversationEvidenceRow; score: number },
+): number {
+  const scoreCompare = b.score - a.score;
+  if (scoreCompare !== 0) return scoreCompare;
+  return b.row.created_at - a.row.created_at;
 }
 
 function buildLikePattern(query: string): string {

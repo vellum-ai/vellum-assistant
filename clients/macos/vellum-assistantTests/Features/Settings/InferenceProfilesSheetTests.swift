@@ -125,7 +125,7 @@ final class InferenceProfilesSheetTests: XCTestCase {
             thinkingEnabled: false
         )
         let summary = InferenceProfilesSheet.summary(for: profile, store: store)
-        XCTAssertEqual(summary, "Claude Haiku 4.5 \u{00B7} low effort \u{00B7} thinking off")
+        XCTAssertEqual(summary, "Claude Haiku 4.5 \u{00B7} thinking off")
     }
 
     func testSummaryFallsBackToInheritsDefaultsForEmptyFragment() {

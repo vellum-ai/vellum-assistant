@@ -10,8 +10,8 @@ import {
   getProvider,
 } from "../../../oauth/oauth-store.js";
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { openInHostBrowser } from "../../../util/browser.js";
-import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -357,7 +357,7 @@ Examples:
 
             if (dbApp) {
               if (!clientId) clientId = dbApp.clientId;
-              const storedSecret = await getSecureKeyViaDaemon(
+              const storedSecret = await getSecureKeyAsync(
                 dbApp.clientSecretCredentialPath,
               );
               if (storedSecret) clientSecret = storedSecret;

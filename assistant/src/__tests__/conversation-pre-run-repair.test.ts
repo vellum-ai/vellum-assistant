@@ -1,324 +1,165 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-import type { Message, ProviderResponse } from "../providers/types.js";
-
-// Capture messages passed to agentLoop.run
-let capturedRunMessages: Message[] = [];
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
-}));
-
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
-}));
-
-mock.module("../providers/registry.js", () => ({
-  getProvider: () => ({ name: "mock-provider" }),
-  initializeProviders: () => {},
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-
-    llm: {
-      default: {
-        provider: "mock-provider",
-        model: "mock-model",
-        maxTokens: 4096,
-        effort: "max" as const,
-        speed: "standard" as const,
-        temperature: null,
-        thinking: { enabled: false, streamThinking: true },
-        contextWindow: {
-          enabled: true,
-          maxInputTokens: 100000,
-          targetBudgetRatio: 0.3,
-          compactThreshold: 0.8,
-          summaryBudgetRatio: 0.05,
-          overflowRecovery: {
-            enabled: true,
-            safetyMarginRatio: 0.05,
-            maxAttempts: 3,
-            interactiveLatestTurnCompression: "summarize",
-            nonInteractiveLatestTurnCompression: "truncate",
-          },
-        },
-      },
-      profiles: {},
-      callSites: {},
-      pricingOverrides: [],
-    },
-    rateLimit: { maxRequestsPerMinute: 0 },
-    daemon: {
-      startupSocketWaitMs: 5000,
-      stopTimeoutMs: 5000,
-      sigkillGracePeriodMs: 2000,
-      titleGenerationMaxTokens: 30,
-      standaloneRecording: true,
-    },
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-    },
-  }),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
-  invalidateConfigCache: () => {},
-}));
-
-mock.module("../prompts/system-prompt.js", () => ({
-  buildSystemPrompt: () => "system prompt",
-}));
-
-mock.module("../permissions/trust-store.js", () => ({
-  clearCache: () => {},
-}));
-
-mock.module("../security/secret-allowlist.js", () => ({
-  resetAllowlist: () => {},
-}));
-
-// Mock conversation store
-let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
-let mockConversation: Record<string, unknown> | null = null;
-
-mock.module("../memory/conversation-crud.js", () => ({
-  setConversationOriginChannelIfUnset: () => {},
-  updateConversationContextWindow: () => {},
-  deleteMessageById: () => {},
-  provenanceFromTrustContext: () => ({
-    source: "user",
-    trustContext: undefined,
-  }),
-  getConversationOriginInterface: () => null,
-  getConversationOriginChannel: () => null,
-  getMessages: () => mockDbMessages,
-  getConversation: () => mockConversation,
-  createConversation: () => ({ id: "conv-1" }),
-  addMessage: () => ({ id: "new-msg" }),
-  updateConversationUsage: () => {},
-  updateConversationTitle: () => {},
-  getMessageById: () => null,
-  getLastUserTimestampBefore: () => 0,
-}));
-
-mock.module("../memory/conversation-queries.js", () => ({
-  listConversations: () => [],
-}));
-
-// Mock memory retriever to be no-op
-mock.module("../memory/retriever.js", () => ({
-  buildMemoryRecall: async () => ({
-    enabled: false,
-    degraded: false,
-    injectedText: "",
-
-    semanticHits: 0,
-    injectedTokens: 0,
-    latencyMs: 0,
-  }),
-  injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
-}));
-
-// Mock AgentLoop to capture the messages it receives
-mock.module("../agent/loop.js", () => ({
-  AgentLoop: class {
-    constructor() {}
-    getToolTokenBudget() {
-      return 0;
-    }
-    getResolvedTools() {
-      return [];
-    }
-    getActiveModel() {
-      return undefined;
-    }
-    async run(
-      messages: Message[],
-      onEvent: (event: Record<string, unknown>) => void,
-    ): Promise<Message[]> {
-      capturedRunMessages = messages;
-      // Emit usage event so processMessage doesn't error
-      onEvent({
-        type: "usage",
-        inputTokens: 0,
-        outputTokens: 0,
-        model: "mock",
-        providerDurationMs: 0,
-      });
-      // Return messages with an assistant response appended
-      return [
-        ...messages,
-        { role: "assistant", content: [{ type: "text", text: "response" }] },
-      ];
-    }
-  },
-}));
-
-// Mock context window manager
-mock.module("../context/window-manager.js", () => ({
-  ContextWindowManager: class {
-    constructor() {}
-    shouldCompact() {
-      return { needed: false, estimatedTokens: 0 };
-    }
-    async maybeCompact() {
-      return { compacted: false };
-    }
-  },
-  createContextSummaryMessage: () => ({
-    role: "user",
-    content: [{ type: "text", text: "summary" }],
-  }),
-  getSummaryFromContextMessage: () => null,
-}));
-mock.module("../memory/canonical-guardian-store.js", () => ({
-  listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
-  listCanonicalGuardianRequests: () => [],
-  listPendingRequestsByConversationScope: () => [],
-  createCanonicalGuardianRequest: () => ({
-    id: "mock-cg-id",
-    code: "MOCK",
-    status: "pending",
-  }),
-  getCanonicalGuardianRequest: () => null,
-  getCanonicalGuardianRequestByCode: () => null,
-  updateCanonicalGuardianRequest: () => {},
-  resolveCanonicalGuardianRequest: () => {},
-  createCanonicalGuardianDelivery: () => ({ id: "mock-cgd-id" }),
-  listCanonicalGuardianDeliveries: () => [],
-  listPendingCanonicalGuardianRequestsByDestinationChat: () => [],
-  updateCanonicalGuardianDelivery: () => {},
-  generateCanonicalRequestCode: () => "MOCK-CODE",
-}));
-
-import { Conversation } from "../daemon/conversation.js";
-
-function makeConversation(): Conversation {
-  const provider = {
-    name: "mock",
-    async sendMessage(): Promise<ProviderResponse> {
-      return {
-        content: [{ type: "text", text: "hi" }],
-        model: "mock",
-        usage: { inputTokens: 0, outputTokens: 0 },
-        stopReason: "end_turn",
-      };
-    },
-  };
-  return new Conversation(
-    "conv-1",
-    provider,
-    "system prompt",
-    4096,
-    () => {},
-    "/tmp",
-  );
-}
+import { repairHistory } from "../daemon/history-repair.js";
+import type { Message } from "../providers/types.js";
 
 describe("pre-run history repair", () => {
-  test("broken runtime history gets fixed before provider call", async () => {
-    mockConversation = {
-      id: "conv-1",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-    };
-
-    // Simulate a corrupt in-memory state: assistant with tool_use but no tool_result follows
-    mockDbMessages = [
+  test("missing tool_result after tool_use gets synthesized", () => {
+    const messages: Message[] = [
       {
-        id: "m1",
         role: "user",
-        content: JSON.stringify([{ type: "text", text: "First" }]),
+        content: [{ type: "text", text: "First" }],
       },
       {
-        id: "m2",
         role: "assistant",
-        content: JSON.stringify([
+        content: [
           { type: "tool_use", id: "tu_1", name: "bash", input: { cmd: "ls" } },
-        ]),
+        ],
       },
-      // Missing tool_result user message — repaired during loadFromDb
-      // but we want to verify pre-run repair also works independently
+      // Missing tool_result user message
+      {
+        role: "user",
+        content: [{ type: "text", text: "Next question" }],
+      },
     ];
 
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
+    const { messages: repaired, stats } = repairHistory(messages);
 
-    // loadFromDb already repaired, but let's corrupt the in-memory state
-    // by removing the synthetic user message to simulate a runtime drift
-    const messages = conversation.getMessages();
-    // After load repair: [user, assistant(tool_use), user(synthetic_tool_result)]
-    // Remove the synthetic user to simulate runtime corruption
-    messages.pop();
-
-    capturedRunMessages = [];
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage("Next question", [], (msg) =>
-      events.push(msg as unknown as Record<string, unknown>),
+    // The user message after the assistant should now contain a tool_result
+    const assistantIdx = repaired.findIndex((m) =>
+      m.content.some((b) => b.type === "tool_use"),
     );
+    const nextUser = repaired[assistantIdx + 1];
+    expect(nextUser).toBeDefined();
+    expect(nextUser.role).toBe("user");
 
-    // The messages passed to agentLoop.run should have been repaired
-    // Find all tool_use blocks without matching tool_result
-    const assistantMsgs = capturedRunMessages.filter(
-      (m) => m.role === "assistant",
+    const hasResult = nextUser.content.some(
+      (b) => b.type === "tool_result" && b.tool_use_id === "tu_1",
     );
-    for (const aMsg of assistantMsgs) {
-      const toolUseBlocks = aMsg.content.filter((b) => b.type === "tool_use");
-      if (toolUseBlocks.length === 0) continue;
-
-      // Find the next user message
-      const aIdx = capturedRunMessages.indexOf(aMsg);
-      const nextMsg = capturedRunMessages[aIdx + 1];
-      expect(nextMsg).toBeDefined();
-      expect(nextMsg.role).toBe("user");
-
-      for (const tu of toolUseBlocks) {
-        if (tu.type !== "tool_use") continue;
-        const hasResult = nextMsg.content.some(
-          (b) => b.type === "tool_result" && b.tool_use_id === tu.id,
-        );
-        expect(hasResult).toBe(true);
-      }
-    }
+    expect(hasResult).toBe(true);
+    expect(stats.missingToolResultsInserted).toBe(1);
   });
 
-  test("existing memory-recall injection still works", async () => {
-    mockConversation = {
-      id: "conv-1",
-      contextSummary: null,
-      contextCompactedMessageCount: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalEstimatedCost: 0,
-    };
-    mockDbMessages = [];
+  test("trailing tool_use with no following message gets synthetic result appended", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Do something" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "bash",
+            input: { cmd: "echo hi" },
+          },
+        ],
+      },
+    ];
 
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
+    const { messages: repaired, stats } = repairHistory(messages);
 
-    capturedRunMessages = [];
-    await conversation.processMessage("Hello", [], () => {});
+    expect(repaired).toHaveLength(3);
+    const syntheticUser = repaired[2];
+    expect(syntheticUser.role).toBe("user");
+    expect(
+      syntheticUser.content.some(
+        (b) => b.type === "tool_result" && b.tool_use_id === "tu_2",
+      ),
+    ).toBe(true);
+    expect(stats.missingToolResultsInserted).toBe(1);
+  });
 
-    // Should have a user message in the captured run messages
-    expect(capturedRunMessages.length).toBeGreaterThanOrEqual(1);
-    const userMsg = capturedRunMessages.find((m) => m.role === "user");
-    expect(userMsg).toBeDefined();
+  test("tool_result in assistant message gets migrated to user message", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_3",
+            name: "bash",
+            input: { cmd: "ls" },
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "tu_3",
+            content: "file.txt",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Thanks" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    // Assistant message should no longer contain tool_result
+    const assistant = repaired.find((m) => m.role === "assistant")!;
+    expect(assistant.content.every((b) => b.type !== "tool_result")).toBe(true);
+
+    // A user message between assistant and final user should have the result
+    const assistantIdx = repaired.indexOf(assistant);
+    const nextUser = repaired[assistantIdx + 1];
+    expect(nextUser.role).toBe("user");
+    expect(
+      nextUser.content.some(
+        (b) => b.type === "tool_result" && b.tool_use_id === "tu_3",
+      ),
+    ).toBe(true);
+    expect(stats.assistantToolResultsMigrated).toBe(1);
+  });
+
+  test("consecutive same-role messages get merged", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "First" }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Second" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Reply" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(2);
+    expect(repaired[0].role).toBe("user");
+    expect(repaired[0].content).toHaveLength(2);
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+  });
+
+  test("clean history passes through unchanged", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(repaired).toHaveLength(2);
+    expect(stats.missingToolResultsInserted).toBe(0);
+    expect(stats.assistantToolResultsMigrated).toBe(0);
+    expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(stats.consecutiveSameRoleMerged).toBe(0);
   });
 });

@@ -68,7 +68,7 @@ export function recordEvent(
   return event;
 }
 
-export function getRecentEvents(limit = 20): SequenceEvent[] {
+function getRecentEvents(limit = 20): SequenceEvent[] {
   return eventLog.slice(-limit).reverse();
 }
 

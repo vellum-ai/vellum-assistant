@@ -1,17 +1,37 @@
-import type { DeterministicRecallSearchResult } from "./search.js";
+import type {
+  DeterministicRecallSearchResult,
+  DeterministicRecallSourceNote,
+} from "./search.js";
 import type { RecallAnswer, RecallEvidence } from "./types.js";
 
 const CITATION_EXCERPT_MAX_CHARS = 280;
 
+export interface RecallFooterInspectCall {
+  paths: readonly string[];
+  errors?: readonly { path: string; reason: string }[];
+}
+
+export interface RecallFooterOptions {
+  searchedSources: readonly DeterministicRecallSourceNote[];
+  inspectCalls?: readonly RecallFooterInspectCall[];
+}
+
+export interface FormatDeterministicRecallAnswerOptions {
+  inspectCalls?: readonly RecallFooterInspectCall[];
+}
+
 export function formatDeterministicRecallAnswer(
   result: DeterministicRecallSearchResult,
+  options: FormatDeterministicRecallAnswerOptions = {},
 ): RecallAnswer {
   if (result.evidence.length === 0) {
     return {
       answer: [
         "No reliable results found.",
-        formatSearchedSources(result),
-        formatDegradedSources(result),
+        formatRecallFooter({
+          searchedSources: result.searchedSources,
+          inspectCalls: options.inspectCalls,
+        }),
       ]
         .filter(Boolean)
         .join("\n"),
@@ -23,13 +43,26 @@ export function formatDeterministicRecallAnswer(
     answer: [
       "Found evidence:",
       ...result.evidence.map(formatCitation),
-      formatSearchedSources(result),
-      formatDegradedSources(result),
+      formatRecallFooter({
+        searchedSources: result.searchedSources,
+        inspectCalls: options.inspectCalls,
+      }),
     ]
       .filter(Boolean)
       .join("\n"),
     evidence: result.evidence,
   };
+}
+
+export function formatRecallFooter(options: RecallFooterOptions): string {
+  return [
+    formatSearchedSources(options.searchedSources),
+    formatDegradedSources(options.searchedSources),
+    formatInspectedWorkspacePaths(options.inspectCalls ?? []),
+    formatWorkspaceInspectionIssues(options.inspectCalls ?? []),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function formatCitation(evidence: RecallEvidence, index: number): string {
@@ -38,22 +71,20 @@ function formatCitation(evidence: RecallEvidence, index: number): string {
 }
 
 function formatSearchedSources(
-  result: DeterministicRecallSearchResult,
+  searchedSources: readonly DeterministicRecallSourceNote[],
 ): string {
-  if (result.searchedSources.length === 0) {
+  if (searchedSources.length === 0) {
     return "";
   }
-  return `Searched sources: ${result.searchedSources
+  return `Searched sources: ${searchedSources
     .map((note) => note.source)
     .join(", ")}.`;
 }
 
 function formatDegradedSources(
-  result: DeterministicRecallSearchResult,
+  searchedSources: readonly DeterministicRecallSourceNote[],
 ): string {
-  const degraded = result.searchedSources.filter(
-    (note) => note.status === "degraded",
-  );
+  const degraded = searchedSources.filter((note) => note.status === "degraded");
   if (degraded.length === 0) {
     return "";
   }
@@ -67,6 +98,41 @@ function formatDegradedSources(
     .join(", ")}.`;
 }
 
+function formatInspectedWorkspacePaths(
+  inspectCalls: readonly RecallFooterInspectCall[],
+): string {
+  const inspectedPaths = dedupeStrings(
+    inspectCalls.flatMap((call) => {
+      const errorPaths = new Set(
+        (call.errors ?? []).map((error) => error.path),
+      );
+      return call.paths.filter((path) => !errorPaths.has(path));
+    }),
+  );
+  if (inspectedPaths.length === 0) {
+    return "";
+  }
+
+  return `Inspected workspace paths: ${inspectedPaths.join(", ")}.`;
+}
+
+function formatWorkspaceInspectionIssues(
+  inspectCalls: readonly RecallFooterInspectCall[],
+): string {
+  const errors = dedupeStrings(
+    inspectCalls.flatMap((call) =>
+      (call.errors ?? []).map(
+        (error) => `${error.path} (${compactText(error.reason, 120)})`,
+      ),
+    ),
+  );
+  if (errors.length === 0) {
+    return "";
+  }
+
+  return `Workspace inspection issues: ${errors.join(", ")}.`;
+}
+
 function compactText(text: string, maxChars: number): string {
   const compacted = text.trim().replace(/\s+/g, " ");
   if (compacted.length <= maxChars) {
@@ -76,4 +142,19 @@ function compactText(text: string, maxChars: number): string {
     return compacted.slice(0, maxChars);
   }
   return `${compacted.slice(0, maxChars - 3).trimEnd()}...`;
+}
+
+function dedupeStrings(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    deduped.push(value);
+  }
+
+  return deduped;
 }

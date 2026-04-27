@@ -293,7 +293,7 @@ describe("reconcileTelegramWebhook", () => {
     delete process.env.IS_CONTAINERIZED;
   });
 
-  test("registers via env vars when credential cache has no platform values", async () => {
+  test("registers via credential cache for assistant ID", async () => {
     const calls: {
       method: string;
       body: unknown;
@@ -301,14 +301,13 @@ describe("reconcileTelegramWebhook", () => {
     }[] = [];
     process.env.IS_CONTAINERIZED = "true";
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
-    process.env.PLATFORM_ASSISTANT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-from-env";
 
     const caches = makeCaches({
       ingressUrl: undefined,
       platformBaseUrl: undefined,
       assistantApiKey: undefined,
-      platformAssistantId: undefined,
+      platformAssistantId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
     });
 
     fetchMock = mock(
@@ -371,11 +370,10 @@ describe("reconcileTelegramWebhook", () => {
 
     delete process.env.IS_CONTAINERIZED;
     delete process.env.VELLUM_PLATFORM_URL;
-    delete process.env.PLATFORM_ASSISTANT_ID;
     delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
-  test("env vars take precedence for auth key and assistant ID, cache for base URL", async () => {
+  test("credential cache for assistant ID and base URL, env for auth key", async () => {
     const calls: {
       method: string;
       body: unknown;
@@ -383,7 +381,6 @@ describe("reconcileTelegramWebhook", () => {
     }[] = [];
     process.env.IS_CONTAINERIZED = "true";
     process.env.VELLUM_PLATFORM_URL = "https://env-platform.example.com";
-    process.env.PLATFORM_ASSISTANT_ID = "env-assistant-id";
     process.env.PLATFORM_INTERNAL_API_KEY = "env-internal-key";
 
     const caches = makeCaches({
@@ -408,7 +405,7 @@ describe("reconcileTelegramWebhook", () => {
           return new Response(
             JSON.stringify({
               callback_url:
-                "https://cache-platform.example.com/v1/gateway/callbacks/env-assistant-id/webhooks/telegram/",
+                "https://cache-platform.example.com/v1/gateway/callbacks/cache-assistant-id/webhooks/telegram/",
             }),
             {
               status: 201,
@@ -438,28 +435,26 @@ describe("reconcileTelegramWebhook", () => {
     expect(calls).toHaveLength(3);
     expect(calls[0].method).toBe("registerCallbackRoute");
     // platform_base_url: credential cache takes precedence over env var
-    // PLATFORM_ASSISTANT_ID and PLATFORM_INTERNAL_API_KEY: env var takes
+    // PLATFORM_INTERNAL_API_KEY: env var takes
     // precedence, matching the daemon's resolvePlatformCallbackRegistrationContext().
     expect(calls[0].body).toEqual({
-      assistant_id: "env-assistant-id",
+      assistant_id: "cache-assistant-id",
       callback_path: "webhooks/telegram",
       type: "telegram",
     });
     expect(calls[0].headers?.Authorization).toBe("Bearer env-internal-key");
     // Registration URL should use cache platform URL
     expect((calls[2].body as any).url).toBe(
-      "https://cache-platform.example.com/v1/gateway/callbacks/env-assistant-id/webhooks/telegram/",
+      "https://cache-platform.example.com/v1/gateway/callbacks/cache-assistant-id/webhooks/telegram/",
     );
 
     delete process.env.IS_CONTAINERIZED;
     delete process.env.VELLUM_PLATFORM_URL;
-    delete process.env.PLATFORM_ASSISTANT_ID;
     delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 
   test("skips registration when no platform URL is available from cache or env", async () => {
     process.env.IS_CONTAINERIZED = "true";
-    process.env.PLATFORM_ASSISTANT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
     process.env.PLATFORM_INTERNAL_API_KEY = "internal-key-from-env";
     delete process.env.VELLUM_PLATFORM_URL;
 
@@ -478,7 +473,6 @@ describe("reconcileTelegramWebhook", () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     delete process.env.IS_CONTAINERIZED;
-    delete process.env.PLATFORM_ASSISTANT_ID;
     delete process.env.PLATFORM_INTERNAL_API_KEY;
   });
 

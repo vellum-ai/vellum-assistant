@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock state
 // ---------------------------------------------------------------------------
 
-let mockShouldUsePlatformCallbacks = false;
+let mockGetIsPlatform = false;
 let mockRegisterCallbackRoute: (
   path: string,
   type: string,
@@ -24,8 +24,11 @@ let mockPlatformContext: Record<string, unknown> = {
 // Mocks
 // ---------------------------------------------------------------------------
 
+mock.module("../../../config/env-registry.js", () => ({
+  getIsPlatform: () => mockGetIsPlatform,
+}));
+
 mock.module("../../../inbound/platform-callback-registration.js", () => ({
-  shouldUsePlatformCallbacks: () => mockShouldUsePlatformCallbacks,
   registerCallbackRoute: (path: string, type: string) =>
     mockRegisterCallbackRoute(path, type),
   resolvePlatformCallbackRegistrationContext: async () => mockPlatformContext,
@@ -33,13 +36,8 @@ mock.module("../../../inbound/platform-callback-registration.js", () => ({
 }));
 
 mock.module("../../lib/daemon-credential-client.js", () => ({
-  getSecureKeyViaDaemon: async () => undefined,
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
   setSecureKeyViaDaemon: async () => false,
-  getSecureKeyResultViaDaemon: async () => ({
-    value: undefined,
-    unreachable: false,
-  }),
 }));
 
 const realLogger = await import("../../../util/logger.js");
@@ -141,7 +139,7 @@ function connectedContext(
 
 describe("assistant webhooks register", () => {
   beforeEach(() => {
-    mockShouldUsePlatformCallbacks = false;
+    mockGetIsPlatform = false;
     mockRegisterCallbackRoute = async () => "";
     mockPublicBaseUrl = null;
     mockPlatformContext = {
@@ -163,7 +161,7 @@ describe("assistant webhooks register", () => {
 
   describe("platform mode", () => {
     test("registers callback route and returns platform URL", async () => {
-      mockShouldUsePlatformCallbacks = true;
+      mockGetIsPlatform = true;
       mockRegisterCallbackRoute = async (path, type) => {
         expect(path).toBe("webhooks/telegram");
         expect(type).toBe("telegram");
@@ -188,7 +186,7 @@ describe("assistant webhooks register", () => {
     });
 
     test("derives twilio_voice path correctly", async () => {
-      mockShouldUsePlatformCallbacks = true;
+      mockGetIsPlatform = true;
       mockRegisterCallbackRoute = async (path, type) => {
         expect(path).toBe("webhooks/twilio/voice");
         expect(type).toBe("twilio_voice");
@@ -210,7 +208,7 @@ describe("assistant webhooks register", () => {
     });
 
     test("handles platform registration failure", async () => {
-      mockShouldUsePlatformCallbacks = true;
+      mockGetIsPlatform = true;
       mockRegisterCallbackRoute = async () => {
         throw new Error("Platform unreachable");
       };
@@ -230,7 +228,7 @@ describe("assistant webhooks register", () => {
 
   describe("self-hosted mode", () => {
     test("builds URL from ingress.publicBaseUrl", async () => {
-      mockShouldUsePlatformCallbacks = false;
+      mockGetIsPlatform = false;
       mockPublicBaseUrl = "https://abc123.ngrok-free.app";
 
       const { stdout } = await runAssistantCommandFull(
@@ -249,7 +247,7 @@ describe("assistant webhooks register", () => {
     });
 
     test("fails when no public base URL is configured", async () => {
-      mockShouldUsePlatformCallbacks = false;
+      mockGetIsPlatform = false;
       mockPublicBaseUrl = null;
 
       const { stdout } = await runAssistantCommandFull(
@@ -267,7 +265,7 @@ describe("assistant webhooks register", () => {
 
   describe("non-JSON mode emits raw URL", () => {
     test("outputs only the callback URL for shell capture", async () => {
-      mockShouldUsePlatformCallbacks = false;
+      mockGetIsPlatform = false;
       mockPublicBaseUrl = "https://abc123.ngrok-free.app";
 
       const { stdout } = await runAssistantCommandFull(
@@ -296,7 +294,7 @@ describe("assistant webhooks register", () => {
 
     for (const [type, expectedPath] of cases) {
       test(`${type} → ${expectedPath}`, async () => {
-        mockShouldUsePlatformCallbacks = false;
+        mockGetIsPlatform = false;
         mockPublicBaseUrl = "https://test.ngrok-free.app";
 
         const { stdout } = await runAssistantCommandFull(
@@ -318,7 +316,7 @@ describe("assistant webhooks register", () => {
 
   describe("--path override", () => {
     test("overrides the derived path", async () => {
-      mockShouldUsePlatformCallbacks = false;
+      mockGetIsPlatform = false;
       mockPublicBaseUrl = "https://tunnel.ngrok-free.app";
 
       const { stdout } = await runAssistantCommandFull(
@@ -340,7 +338,7 @@ describe("assistant webhooks register", () => {
     });
 
     test("works with --path on platform mode", async () => {
-      mockShouldUsePlatformCallbacks = true;
+      mockGetIsPlatform = true;
       mockRegisterCallbackRoute = async (path, type) => {
         expect(path).toBe("webhooks/my-custom");
         expect(type).toBe("custom_provider");
@@ -366,7 +364,7 @@ describe("assistant webhooks register", () => {
   });
   describe("--source option", () => {
     test("passes source to registerCallbackRoute on platform mode", async () => {
-      mockShouldUsePlatformCallbacks = true;
+      mockGetIsPlatform = true;
       mockRegisterCallbackRoute = async (path, type) => {
         expect(path).toBe("webhooks/telegram");
         expect(type).toBe("telegram");

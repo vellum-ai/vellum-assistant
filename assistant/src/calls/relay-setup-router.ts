@@ -21,7 +21,7 @@ const log = getLogger("relay-setup-router");
 
 // ── Setup context ────────────────────────────────────────────────────
 
-export interface SetupContext {
+interface SetupContext {
   callSessionId: string;
   session: CallSession | null;
   from: string;
@@ -31,7 +31,7 @@ export interface SetupContext {
 
 // ── Setup outcomes ───────────────────────────────────────────────────
 
-export type SetupOutcome =
+type SetupOutcome =
   | { action: "normal_call"; isInbound: boolean }
   | {
       action: "verification";

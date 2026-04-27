@@ -28,25 +28,19 @@
 
 import {
   type ExtensionEnvironment,
+  cloudUrlsForEnvironment,
   parseExtensionEnvironment,
   resolveBuildDefaultEnvironment,
 } from './extension-environment.js';
 import {
-  listAssistants,
-  type AssistantDescriptor,
-  type AssistantCatalog,
-} from './native-host-assistants.js';
-import {
-  resolveAuthProfile,
   type AssistantAuthProfile,
 } from './assistant-auth-profile.js';
 import {
-  bootstrapLocalToken,
+  bootstrapDirectPairToken,
   getStoredLocalToken,
-
-  validateLocalToken,
+  getStoredGatewayUrl,
+  setStoredGatewayUrl,
   isLocalTokenStale,
-  LEGACY_LOCAL_STORAGE_KEY,
   type StoredLocalToken,
 } from './self-hosted-auth.js';
 import {
@@ -66,13 +60,22 @@ import {
   type RelayMode,
 } from './relay-connection.js';
 import { SseConnection, type SseMode } from './sse-connection.js';
+import { fetchAssistants } from './cloud-api.js';
+import {
+  startCloudLogin,
+  getStoredSession,
+  clearSession,
+  getSelectedAssistant,
+  storeSelectedAssistant,
+  clearSelectedAssistant,
+} from './cloud-auth.js';
 
 // ── Environment resolution ──────────────────────────────────────────
 //
 // The effective environment drives URL resolution. Precedence:
 //   1. Popup override persisted in chrome.storage.local
 //   2. Build-time default injected via `--define` at bundle time
-//   3. Fallback to 'dev' (see resolveBuildDefaultEnvironment)
+//   3. Fallback to 'production' (see resolveBuildDefaultEnvironment)
 //
 // The popup can read and write the override via `environment-get` and
 // `environment-set` worker messages without requiring an extension reload.
@@ -117,31 +120,17 @@ async function setOverrideEnvironment(env: ExtensionEnvironment | null): Promise
 }
 
 /**
- * Remove all stored auth tokens for every assistant
- * and clear the selected assistant ID. Called when the effective
- * environment changes so stale tokens minted against the previous
- * environment are not reused on the next connect. The selected assistant
- * ID is cleared because it references an assistant from the old
- * environment's catalog — the next `resolveSelectedAssistant` call will
- * auto-select from the new environment's catalog.
- *
- * Token storage keys use a well-known prefix
- * (`vellum.localCapabilityToken`) — we enumerate all storage keys and
- * remove those matching the prefix.
+ * Remove all stored auth tokens. Called when the effective environment
+ * changes so stale tokens minted against the previous environment are
+ * not reused on the next connect.
  */
 async function invalidateAuthTokens(): Promise<void> {
   const all = await chrome.storage.local.get(null);
   const keysToRemove = Object.keys(all).filter(
     (k) => k.startsWith('vellum.localCapabilityToken'),
   );
-  // Also clear the selected assistant — it belongs to the old
-  // environment's catalog and would cause the connect flow to either
-  // pick the wrong assistant or fall through to the legacy path.
-  keysToRemove.push(SELECTED_ASSISTANT_ID_KEY);
   await chrome.storage.local.remove(keysToRemove);
 }
-
-const DEFAULT_RELAY_PORT = 7830;
 
 // ── Stable client instance id ──────────────────────────────────────
 //
@@ -240,91 +229,13 @@ async function setAutoConnect(enabled: boolean): Promise<void> {
   }
 }
 
-// ── Assistant selection ─────────────────────────────────────────────
+// ── Self-hosted gateway URL ──────────────────────────────────────────
 //
-// The worker owns the selected-assistant lifecycle. The popup reads the
-// current catalog and selection via `assistants-get` and persists a new
-// choice via `assistant-select`. Selection is stored in
-// `chrome.storage.local` so it survives service-worker teardown.
-//
-// Selection resolution rules (applied by `resolveSelectedAssistant`):
-//   1. If exactly one assistant exists, auto-select it.
-//   2. If multiple assistants exist and the stored selection is still
-//      valid (present in the catalog), keep it.
-//   3. If multiple assistants exist and the stored selection is
-//      missing/invalid, default to the first assistant entry.
-//   4. If no assistants exist, return null (empty-state).
-
-const SELECTED_ASSISTANT_ID_KEY = 'vellum.selectedAssistantId';
-
-/**
- * Read the persisted selected-assistant ID from chrome.storage.local.
- * Returns `null` when nothing is stored or the value is not a string.
- */
-async function loadSelectedAssistantId(): Promise<string | null> {
-  const result = await chrome.storage.local.get(SELECTED_ASSISTANT_ID_KEY);
-  const stored = result[SELECTED_ASSISTANT_ID_KEY];
-  return typeof stored === 'string' && stored.length > 0 ? stored : null;
-}
-
-/**
- * Persist a selected-assistant ID in chrome.storage.local.
- */
-async function saveSelectedAssistantId(assistantId: string): Promise<void> {
-  await chrome.storage.local.set({ [SELECTED_ASSISTANT_ID_KEY]: assistantId });
-}
-
-/**
- * Apply the selection resolution rules described above.
- *
- * Returns the resolved assistant descriptor or `null` when the catalog
- * is empty. Also persists the resolved ID when it changes (auto-select
- * or invalid-stored-selection recovery) so subsequent reads don't
- * re-resolve.
- */
-async function resolveSelectedAssistant(
-  catalog: AssistantCatalog,
-): Promise<AssistantDescriptor | null> {
-  const { assistants } = catalog;
-  if (assistants.length === 0) return null;
-
-  // Rule 1: exactly one assistant — auto-select.
-  if (assistants.length === 1) {
-    await saveSelectedAssistantId(assistants[0]!.assistantId);
-    return assistants[0]!;
-  }
-
-  // Rule 2 / 3: multiple assistants — check stored selection.
-  const storedId = await loadSelectedAssistantId();
-  if (storedId) {
-    const match = assistants.find((a) => a.assistantId === storedId);
-    if (match) return match;
-  }
-
-  // Stored selection is missing or invalid — default to first entry.
-  const first = assistants[0]!;
-  await saveSelectedAssistantId(first.assistantId);
-  return first;
-}
-
-/**
- * Convenience: fetch the catalog and resolve the selected assistant in
- * one call. Used by the `assistants-get` message handler and by the
- * connect flow.
- */
-async function getAssistantCatalogAndSelection(): Promise<{
-  assistants: AssistantDescriptor[];
-  selected: AssistantDescriptor | null;
-  authProfile: AssistantAuthProfile | null;
-}> {
-  const environment = await getEffectiveEnvironment();
-  const catalog = await listAssistants({ environment });
-  const selected = await resolveSelectedAssistant(catalog);
-  const authProfile = selected
-    ? resolveAuthProfile({ cloud: selected.cloud, runtimeUrl: selected.runtimeUrl })
-    : null;
-  return { assistants: catalog.assistants, selected, authProfile };
-}
+// For self-hosted assistants the user provides a gateway URL (defaulting
+// to http://127.0.0.1:7830). The popup reads/writes this via
+// `gateway-url-get` and `gateway-url-set` messages. The connect flow
+// uses it to POST directly to `/v1/browser-extension-pair` and then
+// open a WebSocket relay to the same host.
 
 // ── Connection health state ──────────────────────────────────────────
 //
@@ -399,10 +310,9 @@ function setConnectionHealth(
 
 // ── Connection state ───────────────────────────────────────────────
 //
-// The connect path is driven entirely by the selected assistant's auth
-// profile (`local-pair` | `unsupported`) derived from
-// the selected assistant's lockfile topology. This determines both the
-// relay target and the token source.
+// The connect path is driven by the auth profile: `self-hosted` uses
+// the user-provided gateway URL + direct pair token, `vellum-cloud` uses
+// SSE + WorkOS session auth.
 
 /**
  * The auth profile of the currently connected (or last-attempted)
@@ -488,6 +398,9 @@ async function dispatchHostBrowserResult(
     if (mode.token) {
       headers['authorization'] = `Bearer ${mode.token}`;
     }
+    if (mode.organizationId) {
+      headers['Vellum-Organization-Id'] = mode.organizationId;
+    }
     const resp = await fetch(url, {
       method: 'POST',
       headers,
@@ -504,20 +417,13 @@ async function dispatchHostBrowserResult(
   }
 
   // Fallback path: no active connection (e.g. a stale result arriving
-  // after `disconnect()`).
-  // Self-hosted fallback: POST directly to the local assistant using the
-  // capability token from the native-messaging pair flow. If no paired
-  // token is available the result is dropped. When no assistant is
-  // selected, fall back to the legacy unscoped token key.
-  const selectedId = await loadSelectedAssistantId();
-  const local = selectedId
-    ? await getStoredLocalToken(selectedId)
-    : await getLegacyLocalToken();
+  // after `disconnect()`). Try the stored token for the current gateway URL.
+  const gatewayUrl = await getStoredGatewayUrl();
+  const local = await getStoredLocalToken(gatewayUrl);
   if (local) {
-    const fallbackPort = local.assistantPort ?? DEFAULT_RELAY_PORT;
     const fallbackMode: RelayMode = {
       kind: 'self-hosted',
-      baseUrl: `http://127.0.0.1:${fallbackPort}`,
+      baseUrl: gatewayUrl,
       token: local.token,
     };
     return postHostBrowserResult(fallbackMode, null, result);
@@ -568,107 +474,67 @@ const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher
 
 // ── Storage helpers ─────────────────────────────────────────────────
 
+/** Storage key for the user's chosen connection mode (welcome screen). */
+const USER_MODE_KEY = 'vellum.userMode';
+
+async function getStoredUserMode(): Promise<'self-hosted' | 'cloud' | null> {
+  try {
+    const result = await chrome.storage.local.get(USER_MODE_KEY);
+    const stored = result[USER_MODE_KEY];
+    if (stored === 'self-hosted' || stored === 'cloud') return stored;
+  } catch { /* best-effort */ }
+  return null;
+}
+
+async function setStoredUserMode(mode: 'self-hosted' | 'cloud'): Promise<void> {
+  await chrome.storage.local.set({ [USER_MODE_KEY]: mode });
+}
+
+async function clearStoredUserMode(): Promise<void> {
+  await chrome.storage.local.remove(USER_MODE_KEY);
+}
+
 /**
  * Read a local capability token from the legacy unscoped storage key
  * (`vellum.localCapabilityToken`). Used as a backward-compatible
  * fallback when no assistant is selected.
  */
-async function getLegacyLocalToken(): Promise<StoredLocalToken | null> {
-  const result = await chrome.storage.local.get(LEGACY_LOCAL_STORAGE_KEY);
-  return validateLocalToken(result[LEGACY_LOCAL_STORAGE_KEY]);
-}
-
 // ── Relay connection lifecycle ──────────────────────────────────────
 
 /**
- * Build the {@link RelayMode} for a given assistant descriptor. The
- * auth profile derived from the assistant's lockfile topology drives
- * which token to read and which base URL to target.
+ * Build the {@link RelayMode} for the self-hosted connect path.
+ * Reads the stored gateway URL and any existing capability token.
  *
- * For `local-pair`:
- *   - Read the assistant-scoped local capability token.
- *   - Target the local assistant runtime at `http://127.0.0.1:<port>`.
- *
- * When no assistant is selected (legacy fallback), the behavior mirrors
- * the pre-assistant-selection logic: read from legacy unscoped token
- * keys and use default endpoints.
+ * If the stored token is stale, attempts a silent re-pair before
+ * returning. Returns a token-less mode on failure so the caller
+ * can surface a missing-token error.
  */
-async function buildRelayModeForAssistant(
-  assistant: AssistantDescriptor | null,
-): Promise<RelayMode> {
-  if (!assistant) {
-    // No assistant selected — legacy fallback path.
-    const local = await getLegacyLocalToken();
-    if (local) {
-      const port = local.assistantPort ?? DEFAULT_RELAY_PORT;
-      return {
-        kind: 'self-hosted',
-        baseUrl: `http://127.0.0.1:${port}`,
-        token: local.token,
-      };
+async function buildSelfHostedRelayMode(): Promise<RelayMode> {
+  const gatewayUrl = await getStoredGatewayUrl();
+  let local = await getStoredLocalToken(gatewayUrl);
+
+  if (isLocalTokenStale(local)) {
+    try {
+      local = await bootstrapDirectPairToken(gatewayUrl);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[vellum-relay] Silent direct pair token refresh failed: ${detail}`,
+      );
     }
-    // No token at all — return a token-less self-hosted mode so the
-    // caller can surface a missing-token error.
-    const port = DEFAULT_RELAY_PORT;
+  }
+
+  if (local) {
     return {
       kind: 'self-hosted',
-      baseUrl: `http://127.0.0.1:${port}`,
-      token: null,
+      baseUrl: gatewayUrl,
+      token: local.token,
     };
   }
 
-  const profile = resolveAuthProfile({
-    cloud: assistant.cloud,
-    runtimeUrl: assistant.runtimeUrl,
-  });
-
-  if (profile === 'local-pair') {
-    let local = await getStoredLocalToken(assistant.assistantId);
-
-    // Silent token recovery: when the stored token is missing, expired,
-    // or stale (within the stale window), attempt a non-interactive
-    // bootstrap before surfacing a missing-token error. This lets
-    // returning local users with expired/stale pair tokens auto-recover
-    // without a manual re-pair click in startup/reconnect flows.
-    if (isLocalTokenStale(local)) {
-      try {
-        const environment = await getEffectiveEnvironment();
-        local = await bootstrapLocalToken(assistant.assistantId, { environment });
-      } catch (err) {
-        // Non-recoverable native-host failures (missing host, forbidden
-        // origin, pair endpoint failure) — leave the original `local`
-        // value unchanged so a stale-but-not-expired token can still be
-        // used. If the original was already null, nothing changes.
-        const detail = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[vellum-relay] Silent local token refresh failed: ${detail}`,
-        );
-      }
-    }
-
-    if (local) {
-      const port = local.assistantPort ?? assistant.daemonPort ?? DEFAULT_RELAY_PORT;
-      return {
-        kind: 'self-hosted',
-        baseUrl: `http://127.0.0.1:${port}`,
-        token: local.token,
-      };
-    }
-    // No local token yet — return token-less mode for the error path.
-    const port = assistant.daemonPort ?? DEFAULT_RELAY_PORT;
-    return {
-      kind: 'self-hosted',
-      baseUrl: `http://127.0.0.1:${port}`,
-      token: null,
-    };
-  }
-
-  // profile === 'unsupported'
-  // Return a token-less mode — the connect path will surface an
-  // actionable error.
   return {
     kind: 'self-hosted',
-    baseUrl: `http://127.0.0.1:${DEFAULT_RELAY_PORT}`,
+    baseUrl: gatewayUrl,
     token: null,
   };
 }
@@ -736,26 +602,16 @@ function createRelayConnection(
       // Re-read the stored capability token from `self-hosted-auth.ts`
       // on every reconnect. If pairing data is missing/expired we abort
       // reconnects and surface an actionable error.
-      const selectedId = await loadSelectedAssistantId();
-      let local = selectedId
-        ? await getStoredLocalToken(selectedId)
-        : await getLegacyLocalToken();
+      const gatewayUrl = await getStoredGatewayUrl();
+      let local = await getStoredLocalToken(gatewayUrl);
 
-      // Silent token recovery on reconnect: when the stored local token
-      // is stale/expired/missing, attempt a non-interactive bootstrap
-      // before aborting. This mirrors the preflight recovery in
-      // buildRelayModeForAssistant and lets auto-reconnect paths
-      // silently refresh tokens without user interaction.
-      if (isLocalTokenStale(local) && selectedId) {
+      if (isLocalTokenStale(local)) {
         try {
-          const environment = await getEffectiveEnvironment();
-          local = await bootstrapLocalToken(selectedId, { environment });
+          local = await bootstrapDirectPairToken(gatewayUrl);
         } catch (err) {
-          // Leave original `local` value unchanged so a stale-but-not-expired
-          // token can still be used on reconnect.
           const detail = err instanceof Error ? err.message : String(err);
           console.warn(
-            `[vellum-relay] Silent local token refresh on reconnect failed: ${detail}`,
+            `[vellum-relay] Silent direct pair token refresh on reconnect failed: ${detail}`,
           );
         }
       }
@@ -766,7 +622,7 @@ function createRelayConnection(
       return {
         kind: 'abort',
         error:
-          "Self-hosted relay token missing or expired. Use 'Re-pair' in Advanced, then turn Connection on again.",
+          'Self-hosted relay token missing or expired. Check the Gateway URL and make sure the assistant is running.',
       };
     },
   });
@@ -862,8 +718,8 @@ class MissingTokenError extends Error {
  * to the selected assistant's auth profile.
  */
 function missingTokenMessage(profile: AssistantAuthProfile | null): string {
-  if (profile === 'local-pair') {
-    return "Automatic local pairing failed \u2014 use 'Re-pair' in Advanced, then turn Connection on again";
+  if (profile === 'self-hosted') {
+    return "Pairing with gateway failed \u2014 check the Gateway URL and make sure the assistant is running, then try again";
   }
   if (profile === 'vellum-cloud') {
     return 'Vellum cloud session expired or unavailable. Sign in again to reconnect.';
@@ -871,8 +727,7 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
   if (profile === 'unsupported') {
     return 'This assistant uses an unsupported topology. Please update the Vellum extension.';
   }
-  // No assistant selected
-  return 'Select an assistant before connecting';
+  return 'Configure a gateway URL and turn Connection on to connect';
 }
 
 // ── Connect options ────────────────────────────────────────────────
@@ -888,8 +743,8 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
  * missing credentials trigger an interactive auth bootstrap.
  *
  * - `interactive: true` — the worker will auto-bootstrap auth when
- *   credentials are missing or stale. For `local-pair` this runs
- *   `bootstrapLocalToken`.
+ *   credentials are missing or stale. For `self-hosted` this runs
+ *   `bootstrapDirectPairToken`.
  * - `interactive: false` — the worker will NOT launch an interactive
  *   flow. Missing credentials produce a {@link MissingTokenError}.
  */
@@ -898,49 +753,32 @@ interface ConnectOptions {
 }
 
 /**
- * Resolve credentials for the selected assistant before the socket
- * opens. This is the single authority for whether auth is satisfied —
- * the popup no longer needs to pre-check pairing/sign-in state.
- *
- * For `local-pair`:
- *   - If the assistant-scoped local token is present and unexpired,
- *     the existing relay mode is returned as-is.
- *   - If the token is missing/expired and `interactive=true`, runs
- *     `bootstrapLocalToken({ assistantId })` and rebuilds the mode.
- *   - If the token is missing/expired and `interactive=false`, throws
- *     a {@link MissingTokenError}.
- *
- * Returns the (possibly refreshed) {@link RelayMode} ready for socket
- * open.
+ * Resolve credentials before the socket opens. For self-hosted, if
+ * the token is missing and the connect is interactive, bootstraps a
+ * fresh token via direct HTTP pair to the gateway.
  */
 async function connectPreflight(
-  assistant: AssistantDescriptor | null,
   authProfile: AssistantAuthProfile | null,
   mode: RelayMode,
   options: ConnectOptions,
 ): Promise<RelayMode> {
-  // Token already present — nothing to do.
   if (mode.token) {
     return mode;
   }
 
-  if (authProfile === 'local-pair') {
+  if (authProfile === 'self-hosted') {
     if (!options.interactive) {
-      throw new MissingTokenError(missingTokenMessage('local-pair'));
+      throw new MissingTokenError(missingTokenMessage('self-hosted'));
     }
-    // Interactive: auto-bootstrap the local capability token.
-    const assistantId = assistant?.assistantId ?? null;
-    const environment = await getEffectiveEnvironment();
-    const stored = await bootstrapLocalToken(assistantId, { environment });
-    const port = stored.assistantPort ?? assistant?.daemonPort ?? DEFAULT_RELAY_PORT;
+    const gatewayUrl = await getStoredGatewayUrl();
+    const stored = await bootstrapDirectPairToken(gatewayUrl);
     return {
       kind: 'self-hosted',
-      baseUrl: `http://127.0.0.1:${port}`,
+      baseUrl: gatewayUrl,
       token: stored.token,
     };
   }
 
-  // Unsupported or no assistant selected — preflight can't help.
   throw new MissingTokenError(missingTokenMessage(authProfile));
 }
 
@@ -991,52 +829,41 @@ async function doConnect(options: ConnectOptions): Promise<void> {
   // retrying, and we want the popup to stop nagging.
   await clearRelayAuthError();
 
-  // Resolve the selected assistant and derive the auth profile + relay
-  // mode. This replaces the old `loadRelayMode()` call — the assistant's
-  // lockfile topology is now the single source of truth for which
-  // transport and token to use.
-  const { selected, authProfile } = await getAssistantCatalogAndSelection();
-  currentAuthProfile = authProfile;
-
-  // Guard: unsupported topology produces an actionable error.
-  if (authProfile === 'unsupported') {
-    const msg = missingTokenMessage('unsupported');
-    console.warn(`[vellum-relay] ${msg}`);
-    throw new MissingTokenError(msg);
-  }
-
   // Tear down any stale connections before constructing new ones.
   teardownConnections();
 
-  // vellum-cloud: connect via SSE /events endpoint.
-  if (authProfile === 'vellum-cloud') {
-    if (!selected) {
-      throw new MissingTokenError('Select an assistant before connecting');
-    }
-    const sseMode: SseMode = {
-      kind: 'vellum-cloud',
-      runtimeUrl: selected.runtimeUrl,
-      assistantId: selected.assistantId,
-      token: null, // WorkOS session auth deferred — gateway handles auth via cookies/session
-    };
-    sseConnection = createSseConnection(sseMode);
-    sseConnection.start();
-    return;
-  }
+  const userMode = await getStoredUserMode();
 
-  // local-pair: connect via WebSocket relay.
-  const rawMode = await buildRelayModeForAssistant(selected);
-  // Run the preflight to resolve/bootstrap credentials. When
-  // interactive=true the preflight auto-pairs or auto-signs-in;
-  // when interactive=false it either refreshes non-interactively or
-  // throws MissingTokenError.
-  const mode = await connectPreflight(selected, authProfile, rawMode, options);
-  // Resolve the stable per-install id up front so every handshake
-  // (including reconnects on the freshly constructed RelayConnection)
-  // sends the same value. The call is cached after the first lookup.
-  const clientInstanceId = await getOrCreateClientInstanceId();
-  relayConnection = createRelayConnection(mode, clientInstanceId);
-  relayConnection.start();
+  if (userMode === 'cloud') {
+    // Cloud mode: connect via SSE to the platform API.
+    currentAuthProfile = 'vellum-cloud';
+    const session = await getStoredSession();
+    const selectedAssistant = await getSelectedAssistant();
+    if (!session || !selectedAssistant) {
+      setConnectionHealth('auth_required', {
+        lastErrorMessage: 'Sign in and select an assistant to connect.',
+      });
+      return;
+    }
+    const env = await getEffectiveEnvironment();
+    const { apiBaseUrl } = cloudUrlsForEnvironment(env);
+    sseConnection = createSseConnection({
+      kind: 'vellum-cloud',
+      runtimeUrl: apiBaseUrl,
+      assistantId: selectedAssistant.id,
+      token: null, // session cookie handles auth
+      organizationId: session.organizationId,
+    });
+    sseConnection.start();
+  } else {
+    // Self-hosted: connect via WebSocket relay to the local gateway.
+    currentAuthProfile = 'self-hosted';
+    const rawMode = await buildSelfHostedRelayMode();
+    const mode = await connectPreflight(currentAuthProfile, rawMode, options);
+    const clientInstanceId = await getOrCreateClientInstanceId();
+    relayConnection = createRelayConnection(mode, clientInstanceId);
+    relayConnection.start();
+  }
 }
 
 /**
@@ -1172,56 +999,27 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     return false;
   }
   if (message.type === 'self-hosted-pair') {
-    // Run the native-messaging
-    // bootstrap in the service worker so the popup closing mid-pair
-    // can't tear down the awaited promise before the token is persisted.
-    // chrome.runtime.connectNative also requires the "nativeMessaging"
-    // permission, which is declared in manifest.json.
-    //
-    // When no assistant is selected (legacy popup flow), fall back to
-    // bootstrapping without an assistantId — the token is persisted to
-    // the legacy unscoped key so existing connect behavior is preserved.
-    const assistantId =
-      typeof message.assistantId === 'string' ? message.assistantId : null;
-    (assistantId
-      ? Promise.resolve(assistantId)
-      : loadSelectedAssistantId()
-    )
-      .then(async (resolvedId) => {
-        const environment = await getEffectiveEnvironment();
-        const stored = await bootstrapLocalToken(resolvedId, { environment });
+    // Bootstrap a capability token by POSTing directly to the gateway's
+    // /v1/browser-extension-pair endpoint.
+    (async () => {
+      const gatewayUrl = await getStoredGatewayUrl();
+      const stored = await bootstrapDirectPairToken(gatewayUrl);
 
-        // If the relay is intended to be connected, rotate the live socket
-        // so the fresh paired token is applied immediately. Without this,
-        // a stale open socket (bound under a previous guardian/token) can
-        // remain in memory and keep failing host_browser routing until the
-        // user manually toggles Connection off/on.
-        if (shouldConnect || relayConnection) {
-          setConnectionHealth('reconnecting');
-          disconnect();
-          await connect({ interactive: false });
-        }
+      if (shouldConnect || relayConnection) {
+        setConnectionHealth('reconnecting');
+        disconnect();
+        await connect({ interactive: false });
+      }
 
-        return stored;
-      })
+      return stored;
+    })()
       .then((stored: StoredLocalToken) => sendResponseFn({ ok: true, token: stored }))
       .catch((err) => sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }));
     return true; // async
   }
-  if (message.type === 'assistants-get') {
-    // Returns the full assistant catalog, the resolved selected
-    // assistant, and the auth profile for the selected assistant.
-    // The popup uses this to render the assistant selector and decide
-    // which auth flow to present.
-    getAssistantCatalogAndSelection()
-      .then(({ assistants, selected, authProfile }) =>
-        sendResponseFn({
-          ok: true,
-          assistants,
-          selected,
-          authProfile,
-        }),
-      )
+  if (message.type === 'gateway-url-get') {
+    getStoredGatewayUrl()
+      .then((gatewayUrl) => sendResponseFn({ ok: true, gatewayUrl }))
       .catch((err) =>
         sendResponseFn({
           ok: false,
@@ -1230,88 +1028,47 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       );
     return true; // async
   }
-  if (message.type === 'assistant-select') {
-    // Persists a specific assistant ID and returns the resolved
-    // descriptor. The popup calls this when the user picks a different
-    // assistant from the dropdown.
-    const assistantId =
-      typeof message.assistantId === 'string' ? message.assistantId : null;
-    if (!assistantId) {
-      sendResponseFn({ ok: false, error: 'assistantId is required' });
+  if (message.type === 'gateway-url-set') {
+    const url =
+      typeof message.gatewayUrl === 'string' ? message.gatewayUrl.trim() : null;
+    if (!url) {
+      sendResponseFn({ ok: false, error: 'gatewayUrl is required' });
       return false;
     }
-    // Fetch a fresh catalog so the selected ID is validated against the
-    // current lockfile state — a stale ID from a previous session
-    // should not be persisted.
-    getEffectiveEnvironment()
-      .then((environment) => listAssistants({ environment }))
-      .then(async (catalog) => {
-        const match = catalog.assistants.find(
-          (a) => a.assistantId === assistantId,
-        );
-        if (!match) {
-          sendResponseFn({
-            ok: false,
-            error: `Assistant "${assistantId}" not found in the current catalog`,
-          });
-          return;
-        }
-        await saveSelectedAssistantId(assistantId);
-        const authProfile = resolveAuthProfile({
-          cloud: match.cloud,
-          runtimeUrl: match.runtimeUrl,
-        });
+    (async () => {
+      await setStoredGatewayUrl(url);
 
-        // When connected and the user switches assistants, tear down
-        // the current connection so the next connect targets the new
-        // assistant's relay endpoint and token.
-        if (shouldConnect && (relayConnection || sseConnection)) {
-          disconnect();
-          // Attempt a reconnect to the newly selected assistant.
-          // Interactive since the user is actively switching.
-          // Errors are non-fatal — the user can manually reconnect.
-          try {
-            await connect({ interactive: true });
-          } catch (err) {
-            // The assistant selection was already persisted and the old
-            // relay disconnected, so the switch itself succeeded regardless
-            // of whether the reconnect worked. MissingTokenError means no
-            // credentials at all; other errors (e.g. user cancels the
-            // auth flow or the native host is not installed) are
-            // transient. In both cases, log and continue — the user can
-            // manually reconnect via the Connect button.
-            shouldConnect = false;
-            const errorMessage =
-              err instanceof Error ? err.message : String(err);
-            console.warn(
-              `[vellum-relay] Assistant switch left disconnected: ${errorMessage}`,
-            );
-            // Transition health so the popup reflects the actual state
-            // instead of remaining stuck at 'connecting'.
-            if (err instanceof MissingTokenError) {
-              setConnectionHealth('auth_required', {
-                lastErrorMessage: errorMessage,
-              });
-            } else {
-              setConnectionHealth('error', {
-                lastErrorMessage: errorMessage,
-              });
-            }
+      // When connected, tear down and reconnect to the new gateway.
+      if (shouldConnect && (relayConnection || sseConnection)) {
+        disconnect();
+        try {
+          await connect({ interactive: true });
+        } catch (err) {
+          shouldConnect = false;
+          const errorMessage =
+            err instanceof Error ? err.message : String(err);
+          console.warn(
+            `[vellum-relay] Gateway URL switch left disconnected: ${errorMessage}`,
+          );
+          if (err instanceof MissingTokenError) {
+            setConnectionHealth('auth_required', {
+              lastErrorMessage: errorMessage,
+            });
+          } else {
+            setConnectionHealth('error', {
+              lastErrorMessage: errorMessage,
+            });
           }
         }
+      }
 
-        sendResponseFn({
-          ok: true,
-          selected: match,
-          authProfile,
-        });
-      })
-      .catch((err) =>
-        sendResponseFn({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+      sendResponseFn({ ok: true, gatewayUrl: url });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
     return true; // async
   }
   if (message.type === 'environment-get') {
@@ -1408,6 +1165,102 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     );
     return true; // async
   }
+
+  // ── Onboarding / session messages ─────────────────────────────────
+
+  if (message.type === 'get-session') {
+    (async () => {
+      const session = await getStoredSession();
+      const selectedAssistant = await getSelectedAssistant();
+      let mode = await getStoredUserMode();
+
+      // Backward compatibility: existing users who connected before
+      // the onboarding flow was added will have autoConnect=true but
+      // no userMode. Infer self-hosted so they skip the welcome screen.
+      if (!mode) {
+        const autoConnectResult = await chrome.storage.local.get(AUTO_CONNECT_KEY);
+        if (autoConnectResult[AUTO_CONNECT_KEY] === true) {
+          mode = 'self-hosted';
+          await setStoredUserMode('self-hosted');
+        }
+      }
+
+      sendResponseFn({
+        ok: true,
+        mode,
+        session: session ? { email: session.email } : null,
+        selectedAssistant,
+      });
+    })().catch(() => sendResponseFn({ ok: false, mode: null }));
+    return true; // async
+  }
+
+  if (message.type === 'set-mode') {
+    (async () => {
+      const newMode = message.mode as 'self-hosted' | 'cloud';
+      await setStoredUserMode(newMode);
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
+    return true; // async
+  }
+
+  if (message.type === 'cloud-login') {
+    (async () => {
+      const env = await getEffectiveEnvironment();
+      const session = await startCloudLogin(env);
+      let assistants: Array<{ id: string; name: string }> = [];
+      let assistantsError: string | undefined;
+      try {
+        assistants = await fetchAssistants(env);
+      } catch (err) {
+        assistantsError = err instanceof Error ? err.message : String(err);
+      }
+      await setStoredUserMode('cloud');
+      sendResponseFn({
+        ok: true,
+        session: { email: session.email },
+        assistants,
+        assistantsError,
+      });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return true; // async
+  }
+
+  if (message.type === 'cloud-logout') {
+    (async () => {
+      shouldConnect = false;
+      disconnect();
+      setConnectionHealth('paused');
+      await setAutoConnect(false);
+      await clearSession();
+      await clearSelectedAssistant();
+      await clearStoredUserMode();
+      sendResponseFn({ ok: true });
+    })().catch(() => sendResponseFn({ ok: true }));
+    return true; // async
+  }
+
+  if (message.type === 'select-assistant') {
+    (async () => {
+      const assistantId = message.assistantId as string;
+      const assistantName = message.assistantName as string;
+      await storeSelectedAssistant({ id: assistantId, name: assistantName });
+      sendResponseFn({ ok: true });
+    })().catch((err) =>
+      sendResponseFn({ ok: false, error: err instanceof Error ? err.message : String(err) }),
+    );
+    return true; // async
+  }
+
+  // Unknown message type — let Chrome close the port naturally.
+  return false;
 });
 
 // Auto-connect on service worker start if previously connected.

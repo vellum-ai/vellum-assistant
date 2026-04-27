@@ -24,7 +24,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 // Error types
 // ---------------------------------------------------------------------------
 
-export class WhatsAppNonRetryableError extends Error {
+class WhatsAppNonRetryableError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "WhatsAppNonRetryableError";

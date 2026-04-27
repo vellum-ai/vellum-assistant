@@ -9,7 +9,7 @@
  * every conv-scoped route) would be indistinguishable from a real
  * missing-conversation 404.
  */
-export const CONVERSATION_NOT_FOUND_CODE = "conversation_not_found";
+const CONVERSATION_NOT_FOUND_CODE = "conversation_not_found";
 
 /**
  * Build a 404 response for a missing conversation on a playground route.

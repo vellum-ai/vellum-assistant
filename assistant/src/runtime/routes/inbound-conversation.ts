@@ -2,7 +2,7 @@
  * Channel conversation deletion handler.
  */
 import { deleteConversationKey } from "../../memory/conversation-key-store.js";
-import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { deleteBindingByChannelChat } from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 
@@ -31,7 +31,7 @@ export async function handleDeleteConversation(
   if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
     const legacyKey = `${sourceChannel}:${conversationExternalId}`;
     deleteConversationKey(legacyKey);
-    externalConversationStore.deleteBindingByChannelChat(
+    deleteBindingByChannelChat(
       sourceChannel,
       conversationExternalId,
     );

@@ -27,7 +27,6 @@ import {
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
-import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
 import { getLogger } from "../util/logger.js";
 import { persistCallCompletionMessage } from "./call-conversation-messages.js";
 import { createInboundVoiceSession } from "./call-domain.js";
@@ -52,6 +51,13 @@ import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
 const log = getLogger("twilio-routes");
+
+/**
+ * Sentinel placeholder embedded in TwiML where the relay auth token should go.
+ * The gateway replaces this with a real JWT before returning TwiML to Twilio.
+ * This keeps the signing key out of the daemon for voice webhook responses.
+ */
+export const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
 
 // ── Speech config type ───────────────────────────────────────────────
 
@@ -490,7 +496,7 @@ function buildConversationRelayResponse(
 
   const relayUrl = getTwilioRelayUrl(cfg);
   const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
-  const relayToken = mintEdgeRelayToken();
+  const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
 
   // Propagate verificationSessionId as a TwiML <Parameter> for
   // observability. This is not the sole source of truth; the relay
@@ -532,7 +538,7 @@ function buildMediaStreamResponse(
   verificationSessionId: string | null | undefined,
 ): Response {
   const streamUrl = getTwilioMediaStreamUrl(cfg);
-  const relayToken = mintEdgeRelayToken();
+  const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
 
   const customParameters: Record<string, string> | undefined =
     verificationSessionId ? { verificationSessionId } : undefined;

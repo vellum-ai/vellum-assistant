@@ -1,11 +1,17 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type {
+  TurnChannelContext,
+  TurnInterfaceContext,
+} from "../channels/types.js";
 import type { Conversation } from "../daemon/conversation.js";
+import { persistUserMessage as persistUserMessageImpl } from "../daemon/conversation-messaging.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
 let mockedConfig: {
   secretDetection: { enabled: boolean };
   calls: { disclosure: { enabled: boolean; text: string } };
+  memory: { enabled: boolean };
 } = {
   secretDetection: { enabled: false },
   calls: {
@@ -14,6 +20,7 @@ let mockedConfig: {
       text: "",
     },
   },
+  memory: { enabled: false },
 };
 
 mock.module("../util/logger.js", () => ({
@@ -31,8 +38,13 @@ import {
   setVoiceBridgeDeps,
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
-import { createConversation } from "../memory/conversation-crud.js";
+import {
+  createConversation,
+  getMessages,
+} from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 initializeDb();
 
@@ -53,6 +65,7 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
     setTrustContext: () => {},
     setCommandIntent: () => {},
     setTurnChannelContext: () => {},
+    setTurnInterfaceContext: () => {},
     setVoiceCallControlPrompt: () => {},
     updateClient: () => {},
     ensureActorScopedHistory: async () => {},
@@ -68,6 +81,78 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
     handleConfirmationResponse: () => {},
     abort: () => {},
   } as unknown as Conversation;
+}
+
+function makePersistingStreamingSession(
+  conversationId: string,
+  events: ServerMessage[],
+): Conversation & { callSessionId?: string } {
+  type PersistUserMessageContext = Parameters<typeof persistUserMessageImpl>[0];
+
+  let turnChannelContext: TurnChannelContext | null = null;
+  let turnInterfaceContext: TurnInterfaceContext | null = null;
+  const session = {
+    conversationId,
+    messages: [],
+    processing: false,
+    abortController: null,
+    currentRequestId: undefined,
+    queue: {} as never,
+    trustContext: undefined,
+    memoryPolicy: {
+      scopeId: "default",
+      includeDefaultFallback: false,
+    },
+    isProcessing: () => session.processing,
+    persistUserMessage: async (
+      ...args: Parameters<Conversation["persistUserMessage"]>
+    ) => persistUserMessageImpl(session, ...args),
+    getTurnChannelContext: () => turnChannelContext,
+    getTurnInterfaceContext: () => turnInterfaceContext,
+    setChannelCapabilities: () => {},
+    setAssistantId: () => {},
+    setTrustContext: (ctx: Parameters<Conversation["setTrustContext"]>[0]) => {
+      session.trustContext = ctx ?? undefined;
+    },
+    setCommandIntent: () => {},
+    setTurnChannelContext: (ctx: TurnChannelContext) => {
+      turnChannelContext = ctx;
+    },
+    setTurnInterfaceContext: (ctx: TurnInterfaceContext) => {
+      turnInterfaceContext = ctx;
+    },
+    setVoiceCallControlPrompt: () => {},
+    updateClient: () => {},
+    ensureActorScopedHistory: async () => {},
+    runAgentLoop: async (
+      _content: string,
+      _messageId: string,
+      onEvent: (msg: ServerMessage) => void,
+    ) => {
+      for (const event of events) {
+        onEvent(event);
+      }
+      session.processing = false;
+      session.abortController = null;
+      session.currentRequestId = undefined;
+    },
+    handleConfirmationResponse: () => {},
+    abort: () => {},
+  } as unknown as Conversation &
+    PersistUserMessageContext & {
+      callSessionId?: string;
+    };
+
+  return session;
+}
+
+function parsePersistedMetadata(
+  metadata: string | null | undefined,
+): Record<string, unknown> {
+  if (!metadata) {
+    throw new Error("Expected persisted message metadata");
+  }
+  return JSON.parse(metadata) as Record<string, unknown>;
 }
 
 /**
@@ -90,10 +175,12 @@ describe("voice-session-bridge", () => {
           text: "",
         },
       },
+      memory: { enabled: false },
     };
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
+    pendingInteractions.clear();
   });
 
   test("throws when deps not injected", async () => {
@@ -191,6 +278,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: () => {},
       ensureActorScopedHistory: async () => {},
@@ -281,6 +369,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: () => {},
       ensureActorScopedHistory: async () => {},
@@ -346,6 +435,133 @@ describe("voice-session-bridge", () => {
     expect(capturedTurnChannelContext).toEqual({
       userMessageChannel: "phone",
       assistantMessageChannel: "phone",
+    });
+  });
+
+  test("startVoiceTurn defaults persisted voice metadata to phone", async () => {
+    const conversation = createConversation(
+      "voice bridge phone metadata default test",
+    );
+    const events: ServerMessage[] = [
+      { type: "message_complete", conversationId: conversation.id },
+    ];
+    const session = makePersistingStreamingSession(conversation.id, events);
+    injectDeps(() => session);
+
+    let persistedUserMessageId: string | undefined;
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      content: "Hello",
+      isInbound: true,
+      onTextDelta: () => {},
+      onComplete: () => {},
+      onError: () => {},
+      callbacks: {
+        persisted_user_message_id: (messageId) => {
+          persistedUserMessageId = messageId;
+        },
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const persisted = getMessages(conversation.id).find(
+      (message) => message.id === persistedUserMessageId,
+    );
+    const metadata = parsePersistedMetadata(persisted?.metadata);
+    expect(persisted).toBeDefined();
+    expect(metadata).toMatchObject({
+      userMessageChannel: "phone",
+      assistantMessageChannel: "phone",
+      userMessageInterface: "phone",
+      assistantMessageInterface: "phone",
+    });
+  });
+
+  test("startVoiceTurn can persist local live voice metadata and callbacks", async () => {
+    const conversation = createConversation(
+      "voice bridge local live voice metadata test",
+    );
+    const events: ServerMessage[] = [
+      {
+        type: "assistant_text_delta",
+        text: "Hi",
+        conversationId: conversation.id,
+      },
+      {
+        type: "message_complete",
+        conversationId: conversation.id,
+        messageId: "assistant-msg-1",
+      },
+    ];
+
+    let capturedTransport: { channelId: string } | undefined;
+    let capturedVoiceSessionId: string | undefined;
+    const capturedPrompts: Array<string | null> = [];
+    const session = makePersistingStreamingSession(conversation.id, events);
+    session.setVoiceCallControlPrompt = (prompt: string | null) => {
+      capturedPrompts.push(prompt);
+    };
+
+    setVoiceBridgeDeps({
+      getOrCreateConversation: async (_conversationId, transport) => {
+        capturedTransport = transport;
+        return session;
+      },
+      resolveAttachments: () => [],
+    });
+
+    const textDeltaEvents: ServerMessage[] = [];
+    const completeEvents: ServerMessage[] = [];
+    let persistedUserMessageId: string | undefined;
+    let persistedAssistantMessageId: string | undefined;
+
+    await startVoiceTurn({
+      conversationId: conversation.id,
+      voiceSessionId: "local-live-voice-session-1",
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
+      voiceControlPrompt:
+        "You are speaking in a local live voice session. Keep replies brief and conversational.",
+      content: "Hello from local live voice",
+      isInbound: true,
+      callbacks: {
+        assistant_text_delta: (msg) => textDeltaEvents.push(msg),
+        message_complete: (msg) => completeEvents.push(msg),
+        persisted_user_message_id: (messageId) => {
+          persistedUserMessageId = messageId;
+          capturedVoiceSessionId = session.callSessionId;
+        },
+        persisted_assistant_message_id: (messageId) => {
+          persistedAssistantMessageId = messageId;
+        },
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(capturedTransport).toEqual({ channelId: "vellum" });
+    expect(capturedVoiceSessionId).toBe("local-live-voice-session-1");
+    expect(capturedPrompts[0]).toBe(
+      "You are speaking in a local live voice session. Keep replies brief and conversational.",
+    );
+    expect(textDeltaEvents).toEqual([events[0]]);
+    expect(completeEvents).toEqual([events[1]]);
+    expect(persistedAssistantMessageId).toBe("assistant-msg-1");
+
+    const persisted = getMessages(conversation.id).find(
+      (message) => message.id === persistedUserMessageId,
+    );
+    const metadata = parsePersistedMetadata(persisted?.metadata);
+    expect(persisted).toBeDefined();
+    expect(metadata).toMatchObject({
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
     });
   });
 
@@ -449,6 +665,7 @@ describe("voice-session-bridge", () => {
           text: "At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent.",
         },
       },
+      memory: { enabled: false },
     };
 
     const conversation = createConversation(
@@ -521,6 +738,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
@@ -605,6 +823,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
@@ -672,6 +891,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
@@ -712,6 +932,106 @@ describe("voice-session-bridge", () => {
     expect(handleConfirmationCalls[0].decision).toBe("deny");
   });
 
+  test("publishes local live voice confirmation requests without auto-resolving them", async () => {
+    const conversation = createConversation(
+      "voice bridge local live voice approval test",
+    );
+
+    let clientHandler: (msg: ServerMessage) => void = () => {};
+    const handleConfirmationCalls: Array<{
+      requestId: string;
+      decision: string;
+    }> = [];
+    const publishedMessages: ServerMessage[] = [];
+    const subscription = assistantEventHub.subscribe(
+      {
+        assistantId: "self",
+        conversationId: conversation.id,
+      },
+      (event) => {
+        publishedMessages.push(event.message);
+      },
+    );
+
+    const session = {
+      isProcessing: () => false,
+      persistUserMessage: () => undefined as unknown as string,
+      memoryPolicy: {
+        scopeId: "default",
+        includeDefaultFallback: false,
+      },
+      setChannelCapabilities: () => {},
+      setAssistantId: () => {},
+      setTrustContext: () => {},
+      setCommandIntent: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      setVoiceCallControlPrompt: () => {},
+      updateClient: (handler: (msg: ServerMessage) => void) => {
+        clientHandler = handler;
+      },
+      ensureActorScopedHistory: async () => {},
+      runAgentLoop: async () => {
+        clientHandler({
+          type: "confirmation_request",
+          requestId: "req-local-live-voice",
+          toolName: "host_bash",
+          input: { command: "ls" },
+          riskLevel: "low",
+          allowlistOptions: [],
+          scopeOptions: [],
+          conversationId: conversation.id,
+        } as ServerMessage);
+      },
+      handleConfirmationResponse: (requestId: string, decision: string) => {
+        handleConfirmationCalls.push({ requestId, decision });
+      },
+      abort: () => {},
+    } as unknown as Conversation;
+
+    try {
+      injectDeps(() => session);
+
+      await startVoiceTurn({
+        conversationId: conversation.id,
+        approvalMode: "local-live-voice",
+        content: "List files",
+        isInbound: true,
+        trustContext: {
+          sourceChannel: "phone",
+          trustClass: "guardian",
+          guardianExternalUserId: "+12125550142",
+          guardianChatId: "+12125550142",
+        },
+        onTextDelta: () => {},
+        onComplete: () => {},
+        onError: () => {},
+      });
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(handleConfirmationCalls).toHaveLength(0);
+      expect(
+        publishedMessages.some(
+          (message) =>
+            message.type === "confirmation_request" &&
+            message.requestId === "req-local-live-voice",
+        ),
+      ).toBe(true);
+      expect(pendingInteractions.get("req-local-live-voice")).toMatchObject({
+        conversationId: conversation.id,
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "host_bash",
+          riskLevel: "low",
+        },
+      });
+    } finally {
+      pendingInteractions.resolve("req-local-live-voice");
+      subscription.dispose();
+    }
+  });
+
   test("auto-allows confirmation requests for guardian voice turns", async () => {
     const conversation = createConversation(
       "voice bridge auto-allow guardian test",
@@ -735,6 +1055,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
@@ -807,6 +1128,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: (handler: (msg: ServerMessage) => void) => {
         clientHandler = handler;
@@ -881,6 +1203,7 @@ describe("voice-session-bridge", () => {
       setTrustContext: () => {},
       setCommandIntent: () => {},
       setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
       setVoiceCallControlPrompt: () => {},
       updateClient: () => {},
       ensureActorScopedHistory: async () => {},

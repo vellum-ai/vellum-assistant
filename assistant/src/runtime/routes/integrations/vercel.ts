@@ -19,7 +19,7 @@ import type { RouteDefinition } from "../../http-router.js";
 /**
  * GET /v1/integrations/vercel/config
  */
-export async function handleGetVercelConfig(): Promise<Response> {
+async function handleGetVercelConfig(): Promise<Response> {
   const result = await getVercelConfig();
   return Response.json(result);
 }
@@ -32,7 +32,7 @@ export async function handleGetVercelConfig(): Promise<Response> {
  * The Swift client uses POST for both set and delete operations,
  * distinguished by the `action` field.
  */
-export async function handlePostVercelConfig(req: Request): Promise<Response> {
+async function handlePostVercelConfig(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     action?: "get" | "set" | "delete";
     apiToken?: string;
@@ -59,7 +59,7 @@ export async function handlePostVercelConfig(req: Request): Promise<Response> {
 /**
  * DELETE /v1/integrations/vercel/config
  */
-export async function handleDeleteVercelConfig(): Promise<Response> {
+async function handleDeleteVercelConfig(): Promise<Response> {
   const result = await deleteVercelConfig();
   return Response.json(result);
 }

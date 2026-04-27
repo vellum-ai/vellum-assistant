@@ -216,7 +216,7 @@ export interface WorkItemOutputResult {
   };
 }
 
-export function getWorkItemOutput(id: string): WorkItemOutputResult {
+function getWorkItemOutput(id: string): WorkItemOutputResult {
   const workItem = getWorkItem(id);
   if (!workItem) {
     return { success: false, error: "Work item not found" };
@@ -376,7 +376,7 @@ export interface ApprovePermissionsResult {
   error?: string;
 }
 
-export function approveWorkItemPermissions(
+function approveWorkItemPermissions(
   id: string,
   approvedTools: string[],
 ): ApprovePermissionsResult {

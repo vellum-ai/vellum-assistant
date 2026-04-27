@@ -39,7 +39,7 @@ import type { RouteDefinition } from "../http-router.js";
  * are still pending, mapped to the GuardianDecisionPrompt shape so clients
  * can render structured button UIs.
  */
-export function handleGuardianActionsPending(
+function handleGuardianActionsPending(
   url: URL,
   _authContext: AuthContext,
 ): Response {

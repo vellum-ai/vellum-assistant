@@ -68,6 +68,11 @@ struct MainWindowView: View {
     let settingsStore: SettingsStore
     let authManager: AuthManager
     let documentManager: DocumentManager
+    /// Shared observable store for ACP (Agent Client Protocol) sessions.
+    /// Owned by ``AppServices`` and threaded through here so the
+    /// ``ACPSessionsPanel`` route in ``PanelCoordinator`` can drive its
+    /// list off the same instance ``ConversationManager`` updates from SSE.
+    let acpSessionStore: ACPSessionStore
     let onMicrophoneToggle: () -> Void
     var voiceModeManager: VoiceModeManager
     var updateManager: UpdateManager
@@ -91,6 +96,7 @@ struct MainWindowView: View {
     @State var showAssistantLoading: Bool
     /// Whether the assistant loading has timed out (assistant unreachable).
     @State var assistantLoadingTimedOut = false
+    @State private var isPreparingVoiceMode = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State var isInFullscreen: Bool = false
     /// Long-lived store for the Home page. Constructed eagerly so the Home
@@ -114,7 +120,7 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var activeHomeDetailPanel: HomeDetailPanelKind? = nil
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, acpSessionStore: ACPSessionStore, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -130,6 +136,7 @@ struct MainWindowView: View {
         self.windowState = windowState
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.documentManager = documentManager
+        self.acpSessionStore = acpSessionStore
         self.onMicrophoneToggle = onMicrophoneToggle
         self.voiceModeManager = voiceModeManager
         self.updateManager = updateManager
@@ -172,12 +179,20 @@ struct MainWindowView: View {
         if voiceModeManager.state != .off {
             voiceModeManager.deactivate()
         } else {
-            // Ensure a conversation exists
-            if conversationManager.activeViewModel == nil {
-                conversationManager.enterDraftMode()
-            }
-            // Activate directly — voice bar appears automatically via ComposerSection
-            if let viewModel = conversationManager.activeViewModel {
+            guard !isPreparingVoiceMode else { return }
+            isPreparingVoiceMode = true
+            Task { @MainActor in
+                defer { isPreparingVoiceMode = false }
+
+                guard let viewModel = await conversationManager.prepareActiveConversationForVoiceMode() else {
+                    windowState.showToast(
+                        message: "Couldn't start voice mode. Check that the assistant is connected.",
+                        style: .error
+                    )
+                    return
+                }
+
+                guard voiceModeManager.state == .off else { return }
                 voiceModeManager.activate(chatViewModel: viewModel, settingsStore: settingsStore)
                 voiceModeManager.startListening()
             }
@@ -505,6 +520,16 @@ struct MainWindowView: View {
                     }
                     .vTooltip(homeTooltip)
                 }
+
+                VButton(
+                    label: "Coding Agents",
+                    iconOnly: VIcon.terminal.rawValue,
+                    style: .ghost,
+                    isActive: windowState.isRightSlotShowing(.acpSessions)
+                ) {
+                    windowState.toggleRightSlot(.acpSessions)
+                }
+                .vTooltip("Coding Agents")
 
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
                     AppDelegate.shared?.toggleCommandPalette()

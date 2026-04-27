@@ -6,12 +6,20 @@ final class ChatGreetingStateTests: XCTestCase {
 
     private final class StubConversationStarterClient: ConversationStarterClientProtocol {
         var responses: [ConversationStartersResponse?] = []
+        var deleteResults: [Bool] = []
         var fetchCallCount = 0
+        var deletedIds: [String] = []
 
         func fetchConversationStarters(limit: Int) async -> ConversationStartersResponse? {
             fetchCallCount += 1
             guard !responses.isEmpty else { return nil }
             return responses.removeFirst()
+        }
+
+        func deleteConversationStarter(id: String) async -> Bool {
+            deletedIds.append(id)
+            guard !deleteResults.isEmpty else { return true }
+            return deleteResults.removeFirst()
         }
     }
 
@@ -69,5 +77,51 @@ final class ChatGreetingStateTests: XCTestCase {
         XCTAssertEqual(client.fetchCallCount, 2)
 
         state.cancelAll()
+    }
+
+    func testRemoveConversationStarterOptimisticallyDeletesAndCallsClient() async {
+        let starters = [
+            makeStarter(id: "starter-1", label: "Starter 1"),
+            makeStarter(id: "starter-2", label: "Starter 2"),
+        ]
+        let client = StubConversationStarterClient()
+        client.deleteResults = [true]
+        let state = ChatGreetingState(conversationStarterClient: client)
+        state.conversationStarters = starters
+
+        state.removeConversationStarter(starters[0])
+        await Task.yield()
+
+        XCTAssertEqual(state.conversationStarters.map(\.id), ["starter-2"])
+        XCTAssertEqual(client.deletedIds, ["starter-1"])
+        XCTAssertEqual(client.fetchCallCount, 0)
+    }
+
+    func testRemoveConversationStarterRefetchesOnDeleteFailure() async {
+        let staleStarters = [
+            makeStarter(id: "starter-1", label: "Starter 1"),
+            makeStarter(id: "starter-2", label: "Starter 2"),
+        ]
+        let refreshedStarters = [
+            makeStarter(id: "starter-3", label: "Starter 3"),
+        ]
+        let client = StubConversationStarterClient()
+        client.deleteResults = [false]
+        client.responses = [
+            ConversationStartersResponse(
+                starters: refreshedStarters,
+                total: refreshedStarters.count,
+                status: "ready"
+            ),
+        ]
+        let state = ChatGreetingState(conversationStarterClient: client)
+        state.conversationStarters = staleStarters
+
+        state.removeConversationStarter(staleStarters[0])
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(client.deletedIds, ["starter-1"])
+        XCTAssertEqual(state.conversationStarters.map(\.id), ["starter-3"])
     }
 }

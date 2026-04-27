@@ -38,22 +38,6 @@ export interface PlatformCallbackRegistrationContext {
   enabled: boolean;
 }
 
-/**
- * Whether the **runtime** should automatically register callback routes.
- * True when IS_PLATFORM, VELLUM_PLATFORM_URL, and PLATFORM_ASSISTANT_ID
- * are all set — i.e. this is a platform-managed deployment.
- *
- * This is intentionally stricter than `context.enabled` (which also covers
- * self-hosted assistants with stored credentials). Runtime auto-registration
- * only applies to managed deployments; self-hosted assistants register
- * explicitly via the CLI or gateway startup hooks.
- */
-export function shouldUsePlatformCallbacks(): boolean {
-  return (
-    getIsPlatform() && !!getPlatformBaseUrl() && !!getPlatformAssistantId()
-  );
-}
-
 export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
   const platform = getIsPlatform();
   const [storedBaseUrlRaw, storedAssistantIdRaw, storedAssistantApiKeyRaw] =
@@ -201,7 +185,7 @@ export async function resolveCallbackUrl(
   queryParams?: Record<string, string>,
   sourceIdentifier?: string,
 ): Promise<string> {
-  if (!shouldUsePlatformCallbacks()) {
+  if (!getIsPlatform()) {
     return directUrl();
   }
 

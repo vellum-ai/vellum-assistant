@@ -14,12 +14,15 @@ import type {
 // Re-export so route modules (background-dispatch, etc.) can pull the type
 // from the runtime barrel without reaching into daemon internals.
 export type { SlackInboundMessageMetadata };
+import type { ModelSetContext } from "../daemon/handlers/config-model.js";
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
   SurfaceData,
   SurfaceType,
 } from "../daemon/message-types/surfaces.js";
+import type { FilingService } from "../filing/filing-service.js";
+import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import type {
   ApprovalMessageContext,
   ComposeApprovalMessageGenerativeOptions,
@@ -30,6 +33,7 @@ import type {
   GuardianActionMessageContext,
 } from "./guardian-action-message-composer.js";
 import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
+import type { RecordingDeps } from "./routes/recording-routes.js";
 /**
  * Daemon-injected function that generates approval copy using a provider.
  * Returns generated text or `null` on failure (caller falls back to deterministic text).
@@ -191,8 +195,6 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  /** Legacy shared secret for pairing routes (not used for delivery or auth). */
-  bearerToken?: string;
   processMessage?: MessageProcessor;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
@@ -247,9 +249,9 @@ export interface RuntimeHttpServerOptions {
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
-  getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
+  getModelSetContext?: () => ModelSetContext;
   /** Provider for recording dependencies (recording routes). */
-  getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
+  getRecordingDeps?: () => RecordingDeps;
   /** Accessor for the CES client, used to push API key updates to CES after hatch. */
   getCesClient?: () => CesClient | undefined;
   /**
@@ -258,13 +260,9 @@ export interface RuntimeHttpServerOptions {
    */
   onProviderCredentialsChanged?: () => void | Promise<void>;
   /** Accessor for the heartbeat service (for run-now and config routes). */
-  getHeartbeatService?: () =>
-    | import("../heartbeat/heartbeat-service.js").HeartbeatService
-    | undefined;
+  getHeartbeatService?: () => HeartbeatService | undefined;
   /** Accessor for the filing service (for run-now and config routes). */
-  getFilingService?: () =>
-    | import("../filing/filing-service.js").FilingService
-    | undefined;
+  getFilingService?: () => FilingService | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

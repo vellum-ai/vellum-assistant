@@ -1,8 +1,8 @@
 /**
- * Gateway-native guardian bootstrap — mints credentials by operating
- * directly on the assistant's SQLite database (shared workspace volume)
- * for contacts and token persistence. Uses the gateway's own signing
- * key for JWT minting.
+ * Gateway-native guardian bootstrap — mints credentials using the
+ * gateway's own SQLite database for token persistence and the
+ * assistant's database for contact lookups (contacts migration is
+ * separate). Uses the gateway's own signing key for JWT minting.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -14,8 +14,8 @@ import { and, eq } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
-  actorRefreshTokenRecords as gwActorRefreshTokenRecords,
-  actorTokenRecords as gwActorTokenRecords,
+  actorRefreshTokenRecords,
+  actorTokenRecords,
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
@@ -195,45 +195,120 @@ export function findGuardianForChannelActor(
   return { principalId: row.principal_id };
 }
 
+// ---------------------------------------------------------------------------
+// Guardian binding creation — writes to both assistant + gateway DBs
+// ---------------------------------------------------------------------------
+
+export interface CreateGuardianBindingParams {
+  /** Channel type (e.g. "vellum", "telegram", "slack", "phone", "whatsapp"). */
+  channel: string;
+  /** Canonical external user ID for this channel (pre-canonicalized by caller). */
+  externalUserId: string;
+  /** Delivery chat/conversation ID for this channel. */
+  deliveryChatId: string;
+  /** Guardian's principal ID — links all channel bindings to one identity. */
+  guardianPrincipalId: string;
+  /** Display name for the contact. Defaults to externalUserId. */
+  displayName?: string;
+  /** How this binding was verified. Defaults to "challenge". */
+  verifiedVia?: string;
+}
+
+export interface CreateGuardianBindingResult {
+  contactId: string;
+  channelId: string;
+  guardianPrincipalId: string;
+  channel: string;
+}
+
 /**
- * Create a guardian contact + vellum channel binding.
+ * Create or update a guardian contact + channel binding.
  *
- * Persona-file seeding (`users/<slug>.md`) and trust-rule cache
- * invalidation are handled by the assistant on startup when it detects
- * a guardian contact without a persona file. The gateway doesn't need
- * to duplicate that logic.
+ * Writes to both the assistant DB (primary) and gateway DB (secondary).
+ * Uses upsert semantics: looks up an existing contact by principalId
+ * and an existing channel by (contactId, type), updating if found.
+ *
+ * Persona-file seeding and trust-rule cache invalidation are
+ * assistant-side concerns — the assistant handles them independently.
  */
-function createVellumGuardianBinding(
-  db: Database,
-  guardianPrincipalId: string,
-): void {
+export function createGuardianBinding(
+  params: CreateGuardianBindingParams,
+): CreateGuardianBindingResult {
+  const db = getAssistantDb();
   const now = Date.now();
-  const contactId = uuid();
-  const channelId = uuid();
+  const displayName = params.displayName ?? params.externalUserId;
+  const verifiedVia = params.verifiedVia ?? "challenge";
+
+  const existingContact = db
+    .query<{ id: string }, [string]>(
+      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
+    )
+    .get(params.guardianPrincipalId);
+
+  const contactId = existingContact?.id ?? uuid();
+
+  const existingChannel = existingContact
+    ? db
+        .query<{ id: string }, [string, string]>(
+          `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
+        )
+        .get(contactId, params.channel)
+    : null;
+
+  const channelId = existingChannel?.id ?? uuid();
 
   // --- Assistant DB write (primary) ---
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.run(
-      `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
-       VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
-      [contactId, guardianPrincipalId, guardianPrincipalId, now, now],
-    );
+    if (existingContact) {
+      db.run(
+        `UPDATE contacts SET display_name = ?, updated_at = ? WHERE id = ?`,
+        [displayName, now, contactId],
+      );
+    } else {
+      db.run(
+        `INSERT INTO contacts (id, display_name, role, principal_id, notes, created_at, updated_at)
+         VALUES (?, ?, 'guardian', ?, 'guardian', ?, ?)`,
+        [contactId, displayName, params.guardianPrincipalId, now, now],
+      );
+    }
 
-    db.run(
-      `INSERT INTO contact_channels
-         (id, contact_id, type, address, external_user_id, external_chat_id,
-          is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
-       VALUES (?, ?, 'vellum', ?, ?, 'local', 1, 'active', 'allow', ?, 'bootstrap', 0, ?)`,
-      [
-        channelId,
-        contactId,
-        guardianPrincipalId,
-        guardianPrincipalId,
-        now,
-        now,
-      ],
-    );
+    if (existingChannel) {
+      db.run(
+        `UPDATE contact_channels
+         SET address = ?, external_user_id = ?, external_chat_id = ?,
+             status = 'active', policy = 'allow', verified_at = ?,
+             verified_via = ?, updated_at = ?
+         WHERE id = ?`,
+        [
+          params.externalUserId,
+          params.externalUserId,
+          params.deliveryChatId,
+          now,
+          verifiedVia,
+          now,
+          channelId,
+        ],
+      );
+    } else {
+      db.run(
+        `INSERT INTO contact_channels
+           (id, contact_id, type, address, external_user_id, external_chat_id,
+            is_primary, status, policy, verified_at, verified_via, interaction_count, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, 'active', 'allow', ?, ?, 0, ?)`,
+        [
+          channelId,
+          contactId,
+          params.channel,
+          params.externalUserId,
+          params.externalUserId,
+          params.deliveryChatId,
+          now,
+          verifiedVia,
+          now,
+        ],
+      );
+    }
 
     db.exec("COMMIT");
   } catch (err) {
@@ -248,32 +323,46 @@ function createVellumGuardianBinding(
       tx.insert(gwContacts)
         .values({
           id: contactId,
-          displayName: guardianPrincipalId,
+          displayName,
           role: "guardian",
-          principalId: guardianPrincipalId,
+          principalId: params.guardianPrincipalId,
           createdAt: now,
           updatedAt: now,
         })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: gwContacts.id,
+          set: { displayName, updatedAt: now },
+        })
         .run();
 
       tx.insert(gwContactChannels)
         .values({
           id: channelId,
           contactId,
-          type: "vellum",
-          address: guardianPrincipalId,
-          externalUserId: guardianPrincipalId,
-          externalChatId: "local",
+          type: params.channel,
+          address: params.externalUserId,
+          externalUserId: params.externalUserId,
+          externalChatId: params.deliveryChatId,
           isPrimary: true,
           status: "active",
           policy: "allow",
           verifiedAt: now,
-          verifiedVia: "bootstrap",
+          verifiedVia,
           interactionCount: 0,
           createdAt: now,
         })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+          target: gwContactChannels.id,
+          set: {
+            address: params.externalUserId,
+            externalUserId: params.externalUserId,
+            externalChatId: params.deliveryChatId,
+            status: "active",
+            policy: "allow",
+            verifiedAt: now,
+            verifiedVia,
+          },
+        })
         .run();
     });
   } catch (gwErr) {
@@ -284,9 +373,38 @@ function createVellumGuardianBinding(
   }
 
   log.info(
-    { contactId, guardianPrincipalId },
-    "Created vellum guardian binding",
+    {
+      contactId,
+      channelId,
+      channel: params.channel,
+      guardianPrincipalId: params.guardianPrincipalId,
+    },
+    "Created guardian binding",
   );
+
+  return {
+    contactId,
+    channelId,
+    guardianPrincipalId: params.guardianPrincipalId,
+    channel: params.channel,
+  };
+}
+
+/**
+ * Thin wrapper for the vellum bootstrap path — creates a vellum channel
+ * guardian binding with bootstrap-specific defaults.
+ */
+function createVellumGuardianBinding(
+  _db: Database,
+  guardianPrincipalId: string,
+): void {
+  createGuardianBinding({
+    channel: "vellum",
+    externalUserId: guardianPrincipalId,
+    deliveryChatId: "local",
+    guardianPrincipalId,
+    verifiedVia: "bootstrap",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -297,88 +415,48 @@ function createVellumGuardianBinding(
  * Revoke active actor tokens for a device binding.
  */
 function revokeActorTokensByDevice(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
   const now = Date.now();
-  db.run(
-    `UPDATE actor_token_records
-     SET status = 'revoked', updated_at = ?
-     WHERE guardian_principal_id = ?
-       AND hashed_device_id = ?
-       AND status = 'active'`,
-    [now, guardianPrincipalId, hashedDeviceId],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .update(gwActorTokenRecords)
-      .set({ status: "revoked", updatedAt: now })
-      .where(
-        and(
-          eq(gwActorTokenRecords.guardianPrincipalId, guardianPrincipalId),
-          eq(gwActorTokenRecords.hashedDeviceId, hashedDeviceId),
-          eq(gwActorTokenRecords.status, "active"),
-        ),
-      )
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Failed to dual-write actor token revocation to gateway DB",
-    );
-  }
+  getGatewayDb()
+    .update(actorTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
+        eq(actorTokenRecords.status, "active"),
+      ),
+    )
+    .run();
 }
 
 /**
  * Revoke active refresh tokens for a device binding.
  */
 function revokeRefreshTokensByDevice(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): void {
   const now = Date.now();
-  db.run(
-    `UPDATE actor_refresh_token_records
-     SET status = 'revoked', updated_at = ?
-     WHERE guardian_principal_id = ?
-       AND hashed_device_id = ?
-       AND status = 'active'`,
-    [now, guardianPrincipalId, hashedDeviceId],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .update(gwActorRefreshTokenRecords)
-      .set({ status: "revoked", updatedAt: now })
-      .where(
-        and(
-          eq(
-            gwActorRefreshTokenRecords.guardianPrincipalId,
-            guardianPrincipalId,
-          ),
-          eq(gwActorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
-          eq(gwActorRefreshTokenRecords.status, "active"),
-        ),
-      )
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Failed to dual-write refresh token revocation to gateway DB",
-    );
-  }
+  getGatewayDb()
+    .update(actorRefreshTokenRecords)
+    .set({ status: "revoked", updatedAt: now })
+    .where(
+      and(
+        eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
+        eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
+        eq(actorRefreshTokenRecords.status, "active"),
+      ),
+    )
+    .run();
 }
 
 /**
- * Mint a JWT access token and persist its hash in the assistant DB.
+ * Mint a JWT access token and persist its hash in the gateway DB.
  */
 function mintAccessToken(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
@@ -398,55 +476,29 @@ function mintAccessToken(
   const expiresAt = now + ACCESS_TOKEN_TTL_MS;
   const tokenHash = hashToken(token);
 
-  const tokenId = uuid();
-  db.run(
-    `INSERT INTO actor_token_records
-       (id, token_hash, guardian_principal_id, hashed_device_id, platform,
-        status, issued_at, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
-    [
-      tokenId,
+  getGatewayDb()
+    .insert(actorTokenRecords)
+    .values({
+      id: uuid(),
       tokenHash,
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      now,
+      status: "active",
+      issuedAt: now,
       expiresAt,
-      now,
-      now,
-    ],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .insert(gwActorTokenRecords)
-      .values({
-        id: tokenId,
-        tokenHash,
-        guardianPrincipalId,
-        hashedDeviceId,
-        platform,
-        status: "active",
-        issuedAt: now,
-        expiresAt,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-  } catch (gwErr) {
-    log.warn({ err: gwErr }, "Failed to dual-write actor token to gateway DB");
-  }
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   return { token, expiresAt };
 }
 
 /**
- * Mint an opaque refresh token and persist its hash in the assistant DB.
+ * Mint an opaque refresh token and persist its hash in the gateway DB.
  */
 function mintRefreshToken(
-  db: Database,
   guardianPrincipalId: string,
   hashedDeviceId: string,
   platform: string,
@@ -462,55 +514,24 @@ function mintRefreshToken(
   const absoluteExpiresAt = now + REFRESH_ABSOLUTE_TTL_MS;
   const inactivityExpiresAt = now + REFRESH_INACTIVITY_TTL_MS;
 
-  const refreshTokenId = uuid();
-  db.run(
-    `INSERT INTO actor_refresh_token_records
-       (id, token_hash, family_id, guardian_principal_id, hashed_device_id,
-        platform, status, issued_at, absolute_expires_at, inactivity_expires_at,
-        last_used_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)`,
-    [
-      refreshTokenId,
-      refreshTokenHash,
+  getGatewayDb()
+    .insert(actorRefreshTokenRecords)
+    .values({
+      id: uuid(),
+      tokenHash: refreshTokenHash,
       familyId,
       guardianPrincipalId,
       hashedDeviceId,
       platform,
-      now,
+      status: "active",
+      issuedAt: now,
       absoluteExpiresAt,
       inactivityExpiresAt,
-      now,
-      now,
-    ],
-  );
-
-  // --- Gateway DB dual-write (best-effort) ---
-  try {
-    getGatewayDb()
-      .insert(gwActorRefreshTokenRecords)
-      .values({
-        id: refreshTokenId,
-        tokenHash: refreshTokenHash,
-        familyId,
-        guardianPrincipalId,
-        hashedDeviceId,
-        platform,
-        status: "active",
-        issuedAt: now,
-        absoluteExpiresAt,
-        inactivityExpiresAt,
-        lastUsedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing()
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Failed to dual-write refresh token to gateway DB",
-    );
-  }
+      lastUsedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 
   return {
     refreshToken,
@@ -553,8 +574,6 @@ export function ensureVellumGuardianBinding(): string {
  *   2. Revoke existing credentials for this device
  *   3. Mint new JWT access token + opaque refresh token
  *   4. Persist token hashes
- *
- * All operations run against the assistant's SQLite database.
  */
 export function bootstrapGuardian(params: {
   platform: string;
@@ -579,18 +598,16 @@ export function bootstrapGuardian(params: {
   }
 
   // 2. Revoke existing credentials for this device
-  revokeActorTokensByDevice(db, guardianPrincipalId, hashedDeviceId);
-  revokeRefreshTokensByDevice(db, guardianPrincipalId, hashedDeviceId);
+  revokeActorTokensByDevice(guardianPrincipalId, hashedDeviceId);
+  revokeRefreshTokensByDevice(guardianPrincipalId, hashedDeviceId);
 
   // 3. Mint new credentials
   const access = mintAccessToken(
-    db,
     guardianPrincipalId,
     hashedDeviceId,
     params.platform,
   );
   const refresh = mintRefreshToken(
-    db,
     guardianPrincipalId,
     hashedDeviceId,
     params.platform,

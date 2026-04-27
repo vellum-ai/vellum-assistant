@@ -14,7 +14,12 @@ import {
   getAppDirPath,
   isMultifileApp,
 } from "../../memory/app-store.js";
-import * as sharedAppLinksStore from "../../memory/shared-app-links-store.js";
+import {
+  createSharedAppLink,
+  deleteSharedAppLinkByToken,
+  getSharedAppLink,
+  incrementDownloadCount,
+} from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -228,7 +233,7 @@ export function handleServeDistFile(appId: string, filename: string): Response {
 /** 50 MB — generous cap for zip app bundles. */
 const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 
-export async function handleShareApp(req: Request): Promise<Response> {
+async function handleShareApp(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
   if (rawBody.byteLength > MAX_SHARE_BODY_BYTES) {
     return httpError(
@@ -270,10 +275,7 @@ export async function handleShareApp(req: Request): Promise<Response> {
     return httpError("BAD_REQUEST", "Invalid zip file", 400);
   }
 
-  const { shareToken } = sharedAppLinksStore.createSharedAppLink(
-    bundleData,
-    manifest,
-  );
+  const { shareToken } = createSharedAppLink(bundleData, manifest);
 
   return Response.json({
     shareToken,
@@ -282,13 +284,13 @@ export async function handleShareApp(req: Request): Promise<Response> {
   });
 }
 
-export function handleDownloadSharedApp(shareToken: string): Response {
-  const record = sharedAppLinksStore.getSharedAppLink(shareToken);
+function handleDownloadSharedApp(shareToken: string): Response {
+  const record = getSharedAppLink(shareToken);
   if (!record) {
     return httpError("NOT_FOUND", "Shared app not found", 404);
   }
 
-  sharedAppLinksStore.incrementDownloadCount(shareToken);
+  incrementDownloadCount(shareToken);
 
   return new Response(new Uint8Array(record.bundleData), {
     headers: {
@@ -298,8 +300,8 @@ export function handleDownloadSharedApp(shareToken: string): Response {
   });
 }
 
-export function handleGetSharedAppMetadata(shareToken: string): Response {
-  const record = sharedAppLinksStore.getSharedAppLink(shareToken);
+function handleGetSharedAppMetadata(shareToken: string): Response {
+  const record = getSharedAppLink(shareToken);
   if (!record) {
     return httpError("NOT_FOUND", "Shared app not found", 404);
   }
@@ -319,8 +321,8 @@ export function handleGetSharedAppMetadata(shareToken: string): Response {
   });
 }
 
-export function handleDeleteSharedApp(shareToken: string): Response {
-  const deleted = sharedAppLinksStore.deleteSharedAppLinkByToken(shareToken);
+function handleDeleteSharedApp(shareToken: string): Response {
+  const deleted = deleteSharedAppLinkByToken(shareToken);
   if (!deleted) {
     return httpError("NOT_FOUND", "Shared app not found", 404);
   }

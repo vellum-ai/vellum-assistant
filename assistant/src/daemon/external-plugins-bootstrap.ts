@@ -27,7 +27,7 @@
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 6. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
+ * 6. Creates `<workspaceDir>/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
  * 7. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
  *    {@link PluginExecutionError} naming the offending plugin and aborts
@@ -82,7 +82,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { vellumRoot } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
@@ -161,10 +161,10 @@ function getPluginConfigRaw(
 }
 
 /**
- * Ensure `~/.vellum/plugins-data/<name>/` exists and return its absolute path.
+ * Ensure `<workspaceDir>/plugins-data/<name>/` exists and return its absolute path.
  */
 function ensurePluginStorageDir(pluginName: string): string {
-  const dir = join(vellumRoot(), "plugins-data", pluginName);
+  const dir = join(getWorkspaceDir(), "plugins-data", pluginName);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

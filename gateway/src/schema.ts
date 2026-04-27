@@ -162,6 +162,28 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/ps": {
+        get: {
+          summary: "Process status",
+          description:
+            "Authenticated gateway endpoint that returns a JSON summary of the assistant's process tree. The gateway probes the co-located daemon and reports its own status.",
+          operationId: "ps",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Process status returned",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/PsResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+          },
+        },
+      },
       "/v1/brain-graph": {
         get: {
           summary: "Brain graph data",
@@ -1044,6 +1066,56 @@ export function buildSchema(): Record<string, unknown> {
             "426": {
               description:
                 "Upgrade Required — request is not a WebSocket upgrade",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/v1/live-voice": {
+        get: {
+          summary: "Live voice WebSocket",
+          description:
+            "Accepts a WebSocket upgrade for the live voice channel. Authenticates the client using an edge JWT (actor principal), opens an upstream assistant WebSocket at /v1/live-voice using a gateway service token, and proxies text and binary audio frames opaquely in both directions.",
+          operationId: "liveVoiceWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful; bidirectional live voice frame proxying begins.",
+            },
+            "401": {
+              description: "Unauthorized - missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required - request is not a WebSocket upgrade",
               content: {
                 "text/plain": {
                   schema: { type: "string" },
@@ -3301,7 +3373,9 @@ export function buildSchema(): Record<string, unknown> {
               description: "Unauthorized — missing or invalid bearer token",
             },
             "403": { description: "Feature not enabled" },
-            "503": { description: "Assistant daemon unavailable or LLM failure" },
+            "503": {
+              description: "Assistant daemon unavailable or LLM failure",
+            },
           },
         },
       },
@@ -4203,6 +4277,32 @@ export function buildSchema(): Record<string, unknown> {
                   },
                 },
               },
+            },
+          },
+        },
+        PsResponse: {
+          type: "object",
+          required: ["processes"],
+          properties: {
+            processes: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ProcessEntry" },
+            },
+          },
+        },
+        ProcessEntry: {
+          type: "object",
+          required: ["name", "status"],
+          properties: {
+            name: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["running", "not_running", "unreachable"],
+            },
+            info: { type: "string" },
+            children: {
+              type: "array",
+              items: { $ref: "#/components/schemas/ProcessEntry" },
             },
           },
         },

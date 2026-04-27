@@ -11,7 +11,7 @@ import type { PlaygroundRouteDeps } from "./deps.js";
  * conversation. See `conversation-not-found.ts` for the matching code on
  * the other branch.
  */
-export const PLAYGROUND_DISABLED_CODE = "playground_disabled";
+const PLAYGROUND_DISABLED_CODE = "playground_disabled";
 
 /**
  * Defense-in-depth guard every playground route calls first. Returns a 404

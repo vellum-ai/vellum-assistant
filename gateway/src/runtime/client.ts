@@ -4,7 +4,11 @@ import {
 } from "@vellumai/assistant-client";
 
 import type { ChannelId, InterfaceId } from "../channels/types.js";
-import { mintIngressToken, mintServiceToken } from "../auth/token-exchange.js";
+import {
+  mintIngressToken,
+  mintRelayToken,
+  mintServiceToken,
+} from "../auth/token-exchange.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -484,9 +488,20 @@ export type TwilioForwardResponse = {
 };
 
 /**
+ * Sentinel placeholder the daemon embeds in TwiML where the relay auth token
+ * should go. The gateway replaces it with a real JWT before returning TwiML
+ * to Twilio, keeping the signing key out of the daemon for this flow.
+ */
+const TWILIO_RELAY_TOKEN_PLACEHOLDER = "__VELLUM_RELAY_TOKEN__";
+
+/**
  * Forward a validated Twilio voice webhook payload to the runtime.
  * The gateway sends the parsed form params as JSON; the runtime's internal
  * endpoint reconstructs what it needs.
+ *
+ * After receiving the TwiML response, the gateway replaces the relay token
+ * placeholder with a freshly minted JWT so the daemon never needs the
+ * signing key for voice webhook responses.
  *
  * For inbound calls, `assistantId` is resolved by the gateway from the "To"
  * phone number and forwarded so the runtime knows which assistant to bootstrap.
@@ -519,10 +534,18 @@ export async function forwardTwilioVoiceWebhook(
     throw err;
   }
 
-  const body = await response.text();
+  let body = await response.text();
   const headers: Record<string, string> = {};
   const contentType = response.headers.get("content-type");
   if (contentType) headers["Content-Type"] = contentType;
+
+  // Inject relay auth tokens into the TwiML. The daemon embeds a sentinel
+  // placeholder wherever a relay token is needed; the gateway replaces each
+  // occurrence with a freshly minted JWT (aud=vellum-gateway) that the
+  // relay/media-stream WS handlers will validate on the upgrade request.
+  if (body.includes(TWILIO_RELAY_TOKEN_PLACEHOLDER)) {
+    body = body.replaceAll(TWILIO_RELAY_TOKEN_PLACEHOLDER, mintRelayToken());
+  }
 
   if (response.status >= 500) cbOnFailure();
   else cbOnSuccess();

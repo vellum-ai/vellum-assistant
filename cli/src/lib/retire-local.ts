@@ -2,7 +2,11 @@ import { spawn } from "child_process";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 
-import { getBaseDir, loadAllAssistants } from "./assistant-config.js";
+import {
+  getBaseDir,
+  getDaemonPidPath,
+  loadAllAssistants,
+} from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
 import {
   stopOrphanedDaemonProcesses,
@@ -41,7 +45,7 @@ export async function retireLocal(
     return;
   }
 
-  const daemonPidFile = resources.pidFile;
+  const daemonPidFile = getDaemonPidPath(resources);
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon");
 
   // Stop gateway via PID file — use a longer timeout because the gateway has a

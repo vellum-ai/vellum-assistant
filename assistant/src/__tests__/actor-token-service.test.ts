@@ -1,6 +1,6 @@
 /**
- * Tests for JWT credential service, hash-only storage,
- * and guardian bootstrap endpoint idempotency.
+ * Tests for guardian bootstrap, vellum migration, and local identity
+ * resolution.
  *
  * Legacy actor-token HMAC middleware tests have been removed --
  * that middleware is replaced by the JWT auth middleware in
@@ -8,6 +8,9 @@
  *
  * Pairing flow tests have moved to the gateway (pairing is now
  * gateway-native).
+ *
+ * The gateway owns credential minting; these tests cover only
+ * guardian bootstrap, vellum migration, and local identity resolution.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -29,16 +32,9 @@ mock.module("../config/env.js", () => ({
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
-import {
-  createActorTokenRecord,
-  revokeByDeviceBinding,
-} from "../runtime/actor-token-store.js";
+import { initializeDb, resetDb } from "../memory/db.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
-import {
-  hashToken,
-  initAuthSigningKey,
-} from "../runtime/auth/token-service.js";
+import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import {
   resolveLocalAuthContext,
@@ -55,73 +51,10 @@ const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 initializeDb();
 
 beforeEach(() => {
-  // Initialize signing key for JWT verification
   initAuthSigningKey(TEST_KEY);
-  // Reset the external assistant ID cache so tests don't leak state
   resetExternalAssistantIdCache();
-  // Clear DB state between tests.
   resetDb();
   initializeDb();
-  const db = getSqlite();
-  db.run("DELETE FROM actor_token_records");
-  db.run("DELETE FROM contact_channels");
-  db.run("DELETE FROM contacts");
-});
-
-// ---------------------------------------------------------------------------
-// Hash-only storage
-// ---------------------------------------------------------------------------
-
-describe("actor-token store (hash-only)", () => {
-  test("createActorTokenRecord stores hash, never raw token", () => {
-    const tokenHash = hashToken("test-token-for-store");
-
-    const record = createActorTokenRecord({
-      tokenHash,
-      guardianPrincipalId: "principal-store",
-      hashedDeviceId: "hashed-dev-store",
-      platform: "macos",
-      issuedAt: Date.now(),
-    });
-
-    expect(record.tokenHash).toBe(tokenHash);
-    expect(record.status).toBe("active");
-
-    const db = getSqlite();
-    const found = db
-      .query(
-        "SELECT * FROM actor_token_records WHERE token_hash = ? AND status = 'active'",
-      )
-      .get(tokenHash) as { token_hash: string } | null;
-    expect(found).not.toBeNull();
-    expect(found!.token_hash).toBe(tokenHash);
-  });
-
-  test("revokeByDeviceBinding marks tokens as revoked", () => {
-    const tokenHash = hashToken("test-token-for-revoke");
-
-    createActorTokenRecord({
-      tokenHash,
-      guardianPrincipalId: "principal-revoke",
-      hashedDeviceId: "hashed-dev-revoke",
-      platform: "macos",
-      issuedAt: Date.now(),
-    });
-
-    const count = revokeByDeviceBinding(
-      "principal-revoke",
-      "hashed-dev-revoke",
-    );
-    expect(count).toBe(1);
-
-    const db = getSqlite();
-    const found = db
-      .query(
-        "SELECT * FROM actor_token_records WHERE token_hash = ? AND status = 'active'",
-      )
-      .get(tokenHash);
-    expect(found).toBeNull();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -245,4 +178,3 @@ describe("resolveLocalAuthContext", () => {
     expect(ctx.conversationId).toBe("my-session");
   });
 });
-

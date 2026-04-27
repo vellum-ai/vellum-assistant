@@ -286,7 +286,6 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
   registerCallbackRoute: async () => {},
   resolveCallbackUrl: async (resolver: () => string | Promise<string>) =>
     await resolver(),
-  shouldUsePlatformCallbacks: () => false,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
@@ -306,9 +305,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/status`,
 }));
 
-mock.module("../runtime/auth/token-service.js", () => ({
-  mintDaemonDeliveryToken: () => "test-delivery-token",
-}));
+mock.module("../runtime/auth/token-service.js", () => ({}));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
   deleteCredentialMetadata: () => {},

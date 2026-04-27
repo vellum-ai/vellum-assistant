@@ -220,6 +220,31 @@ describe("searchConversationSource", () => {
       "Before the needle marker, the useful text is inside a content block.",
     );
   });
+
+  test("broadens overconstrained recall queries to salient terms", async () => {
+    const specific = await seedConversation({
+      title: "Birthday cake plan",
+      content:
+        "The birthday cake was vanilla with raspberry filling and had the message Happy birthday Alice Love Example Assistant.",
+    });
+    await seedConversation({
+      title: "Decoration notes",
+      content: "The decoration and flavor notes for the launch party are open.",
+    });
+
+    const result = await searchConversationSource(
+      "birthday cake flavor decoration message recipient",
+      makeContext(),
+      5,
+    );
+
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${specific.conversation.id}#${specific.message.id}`,
+      title: "Birthday cake plan",
+    });
+    expect(result.evidence[0]?.excerpt).toContain("vanilla with raspberry");
+    expect(result.evidence[0]?.score).toBeGreaterThan(0);
+  });
 });
 
 function seedConversation(opts: {

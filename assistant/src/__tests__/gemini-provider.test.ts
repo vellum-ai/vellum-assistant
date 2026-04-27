@@ -22,6 +22,16 @@ interface FakeChunk {
   }>;
   candidates?: Array<{
     finishReason?: string;
+    content?: {
+      parts?: Array<{
+        functionCall?: {
+          id?: string;
+          name?: string;
+          args?: Record<string, unknown>;
+        };
+        thoughtSignature?: string;
+      }>;
+    };
   }>;
   usageMetadata?: {
     promptTokenCount?: number;
@@ -86,7 +96,7 @@ function finishChunk(
   return {
     candidates: [{ finishReason: reason }],
     usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: output },
-    modelVersion: "gemini-3-flash-001",
+    modelVersion: "gemini-3-flash-preview-001",
   };
 }
 
@@ -102,6 +112,42 @@ function functionCallChunk(
   };
 }
 
+function candidateFunctionCallChunk(
+  calls: Array<{
+    id?: string;
+    name: string;
+    args: Record<string, unknown>;
+    thoughtSignature?: string;
+  }>,
+  fallbackCalls?: Array<{
+    id?: string;
+    name: string;
+    args: Record<string, unknown>;
+  }>,
+): FakeChunk {
+  return {
+    candidates: [
+      {
+        content: {
+          parts: calls.map((c) => ({
+            functionCall: {
+              id: c.id,
+              name: c.name,
+              args: c.args,
+            },
+            thoughtSignature: c.thoughtSignature,
+          })),
+        },
+      },
+    ],
+    functionCalls: fallbackCalls?.map((c) => ({
+      id: c.id,
+      name: c.name,
+      args: c.args,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -110,7 +156,7 @@ describe("GeminiProvider", () => {
   let provider: GeminiProvider;
 
   beforeEach(() => {
-    provider = new GeminiProvider("test-api-key", "gemini-3-flash");
+    provider = new GeminiProvider("test-api-key", "gemini-3-flash-preview");
     fakeChunks = [];
     lastStreamParams = null;
     lastConstructorOpts = null;
@@ -133,7 +179,7 @@ describe("GeminiProvider", () => {
 
     expect(result.content).toHaveLength(1);
     expect(result.content[0]).toEqual({ type: "text", text: "Hello, world!" });
-    expect(result.model).toBe("gemini-3-flash-001");
+    expect(result.model).toBe("gemini-3-flash-preview-001");
     expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
     expect(result.stopReason).toBe("STOP");
   });
@@ -241,6 +287,44 @@ describe("GeminiProvider", () => {
     });
   });
 
+  test("captures thought signature from streamed candidate function call parts", async () => {
+    fakeChunks = [
+      candidateFunctionCallChunk(
+        [
+          {
+            id: "call_signed",
+            name: "file_read",
+            args: { path: "/tmp/test" },
+            thoughtSignature: "signed-thought-1",
+          },
+        ],
+        [
+          {
+            id: "call_duplicate",
+            name: "file_read",
+            args: { path: "/tmp/dup" },
+          },
+        ],
+      ),
+      finishChunk("STOP", 10, 15),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+    ]);
+
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]).toEqual({
+      type: "tool_use",
+      id: "call_signed",
+      name: "file_read",
+      input: { path: "/tmp/test" },
+      providerMetadata: {
+        gemini: { thoughtSignature: "signed-thought-1" },
+      },
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Function call without id — fallback to call_N
   // -----------------------------------------------------------------------
@@ -314,6 +398,42 @@ describe("GeminiProvider", () => {
       id: "call_1",
       name: "file_read",
       input: { path: "/a" },
+    });
+    expect(result.content[1]).toEqual({
+      type: "tool_use",
+      id: "call_2",
+      name: "file_read",
+      input: { path: "/b" },
+    });
+  });
+
+  test("preserves parallel candidate function call order and only captured signatures", async () => {
+    fakeChunks = [
+      candidateFunctionCallChunk([
+        {
+          id: "call_1",
+          name: "file_read",
+          args: { path: "/a" },
+          thoughtSignature: "signed-thought-1",
+        },
+        { id: "call_2", name: "file_read", args: { path: "/b" } },
+      ]),
+      finishChunk("STOP", 10, 30),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /a and /b" }] },
+    ]);
+
+    expect(result.content).toHaveLength(2);
+    expect(result.content[0]).toEqual({
+      type: "tool_use",
+      id: "call_1",
+      name: "file_read",
+      input: { path: "/a" },
+      providerMetadata: {
+        gemini: { thoughtSignature: "signed-thought-1" },
+      },
     });
     expect(result.content[1]).toEqual({
       type: "tool_use",
@@ -420,7 +540,7 @@ describe("GeminiProvider", () => {
     // assistant → model with functionCall, user → user with functionResponse
     expect(contents).toHaveLength(3);
     expect(contents[1].role).toBe("model");
-    expect(contents[1].parts[0]).toEqual({
+    expect(contents[1].parts[0]).toMatchObject({
       functionCall: {
         name: "file_read",
         args: { path: "/tmp/test" },
@@ -433,6 +553,152 @@ describe("GeminiProvider", () => {
         response: { output: "file content here" },
       },
     });
+  });
+
+  test("replays Gemini thought signatures on serialized tool_use history", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_signed",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+            providerMetadata: {
+              gemini: { thoughtSignature: "signed-thought-1" },
+            },
+          },
+          {
+            type: "tool_use",
+            id: "call_unsigned",
+            name: "file_read",
+            input: { path: "/tmp/other" },
+          },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<{
+        functionCall?: unknown;
+        thoughtSignature?: string;
+      }>;
+    }>;
+    expect(contents[1].parts).toEqual([
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/tmp/test" },
+        },
+        thoughtSignature: "signed-thought-1",
+      },
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/tmp/other" },
+        },
+      },
+    ]);
+  });
+
+  test("adds Gemini 3 fallback thought signature to old unsigned tool_use history", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const overrideProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-2.5-flash",
+    );
+    await overrideProvider.sendMessage(
+      [
+        { role: "user", content: [{ type: "text", text: "Read files" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "call_1",
+              name: "file_read",
+              input: { path: "/a" },
+            },
+            {
+              type: "tool_use",
+              id: "call_2",
+              name: "file_read",
+              input: { path: "/b" },
+            },
+          ],
+        },
+      ],
+      undefined,
+      undefined,
+      { config: { model: "models/gemini-3.1-pro-preview" } },
+    );
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<{
+        functionCall?: unknown;
+        thoughtSignature?: string;
+      }>;
+    }>;
+    expect(contents[1].parts).toEqual([
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/a" },
+        },
+        thoughtSignature: "context_engineering_is_the_way_to_go",
+      },
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/b" },
+        },
+      },
+    ]);
+  });
+
+  test("does not add fallback thought signature for Gemini 2.5 tool_use history", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const gemini25Provider = new GeminiProvider(
+      "test-api-key",
+      "gemini-2.5-flash",
+    );
+    await gemini25Provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_unsigned",
+            name: "file_read",
+            input: { path: "/tmp/test" },
+          },
+        ],
+      },
+    ]);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: unknown[];
+    }>;
+    expect(contents[1].parts).toEqual([
+      {
+        functionCall: {
+          name: "file_read",
+          args: { path: "/tmp/test" },
+        },
+      },
+    ]);
   });
 
   // -----------------------------------------------------------------------
@@ -736,7 +1002,7 @@ describe("GeminiProvider", () => {
       { role: "user", content: [{ type: "text", text: "Hi" }] },
     ]);
 
-    expect(lastStreamParams!.model).toBe("gemini-3-flash");
+    expect(lastStreamParams!.model).toBe("gemini-3-flash-preview");
     const contents = lastStreamParams!.contents as Array<{
       role: string;
       parts: unknown[];
@@ -796,12 +1062,12 @@ describe("GeminiProvider", () => {
   // Managed transport — constructor configuration
   // -----------------------------------------------------------------------
   test("does not set httpOptions when managedBaseUrl is not provided", () => {
-    new GeminiProvider("test-key", "gemini-3-flash");
+    new GeminiProvider("test-key", "gemini-3-flash-preview");
     expect(lastConstructorOpts).toEqual({ apiKey: "test-key" });
   });
 
   test("sets httpOptions.baseUrl when managedBaseUrl is provided", () => {
-    new GeminiProvider("managed-key", "gemini-3-flash", {
+    new GeminiProvider("managed-key", "gemini-3-flash-preview", {
       managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
     });
     expect(lastConstructorOpts).toEqual({
@@ -815,7 +1081,7 @@ describe("GeminiProvider", () => {
   test("managed transport produces same ProviderResponse shape", async () => {
     const managedProvider = new GeminiProvider(
       "managed-key",
-      "gemini-3-flash",
+      "gemini-3-flash-preview",
       {
         managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },
@@ -832,7 +1098,7 @@ describe("GeminiProvider", () => {
       type: "text",
       text: "Hello from managed",
     });
-    expect(result.model).toBe("gemini-3-flash-001");
+    expect(result.model).toBe("gemini-3-flash-preview-001");
     expect(result.usage).toEqual({ inputTokens: 15, outputTokens: 8 });
     expect(result.stopReason).toBe("STOP");
   });
@@ -840,7 +1106,7 @@ describe("GeminiProvider", () => {
   test("managed transport handles tool calls correctly", async () => {
     const managedProvider = new GeminiProvider(
       "managed-key",
-      "gemini-3-flash",
+      "gemini-3-flash-preview",
       {
         managedBaseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       },

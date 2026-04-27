@@ -9,6 +9,7 @@
  * {@link ActorTrustContext} is converted to {@link TrustContext} via
  * {@link toTrustContext}.
  */
+import type { ChannelId } from "../channels/types.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   resolveActorTrust,
@@ -121,7 +122,7 @@ export function resolveRoutingStateFromRuntime(
  * copies the context with the caller-supplied sourceChannel.
  */
 export function withSourceChannel(
-  sourceChannel: import("../channels/types.js").ChannelId,
+  sourceChannel: ChannelId,
   ctx: TrustContext,
 ): TrustContext {
   return { ...ctx, sourceChannel };

@@ -47,6 +47,7 @@ swift_with_retry() {
     local attempt=1
     local _pch_cleaned=0
     local _build_cleaned=0
+    local _artifact_cleaned=0
     local _stderr_log
     _stderr_log=$(mktemp)
     # FIFO for stderr streaming. Process substitutions (2> >(tee ...)) are
@@ -88,6 +89,22 @@ swift_with_retry() {
             echo "warning: stale SPM build cache detected (XCFramework path points to missing worktree), cleaning .build and retrying..."
             rm -rf "$SCRIPT_DIR/../.build"
             _build_cleaned=1
+            continue
+        fi
+        # Auto-clean stale SPM binary artifacts when a previous download was
+        # interrupted, leaving a partial entry that blocks the re-download.
+        # SPM surfaces this as:
+        #   error: failed downloading '<url>' which is required by binary
+        #   target '<name>': <path> already exists in file system
+        # Common on hosted CI runners with rotated/partial caches.
+        if [ "$_artifact_cleaned" -eq 0 ] && grep -q "already exists in file system" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale SPM binary artifact detected, cleaning and retrying..."
+            sed -nE 's/.*: (\/[^[:space:]]+) already exists in file system.*/\1/p' "$_stderr_log" 2>/dev/null \
+                | sort -u \
+                | while IFS= read -r _stale_path; do
+                    [ -n "$_stale_path" ] && rm -rf "$_stale_path"
+                done
+            _artifact_cleaned=1
             continue
         fi
         # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
@@ -235,7 +252,6 @@ export SIGN_IDENTITY
 ASSISTANT_SRC_DIR="$SCRIPT_DIR/../../assistant"
 CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
-NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
 CES_SRC_DIR="$SCRIPT_DIR/../../credential-executor"
 # Repo-level first-party skill catalog (skills/catalog.json + skill dirs).
 # Shipped with the app so the daemon can install catalog skills without a
@@ -253,27 +269,6 @@ BUN_VERSION="${BUN_VERSION:-1.3.11}"
 # builds do not re-download. Keyed by version so a bumped .tool-versions
 # naturally invalidates stale binaries.
 BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
-
-# Chrome extension allowlist IDs injected into compiled binaries as a fallback
-# for packaged runs where repo-relative `gateway/...` paths are
-# unavailable (Bun compiled binaries often resolve import.meta.dir to /$bunfs/root).
-CHROME_EXTENSION_ALLOWLIST_PATH="$_repo_root/gateway/chrome-extension-allowlist.json"
-CHROME_EXTENSION_IDS_CSV=""
-if [ -f "$CHROME_EXTENSION_ALLOWLIST_PATH" ] && command -v bun &>/dev/null; then
-    CHROME_EXTENSION_IDS_CSV=$(
-        CHROME_ALLOWLIST_PATH="$CHROME_EXTENSION_ALLOWLIST_PATH" bun --eval '
-            const fs = require("node:fs");
-            const raw = fs.readFileSync(process.env.CHROME_ALLOWLIST_PATH, "utf8");
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed.allowedExtensionIds)) process.exit(1);
-            const ids = parsed.allowedExtensionIds.filter(
-              (id) => typeof id === "string" && /^[a-p]{32}$/.test(id),
-            );
-            if (ids.length === 0) process.exit(1);
-            process.stdout.write(ids.join(","));
-        ' 2>/dev/null || true
-    )
-fi
 
 # Packages that must stay external in compiled Bun binaries.
 # playwright-core has optional requires (electron, chromium-bidi) that cannot
@@ -491,10 +486,6 @@ build_binaries() {
     (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
     (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
-        (cd "$NATIVE_HOST_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
-    fi
-
     # Shared flags for daemon and assistant CLI
     local daemon_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
@@ -503,9 +494,6 @@ build_binaries() {
     if [ -n "${COMMIT_SHA:-}" ]; then
         daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
-    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-        daemon_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
-    fi
 
     local cli_flags=("${BUN_EXTERNAL_FLAGS[@]}")
     if [ -n "${DISPLAY_VERSION:-}" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
@@ -513,14 +501,6 @@ build_binaries() {
     fi
     if [ -n "${COMMIT_SHA:-}" ]; then
         cli_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
-    fi
-    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-        cli_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
-    fi
-
-    local native_host_flags=()
-    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-        native_host_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
     fi
 
     # Build binaries in parallel. Each writes to its own output
@@ -548,12 +528,6 @@ build_binaries() {
     SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
         "$SCRIPT_DIR/ces-bin" "credential-executor" &
     pids+=($!)
-
-    if [ -d "$NATIVE_HOST_SRC_DIR/src" ]; then
-        SKIP_BUN_INSTALL=1 build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
-            "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" "${native_host_flags[@]}" &
-        pids+=($!)
-    fi
 
     for pid in "${pids[@]}"; do
         wait "$pid" || failures=$((failures + 1))
@@ -714,7 +688,7 @@ case "$CMD" in
     clean)
         echo "Cleaning..."
         rm -rf "$SCRIPT_DIR/dist" "$SCRIPT_DIR/../.build"
-        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin" "$SCRIPT_DIR/ces-bin"
+        rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/ces-bin"
         rm -rf "$SPM_MODULE_CACHE"
         echo "Done."
         exit 0
@@ -759,7 +733,7 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
         # (e.g. arm64 binaries from a previous build being bundled into an x86_64 release).
         # Skip when SKIP_BUN_REBUILD=1, since pre-built binaries are intentionally provided.
         if [ "${SKIP_BUN_REBUILD:-}" != "1" ]; then
-            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/native-host-bin" "$SCRIPT_DIR/ces-bin"
+            rm -rf "$SCRIPT_DIR/daemon-bin" "$SCRIPT_DIR/assistant-bin" "$SCRIPT_DIR/cli-bin" "$SCRIPT_DIR/gateway-bin" "$SCRIPT_DIR/ces-bin"
         fi
     fi
 fi
@@ -883,9 +857,6 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     if [ -n "${COMMIT_SHA:-}" ]; then
         local_daemon_flags+=(--define "process.env.COMMIT_SHA='$COMMIT_SHA'")
     fi
-    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-        local_daemon_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
-    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
     # Embedding runtime (onnxruntime-node + @huggingface/transformers) is no longer
@@ -958,9 +929,6 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$ASSISTANT_SRC_DIR/src" ] && comm
 fi
 if [ "$ASSISTANT_CLI_BIN_NEEDS_BUILD" = true ]; then
     local_assistant_flags=("${BUN_EXTERNAL_FLAGS[@]}")
-    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-        local_assistant_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
-    fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${local_assistant_flags[@]}"
 fi
@@ -1052,39 +1020,6 @@ if [ -f "$SCRIPT_DIR/ces-bin/credential-executor" ]; then
     fi
 fi
 
-# Auto-build Chrome native messaging helper binary if missing or stale
-# and bun is available. This is the binary Chrome spawns via
-# chrome.runtime.connectNative("com.vellum.daemon") — see
-# clients/chrome-extension/native-host/ for the source and
-# clients/macos/vellum-assistant/Features/Installer/NativeMessagingInstaller.swift
-# for the manifest that points at the bundled copy.
-NATIVE_HOST_BIN_NEEDS_BUILD=false
-if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$NATIVE_HOST_SRC_DIR/src" ] && command -v bun &>/dev/null; then
-    if [ ! -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
-        NATIVE_HOST_BIN_NEEDS_BUILD=true
-    elif [ -n "$(find "$NATIVE_HOST_SRC_DIR/src" -name '*.ts' -newer "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -print -quit 2>/dev/null)" ]; then
-        NATIVE_HOST_BIN_NEEDS_BUILD=true
-    elif [ "$NATIVE_HOST_SRC_DIR/package.json" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ] || \
-         { [ -f "$NATIVE_HOST_SRC_DIR/bun.lock" ] && [ "$NATIVE_HOST_SRC_DIR/bun.lock" -nt "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; }; then
-        NATIVE_HOST_BIN_NEEDS_BUILD=true
-    fi
-fi
-if [ "$NATIVE_HOST_BIN_NEEDS_BUILD" = true ]; then
-    local_native_host_flags=()
-    if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-        local_native_host_flags+=(--define "process.env.VELLUM_CHROME_EXTENSION_IDS='$CHROME_EXTENSION_IDS_CSV'")
-    fi
-    build_bun_binary "$NATIVE_HOST_SRC_DIR" "$NATIVE_HOST_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/native-host-bin" "vellum-chrome-native-host" "${local_native_host_flags[@]}"
-fi
-
-# Also rebuild if native host binary changed or newly added
-if [ -f "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" ]; then
-    if [ ! -f "$MACOS_DIR/vellum-chrome-native-host" ] || [ "$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host" -nt "$MACOS_DIR/vellum-chrome-native-host" ]; then
-        NEEDS_REBUILD=true
-    fi
-fi
-
 # Ensure .app bundle structure exists
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 
@@ -1152,19 +1087,6 @@ if [ "$NEEDS_REBUILD" = true ]; then
         chmod +x "$MACOS_DIR/credential-executor"
     else
         echo "No credential-executor binary at $CES_BIN — skipping (dev mode)"
-    fi
-
-    # Copy bundled Chrome native messaging helper binary (if available).
-    # This is an auxiliary executable under Contents/MacOS/ that Chrome
-    # spawns via the com.vellum.daemon.json manifest written by
-    # NativeMessagingInstaller at first launch.
-    NATIVE_HOST_BIN="$SCRIPT_DIR/native-host-bin/vellum-chrome-native-host"
-    if [ -f "$NATIVE_HOST_BIN" ]; then
-        echo "Bundling Chrome native messaging helper binary..."
-        cp "$NATIVE_HOST_BIN" "$MACOS_DIR/vellum-chrome-native-host"
-        chmod +x "$MACOS_DIR/vellum-chrome-native-host"
-    else
-        echo "No Chrome native messaging helper binary at $NATIVE_HOST_BIN — skipping (dev mode)"
     fi
 
 else
@@ -1266,17 +1188,10 @@ FEATURE_FLAG_REGISTRY="$SCRIPT_DIR/../../meta/feature-flags/feature-flag-registr
 if [ -f "$FEATURE_FLAG_REGISTRY" ]; then
     cp "$FEATURE_FLAG_REGISTRY" "$RESOURCES_DIR/feature-flag-registry.json"
 fi
-PROVIDER_ENV_VARS_REGISTRY="$SCRIPT_DIR/../../meta/provider-env-vars.json"
-if [ -f "$PROVIDER_ENV_VARS_REGISTRY" ]; then
-    cp "$PROVIDER_ENV_VARS_REGISTRY" "$RESOURCES_DIR/provider-env-vars.json"
-fi
+
 TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
 if [ -f "$TTS_PROVIDER_CATALOG" ]; then
     cp "$TTS_PROVIDER_CATALOG" "$RESOURCES_DIR/tts-provider-catalog.json"
-fi
-STT_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/stt-provider-catalog.json"
-if [ -f "$STT_PROVIDER_CATALOG" ]; then
-    cp "$STT_PROVIDER_CATALOG" "$RESOURCES_DIR/stt-provider-catalog.json"
 fi
 LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
 if [ -f "$LLM_PROVIDER_CATALOG" ]; then
@@ -1386,12 +1301,6 @@ fi
 _LSE_ENTRIES+="
         <key>VELLUM_ENVIRONMENT</key>
         <string>$VELLUM_ENVIRONMENT</string>"
-if [ -n "${CHROME_EXTENSION_IDS_CSV:-}" ]; then
-    echo "Embedding VELLUM_CHROME_EXTENSION_IDS"
-    _LSE_ENTRIES+="
-        <key>VELLUM_CHROME_EXTENSION_IDS</key>
-        <string>$CHROME_EXTENSION_IDS_CSV</string>"
-fi
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
     echo "Embedding SENTRY_DSN_MACOS"
     _LSE_ENTRIES+="
@@ -2044,13 +1953,6 @@ if [ -f "$MACOS_DIR/vellum-gateway" ]; then
     echo "Gateway binary signed"
 fi
 
-# Sign Chrome native messaging helper binary
-if [ -f "$MACOS_DIR/vellum-chrome-native-host" ]; then
-    NATIVE_HOST_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
-    codesign "${NATIVE_HOST_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-chrome-native-host"
-    echo "Chrome native messaging helper binary signed"
-fi
-
 # Sign credential-executor (CES) binary
 if [ -f "$MACOS_DIR/credential-executor" ]; then
     CES_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" "${CODESIGN_TS_FLAGS[@]}")
@@ -2069,7 +1971,6 @@ if [ -d "$MACOS_DIR" ]; then
         ! -name "vellum-daemon" \
         ! -name "vellum-cli" \
         ! -name "vellum-gateway" \
-        ! -name "vellum-chrome-native-host" \
         ! -name "credential-executor" \
         -exec codesign "${EXTRA_FILE_SIGN_FLAGS[@]}" {} \;
 fi

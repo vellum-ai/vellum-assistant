@@ -20,13 +20,7 @@ function nextUUID(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mock daemon-credential-client
-//
-// The credentials CLI routes secret read/write through the daemon HTTP API
-// (see src/cli/lib/daemon-credential-client.ts). Mocking the daemon client
-// directly is the cleanest way to isolate the CLI from the real daemon or a
-// running daemon on localhost (which would otherwise be reached via the HTTP
-// healthz fallback in daemon-credential-client).
+// Mock secure-keys (reads) and daemon-credential-client (writes/deletes)
 // ---------------------------------------------------------------------------
 
 function normalizeCredentialAccount(type: string, name: string): string {
@@ -38,6 +32,29 @@ function normalizeCredentialAccount(type: string, name: string): string {
   }
   return name;
 }
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
+    return secureKeyStore.get(account);
+  },
+  getSecureKeyResultAsync: async (
+    account: string,
+  ): Promise<{ value: string | undefined; unreachable: boolean }> => ({
+    value: secureKeyStore.get(account),
+    unreachable: mockBrokerUnreachable,
+  }),
+  setSecureKeyAsync: async () => true,
+  deleteSecureKeyAsync: async () => "deleted" as const,
+  getProviderKeyAsync: async () => undefined,
+  getMaskedProviderKey: async () => undefined,
+  bulkSetSecureKeysAsync: async () => {},
+  listSecureKeysAsync: async () => ({ credentials: [] }),
+  setCesClient: () => {},
+  onCesClientChanged: () => ({ unsubscribe: () => {} }),
+  setCesReconnect: () => {},
+  getActiveBackendName: () => "file",
+  _resetBackend: () => {},
+}));
 
 mock.module("../cli/lib/daemon-credential-client.js", () => ({
   setSecureKeyViaDaemon: async (
@@ -59,17 +76,6 @@ mock.module("../cli/lib/daemon-credential-client.js", () => ({
     }
     return "not-found";
   },
-  getSecureKeyViaDaemon: async (
-    account: string,
-  ): Promise<string | undefined> => {
-    return secureKeyStore.get(account);
-  },
-  getSecureKeyResultViaDaemon: async (
-    account: string,
-  ): Promise<{ value: string | undefined; unreachable: boolean }> => ({
-    value: secureKeyStore.get(account),
-    unreachable: mockBrokerUnreachable,
-  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -169,12 +175,30 @@ mock.module("../oauth/oauth-store.js", () => ({
     disconnectOAuthProviderCalls.push(provider);
     return disconnectOAuthProviderResult;
   },
+  // Provide stubs for all named exports so transitive importers don't crash
+  seedProviders: () => {},
+  getProvider: (): undefined => undefined,
+  listProviders: (): never[] => [],
+  registerProvider: () => {},
+  updateProvider: () => {},
+  deleteProvider: (): boolean => false,
+  upsertApp: async () => ({ id: "mock-app-id" }),
+  getApp: (): undefined => undefined,
+  getAppClientSecret: async (): Promise<undefined> => undefined,
+  getAppByProviderAndClientId: (): undefined => undefined,
+  getMostRecentAppByProvider: (): undefined => undefined,
+  listApps: (): never[] => [],
+  deleteApp: async (): Promise<boolean> => false,
+  createConnection: () => ({ id: "mock-conn-id" }),
+  getConnection: (): undefined => undefined,
+  getActiveConnection: (): undefined => undefined,
   getConnectionByProvider: (): undefined => undefined,
+  getConnectionByProviderAndAccount: (): undefined => undefined,
+  listActiveConnectionsByProvider: (): never[] => [],
+  isProviderConnected: async (): Promise<boolean> => false,
+  updateConnection: (): boolean => true,
   listConnections: (): never[] => [],
   deleteConnection: (): boolean => false,
-  upsertApp: async () => ({ id: "mock-app-id" }),
-  createConnection: () => ({ id: "mock-conn-id" }),
-  updateConnection: (): boolean => true,
 }));
 
 // ---------------------------------------------------------------------------

@@ -6,16 +6,6 @@
 
 import { sendWhatsAppTextMessage } from "./api.js";
 
-export class WhatsAppApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "WhatsAppApiError";
-  }
-}
-
 /** Result returned by sendMessage. */
 export interface WhatsAppSendResult {
   ok: boolean;

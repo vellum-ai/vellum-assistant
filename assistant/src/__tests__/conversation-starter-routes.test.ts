@@ -9,7 +9,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../prompts/user-reference.js", () => ({
+  DEFAULT_USER_REFERENCE: "my human",
+  resolveUserReference: () => "Alice",
+}));
+
 import { getSqlite, initializeDb } from "../memory/db.js";
+import type { RouteParams } from "../runtime/http-router.js";
 import {
   CONVERSATION_STARTERS_STALE_TTL_MS,
   conversationStarterRouteDefinitions,
@@ -20,19 +26,26 @@ initializeDb();
 
 const routes = conversationStarterRouteDefinitions();
 
-function dispatch(path: string): Response | Promise<Response> {
+function dispatch(path: string, method = "GET"): Response | Promise<Response> {
   const url = new URL(`http://localhost/v1/${path}`);
-  const req = new Request(url.toString(), { method: "GET" });
+  const req = new Request(url.toString(), { method });
   const route = routes.find(
-    (r) => r.method === "GET" && r.endpoint === "conversation-starters",
+    (r) =>
+      r.method === method &&
+      (r.endpoint === "conversation-starters" ||
+        r.endpoint === "conversation-starters/:id"),
   );
   if (!route) throw new Error("No conversation-starters route found");
+  const params: RouteParams =
+    method === "DELETE"
+      ? { id: decodeURIComponent(path.split("/").at(-1) ?? "") }
+      : {};
   return route.handler({
     req,
     url,
     server: null as never,
     authContext: {} as never,
-    params: {},
+    params,
   });
 }
 
@@ -44,6 +57,7 @@ function clearTables() {
 }
 
 function insertStarter(overrides: {
+  id?: string;
   label: string;
   prompt: string;
   category: string;
@@ -52,11 +66,12 @@ function insertStarter(overrides: {
   createdAt?: number;
 }) {
   const now = Date.now();
+  const id = overrides.id ?? uuid();
   getSqlite().run(
     `INSERT INTO conversation_starters (id, label, prompt, category, generation_batch, scope_id, card_type, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'chip', ?)`,
     [
-      uuid(),
+      id,
       overrides.label,
       overrides.prompt,
       overrides.category,
@@ -65,6 +80,7 @@ function insertStarter(overrides: {
       overrides.createdAt ?? now,
     ],
   );
+  return id;
 }
 
 function insertMemoryItem(scopeId = "default") {
@@ -245,6 +261,74 @@ describe("GET /v1/conversation-starters", () => {
     expect(countStarterJobs()).toBe(1);
   });
 
+  test("filters assistant-voice starters and refreshes the batch", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Let me check calendar",
+      prompt: "Let me check what Alice has today.",
+      category: "productivity",
+      createdAt: now,
+    });
+    insertStarter({
+      label: "Plan my morning",
+      prompt: "Can you help me plan my morning?",
+      category: "productivity",
+      createdAt: now - 1,
+    });
+    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: Array<{ label: string }>;
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.total).toBe(1);
+    expect(body.starters.map((starter) => starter.label)).toEqual([
+      "Plan my morning",
+    ]);
+    expect(countStarterJobs()).toBe(1);
+  });
+
+  test("filters current-user third-person starters", async () => {
+    const now = Date.now();
+    insertStarter({
+      label: "Catch up with Alice",
+      prompt: "What has Alice been thinking about today?",
+      category: "communication",
+      createdAt: now,
+    });
+    insertStarter({
+      label: "Catch me up",
+      prompt: "Can you catch me up on what you've been thinking about today?",
+      category: "communication",
+      createdAt: now - 1,
+    });
+    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+
+    const res = await dispatch("conversation-starters");
+    const body = (await res.json()) as {
+      starters: Array<{ label: string }>;
+      total: number;
+      status: string;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("refreshing");
+    expect(body.total).toBe(1);
+    expect(body.starters.map((starter) => starter.label)).toEqual([
+      "Catch me up",
+    ]);
+    expect(countStarterJobs()).toBe(1);
+  });
+
   test("returns empty status when no memory items exist", async () => {
     const res = await dispatch("conversation-starters");
     const body = (await res.json()) as {
@@ -333,6 +417,48 @@ describe("GET /v1/conversation-starters", () => {
       .slice(0, 3)
       .map((starter) => starter.category);
     expect(new Set(firstThreeCategories).size).toBe(3);
+  });
+
+  test("deletes a starter and excludes it from subsequent list responses", async () => {
+    const deletedId = insertStarter({
+      label: "Draft a PR summary",
+      prompt: "Draft a summary for my latest PR",
+      category: "development",
+    });
+    const keptId = insertStarter({
+      label: "Check Slack threads",
+      prompt: "Check my unread Slack threads",
+      category: "communication",
+    });
+
+    const deleteRes = await dispatch(
+      `conversation-starters/${deletedId}`,
+      "DELETE",
+    );
+    const deleteBody = (await deleteRes.json()) as {
+      deleted: boolean;
+      id: string;
+    };
+    expect(deleteRes.status).toBe(200);
+    expect(deleteBody).toEqual({ deleted: true, id: deletedId });
+    expect(countStarterJobs()).toBe(0);
+
+    const listRes = await dispatch("conversation-starters");
+    const listBody = (await listRes.json()) as {
+      starters: Array<{ id: string }>;
+      total: number;
+    };
+    expect(listBody.total).toBe(1);
+    expect(listBody.starters.map((starter) => starter.id)).toEqual([keptId]);
+  });
+
+  test("returns 404 when deleting an unknown starter", async () => {
+    const res = await dispatch(`conversation-starters/${uuid()}`, "DELETE");
+    const body = (await res.json()) as { error: { code: string } };
+
+    expect(res.status).toBe(404);
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(countStarterJobs()).toBe(0);
   });
 });
 

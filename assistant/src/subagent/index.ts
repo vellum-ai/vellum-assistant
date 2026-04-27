@@ -1,4 +1,4 @@
-export { mergeSkillIds, SubagentManager } from "./manager.js";
+export { mergeSkillIds } from "./manager.js";
 export type {
   SubagentConfig,
   SubagentRole,
@@ -6,11 +6,7 @@ export type {
   SubagentState,
   SubagentStatus,
 } from "./types.js";
-export {
-  SUBAGENT_LIMITS,
-  SUBAGENT_ROLE_REGISTRY,
-  TERMINAL_STATUSES,
-} from "./types.js";
+export { SUBAGENT_ROLE_REGISTRY, TERMINAL_STATUSES } from "./types.js";
 
 import { SubagentManager } from "./manager.js";
 

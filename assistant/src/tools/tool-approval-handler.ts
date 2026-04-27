@@ -1,5 +1,6 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
+import type { ChannelId } from "../channels/types.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -41,7 +42,7 @@ function buildToolGrantQuestionText(
 }
 
 /** Default polling interval for inline grant wait (ms). */
-export const TC_GRANT_WAIT_INTERVAL_MS = 500;
+const TC_GRANT_WAIT_INTERVAL_MS = 500;
 /** Default maximum wait time for inline grant wait (ms). */
 export const TC_GRANT_WAIT_MAX_MS = 60_000;
 
@@ -516,8 +517,7 @@ export class ToolApprovalHandler {
           computeToolApprovalDigest(name, input);
         const escalation = createOrReuseToolGrantRequest({
           assistantId: context.assistantId,
-          sourceChannel:
-            context.executionChannel as import("../channels/types.js").ChannelId,
+          sourceChannel: context.executionChannel as ChannelId,
           conversationId: context.conversationId,
           requesterExternalUserId: context.requesterExternalUserId,
           requesterChatId: context.requesterChatId,

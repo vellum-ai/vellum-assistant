@@ -128,3 +128,41 @@ export function mintServiceToken(): string {
     ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
   });
 }
+
+/**
+ * Mint a relay token for Twilio WebSocket connections.
+ *
+ * The gateway's relay/media-stream WS handlers validate these tokens via
+ * {@link validateEdgeToken} (aud=vellum-gateway). Previously minted by the
+ * daemon and embedded in TwiML; now minted by the gateway and injected into
+ * the TwiML response before it reaches Twilio.
+ *
+ * sub=svc:gateway:self, scope_profile=gateway_service_v1
+ */
+export function mintRelayToken(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:gateway:self",
+    scope_profile: "gateway_service_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,
+  });
+}
+
+/**
+ * Mint a JWT for embedding in browser-served UI pages (brain-graph).
+ *
+ * The daemon returns HTML containing a placeholder; the gateway replaces it
+ * with this token before serving the page. Uses the ui_page_v1 scope profile
+ * which grants only settings.read — the minimum needed for the brain-graph
+ * data endpoint. 1-hour TTL gives users time to interact with the page.
+ */
+export function mintUiPageToken(): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub: "svc:gateway:self",
+    scope_profile: "ui_page_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 3600,
+  });
+}

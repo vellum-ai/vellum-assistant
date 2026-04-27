@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { getDb } from "../../memory/db.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -8,7 +9,6 @@ import {
   type UsageGroupBreakdown,
   type UsageTotals,
 } from "../../memory/llm-usage-store.js";
-import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
 
 // ── Formatting helpers ───────────────────────────────────────────
@@ -223,7 +223,7 @@ Examples:
     )
     .action(
       (opts: { range: string; from?: string; to?: string; json?: boolean }) => {
-        initializeDb();
+        getDb();
         const { from, to } = resolveRange(opts);
         const totals = getUsageTotals({ from, to });
         if (opts.json) {
@@ -254,7 +254,7 @@ Examples:
     )
     .action(
       (opts: { range: string; from?: string; to?: string; json?: boolean }) => {
-        initializeDb();
+        getDb();
         const { from, to } = resolveRange(opts);
         const buckets = getUsageDayBuckets({ from, to });
         if (opts.json) {
@@ -303,14 +303,19 @@ Examples:
         json?: boolean;
         groupBy: string;
       }) => {
-        const validDimensions = new Set(["actor", "provider", "model", "conversation"]);
+        const validDimensions = new Set([
+          "actor",
+          "provider",
+          "model",
+          "conversation",
+        ]);
         if (!validDimensions.has(opts.groupBy)) {
           log.error(
             `Invalid --group-by value: '${opts.groupBy}'. Must be one of: actor, provider, model, conversation`,
           );
           process.exit(1);
         }
-        initializeDb();
+        getDb();
         const { from, to } = resolveRange(opts);
         const breakdown = getUsageGroupBreakdown(
           { from, to },

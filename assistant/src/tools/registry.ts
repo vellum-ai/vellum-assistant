@@ -55,7 +55,7 @@ export function registerExternalTools(
 }
 
 /** Return all externally registered tools. */
-export function getExternalTools(): Tool[] {
+function getExternalTools(): Tool[] {
   return externalToolProviders.flatMap((provider) => provider());
 }
 

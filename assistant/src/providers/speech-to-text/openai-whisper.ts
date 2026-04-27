@@ -1,13 +1,13 @@
 import type { SttTranscribeResult } from "../../stt/types.js";
 
-export const WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
+const WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions";
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
  * Derive a filename extension from a MIME type so the Whisper API can detect
  * the audio format. Falls back to "audio" when the MIME type is unrecognised.
  */
-export function extensionFromMime(mimeType: string): string {
+function extensionFromMime(mimeType: string): string {
   const map: Record<string, string> = {
     "audio/wav": "wav",
     "audio/x-wav": "wav",
@@ -30,10 +30,7 @@ export function extensionFromMime(mimeType: string): string {
  * Shared between the batch provider and the streaming adapter to avoid
  * duplicating request construction logic.
  */
-export function buildWhisperFormData(
-  audio: Buffer,
-  mimeType: string,
-): FormData {
+function buildWhisperFormData(audio: Buffer, mimeType: string): FormData {
   const ext = extensionFromMime(mimeType);
 
   const formData = new FormData();

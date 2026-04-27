@@ -42,8 +42,6 @@ export interface LocalInstanceResources {
   qdrantPort: number;
   /** HTTP port for the CES (Claude Extension Server) */
   cesPort: number;
-  /** Absolute path to the daemon PID file */
-  pidFile: string;
   /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
    *  client actor tokens remain valid across `wake` cycles. */
   signingKey?: string;
@@ -112,6 +110,18 @@ interface LockfileData {
 
 export function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || homedir();
+}
+
+/**
+ * Derive the daemon PID file path from a resources object. The PID file
+ * lives inside the instance's workspace directory. When no resources are
+ * available, falls back to `~/.vellum/workspace/vellum.pid`.
+ */
+export function getDaemonPidPath(resources?: LocalInstanceResources): string {
+  const vellumDir = resources
+    ? join(resources.instanceDir, ".vellum")
+    : join(homedir(), ".vellum");
+  return join(vellumDir, "workspace", "vellum.pid");
 }
 
 function readLockfile(): LockfileData {
@@ -215,7 +225,6 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
       gatewayPort,
       qdrantPort: defaultPorts.qdrant,
       cesPort: defaultPorts.ces,
-      pidFile: join(instanceDir, ".vellum", "vellum.pid"),
     };
     mutated = true;
   } else {
@@ -245,10 +254,6 @@ export function migrateLegacyEntry(raw: Record<string, unknown>): boolean {
     }
     if (typeof res.cesPort !== "number") {
       res.cesPort = defaultPorts.ces;
-      mutated = true;
-    }
-    if (typeof res.pidFile !== "string") {
-      res.pidFile = join(res.instanceDir as string, ".vellum", "vellum.pid");
       mutated = true;
     }
   }
@@ -474,7 +479,6 @@ export async function allocateLocalResources(
     gatewayPort,
     qdrantPort,
     cesPort,
-    pidFile: join(instanceDir, ".vellum", "vellum.pid"),
   };
 }
 

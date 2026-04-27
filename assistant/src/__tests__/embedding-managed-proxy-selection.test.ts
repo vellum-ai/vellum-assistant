@@ -96,7 +96,7 @@ function makeConfig(
         provider: overrides.provider ?? "auto",
         localModel: "Xenova/bge-small-en-v1.5",
         openaiModel: "text-embedding-3-small",
-        geminiModel: overrides.geminiModel ?? "gemini-embedding-2-preview",
+        geminiModel: overrides.geminiModel ?? "gemini-embedding-2",
         geminiDimensions: overrides.geminiDimensions,
         ollamaModel: "nomic-embed-text",
       },

@@ -6,8 +6,6 @@ const VALID_LATEST_TURN_COMPRESSION_POLICIES = [
   "drop",
 ] as const;
 
-export { VALID_LATEST_TURN_COMPRESSION_POLICIES };
-
 export const ThinkingConfigSchema = z
   .object({
     enabled: z

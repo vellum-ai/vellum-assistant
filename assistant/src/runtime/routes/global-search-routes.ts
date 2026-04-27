@@ -199,7 +199,7 @@ function searchScheduleJobs(
 // Route handler
 // ---------------------------------------------------------------------------
 
-export async function handleGlobalSearch(url: URL): Promise<Response> {
+async function handleGlobalSearch(url: URL): Promise<Response> {
   const query = url.searchParams.get("q") ?? "";
   if (!query.trim()) {
     return httpError("BAD_REQUEST", "q query parameter is required", 400);

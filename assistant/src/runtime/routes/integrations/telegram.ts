@@ -20,7 +20,7 @@ import type { RouteDefinition } from "../../http-router.js";
 /**
  * GET /v1/integrations/telegram/config
  */
-export async function handleGetTelegramConfig(): Promise<Response> {
+async function handleGetTelegramConfig(): Promise<Response> {
   const result = await getTelegramConfig();
   return Response.json(result);
 }
@@ -30,7 +30,7 @@ export async function handleGetTelegramConfig(): Promise<Response> {
  *
  * Body: { botToken?: string }
  */
-export async function handleSetTelegramConfig(req: Request): Promise<Response> {
+async function handleSetTelegramConfig(req: Request): Promise<Response> {
   const body = (await req.json()) as { botToken?: string };
   const result = await setTelegramConfig(body.botToken);
   const status = result.success ? 200 : 400;
@@ -40,7 +40,7 @@ export async function handleSetTelegramConfig(req: Request): Promise<Response> {
 /**
  * DELETE /v1/integrations/telegram/config
  */
-export async function handleClearTelegramConfig(): Promise<Response> {
+async function handleClearTelegramConfig(): Promise<Response> {
   const result = await clearTelegramConfig();
   return Response.json(result);
 }
@@ -50,9 +50,7 @@ export async function handleClearTelegramConfig(): Promise<Response> {
  *
  * Body: { commands?: Array<{ command: string; description: string }> }
  */
-export async function handleSetTelegramCommands(
-  req: Request,
-): Promise<Response> {
+async function handleSetTelegramCommands(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     commands?: Array<{ command: string; description: string }>;
   };
@@ -66,7 +64,7 @@ export async function handleSetTelegramCommands(
  *
  * Body: { botToken?: string; commands?: Array<{ command: string; description: string }> }
  */
-export async function handleSetupTelegram(req: Request): Promise<Response> {
+async function handleSetupTelegram(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     botToken?: string;
     commands?: Array<{ command: string; description: string }>;

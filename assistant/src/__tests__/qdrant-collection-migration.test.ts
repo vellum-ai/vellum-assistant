@@ -115,7 +115,7 @@ describe("Qdrant collection migration", () => {
       vectorSize: 768, // New config expects 768-dim vectors
       onDisk: false,
       quantization: "none",
-      embeddingModel: "gemini:gemini-embedding-2-preview",
+      embeddingModel: "gemini:gemini-embedding-2",
     });
 
     const result = await client.ensureCollection();
@@ -140,7 +140,7 @@ describe("Qdrant collection migration", () => {
       vectorSize: 768, // Same dimension
       onDisk: false,
       quantization: "none",
-      embeddingModel: "gemini:gemini-embedding-2-preview", // New model
+      embeddingModel: "gemini:gemini-embedding-2", // New model
     });
 
     const result = await client.ensureCollection();
@@ -158,7 +158,7 @@ describe("Qdrant collection migration", () => {
     mockCollectionSize = 768;
     mockSentinelPayload = {
       _meta: true,
-      embedding_model: "gemini:gemini-embedding-2-preview",
+      embedding_model: "gemini:gemini-embedding-2",
     };
 
     const client = new VellumQdrantClient({
@@ -167,7 +167,7 @@ describe("Qdrant collection migration", () => {
       vectorSize: 768,
       onDisk: false,
       quantization: "none",
-      embeddingModel: "gemini:gemini-embedding-2-preview",
+      embeddingModel: "gemini:gemini-embedding-2",
     });
 
     const result = await client.ensureCollection();
@@ -189,7 +189,7 @@ describe("Qdrant collection migration", () => {
       vectorSize: 768,
       onDisk: false,
       quantization: "none",
-      embeddingModel: "gemini:gemini-embedding-2-preview",
+      embeddingModel: "gemini:gemini-embedding-2",
     });
 
     const result = await client.ensureCollection();
@@ -209,7 +209,7 @@ describe("Qdrant collection migration", () => {
       vectorSize: 768,
       onDisk: false,
       quantization: "none",
-      embeddingModel: "gemini:gemini-embedding-2-preview",
+      embeddingModel: "gemini:gemini-embedding-2",
     });
 
     const result = await client.ensureCollection();
@@ -232,7 +232,7 @@ describe("Qdrant collection migration", () => {
       vectorSize: 768, // Same dimension
       onDisk: false,
       quantization: "none",
-      embeddingModel: "gemini:gemini-embedding-2-preview",
+      embeddingModel: "gemini:gemini-embedding-2",
     });
 
     const result = await client.ensureCollection();

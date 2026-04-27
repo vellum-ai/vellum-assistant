@@ -3,7 +3,6 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -506,9 +505,9 @@ export function mergeDefaultWorkspaceConfig(): void {
 export function loadConfig(): AssistantConfig {
   if (cached) return cached;
 
-  // Re-entrancy guard: log calls during loading (e.g. file-mode warning)
-  // can trigger loadConfig again. Return defaults to break the cycle
-  // instead of recursing to stack overflow.
+  // Re-entrancy guard: log calls during loading can trigger loadConfig
+  // again. Return defaults to break the cycle instead of recursing to
+  // stack overflow.
   if (loading) return cloneDefaultConfig();
   loading = true;
 
@@ -519,15 +518,6 @@ export function loadConfig(): AssistantConfig {
     let fileConfig: Record<string, unknown> = {};
     let configFileExisted = true;
     if (existsSync(configPath)) {
-      const mode = statSync(configPath).mode;
-      if (mode & 0o077) {
-        log.warn(
-          `Config file ${configPath} is readable by other users (mode ${(
-            mode & 0o777
-          ).toString(8)}). ` + `Run: chmod 600 ${configPath}`,
-        );
-      }
-
       try {
         fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
       } catch (err) {
@@ -567,7 +557,7 @@ export function loadConfig(): AssistantConfig {
           setNestedValue(
             fileConfig,
             "memory.embeddings.geminiModel",
-            "gemini-embedding-2-preview",
+            "gemini-embedding-2",
           );
           setNestedValue(
             fileConfig,
@@ -577,7 +567,7 @@ export function loadConfig(): AssistantConfig {
           setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
           writeFileSync(configPath, JSON.stringify(fileConfig, null, 2) + "\n");
           log.info(
-            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2-preview, dimensions=3072, vectorSize=3072)",
+            "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
           );
           // Re-validate so the returned config reflects the migration.
           config = validateWithSchema(fileConfig);

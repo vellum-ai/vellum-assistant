@@ -28,9 +28,17 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
+import { registerCredentialPromptDeps } from "../ipc/routes/credential-prompt.js";
+import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
+import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
-import * as attachmentsStore from "../memory/attachments-store.js";
+import {
+  getAttachmentsByIds,
+  getSourcePathsForAttachments,
+  uploadFileBackedAttachment,
+  validateAttachmentUpload,
+} from "../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
@@ -102,9 +110,10 @@ import {
 } from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import type {
-  ConversationCreateOptions,
-  HandlerContext,
+import {
+  type ConversationCreateOptions,
+  type HandlerContext,
+  requestSecretStandalone,
 } from "./handlers/shared.js";
 import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
@@ -166,7 +175,7 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
   }
   // Interface and channel are orthogonal dimensions; default explicitly
   // instead of deriving interface from channel.
-  return "vellum";
+  return "web";
 }
 
 function resolveCanonicalRequestSourceType(
@@ -726,10 +735,7 @@ export class DaemonServer {
       if (params.attachments && params.attachments.length > 0) {
         for (const a of params.attachments) {
           try {
-            const validation = attachmentsStore.validateAttachmentUpload(
-              a.filename,
-              a.mimeType,
-            );
+            const validation = validateAttachmentUpload(a.filename, a.mimeType);
             if (!validation.ok) {
               log.warn(
                 { error: validation.error, path: a.path },
@@ -738,7 +744,7 @@ export class DaemonServer {
               continue;
             }
             const size = statSync(a.path).size;
-            const stored = attachmentsStore.uploadFileBackedAttachment(
+            const stored = uploadFileBackedAttachment(
               a.filename,
               a.mimeType,
               a.path,
@@ -832,6 +838,15 @@ export class DaemonServer {
         // but a delayed opportunity callback still fires).
         const existing = getConversation(conversationId);
         if (!existing) return null;
+        // Reject wakes on archived conversations — they should not
+        // be reactivated by background processes.
+        if (existing.archivedAt != null) {
+          log.info(
+            { conversationId },
+            "agent-wake default resolver: conversation is archived; rejecting wake",
+          );
+          return "archived";
+        }
         const conversation = await this.getOrCreateConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
@@ -897,9 +912,16 @@ export class DaemonServer {
       };
     });
 
-    // Start the CLI IPC server. Built-in methods (wake_conversation) are
-    // registered by the constructor; CLI commands connect to this socket to
-    // invoke daemon-side operations that require in-process state.
+    registerDestroyConversation((id) => this.destroyConversation(id));
+    registerSecretRouteDeps({
+      getCesClient: () => this.getCesClient(),
+      onProviderCredentialsChanged: () =>
+        this.refreshConversationsForProviderChange(),
+    });
+    registerCredentialPromptDeps({
+      requestSecretStandalone: (params) =>
+        requestSecretStandalone(this.handlerContext(), params),
+    });
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
@@ -1415,11 +1437,10 @@ export class DaemonServer {
 
     const attachments = attachmentIds
       ? (() => {
-          const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds, {
+          const resolved = getAttachmentsByIds(attachmentIds, {
             hydrateFileData: true,
           });
-          const sourcePaths =
-            attachmentsStore.getSourcePathsForAttachments(attachmentIds);
+          const sourcePaths = getSourcePathsForAttachments(attachmentIds);
           return resolved.map((a) => ({
             id: a.id,
             filename: a.originalFilename,
@@ -1996,6 +2017,23 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
     pushMessage: (msg) => {
       conversation.messages.push(msg);
     },
+    onWakeProducedOutput: (source, hint, surfaceId) => {
+      const emit =
+        conversation.broadcastToAllClients ??
+        conversation.sendToClient.bind(conversation);
+      emit({
+        type: "ui_surface_show",
+        conversationId: conversation.conversationId,
+        surfaceId,
+        surfaceType: "card",
+        data: {
+          title: "Conversation Woke",
+          body: hint,
+          metadata: [{ label: "Source", value: source }],
+        },
+        display: "inline",
+      });
+    },
     emitAgentEvent: (event) => {
       const frame = translateAgentEventToServerMessage(
         event,
@@ -2022,7 +2060,7 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
       // `conversation-agent-loop-handlers.ts`. If the live turn channel
       // / interface contexts are missing (a wake can fire on a
       // conversation that has never run a user turn), fall back to the
-      // conversation's origin channel/interface defaults (`"vellum"`)
+      // conversation's origin channel/interface defaults (`"vellum"` / `"web"`)
       // so persisted rows still carry valid channel/interface ids.
       const turnChannelCtx = conversation.getTurnChannelContext();
       const turnInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -2031,10 +2069,9 @@ function conversationToWakeTarget(conversation: Conversation): WakeTarget {
         userMessageChannel: turnChannelCtx?.userMessageChannel ?? "vellum",
         assistantMessageChannel:
           turnChannelCtx?.assistantMessageChannel ?? "vellum",
-        userMessageInterface:
-          turnInterfaceCtx?.userMessageInterface ?? "vellum",
+        userMessageInterface: turnInterfaceCtx?.userMessageInterface ?? "web",
         assistantMessageInterface:
-          turnInterfaceCtx?.assistantMessageInterface ?? "vellum",
+          turnInterfaceCtx?.assistantMessageInterface ?? "web",
       };
       const persisted = await addMessage(
         conversation.conversationId,

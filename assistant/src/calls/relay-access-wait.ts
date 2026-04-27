@@ -22,7 +22,7 @@ const log = getLogger("relay-access-wait");
 
 // ── Wait-utterance classification ────────────────────────────────────
 
-export type WaitUtteranceClass =
+type WaitUtteranceClass =
   | "empty"
   | "patience_check"
   | "impatient"
@@ -108,10 +108,7 @@ export function classifyWaitUtterance(
  * Generate a non-repetitive heartbeat message for the caller based
  * on the current sequence counter and guardian label.
  */
-export function getHeartbeatMessage(
-  sequence: number,
-  guardianLabel: string,
-): string {
+function getHeartbeatMessage(sequence: number, guardianLabel: string): string {
   const messages = [
     `Still waiting to hear back from ${guardianLabel}. Thank you for your patience.`,
     `I'm still trying to reach ${guardianLabel}. One moment please.`,
@@ -124,7 +121,7 @@ export function getHeartbeatMessage(
 
 // ── Heartbeat scheduling ─────────────────────────────────────────────
 
-export interface ScheduleNextHeartbeatParams {
+interface ScheduleNextHeartbeatParams {
   isWaitActive: () => boolean;
   accessRequestWaitStartedAt: number;
   callSessionId: string;
@@ -194,7 +191,7 @@ export function scheduleNextHeartbeat(
 
 // ── Callback handoff notification ────────────────────────────────────
 
-export interface EmitAccessRequestCallbackHandoffParams {
+interface EmitAccessRequestCallbackHandoffParams {
   reason: "timeout" | "transport_closed";
   callbackOptIn: boolean;
   accessRequestId: string | null;
@@ -205,7 +202,7 @@ export interface EmitAccessRequestCallbackHandoffParams {
   callSessionId: string;
 }
 
-export interface EmitAccessRequestCallbackHandoffResult {
+interface EmitAccessRequestCallbackHandoffResult {
   /** Whether the notification was actually emitted. */
   emitted: boolean;
   /** Updated callbackHandoffNotified flag for the caller to persist. */

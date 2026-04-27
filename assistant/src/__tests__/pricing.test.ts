@@ -94,6 +94,78 @@ describe("resolvePricing", () => {
   });
 
   describe("Gemini models", () => {
+    test("prices gemini-3.1-pro-preview at the low-context tier through 200k input tokens", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-pro-preview",
+        200_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.4 + 12);
+    });
+
+    test("prices gemini-3.1-pro-preview at the high-context tier above 200k input tokens", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-pro-preview",
+        200_001,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        (200_001 / 1_000_000) * 4 + 18,
+        10,
+      );
+    });
+
+    test("prices gemini-3.1-pro-preview-customtools at the low-context tier through 200k input tokens", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-pro-preview-customtools",
+        200_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.4 + 12);
+    });
+
+    test("prices gemini-3.1-pro-preview-customtools at the high-context tier above 200k input tokens", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-pro-preview-customtools",
+        200_001,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBeCloseTo(
+        (200_001 / 1_000_000) * 4 + 18,
+        10,
+      );
+    });
+
+    test("returns priced for gemini-3-flash-preview", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3-flash-preview",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.5 + 3);
+    });
+
+    test("returns priced for gemini-3.1-flash-lite-preview", () => {
+      const result = resolvePricing(
+        "gemini",
+        "gemini-3.1-flash-lite-preview",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(0.25 + 1.5);
+    });
+
     test("returns priced for gemini-2.5-pro", () => {
       const result = resolvePricing(
         "gemini",
@@ -113,7 +185,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(0.15 + 0.6);
+      expect(result.estimatedCostUsd).toBe(0.3 + 2.5);
     });
 
     test("returns priced for gemini-2.5-flash-lite", () => {
@@ -124,7 +196,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(0.02 + 0.1);
+      expect(result.estimatedCostUsd).toBe(0.1 + 0.4);
     });
   });
 
@@ -293,6 +365,83 @@ describe("resolvePricingForUsage", () => {
 
     expect(result.pricingStatus).toBe("unpriced");
     expect(result.estimatedCostUsd).toBeNull();
+  });
+
+  test("uses total prompt tokens to select the Gemini 3.1 Pro pricing tier", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 199_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 1_000,
+      cacheReadInputTokens: 1,
+      anthropicCacheCreation: null,
+    };
+
+    const result = resolvePricingForUsage(
+      "gemini",
+      "gemini-3.1-pro-preview",
+      usage,
+    );
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(
+      (200_000 / 1_000_000) * 4 + (1 / 1_000_000) * 0.4 + 18,
+      10,
+    );
+  });
+
+  test("uses Gemini 3.1 Pro tier-specific cache-read rates", () => {
+    const lowTier = resolvePricingForUsage("gemini", "gemini-3.1-pro-preview", {
+      directInputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 200_000,
+      anthropicCacheCreation: null,
+    });
+    const highTier = resolvePricingForUsage(
+      "gemini",
+      "gemini-3.1-pro-preview",
+      {
+        directInputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 200_001,
+        anthropicCacheCreation: null,
+      },
+    );
+
+    expect(lowTier.pricingStatus).toBe("priced");
+    expect(lowTier.estimatedCostUsd).toBeCloseTo(
+      (200_000 / 1_000_000) * 0.2,
+      10,
+    );
+    expect(highTier.pricingStatus).toBe("priced");
+    expect(highTier.estimatedCostUsd).toBeCloseTo(
+      (200_001 / 1_000_000) * 0.4,
+      10,
+    );
+  });
+
+  test("uses Gemini catalog cache-read rates", () => {
+    const cases = [
+      ["gemini-3-flash-preview", 0.05],
+      ["gemini-3.1-flash-lite-preview", 0.025],
+      ["gemini-2.5-flash", 0.03],
+      ["gemini-2.5-flash-lite", 0.01],
+      ["gemini-2.5-pro", 0.3125],
+    ] as const;
+
+    for (const [model, expectedCost] of cases) {
+      const result = resolvePricingForUsage("gemini", model, {
+        directInputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 1_000_000,
+        anthropicCacheCreation: null,
+      });
+
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(expectedCost);
+    }
   });
 });
 

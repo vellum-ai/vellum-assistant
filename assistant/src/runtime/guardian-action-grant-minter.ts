@@ -16,7 +16,7 @@ import type { ApprovalConversationGenerator } from "./http-types.js";
 const log = getLogger("guardian-action-grant-minter");
 
 /** TTL for scoped approval grants minted on guardian-action answer resolution. */
-export const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
+const GUARDIAN_ACTION_GRANT_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Mint a `tool_signature` scoped grant when a guardian-action request is

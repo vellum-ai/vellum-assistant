@@ -2,19 +2,12 @@
  * Route handler for `POST /v1/browser-extension-pair`.
  *
  * Mints a short-lived, scoped `host_browser_command` capability token for a
- * chrome extension that has proved (via the native messaging helper) it is
- * running locally with an allowlisted extension id.
+ * chrome extension running on the same machine as the gateway.
  *
  * Security properties:
  *   - **Localhost-only**: enforced by both the TCP peer IP (via
  *     `server.requestIP`) and the `Host` header. Non-localhost callers
  *     receive a 403.
- *   - **Native-host marker header**: the request must carry the
- *     `x-vellum-native-host: 1` marker. Only the native messaging helper
- *     sets this header; browsers cannot attach custom request headers to
- *     fetches from web pages (custom headers trip CORS preflight, which
- *     this endpoint does not accept). Missing marker header is rejected
- *     with 403.
  *   - **Browser-origin rejection**: if an `Origin` header is present it
  *     must be either empty or explicitly on the
  *     `getAllowedExtensionOrigins()` allowlist. This defends against a
@@ -26,8 +19,7 @@
  *   - **Audit logs on denial**: every rejected request emits a structured
  *     warn log.
  *   - **Origin allowlist**: the body must include `extensionOrigin`
- *     matching a hard-coded allowlist of known Vellum chrome extension
- *     ids.
+ *     matching an allowlist of known Vellum chrome extension ids.
  *
  * Request body:  `{ extensionOrigin: string }` (also accepts the legacy
  *                 `{ origin: string }` for backwards compatibility).
@@ -36,7 +28,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { mintHostBrowserCapability } from "../../auth/capability-tokens.js";
 import { getAssistantDb } from "../../auth/guardian-bootstrap.js";
@@ -49,15 +41,6 @@ const log = getLogger("browser-extension-pair");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/**
- * Header name the native messaging helper MUST set on pair requests.
- */
-export const BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_HEADER =
-  "x-vellum-native-host";
-
-/** Expected value for the native-host marker header. */
-export const BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_VALUE = "1";
 
 const BROWSER_EXTENSION_PAIR_RATE_LIMIT_MAX_REQUESTS = 10;
 const BROWSER_EXTENSION_PAIR_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -83,8 +66,7 @@ function checkRateLimit(peerIp: string): {
   resetAt: number;
 } {
   const now = Date.now();
-  const windowStart =
-    now - BROWSER_EXTENSION_PAIR_RATE_LIMIT_WINDOW_MS;
+  const windowStart = now - BROWSER_EXTENSION_PAIR_RATE_LIMIT_WINDOW_MS;
 
   let entry = rateLimitMap.get(peerIp);
   if (!entry) {
@@ -96,8 +78,7 @@ function checkRateLimit(peerIp: string): {
   entry.timestamps = entry.timestamps.filter((t) => t > windowStart);
 
   if (
-    entry.timestamps.length >=
-    BROWSER_EXTENSION_PAIR_RATE_LIMIT_MAX_REQUESTS
+    entry.timestamps.length >= BROWSER_EXTENSION_PAIR_RATE_LIMIT_MAX_REQUESTS
   ) {
     const oldestInWindow = entry.timestamps[0] ?? now;
     const resetAt = Math.ceil(
@@ -172,47 +153,11 @@ function readIdsFromFile(
   return parseAllowedExtensionIds(parsed.allowedExtensionIds, opts);
 }
 
-/**
- * Allowlist config paths. The canonical config lives in the gateway
- * package directory; the local override sits in $GATEWAY_SECURITY_DIR.
- */
-const BROWSER_EXTENSION_PAIR_ALLOWLIST_CONFIG_PATH_CANDIDATES = [
-  // Gateway package directory (works when running from repo).
-  resolve(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "chrome-extension-allowlist.json",
-  ),
-  // Repo-root current-working-directory fallback.
-  resolve(
-    process.cwd(),
-    "gateway",
-    "chrome-extension-allowlist.json",
-  ),
-];
-
 function loadAllowedExtensionOrigins(): ReadonlySet<string> {
   const merged = new Set<string>();
   const loadErrors: string[] = [];
 
-  // 1. Canonical config from the gateway package.
-  let canonicalLoaded = false;
-  for (const configPath of BROWSER_EXTENSION_PAIR_ALLOWLIST_CONFIG_PATH_CANDIDATES) {
-    try {
-      for (const id of readIdsFromFile(configPath)) {
-        merged.add(`chrome-extension://${id}/`);
-      }
-      canonicalLoaded = true;
-      break;
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      loadErrors.push(`${configPath}: ${detail}`);
-    }
-  }
-
-  // 2. Local override in $GATEWAY_SECURITY_DIR. Optional — a missing file
+  // 1. Local override in $GATEWAY_SECURITY_DIR. Optional — a missing file
   //    is not an error.
   const localOverridePath = join(
     getGatewaySecurityDir(),
@@ -235,10 +180,9 @@ function loadAllowedExtensionOrigins(): ReadonlySet<string> {
     }
   }
 
-  // 3. Env-var fallback. Compiled Bun binaries run from a virtual FS root
-  //    so repo-relative config paths can disappear in packaged builds;
-  //    `clients/macos/build.sh` bakes the canonical IDs into
-  //    `VELLUM_CHROME_EXTENSION_IDS` at compile time for that case.
+  // 2. Env-var fallback. Compiled Bun binaries run from a virtual FS root
+  //    so file-based config paths can disappear in packaged builds;
+  //    `VELLUM_CHROME_EXTENSION_IDS` is set at compile time for that case.
   for (const id of loadAllowedExtensionIdsFromEnv()) {
     merged.add(`chrome-extension://${id}/`);
   }
@@ -246,16 +190,15 @@ function loadAllowedExtensionOrigins(): ReadonlySet<string> {
   if (merged.size === 0) {
     log.error(
       {
-        canonicalCandidates: BROWSER_EXTENSION_PAIR_ALLOWLIST_CONFIG_PATH_CANDIDATES,
         localOverridePath,
         loadErrors,
       },
       "Failed to load Chrome extension allowlist from any source; pairing will reject all origins",
     );
-  } else if (!canonicalLoaded && loadErrors.length > 0) {
+  } else if (loadErrors.length > 0) {
     log.warn(
       { loadErrors },
-      "Canonical Chrome extension allowlist unreadable — using local override and/or env vars only",
+      "Chrome extension allowlist load errors — using env vars only",
     );
   }
 
@@ -357,16 +300,12 @@ function auditDeny(
 ): void {
   const host = req.headers.get("host");
   const origin = req.headers.get("origin");
-  const nativeHostMarker = req.headers.get(
-    BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_HEADER,
-  );
   log.warn(
     {
       audit: "browser-extension-pair-denied",
       peerIp,
       host,
       origin,
-      nativeHostMarkerPresent: nativeHostMarker !== null,
       reason,
       ...extra,
     },
@@ -427,16 +366,6 @@ export async function handleBrowserExtensionPair(
   if (req.headers.get("x-forwarded-for")) {
     auditDeny(req, clientIp, "x_forwarded_for_present");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
-  }
-
-  // Native-host marker gate — runs BEFORE rate limiter so unmarked
-  // drive-by POSTs cannot burn the legitimate rate limit budget.
-  const marker = req.headers.get(
-    BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_HEADER,
-  );
-  if (marker !== BROWSER_EXTENSION_PAIR_NATIVE_HOST_MARKER_VALUE) {
-    auditDeny(req, clientIp, "missing_native_host_marker");
-    return errorResponse("FORBIDDEN", "native host marker required", 403);
   }
 
   // Strict rate limit by peer IP.

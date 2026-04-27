@@ -34,7 +34,7 @@ const policyRegistry = new Map<string, RoutePolicy>();
  * Register a route policy. Called at module load time to populate the
  * registry with all protected endpoint policies.
  */
-export function registerPolicy(endpoint: string, policy: RoutePolicy): void {
+function registerPolicy(endpoint: string, policy: RoutePolicy): void {
   policyRegistry.set(endpoint, policy);
 }
 
@@ -182,6 +182,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "calls/instruction", scopes: ["calls.write"] },
 
   // Settings / integrations / identity
+  { endpoint: "ps", scopes: ["settings.read"] },
   { endpoint: "identity", scopes: ["settings.read"] },
   { endpoint: "identity/intro", scopes: ["settings.read"] },
   { endpoint: "home/state", scopes: ["settings.read"] },
@@ -353,6 +354,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "acp/steer", scopes: ["chat.write"] },
   { endpoint: "acp/cancel", scopes: ["chat.write"] },
   { endpoint: "acp/close", scopes: ["chat.write"] },
+  { endpoint: "acp/sessions:DELETE", scopes: ["chat.write"] },
+  { endpoint: "acp/sessions/delete", scopes: ["chat.write"] },
   { endpoint: "acp", scopes: ["chat.read"] },
 
   // Model config
@@ -385,6 +388,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 
   // Conversation starters
   { endpoint: "conversation-starters", scopes: ["chat.read"] },
+  { endpoint: "conversation-starters:DELETE", scopes: ["chat.write"] },
 
   // Message content
   { endpoint: "messages/content", scopes: ["chat.read"] },
@@ -495,6 +499,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "dictation", scopes: ["chat.write"] },
 
   // Speech-to-text
+  { endpoint: "stt/providers", scopes: ["settings.read"] },
   { endpoint: "stt/transcribe", scopes: ["chat.write"] },
 
   // OAuth / integrations

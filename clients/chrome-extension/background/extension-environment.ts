@@ -67,9 +67,9 @@ export function parseExtensionEnvironment(raw: string | undefined): ExtensionEnv
  * Resolve the build-time default environment from the bundler-defined
  * `process.env.VELLUM_ENVIRONMENT` constant.
  *
- * Falls back to `"dev"` when the variable is missing, empty, or set to
- * an unrecognized value. This matches the convention that local extension
- * builds (where the bundler does not inject a value) default to `dev`.
+ * Falls back to `"production"` when the variable is missing, empty, or
+ * set to an unrecognized value, ensuring released extensions always
+ * target production even if the build pipeline omits the variable.
  */
 export function resolveBuildDefaultEnvironment(): ExtensionEnvironment {
   // `process.env.VELLUM_ENVIRONMENT` is replaced at bundle time by the
@@ -83,14 +83,12 @@ export function resolveBuildDefaultEnvironment(): ExtensionEnvironment {
     // In some browser runtimes `process` is not defined at all.
     raw = undefined;
   }
-  // Intentional `dev` default: when the env var is absent it means we are in
-  // an unbundled local build where no `--define` injection has occurred. The
-  // release build pipeline (build.sh + release.yml) is responsible for setting
-  // `process.env.VELLUM_ENVIRONMENT` to `staging` or `production` at bundle
-  // time via `--define`. If that injection is ever accidentally omitted from a
-  // release build, it will surface as a clear "targeting dev" mismatch in
-  // pre-release smoke tests rather than silently hitting production.
-  return parseExtensionEnvironment(raw) ?? 'dev';
+  // Default to `production`: when the env var is absent it means the extension
+  // was loaded without a bundler `--define` injection. Defaulting to production
+  // ensures released extensions always target the correct environment even if
+  // the build pipeline omits the variable. Local dev builds inject 'local' via
+  // build.sh, and dev/staging releases inject their respective environments.
+  return parseExtensionEnvironment(raw) ?? 'production';
 }
 
 // ── Cloud URL mapping ───────────────────────────────────────────────
@@ -129,7 +127,7 @@ export function cloudUrlsForEnvironment(env: ExtensionEnvironment): CloudUrls {
       };
     case 'local':
       return {
-        apiBaseUrl: 'http://localhost:8080',
+        apiBaseUrl: 'http://localhost:8000',
         webBaseUrl: 'http://localhost:3000',
       };
   }

@@ -33,10 +33,6 @@ mock.module("../config/env.js", () => ({
   getGatewayPort: () => 0,
 }));
 
-mock.module("../runtime/auth/token-service.js", () => ({
-  mintEdgeRelayToken: () => "test-token",
-}));
-
 // contact-search now calls cliIpcCall instead of the gateway HTTP.
 // Mock the IPC client to dispatch search_contacts to the real store
 // (backed by the test DB) without needing a running IPC server.

@@ -138,7 +138,7 @@ function isVellumDaemonProcess(pid: number): boolean {
  *  Wildcard addresses (0.0.0.0, ::) bind all interfaces but aren't
  *  connectable on all platforms — substitute loopback. IPv6 literals
  *  need brackets in URLs. */
-export function healthCheckHost(host: string): string {
+function healthCheckHost(host: string): string {
   if (host === "0.0.0.0") return "127.0.0.1";
   if (host === "::") return "[::1]";
   if (host.includes(":")) return `[${host}]`;
@@ -148,7 +148,7 @@ export function healthCheckHost(host: string): string {
 /** Hit the daemon's HTTP /healthz endpoint. Returns true if it responds
  *  with HTTP 200 within the timeout — false on connection refused, timeout,
  *  or any other error. */
-export async function isHttpHealthy(): Promise<boolean> {
+async function isHttpHealthy(): Promise<boolean> {
   const host = healthCheckHost(getRuntimeHttpHost());
   const port = getRuntimeHttpPort();
   try {
@@ -339,7 +339,7 @@ export async function startDaemon(): Promise<{
   }
 }
 
-async function startDaemonLocked(): Promise<{
+export async function startDaemonLocked(): Promise<{
   pid: number;
   alreadyRunning: boolean;
 }> {

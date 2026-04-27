@@ -18,7 +18,7 @@ import type { ApprovalAction } from "./channel-approval-types.js";
 // ---------------------------------------------------------------------------
 
 /** Canonical set of valid guardian actions, shared across all entrypoints. */
-export const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
+const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
   "approve_10m",
   "approve_conversation",

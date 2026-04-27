@@ -24,8 +24,8 @@ describe("CostTracker", () => {
     expect(summary.segmentCount).toBe(2);
     expect(summary.totalInputTokens).toBe(1_000_000);
     expect(summary.totalOutputTokens).toBe(1_000_000);
-    // $0.15 for 1M input + $0.60 for 1M output = $0.75
-    expect(summary.totalEstimatedUSD).toBeCloseTo(0.75, 6);
+    // $0.30 for 1M input + $2.50 for 1M output = $2.80
+    expect(summary.totalEstimatedUSD).toBeCloseTo(2.8, 6);
   });
 
   it("computes per-entry costs using Gemini 2.5 Flash pricing", () => {
@@ -38,10 +38,10 @@ describe("CostTracker", () => {
       outputTokens: 50_000,
     });
 
-    // Input: 200k * ($0.15 / 1M) = $0.03
-    // Output: 50k * ($0.60 / 1M) = $0.03
-    // Total: $0.06
-    expect(entry.estimatedUSD).toBeCloseTo(0.06, 6);
+    // Input: 200k * ($0.30 / 1M) = $0.06
+    // Output: 50k * ($2.50 / 1M) = $0.125
+    // Total: $0.185
+    expect(entry.estimatedUSD).toBeCloseTo(0.185, 6);
     expect(entry.segmentId).toBe("seg-010");
     expect(entry.model).toBe("gemini-2.5-flash");
   });

@@ -5,7 +5,7 @@ import { z } from "zod";
  * Coerces out-of-range numbers to the nearest bound rather than rejecting,
  * since LLM-generated values occasionally exceed the range.
  */
-export const unitInterval = z
+const unitInterval = z
   .number()
   .transform((v) => Math.min(1, Math.max(0, v)));
 

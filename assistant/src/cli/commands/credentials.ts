@@ -4,6 +4,8 @@ import {
   fetchManagedCatalog,
   type ManagedCredentialDescriptor,
 } from "../../credential-execution/managed-catalog.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
+import type { CredentialPromptResult } from "../../ipc/routes/credential-prompt.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -12,6 +14,10 @@ import {
   type OAuthConnectionRow,
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
+import {
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+} from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
   type CredentialMetadata,
@@ -23,8 +29,6 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import {
   deleteSecureKeyViaDaemon,
-  getSecureKeyResultViaDaemon,
-  getSecureKeyViaDaemon,
   setSecureKeyViaDaemon,
 } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
@@ -327,7 +331,7 @@ Examples:
 
         const credentials = await Promise.all(
           allMetadata.map(async (m) => {
-            const secret = await getSecureKeyViaDaemon(
+            const secret = await getSecureKeyAsync(
               credentialKey(m.service, m.field),
             );
             const connection = connectionsByProvider.get(m.service);
@@ -622,7 +626,7 @@ Examples:
           }
 
           const { value: secret, unreachable } =
-            await getSecureKeyResultViaDaemon(storageKey);
+            await getSecureKeyResultAsync(storageKey);
 
           if (!metadata && (secret == null || secret.length === 0)) {
             if (unreachable) {
@@ -757,7 +761,7 @@ Examples:
           }
 
           const { value: secret, unreachable } =
-            await getSecureKeyResultViaDaemon(storageKey);
+            await getSecureKeyResultAsync(storageKey);
 
           if (secret == null || secret.length === 0) {
             if (unreachable) {
@@ -776,6 +780,134 @@ Examples:
             writeOutput(cmd, { ok: true, value: secret });
           } else {
             process.stdout.write(secret + "\n");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeError(cmd, message);
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  // -------------------------------------------------------------------------
+  // prompt
+  // -------------------------------------------------------------------------
+
+  credential
+    .command("prompt")
+    .description(
+      "Securely prompt the user for a credential via the app UI and store it",
+    )
+    .requiredOption("--service <service>", "Service namespace (e.g. sentry)")
+    .requiredOption("--field <field>", "Field name (e.g. auth_token)")
+    .requiredOption("--label <label>", "Display label for the prompt UI")
+    .option("--description <description>", "Context shown in the prompt UI")
+    .option("--placeholder <placeholder>", "Placeholder text for the input")
+    .option(
+      "--allowed-domains <domains>",
+      "Comma-separated domains where this credential may be used",
+    )
+    .option(
+      "--allowed-tools <tools>",
+      "Comma-separated tool names that may use this credential",
+    )
+    .option(
+      "--injection-templates <json>",
+      "JSON array of injection template objects",
+    )
+    .addHelpText(
+      "after",
+      `
+Opens a secure credential input prompt in the user's connected app (desktop,
+web, etc.). The user enters the secret through the UI — it never passes through
+the conversation or CLI output. On success the credential is stored in the
+encrypted vault with the specified metadata.
+
+Requires the assistant to be running with at least one connected client.
+
+Examples:
+  $ assistant credentials prompt --service sentry --field auth_token \\
+      --label "Sentry Auth Token" --placeholder "sntrys_..." \\
+      --allowed-domains "sentry.io" \\
+      --injection-templates '[{"hostPattern":"sentry.io","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
+    )
+    .action(
+      async (
+        opts: {
+          service: string;
+          field: string;
+          label: string;
+          description?: string;
+          placeholder?: string;
+          allowedDomains?: string;
+          allowedTools?: string;
+          injectionTemplates?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          const allowedDomains = opts.allowedDomains
+            ? opts.allowedDomains.split(",").map((d) => d.trim())
+            : undefined;
+          const allowedTools = opts.allowedTools
+            ? opts.allowedTools.split(",").map((t) => t.trim())
+            : undefined;
+
+          let injectionTemplates: unknown[] | undefined;
+          if (opts.injectionTemplates) {
+            try {
+              injectionTemplates = JSON.parse(opts.injectionTemplates);
+              if (!Array.isArray(injectionTemplates)) {
+                writeError(cmd, "--injection-templates must be a JSON array");
+                process.exitCode = 1;
+                return;
+              }
+            } catch {
+              writeError(cmd, "--injection-templates must be valid JSON");
+              process.exitCode = 1;
+              return;
+            }
+          }
+
+          // The server-side handler waits up to permissionTimeoutSec (default
+          // 300s) for the user to enter the credential. Give the IPC call a
+          // generous budget so it doesn't time out before the prompt resolves.
+          const PROMPT_TIMEOUT_MS = 310_000; // 5 min + 10s buffer
+          const ipc = await cliIpcCall<CredentialPromptResult>(
+            "credentials/prompt",
+            {
+              service: opts.service,
+              field: opts.field,
+              label: opts.label,
+              description: opts.description,
+              placeholder: opts.placeholder,
+              allowedDomains,
+              allowedTools,
+              injectionTemplates,
+            },
+            { timeoutMs: PROMPT_TIMEOUT_MS },
+          );
+
+          if (!ipc.ok) {
+            writeError(cmd, ipc.error ?? "Failed to connect to the assistant");
+            process.exitCode = 1;
+            return;
+          }
+
+          if (!ipc.result?.ok) {
+            writeError(cmd, ipc.result?.error ?? "Credential prompt failed");
+            process.exitCode = 1;
+            return;
+          }
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, {
+              ok: true,
+              service: opts.service,
+              field: opts.field,
+            });
+          } else {
+            log.info(`Stored credential ${opts.service}:${opts.field}`);
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

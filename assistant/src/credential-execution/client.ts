@@ -15,8 +15,6 @@ export {
   CesClientError,
   type CesRpcHandshakeOptions as CesClientHandshakeOptions,
   CesHandshakeError,
-  CesRpcError,
-  CesTimeoutError,
   type CesTransport,
   CesTransportError,
   createCesRpcClient as createCesClient,

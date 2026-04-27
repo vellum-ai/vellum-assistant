@@ -184,7 +184,7 @@ function handleGetCallStatus(callSessionId: string): Response {
  *
  * Body: { reason?: string }
  */
-export async function handleCancelCall(
+async function handleCancelCall(
   req: Request,
   callSessionId: string,
 ): Promise<Response> {
@@ -214,7 +214,7 @@ export async function handleCancelCall(
  *
  * Body: { answer: string }
  */
-export async function handleAnswerCall(
+async function handleAnswerCall(
   req: Request,
   callSessionId: string,
 ): Promise<Response> {
@@ -251,7 +251,7 @@ export async function handleAnswerCall(
  *
  * Body: { instruction: string }
  */
-export async function handleInstructionCall(
+async function handleInstructionCall(
   req: Request,
   callSessionId: string,
 ): Promise<Response> {

@@ -26,7 +26,7 @@ const DAEMON_ERROR_PREFIX = "DAEMON_ERROR:";
 /**
  * Inspect an error and return a categorized {@link DaemonStartupError}.
  */
-export function categorizeDaemonError(err: unknown): DaemonStartupError {
+function categorizeDaemonError(err: unknown): DaemonStartupError {
   if (err == null) {
     return {
       error: "UNKNOWN",

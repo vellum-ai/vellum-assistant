@@ -291,6 +291,38 @@ public final class MainWindowState {
         LayoutConfigStore.save(layoutConfig)
     }
 
+    /// Whether the right slot is currently showing the given native panel.
+    func isRightSlotShowing(_ panel: NativePanelId) -> Bool {
+        layoutConfig.right.visible && layoutConfig.right.content == .native(panel)
+    }
+
+    /// Toggle the right slot between showing the given native panel and hidden.
+    /// Persists the updated layout via `LayoutConfigStore`.
+    func toggleRightSlot(_ panel: NativePanelId) {
+        if isRightSlotShowing(panel) {
+            layoutConfig.right.visible = false
+        } else {
+            layoutConfig.right.content = .native(panel)
+            layoutConfig.right.visible = true
+        }
+        LayoutConfigStore.save(layoutConfig)
+    }
+
+    /// Replace the right slot's content and force the slot visible. Used by
+    /// client-side deep links (e.g. tapping an inline `acp_spawn` tool block
+    /// to open the Coding Agents panel). Unlike ``toggleRightSlot(_:)`` this
+    /// always opens the slot — re-tapping a deep-link source must converge
+    /// on "panel open" rather than flipping it shut. Persists the updated
+    /// layout so the slot stays open across relaunches.
+    func showRightSlot(_ content: SlotContent) {
+        layoutConfig.right = SlotConfig(
+            content: content,
+            width: layoutConfig.right.width,
+            visible: true
+        )
+        LayoutConfigStore.save(layoutConfig)
+    }
+
     func clearDynamicWorkspaceState() {
         activeDynamicSurface = nil
         activeDynamicParsedSurface = nil

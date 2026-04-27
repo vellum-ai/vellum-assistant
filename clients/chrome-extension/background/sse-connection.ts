@@ -29,6 +29,7 @@ export type SseMode = {
   runtimeUrl: string;
   assistantId: string;
   token: string | null;
+  organizationId: string | null;
 };
 
 export interface SseConnectionDeps {
@@ -118,6 +119,9 @@ export class SseConnection {
     if (mode.token) {
       headers['Authorization'] = `Bearer ${mode.token}`;
     }
+    if (mode.organizationId) {
+      headers['Vellum-Organization-Id'] = mode.organizationId;
+    }
 
     const ac = new AbortController();
     this.abortController = ac;
@@ -131,24 +135,29 @@ export class SseConnection {
       });
     } catch {
       if (this.closedByCaller || ac.signal.aborted) return;
+      this.deps.onClose();
       this.scheduleReconnect();
       return;
     }
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
+        const body = await response.text().catch(() => '');
         this._isOpen = false;
         this.deps.onClose(
-          `Authentication failed (${response.status}). Sign in again to reconnect.`,
+          body || `Authentication failed (${response.status}). Sign in again to reconnect.`,
         );
         return;
       }
-      // Other errors: reconnect
+      // Other errors: notify the worker so health state transitions
+      // (e.g. connected → reconnecting), then schedule a retry.
+      this.deps.onClose();
       this.scheduleReconnect();
       return;
     }
 
     if (!response.body) {
+      this.deps.onClose();
       this.scheduleReconnect();
       return;
     }

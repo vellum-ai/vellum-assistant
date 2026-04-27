@@ -21,6 +21,7 @@ import {
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -58,7 +59,7 @@ import {
   emitAccessRequestCallbackHandoff,
   scheduleNextHeartbeat,
 } from "./relay-access-wait.js";
-import { routeSetup } from "./relay-setup-router.js";
+import { routeSetup, type SetupResolved } from "./relay-setup-router.js";
 import {
   attemptInviteCodeRedemption,
   attemptVerificationCode,
@@ -75,7 +76,7 @@ const log = getLogger("relay-server");
 // ── ConversationRelay message types ──────────────────────────────────
 
 // Messages FROM Twilio
-export interface RelaySetupMessage {
+interface RelaySetupMessage {
   type: "setup";
   callSid: string;
   from: string;
@@ -83,7 +84,7 @@ export interface RelaySetupMessage {
   customParameters?: Record<string, string>;
 }
 
-export interface RelayPromptMessage {
+interface RelayPromptMessage {
   type: "prompt";
   voicePrompt: string;
   lang: string;
@@ -107,22 +108,22 @@ export interface RelayPromptMessage {
   providerMetadata?: Record<string, unknown>;
 }
 
-export interface RelayInterruptMessage {
+interface RelayInterruptMessage {
   type: "interrupt";
   utteranceUntilInterrupt: string;
 }
 
-export interface RelayDtmfMessage {
+interface RelayDtmfMessage {
   type: "dtmf";
   digit: string;
 }
 
-export interface RelayErrorMessage {
+interface RelayErrorMessage {
   type: "error";
   description: string;
 }
 
-export type RelayInboundMessage =
+type RelayInboundMessage =
   | RelaySetupMessage
   | RelayPromptMessage
   | RelayInterruptMessage
@@ -130,18 +131,18 @@ export type RelayInboundMessage =
   | RelayErrorMessage;
 
 // Messages TO Twilio
-export interface RelayTextMessage {
+interface RelayTextMessage {
   type: "text";
   token: string;
   last: boolean;
 }
 
-export interface RelayEndMessage {
+interface RelayEndMessage {
   type: "end";
   handoffData?: string;
 }
 
-export interface RelayPlayMessage {
+interface RelayPlayMessage {
   type: "play";
   source: string;
   interruptible: boolean;
@@ -159,14 +160,10 @@ export interface RelayWebSocketData {
 export const activeRelayConnections = new Map<string, RelayConnection>();
 
 /** Module-level broadcast function, set by the HTTP server during startup. */
-let globalBroadcast:
-  | ((msg: import("../daemon/message-protocol.js").ServerMessage) => void)
-  | undefined;
+let globalBroadcast: ((msg: ServerMessage) => void) | undefined;
 
 /** Register a broadcast function so RelayConnection can forward events to connected clients. */
-export function setRelayBroadcast(
-  fn: (msg: import("../daemon/message-protocol.js").ServerMessage) => void,
-): void {
+export function setRelayBroadcast(fn: (msg: ServerMessage) => void): void {
   globalBroadcast = fn;
 }
 
@@ -175,7 +172,7 @@ export function setRelayBroadcast(
 /**
  * Manages a single WebSocket connection for one call.
  */
-export type RelayConnectionState =
+type RelayConnectionState =
   | "connected"
   | "verification_pending"
   | "awaiting_name"
@@ -695,7 +692,7 @@ export class RelayConnection {
   /** Deny an inbound call with a TTS message and schedule disconnect. */
   private async denyInboundCall(
     from: string,
-    resolved: import("./relay-setup-router.js").SetupResolved,
+    resolved: SetupResolved,
     outcome: { message: string; logReason: string },
   ): Promise<void> {
     recordCallEvent(this.callSessionId, "inbound_acl_denied", {

@@ -4,7 +4,7 @@
  * Covers:
  *   - parseExtensionEnvironment: alias normalization, trimming, case-
  *     insensitivity, and rejection of invalid values.
- *   - resolveBuildDefaultEnvironment: fallback to 'dev' when the
+ *   - resolveBuildDefaultEnvironment: fallback to 'production' when the
  *     bundler-defined env var is missing or invalid.
  *   - cloudUrlsForEnvironment: full URL mapping table for every
  *     supported environment.
@@ -93,19 +93,19 @@ describe('resolveBuildDefaultEnvironment', () => {
     expect(resolveBuildDefaultEnvironment()).toBe('production');
   });
 
-  test('falls back to "dev" when VELLUM_ENVIRONMENT is unset', () => {
+  test('falls back to "production" when VELLUM_ENVIRONMENT is unset', () => {
     delete process.env.VELLUM_ENVIRONMENT;
-    expect(resolveBuildDefaultEnvironment()).toBe('dev');
+    expect(resolveBuildDefaultEnvironment()).toBe('production');
   });
 
-  test('falls back to "dev" when VELLUM_ENVIRONMENT is empty', () => {
+  test('falls back to "production" when VELLUM_ENVIRONMENT is empty', () => {
     process.env.VELLUM_ENVIRONMENT = '';
-    expect(resolveBuildDefaultEnvironment()).toBe('dev');
+    expect(resolveBuildDefaultEnvironment()).toBe('production');
   });
 
-  test('falls back to "dev" when VELLUM_ENVIRONMENT is invalid', () => {
+  test('falls back to "production" when VELLUM_ENVIRONMENT is invalid', () => {
     process.env.VELLUM_ENVIRONMENT = 'bogus';
-    expect(resolveBuildDefaultEnvironment()).toBe('dev');
+    expect(resolveBuildDefaultEnvironment()).toBe('production');
   });
 });
 
@@ -134,7 +134,7 @@ describe('cloudUrlsForEnvironment', () => {
     },
     {
       env: 'local',
-      expectedApiBaseUrl: 'http://localhost:8080',
+      expectedApiBaseUrl: 'http://localhost:8000',
       expectedWebBaseUrl: 'http://localhost:3000',
     },
   ];

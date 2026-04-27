@@ -87,13 +87,11 @@ export interface ContactWriteResult {
   channel: ContactChannel;
 }
 
-export const CHANNEL_TYPES = [
-  "email",
-  "slack",
-  "whatsapp",
-  "phone",
-  "telegram",
-  "discord",
-  "other",
-] as const;
-export type ChannelType = (typeof CHANNEL_TYPES)[number];
+export type ChannelType =
+  | "email"
+  | "slack"
+  | "whatsapp"
+  | "phone"
+  | "telegram"
+  | "discord"
+  | "other";

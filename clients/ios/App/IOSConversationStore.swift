@@ -1696,7 +1696,7 @@ class IOSConversationStore: ObservableObject {
         return zip(persisted, legacyEphemeralFlags).compactMap { persistedConversation, isLegacyEphemeral in
             let p = persistedConversation
             guard !isLegacyEphemeral else { return nil }
-            IOSConversation(
+            return IOSConversation(
                 id: p.id,
                 title: p.title,
                 createdAt: p.createdAt,

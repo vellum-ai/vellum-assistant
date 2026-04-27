@@ -8,7 +8,7 @@
 import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
 import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
-import * as deliveryCrud from "../../../memory/delivery-crud.js";
+import { clearPayload, storePayload } from "../../../memory/delivery-crud.js";
 import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
 import { getLogger } from "../../../util/logger.js";
 
@@ -70,7 +70,7 @@ export function runSecretIngressCheck(
   } = params;
 
   // Persist the raw payload so dead-lettered events can always be replayed.
-  deliveryCrud.storePayload(eventId, {
+  storePayload(eventId, {
     sourceChannel,
     externalChatId: conversationExternalId,
     externalMessageId,
@@ -91,7 +91,7 @@ export function runSecretIngressCheck(
   const ingressResult = checkIngressForSecrets(trimmedContent);
   if (ingressResult.blocked) {
     // Clear stored payload to prevent secret-bearing content on disk.
-    deliveryCrud.clearPayload(eventId);
+    clearPayload(eventId);
     log.warn(
       { eventId, detectedTypes: ingressResult.detectedTypes },
       "Channel message blocked at ingress: secret detected",

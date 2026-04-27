@@ -177,6 +177,22 @@ export class ClientRegistry {
   }
 
   /**
+   * Return all registered clients with the given interface type,
+   * sorted by `lastActiveAt` descending.
+   */
+  listByInterface(interfaceId: InterfaceId): ClientEntry[] {
+    return this.listAll().filter((e) => e.interfaceId === interfaceId);
+  }
+
+  /**
+   * Return the most recently active client with the given interface type,
+   * or `undefined` if none exists.
+   */
+  getMostRecentByInterface(interfaceId: InterfaceId): ClientEntry | undefined {
+    return this.listByInterface(interfaceId)[0];
+  }
+
+  /**
    * Remove entries whose `lastActiveAt` is older than `maxAgeMs`.
    * Called lazily before reads to prevent unbounded map growth from
    * churning client IDs that are never explicitly unregistered.

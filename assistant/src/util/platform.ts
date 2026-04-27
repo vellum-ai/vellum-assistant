@@ -4,6 +4,20 @@ import { dirname, join } from "node:path";
 
 import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
+/**
+ * The daemon's root data directory (`~/.vellum`).
+ *
+ * Multi-instance path relocation is handled by the CLI when spawning the
+ * daemon (via `VELLUM_WORKSPACE_DIR` and `GATEWAY_SECURITY_DIR`); the
+ * assistant itself never reads an env var for this.
+ */
+const VELLUM_ROOT = join(homedir(), ".vellum");
+
+/** Returns the daemon's root data directory (`~/.vellum`). */
+export function vellumRoot(): string {
+  return VELLUM_ROOT;
+}
+
 export function isMacOS(): boolean {
   return process.platform === "darwin";
 }
@@ -42,34 +56,6 @@ export function normalizeAssistantId(assistantId: string): string {
   if (ownName && assistantId === ownName) return "self";
 
   return assistantId;
-}
-
-/**
- * The daemon's per-instance root data directory. Resolution order:
- *
- *   1. `BASE_DATA_DIR` env var — set by the CLI when spawning the daemon
- *      for a specific assistant (see `cli/src/lib/local.ts`). Points at the
- *      per-assistant instanceDir; we append `.vellum` to get the daemon's
- *      root so root-level state (PID, credentials, runtime-port, workspace)
- *      is isolated per instance.
- *   2. Fallback: `join(homedir(), ".vellum")`. Used when the daemon runs
- *      outside the CLI-spawn lifecycle (containerized deployments, manual
- *      test invocations).
- *
- * Docker mode relocates the workspace via `VELLUM_WORKSPACE_DIR` rather
- * than `BASE_DATA_DIR`, so honoring `BASE_DATA_DIR` here does not affect
- * containerized deployments.
- *
- * Exported so other daemon-side consumers (e.g. the meet-join orphan reaper
- * in `skills/meet-join/daemon/docker-runner.ts`) can derive a per-instance
- * identifier from the same canonical root. Do not replace with ad-hoc
- * `process.env.BASE_DATA_DIR` reads — this helper is the single source of
- * truth for per-instance path resolution.
- */
-export function vellumRoot(): string {
-  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
-  if (baseDataDir) return join(baseDataDir, ".vellum");
-  return join(homedir(), ".vellum");
 }
 
 /**
@@ -131,40 +117,10 @@ export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
 
-/**
- * Returns the TCP port the daemon should listen on for iOS clients.
- * Hardcoded default: 8765.
- */
-export function getTCPPort(): number {
-  return 8765;
-}
-
-/**
- * Returns whether the daemon TCP listener should be enabled.
- * Checks for the presence of the flag file ~/.vellum/tcp-enabled.
- * Default: false.
- *
- * The flag-file check makes it easy to enable TCP in dev without restarting
- * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
- */
-export function isTCPEnabled(): boolean {
-  return existsSync(join(vellumRoot(), "tcp-enabled"));
-}
-
-/**
- * Returns the hostname/address for the TCP listener.
- * Always binds to localhost only. iOS pairing uses the gateway
- * relay.
- */
-export function getTCPHost(): string {
-  return "127.0.0.1";
-}
-
-// Kept in sync with `cli/src/lib/environments/seeds.ts` and
-// `clients/chrome-extension/native-host/src/lockfile.ts`. Drift between
-// these three sites is caught at test time by
+// Kept in sync with `cli/src/lib/environments/seeds.ts`. Drift between
+// these two sites is caught at test time by
 // `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
-// list into a `packages/environments` package so all three sites import
+// list into a `packages/environments` package so both sites import
 // from one place.
 const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
   "production",
@@ -208,8 +164,8 @@ export function getXdgPlatformTokenPath(): string {
  * (~/.vellum/platform-token). Used as a fallback for local assistant
  * instances that may have the token written here by the desktop app.
  */
-export function getPlatformTokenPath(): string {
-  return join(vellumRoot(), "platform-token");
+function getPlatformTokenPath(): string {
+  return join(VELLUM_ROOT, "platform-token");
 }
 
 /**
@@ -231,7 +187,7 @@ export function readPlatformToken(): string | null {
 }
 
 export function getPidPath(): string {
-  return join(vellumRoot(), "vellum.pid");
+  return join(getWorkspaceDir(), "vellum.pid");
 }
 
 /**
@@ -243,7 +199,7 @@ export function getPidPath(): string {
  * not know the workspace override path.
  */
 export function getRuntimePortFilePath(): string {
-  return join(vellumRoot(), "runtime-port");
+  return join(VELLUM_ROOT, "runtime-port");
 }
 
 export function getDbPath(): string {
@@ -269,7 +225,7 @@ export function getHistoryPath(): string {
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
 export function getProtectedDir(): string {
-  return join(vellumRoot(), "protected");
+  return join(VELLUM_ROOT, "protected");
 }
 
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
@@ -303,7 +259,7 @@ export function getBinDir(): string {
 
 /** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
 export function getDotEnvPath(): string {
-  return join(vellumRoot(), ".env");
+  return join(VELLUM_ROOT, ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
@@ -321,7 +277,7 @@ export function getEmbedWorkerPidPath(): string {
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
-  return join(vellumRoot(), "workspace");
+  return join(VELLUM_ROOT, "workspace");
 }
 
 /**
@@ -467,7 +423,7 @@ export function getBundledBunPath(): string | undefined {
 }
 
 export function ensureDataDir(): void {
-  const root = vellumRoot();
+  const root = VELLUM_ROOT;
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
   const dirs = [

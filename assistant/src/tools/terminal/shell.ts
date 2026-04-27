@@ -50,10 +50,6 @@ function buildCredentialRefTrace(
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
  */
 function buildCesProtectedPaths(): string[] {
-  // Block both the legacy global protected dir and the current per-instance
-  // protected dir so the sandbox read-block works in both single-instance
-  // and multi-instance setups. In the default case (no BASE_DATA_DIR) the
-  // two entries collapse via the Set dedupe.
   const protectedDirs = process.env.GATEWAY_SECURITY_DIR
     ? [process.env.GATEWAY_SECURITY_DIR]
     : Array.from(
@@ -66,6 +62,16 @@ function buildCesProtectedPaths(): string[] {
   const bootstrapSocketDir =
     process.env["CES_BOOTSTRAP_SOCKET_DIR"] || "/run/ces-bootstrap";
   paths.push(bootstrapSocketDir);
+
+  // IPC socket directories - block access to the shared emptyDir volumes
+  // used for gateway↔daemon IPC in containerized deployments.
+  const gatewayIpcSocketDir =
+    process.env["GATEWAY_IPC_SOCKET_DIR"] || "/run/gateway-ipc";
+  paths.push(gatewayIpcSocketDir);
+
+  const assistantIpcSocketDir =
+    process.env["ASSISTANT_IPC_SOCKET_DIR"] || "/run/assistant-ipc";
+  paths.push(assistantIpcSocketDir);
 
   // If a full socket path override is set (without the dir env var), block
   // its parent directory as well.

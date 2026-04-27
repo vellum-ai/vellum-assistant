@@ -81,25 +81,14 @@ function handleGetBrainGraph(): Response {
   }
 }
 
-export function handleServeBrainGraphUI(bearerToken?: string): Response {
+function handleServeBrainGraphUI(): Response {
   try {
     const brainGraphDir = resolveBundledDir(
       import.meta.dirname ?? __dirname,
       "./brain-graph",
       "brain-graph",
     );
-    let html = readFileSync(join(brainGraphDir, "brain-graph.html"), "utf-8");
-    if (bearerToken) {
-      const escapedToken = bearerToken
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-      html = html.replace(
-        "</head>",
-        `  <meta name="api-token" content="${escapedToken}">\n</head>`,
-      );
-    }
+    const html = readFileSync(join(brainGraphDir, "brain-graph.html"), "utf-8");
     const csp = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://d3js.org",
@@ -129,9 +118,7 @@ export function handleServeBrainGraphUI(bearerToken?: string): Response {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function brainGraphRouteDefinitions(deps: {
-  mintUiPageToken: () => string;
-}): RouteDefinition[] {
+export function brainGraphRouteDefinitions(): RouteDefinition[] {
   return [
     {
       endpoint: "brain-graph",
@@ -156,9 +143,9 @@ export function brainGraphRouteDefinitions(deps: {
       method: "GET",
       summary: "Serve brain graph UI",
       description:
-        "Return the brain-graph HTML visualization page with an embedded auth token.",
+        "Return the brain-graph HTML visualization page. The gateway injects an auth token before serving.",
       tags: ["brain-graph"],
-      handler: () => handleServeBrainGraphUI(deps.mintUiPageToken()),
+      handler: () => handleServeBrainGraphUI(),
     },
   ];
 }

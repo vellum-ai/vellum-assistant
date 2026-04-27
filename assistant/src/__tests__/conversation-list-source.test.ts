@@ -133,7 +133,6 @@ describe("GET /v1/conversations includes source discriminator", () => {
   async function startServer(): Promise<void> {
     server = new RuntimeHttpServer({
       port: 0,
-      bearerToken: "test-bearer-token",
     });
     await server.start();
   }

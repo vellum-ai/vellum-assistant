@@ -19,20 +19,20 @@ export const END_CALL_MARKER = "[END_CALL]";
 // ---------------------------------------------------------------------------
 
 export const ASK_GUARDIAN_CAPTURE_REGEX = /\[ASK_GUARDIAN:\s*(.+?)\]/;
-export const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
+const ASK_GUARDIAN_MARKER_REGEX = /\[ASK_GUARDIAN:\s*.+?\]/g;
 
 // Flexible prefix for ASK_GUARDIAN_APPROVAL — tolerates variable whitespace
 // after the colon so the marker is recognized even if the model omits the
 // space or inserts a newline.
-export const ASK_GUARDIAN_APPROVAL_PREFIX_RE = /\[ASK_GUARDIAN_APPROVAL:\s*/;
+const ASK_GUARDIAN_APPROVAL_PREFIX_RE = /\[ASK_GUARDIAN_APPROVAL:\s*/;
 
-export const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
-export const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
-export const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
-export const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
-export const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
-export const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
-export const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
+const USER_ANSWERED_MARKER_REGEX = /\[USER_ANSWERED:\s*.+?\]/g;
+const USER_INSTRUCTION_MARKER_REGEX = /\[USER_INSTRUCTION:\s*.+?\]/g;
+const CALL_OPENING_MARKER_REGEX = /\[CALL_OPENING\]/g;
+const CALL_OPENING_ACK_MARKER_REGEX = /\[CALL_OPENING_ACK\]/g;
+const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
+const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
+const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 
 // ---------------------------------------------------------------------------
 // Balanced JSON extraction (used by stripGuardianApprovalMarkers)
@@ -124,7 +124,7 @@ export function extractBalancedJson(
  * nested braces, string literals, and flexible whitespace correctly.
  * Only strips complete markers (prefix + balanced JSON + closing `]`).
  */
-export function stripGuardianApprovalMarkers(text: string): string {
+function stripGuardianApprovalMarkers(text: string): string {
   let result = text;
   for (;;) {
     const match = extractBalancedJson(result);

@@ -11,7 +11,12 @@
  */
 
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
-import type { ChannelId } from "../channels/types.js";
+import type {
+  ChannelId,
+  InterfaceId,
+  TurnChannelContext,
+  TurnInterfaceContext,
+} from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
@@ -20,6 +25,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -72,23 +78,58 @@ export function setVoiceBridgeDeps(d: VoiceBridgeDeps): void {
  * standard channel path.
  */
 export interface VoiceRunEventSink {
-  onTextDelta(text: string): void;
-  onMessageComplete(): void;
+  onTextDelta(
+    msg: Extract<ServerMessage, { type: "assistant_text_delta" }>,
+  ): void;
+  onMessageComplete(
+    msg: Extract<
+      ServerMessage,
+      { type: "message_complete" } | { type: "generation_cancelled" }
+    >,
+  ): void;
   onError(message: string): void;
   onToolUse(toolName: string, input: Record<string, unknown>): void;
+}
+
+export interface VoiceTurnCallbacks {
+  assistant_text_delta?: (
+    msg: Extract<ServerMessage, { type: "assistant_text_delta" }>,
+  ) => void;
+  message_complete?: (
+    msg: Extract<
+      ServerMessage,
+      { type: "message_complete" } | { type: "generation_cancelled" }
+    >,
+  ) => void;
+  persisted_user_message_id?: (messageId: string) => void;
+  persisted_assistant_message_id?: (messageId: string) => void;
 }
 
 export interface VoiceTurnOptions {
   /** The conversation ID for this voice call's session. */
   conversationId: string;
+  /** Voice session ID for scoped grant matching. Defaults to callSessionId. */
+  voiceSessionId?: string;
   /** The call session ID for scoped grant matching. */
   callSessionId?: string;
+  /** Source channel for persisted user messages. Defaults to phone. */
+  userMessageChannel?: ChannelId;
+  /** Source channel for persisted assistant messages. Defaults to userMessageChannel. */
+  assistantMessageChannel?: ChannelId;
+  /** Source interface for persisted user messages. Defaults to phone. */
+  userMessageInterface?: InterfaceId;
+  /** Source interface for persisted assistant messages. Defaults to userMessageInterface. */
+  assistantMessageInterface?: InterfaceId;
+  /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
+  voiceControlPrompt?: string | null;
   /** The transcribed caller utterance or synthetic marker. */
   content: string;
   /** Assistant scope for multi-assistant channels. */
   assistantId?: string;
   /** Guardian trust context for the caller. */
   trustContext?: TrustContext;
+  /** Permission handling mode. Defaults to phone-call auto policy. */
+  approvalMode?: "phone-call" | "local-live-voice";
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -96,11 +137,13 @@ export interface VoiceTurnOptions {
   /** When true, skip the disclosure announcement for this call. */
   skipDisclosure?: boolean;
   /** Called for each streaming text token from the agent loop. */
-  onTextDelta: (text: string) => void;
+  onTextDelta?: (text: string) => void;
   /** Called when the agent loop completes a full response. */
-  onComplete: () => void;
+  onComplete?: () => void;
   /** Called when the agent loop encounters an error. */
-  onError: (message: string) => void;
+  onError?: (message: string) => void;
+  /** Event-name callbacks used by non-phone voice clients. */
+  callbacks?: VoiceTurnCallbacks;
   /** Optional AbortSignal for external cancellation (e.g. barge-in). */
   signal?: AbortSignal;
 }
@@ -244,20 +287,50 @@ export async function startVoiceTurn(
   }
 
   const eventSink: VoiceRunEventSink = {
-    onTextDelta: opts.onTextDelta,
-    onMessageComplete: opts.onComplete,
-    onError: opts.onError,
+    onTextDelta: (msg) => {
+      opts.onTextDelta?.(msg.text);
+      opts.callbacks?.assistant_text_delta?.(msg);
+    },
+    onMessageComplete: (msg) => {
+      opts.onComplete?.();
+      opts.callbacks?.message_complete?.(msg);
+      if (msg.type === "message_complete" && msg.messageId) {
+        try {
+          opts.callbacks?.persisted_assistant_message_id?.(msg.messageId);
+        } catch (err) {
+          log.warn(
+            { err, messageId: msg.messageId },
+            "Voice turn assistant-message callback threw",
+          );
+        }
+      }
+    },
+    onError: (message) => {
+      opts.onError?.(message);
+    },
     onToolUse: (toolName, input) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
     },
   };
 
-  // Voice has no interactive permission/secret UI, so apply explicit
-  // per-role policies:
-  // - guardian: permission prompts auto-allow (parity with guardian chat)
-  // - everyone else (including unknown): auto-deny confirmations.
+  // Phone voice has no interactive permission/secret UI, so apply explicit
+  // per-role policies by default. Local live voice opts into the normal
+  // client approval path instead.
   const trustClass = opts.trustContext?.trustClass;
   const isGuardian = trustClass === "guardian";
+  const approvalMode = opts.approvalMode ?? "phone-call";
+  const usesLocalInteractiveApprovals = approvalMode === "local-live-voice";
+  const voiceSessionId = opts.voiceSessionId ?? opts.callSessionId;
+  const turnChannelContext: TurnChannelContext = {
+    userMessageChannel: opts.userMessageChannel ?? "phone",
+    assistantMessageChannel:
+      opts.assistantMessageChannel ?? opts.userMessageChannel ?? "phone",
+  };
+  const turnInterfaceContext: TurnInterfaceContext = {
+    userMessageInterface: opts.userMessageInterface ?? "phone",
+    assistantMessageInterface:
+      opts.assistantMessageInterface ?? opts.userMessageInterface ?? "phone",
+  };
 
   // Replace the [CALL_OPENING] marker with a neutral instruction before
   // persisting. The marker must not appear as a user message in conversation
@@ -274,16 +347,19 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
-  const voiceCallControlPrompt = buildVoiceCallControlPrompt({
-    isInbound: opts.isInbound,
-    task: opts.task,
-    isCallerGuardian,
-    skipDisclosure: opts.skipDisclosure,
-  });
+  const voiceCallControlPrompt =
+    opts.voiceControlPrompt === undefined
+      ? buildVoiceCallControlPrompt({
+          isInbound: opts.isInbound,
+          task: opts.task,
+          isCallerGuardian,
+          skipDisclosure: opts.skipDisclosure,
+        })
+      : opts.voiceControlPrompt;
 
   // Get or create the conversation
   const transport = {
-    channelId: "phone" as ChannelId,
+    channelId: turnChannelContext.userMessageChannel,
   };
   const conversation = await deps.getOrCreateConversation(
     opts.conversationId,
@@ -313,15 +389,16 @@ export async function startVoiceTurn(
 
   // Configure conversation for this voice turn
   conversation.setAssistantId(opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID);
-  conversation.callSessionId = opts.callSessionId;
+  conversation.callSessionId = voiceSessionId;
   conversation.setTrustContext(opts.trustContext ?? null);
   conversation.setCommandIntent(null);
-  conversation.setTurnChannelContext({
-    userMessageChannel: "phone",
-    assistantMessageChannel: "phone",
-  });
+  conversation.setTurnChannelContext(turnChannelContext);
+  conversation.setTurnInterfaceContext?.(turnInterfaceContext);
   conversation.setChannelCapabilities(
-    resolveChannelCapabilities("phone", undefined),
+    resolveChannelCapabilities(
+      turnChannelContext.userMessageChannel,
+      turnInterfaceContext.userMessageInterface,
+    ),
   );
   conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
 
@@ -332,6 +409,14 @@ export async function startVoiceTurn(
     [],
     requestId,
   );
+  try {
+    opts.callbacks?.persisted_user_message_id?.(messageId);
+  } catch (err) {
+    log.warn(
+      { err, turnId, messageId },
+      "Voice turn persisted-message callback threw",
+    );
+  }
 
   // Serialized publish chain so hub subscribers observe events in order.
   let hubChain: Promise<void> = Promise.resolve();
@@ -368,6 +453,27 @@ export async function startVoiceTurn(
   let lastError: string | null = null;
   conversation.updateClient(async (msg: ServerMessage) => {
     if (msg.type === "confirmation_request") {
+      if (usesLocalInteractiveApprovals) {
+        pendingInteractions.register(msg.requestId, {
+          conversation,
+          conversationId: opts.conversationId,
+          kind: "confirmation",
+          confirmationDetails: {
+            toolName: msg.toolName,
+            input: msg.input,
+            riskLevel: msg.riskLevel,
+            executionTarget: msg.executionTarget,
+            allowlistOptions: msg.allowlistOptions,
+            scopeOptions: msg.scopeOptions,
+            persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
+            temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
+            acpToolKind: msg.acpToolKind,
+            acpOptions: msg.acpOptions,
+          },
+        });
+        publishToHub(msg);
+        return;
+      }
       if (autoDeny) {
         // Non-guardian voice callers have no interactive approval UI.
         // The pre-exec gate (tool-approval-handler.ts) handles grant
@@ -388,9 +494,9 @@ export async function startVoiceTurn(
               toolName: msg.toolName,
               inputDigest,
               consumingRequestId: msg.requestId,
-              executionChannel: "phone",
+              executionChannel: turnChannelContext.userMessageChannel,
               conversationId: opts.conversationId,
-              callSessionId: opts.callSessionId,
+              callSessionId: voiceSessionId,
               requesterExternalUserId:
                 opts.trustContext?.requesterExternalUserId,
             },
@@ -495,13 +601,13 @@ export async function startVoiceTurn(
 
           // Forward voice-relevant events to the real-time event sink
           if (msg.type === "assistant_text_delta") {
-            eventSink.onTextDelta(msg.text);
+            eventSink.onTextDelta(msg);
           } else if (msg.type === "message_complete") {
-            eventSink.onMessageComplete();
+            eventSink.onMessageComplete(msg);
           } else if (msg.type === "generation_cancelled") {
             // Treat cancellation as a completed turn so the voice
             // turnComplete promise settles instead of hanging forever.
-            eventSink.onMessageComplete();
+            eventSink.onMessageComplete(msg);
           } else if (msg.type === "error") {
             eventSink.onError(msg.message);
           } else if (msg.type === "conversation_error") {

@@ -84,7 +84,6 @@ function makeParams(
     actorUsername: "alice",
     sourceMetadata: { commandIntent: { type: "start" } },
     replyCallbackUrl: "https://gateway/reply",
-    mintBearerToken: () => "token-123",
     assistantId: "self",
     externalMessageId: `msg-${messageIdCounter}`,
     ...overrides,

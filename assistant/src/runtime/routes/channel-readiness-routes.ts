@@ -20,7 +20,7 @@ import type { RouteDefinition } from "../http-router.js";
  *
  * Query params: channel? (optional ChannelId), includeRemote? (optional boolean)
  */
-export async function handleGetChannelReadiness(url: URL): Promise<Response> {
+async function handleGetChannelReadiness(url: URL): Promise<Response> {
   const channel =
     (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
   // Default to including remote checks — they're cached for 5 minutes and
@@ -62,9 +62,7 @@ export async function handleGetChannelReadiness(url: URL): Promise<Response> {
  *
  * Body: { channel?: ChannelId, includeRemote?: boolean }
  */
-export async function handleRefreshChannelReadiness(
-  req: Request,
-): Promise<Response> {
+async function handleRefreshChannelReadiness(req: Request): Promise<Response> {
   let body: { channel?: ChannelId; includeRemote?: boolean };
   const text = await req.text();
   if (!text.trim()) {

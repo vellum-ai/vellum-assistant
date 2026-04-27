@@ -42,7 +42,7 @@ let sweepInProgress = false;
  * concurrent decision that wins the race is never overwritten by the
  * sweep.  Returns the count of requests transitioned to expired.
  */
-export function sweepExpiredCanonicalGuardianRequests(): number {
+function sweepExpiredCanonicalGuardianRequests(): number {
   const pending = listCanonicalGuardianRequests({ status: "pending" });
   const now = Date.now();
   let expiredCount = 0;

@@ -11,6 +11,7 @@ import {
   revokeVerificationForChannel,
   verifyTrustedContact,
 } from "../../daemon/handlers/config-channels.js";
+import { getDb } from "../../memory/db.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { revokePendingSessions } from "../../runtime/channel-verification-service.js";
 import {
@@ -21,7 +22,6 @@ import {
 } from "../../runtime/verification-outbound-actions.js";
 import { verificationRateLimiter } from "../../runtime/verification-rate-limiter.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
-import { initializeDb } from "../db.js";
 import { writeOutput } from "../output.js";
 
 /**
@@ -166,7 +166,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          initializeDb();
+          getDb();
 
           const purpose = opts.purpose ?? "guardian";
           const channel = validateChannelOpt(opts.channel, cmd);
@@ -293,7 +293,7 @@ Examples:
     )
     .action(async (opts: { channel?: string }, cmd: Command) => {
       try {
-        initializeDb();
+        getDb();
         const channel = validateChannelOpt(opts.channel, cmd);
         if (channel === false) return;
         const result = getVerificationStatus(channel);
@@ -341,7 +341,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          initializeDb();
+          getDb();
           const channel = validateChannelOpt(opts.channel, cmd, true);
           if (channel === false) return;
           const result = resendOutbound({
@@ -386,7 +386,7 @@ Examples:
     )
     .action(async (opts: { channel: string }, cmd: Command) => {
       try {
-        initializeDb();
+        getDb();
         const channel = validateChannelOpt(opts.channel, cmd, true);
         if (channel === false) return;
         cancelOutbound({ channel });
@@ -428,7 +428,7 @@ Examples:
     )
     .action(async (opts: { channel?: string }, cmd: Command) => {
       try {
-        initializeDb();
+        getDb();
         const channel = validateChannelOpt(opts.channel, cmd);
         if (channel === false) return;
         const result = revokeVerificationForChannel(channel);

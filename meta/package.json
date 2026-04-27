@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "license": "MIT",
   "description": "Install the full Vellum stack locally",
   "bin": {
@@ -15,10 +15,10 @@
     "Dockerfile"
   ],
   "dependencies": {
-    "@vellumai/assistant": "0.6.5",
-    "@vellumai/cli": "0.6.5",
-    "@vellumai/credential-executor": "0.6.5",
-    "@vellumai/vellum-gateway": "0.6.5"
+    "@vellumai/assistant": "0.6.6",
+    "@vellumai/cli": "0.6.6",
+    "@vellumai/credential-executor": "0.6.6",
+    "@vellumai/vellum-gateway": "0.6.6"
   },
   "overrides": {
     "drizzle-orm": "0.45.2",

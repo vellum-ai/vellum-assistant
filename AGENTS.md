@@ -114,6 +114,8 @@ Never commit worktree directories or worktree artifacts to the repository. Git w
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
+**Exception — migrations**: Database and data migration files must never be deleted, even when the tables or logic they create have moved elsewhere. Migrations run sequentially on existing installs and skipping an entry breaks the chain. When a migration's responsibility has moved (e.g. a table migrated to another database), keep the file in place and add a comment documenting where the logic now lives.
+
 ## Generic Examples
 
 Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
@@ -204,7 +206,7 @@ Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant po
 
 ## Docker Volume Architecture
 
-Docker instances use five dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
+Docker instances use seven dedicated volumes with strict per-service access boundaries. Each volume is mounted only by the services that need it, enforcing least-privilege at the container level.
 
 | Volume | Mount path | Access | Contents |
 |---|---|---|---|
@@ -212,6 +214,8 @@ Docker instances use five dedicated volumes with strict per-service access bound
 | **Gateway security** (`<name>-gateway-sec`) | `/gateway-security` | Gateway only | Files private to the gateway container |
 | **CES security** (`<name>-ces-sec`) | `/ces-security` | CES only | `keys.enc`, `store.key` |
 | **Socket** (`<name>-socket`) | `/run/ces-bootstrap` | Assistant + CES | CES bootstrap socket for initial handshake |
+| **Gateway IPC** (`<name>-gateway-ipc`) | `/run/gateway-ipc` | Assistant + Gateway | `gateway.sock` — IPC socket for assistant→gateway calls |
+| **Assistant IPC** (`<name>-assistant-ipc`) | `/run/assistant-ipc` | Assistant + Gateway | `assistant.sock` — IPC socket for gateway→assistant calls |
 | **Inner dockerd data** (`<name>-dockerd-data`) | `/var/lib/docker` | Assistant only | Docker image cache and container state for the inner `dockerd` running inside the assistant container (Docker-in-Docker model for Meet). Persists the pulled meet-bot image across assistant restarts. |
 
 The assistant's container root (`/`) stores per-container ephemeral and persistent state: package installs (`~/.bun`), `device.json`, and embed-worker PID files. This replaces the former shared data volume which previously held all state.
@@ -274,7 +278,7 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Build Environment (`VELLUM_ENVIRONMENT`)
 
-The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`.
+The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment for all clients (macOS, iOS, CLI, Chrome extension). It is embedded into the app bundle's `LSEnvironment` (Info.plist) at build time by each platform's `build.sh`, or injected via `--define` for the Chrome extension bundler.
 
 | Value | Use cases |
 |---|---|
@@ -287,8 +291,8 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 **Defaults**: `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset:
 - `test` command => `test`
 - `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
-- all other local build commands (`run`, plain build, etc.) => `dev`
-- if `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` points at a loopback `http://...` host (for example `vel up`), default to `local` regardless of command
+- `run` command => `local` (for local full-stack development, e.g. `vel up`)
+- all other local build commands (plain `build`, etc.) => `dev`
 
 CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
 

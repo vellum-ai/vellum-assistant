@@ -270,7 +270,6 @@ describe("POST /v1/conversations/fork", () => {
   async function startServer(): Promise<void> {
     server = new RuntimeHttpServer({
       port: 0,
-      bearerToken: "test-bearer-token",
       conversationManagementDeps: {
         switchConversation: async () => null,
         renameConversation: () => false,

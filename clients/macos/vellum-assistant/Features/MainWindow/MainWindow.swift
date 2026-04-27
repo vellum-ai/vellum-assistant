@@ -270,7 +270,8 @@ public final class MainWindow {
     let documentManager = DocumentManager()
     private let assistantFeatureFlagStore: AssistantFeatureFlagStore
     var onMicrophoneToggle: (() -> Void)?
-    let voiceModeManager = VoiceModeManager()
+    let liveVoiceChannelManager: LiveVoiceChannelManager
+    let voiceModeManager: VoiceModeManager
     let updateManager: UpdateManager
 
     /// Retained delegate that intercepts the close button to hide the window.
@@ -327,9 +328,17 @@ public final class MainWindow {
         self.updateManager = updateManager
         self.assistantFeatureFlagStore = assistantFeatureFlagStore
         self.initialAssistantName = initialAssistantName
+        let liveVoiceChannelManager = LiveVoiceChannelManager()
+        self.liveVoiceChannelManager = liveVoiceChannelManager
+        let connectionManager = services.connectionManager
+        self.voiceModeManager = VoiceModeManager(
+            liveVoiceChannelManager: liveVoiceChannelManager,
+            liveVoiceAvailability: { connectionManager.isConnected }
+        )
         self.conversationManager = ConversationManager(
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
+            acpSessionStore: services.acpSessionStore,
             isFirstLaunch: isFirstLaunch,
             preChatContext: preChatContext
         )
@@ -463,7 +472,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, assistantFeatureFlagStore: assistantFeatureFlagStore, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback, initialAssistantName: initialAssistantName)
+        let rootView = MainWindowView(conversationManager: conversationManager, appListManager: appListManager, zoomManager: zoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, connectionManager: connectionManager, eventStreamClient: eventStreamClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, assistantFeatureFlagStore: assistantFeatureFlagStore, documentManager: documentManager, acpSessionStore: services.acpSessionStore, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, updateManager: updateManager, onSendWakeUp: wakeUpCallback, initialAssistantName: initialAssistantName)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)

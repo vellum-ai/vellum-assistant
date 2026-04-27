@@ -137,7 +137,7 @@ export function stripVerificationFailurePrefix(reason: string): string {
 // ---------------------------------------------------------------------------
 
 export const RUN_POLL_INTERVAL_MS = 500;
-export const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
+const RUN_POLL_MAX_WAIT_MS = 300_000; // 5 minutes
 
 /** Post-decision delivery poll: uses the same budget as the main poll since
  *  this is the only delivery path for late approvals after the main poll exits. */

@@ -1,16 +1,16 @@
 /**
  * Tests for the user plugin loader (PR 29).
  *
- * Redirects `vellumRoot()` into a per-test temp directory via `BASE_DATA_DIR`
- * (the canonical multi-instance override read by `util/platform.ts`) so
- * `loadUserPlugins()` walks an isolated tree that we populate on demand.
+ * Redirects `getWorkspaceDir()` into a per-test temp directory via
+ * `VELLUM_WORKSPACE_DIR` so `loadUserPlugins()` walks an isolated tree
+ * that we populate on demand.
  *
  * Covers:
  * - A plugin whose `register.ts` calls `registerPlugin()` at import time
  *   ends up in the registry after `loadUserPlugins()` resolves.
  * - A plugin whose `register.ts` throws during import is logged + skipped;
  *   other plugins in the same directory still load.
- * - A missing `vellumRoot()/plugins/` directory is a no-op (zero installed
+ * - A missing `getWorkspaceDir()/plugins/` directory is a no-op (zero installed
  *   user plugins is the default shape of a fresh daemon).
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -25,16 +25,16 @@ import {
 import { loadUserPlugins } from "../plugins/user-loader.js";
 
 // Isolate every run under its own tempdir so parallel test files (and
-// repeated runs of this file) cannot collide on `~/.vellum/plugins/`.
+// repeated runs of this file) cannot collide on `<workspaceDir>/plugins/`.
 // Each describe-scope gets a fresh subdirectory.
-const TEST_INSTANCE_DIR = join(
+const TEST_WORKSPACE_DIR = join(
   tmpdir(),
   `vellum-user-plugin-loader-test-${process.pid}-${Date.now()}`,
 );
-process.env.BASE_DATA_DIR = TEST_INSTANCE_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
 /** The plugins directory the loader will walk. */
-const PLUGINS_DIR = join(TEST_INSTANCE_DIR, ".vellum", "plugins");
+const PLUGINS_DIR = join(TEST_WORKSPACE_DIR, "plugins");
 
 /**
  * Write a plugin directory with a `register.ts` (TypeScript source, so bun
@@ -43,7 +43,7 @@ const PLUGINS_DIR = join(TEST_INSTANCE_DIR, ".vellum", "plugins");
  * into the repo's registry module.
  *
  * `relativeRegistryImport` points from the synthetic plugin file at
- * `<TEST_INSTANCE_DIR>/.vellum/plugins/<name>/register.ts` to the real
+ * `<TEST_WORKSPACE_DIR>/plugins/<name>/register.ts` to the real
  * registry source at `<repo>/assistant/src/plugins/registry.ts`. Using a
  * relative path (rather than a project-root alias) keeps the test hermetic
  * and matches how an on-disk user plugin would actually import the
@@ -64,7 +64,7 @@ ${body}
 }
 
 function clearPluginsDir(): void {
-  rmSync(TEST_INSTANCE_DIR, { recursive: true, force: true });
+  rmSync(TEST_WORKSPACE_DIR, { recursive: true, force: true });
 }
 
 describe("user plugin loader", () => {
@@ -127,8 +127,8 @@ registerPlugin({
   });
 
   test("missing plugins/ directory is a no-op", async () => {
-    // clearPluginsDir() in beforeEach has already removed TEST_INSTANCE_DIR
-    // entirely, so vellumRoot()/plugins/ does not exist. The loader must
+    // clearPluginsDir() in beforeEach has already removed TEST_WORKSPACE_DIR
+    // entirely, so getWorkspaceDir()/plugins/ does not exist. The loader must
     // complete without throwing and without registering anything.
     await loadUserPlugins();
     expect(getRegisteredPlugins()).toHaveLength(0);

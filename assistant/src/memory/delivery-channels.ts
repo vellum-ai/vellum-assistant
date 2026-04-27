@@ -86,19 +86,6 @@ export function clearPendingVerificationReply(eventId: string): void {
 // the retry can resume from where it left off.
 
 /**
- * Read the number of reply segments already delivered for an event.
- */
-export function getDeliveredSegmentCount(eventId: string): number {
-  const db = getDb();
-  const row = db
-    .select({ count: channelInboundEvents.deliveredSegmentCount })
-    .from(channelInboundEvents)
-    .where(eq(channelInboundEvents.id, eventId))
-    .get();
-  return row?.count ?? 0;
-}
-
-/**
  * Update the delivered segment count after successful delivery of one
  * or more segments. Called incrementally as segments are sent.
  */

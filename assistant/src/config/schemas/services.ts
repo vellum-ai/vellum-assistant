@@ -23,7 +23,7 @@ export const VALID_WEB_SEARCH_PROVIDERS = [
   "inference-provider-native",
 ] as const;
 
-export const BaseServiceSchema = z.object({
+const BaseServiceSchema = z.object({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type BaseService = z.infer<typeof BaseServiceSchema>;
@@ -54,32 +54,32 @@ export const WebSearchServiceSchema = BaseServiceSchema.extend({
 });
 export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
-export const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
+const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
-export const OutlookOAuthServiceSchema = BaseServiceSchema.extend({
+const OutlookOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type OutlookOAuthService = z.infer<typeof OutlookOAuthServiceSchema>;
 
-export const LinearOAuthServiceSchema = BaseServiceSchema.extend({
+const LinearOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type LinearOAuthService = z.infer<typeof LinearOAuthServiceSchema>;
 
-export const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
+const GitHubOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type GitHubOAuthService = z.infer<typeof GitHubOAuthServiceSchema>;
 
-export const NotionOAuthServiceSchema = BaseServiceSchema.extend({
+const NotionOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type NotionOAuthService = z.infer<typeof NotionOAuthServiceSchema>;
 
-export const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
+const TwitterOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
@@ -92,7 +92,7 @@ export type TwitterOAuthService = z.infer<typeof TwitterOAuthServiceSchema>;
  * `skills/meet-join/config-schema.ts` and is sourced from the separate
  * `<workspace>/config/meet.json` file the skill owns.
  */
-export const MeetHostConfigSchema = z
+const MeetHostConfigSchema = z
   .object({
     idle_timeout_ms: z
       .number({
@@ -115,7 +115,7 @@ export type MeetHostConfig = z.infer<typeof MeetHostConfigSchema>;
  * schema only describes the keys the assistant itself reads from its global
  * `config.json` before the meet-host child process is spawned.
  */
-export const MeetDaemonServiceSchema = z
+const MeetDaemonServiceSchema = z
   .object({
     host: MeetHostConfigSchema.default(MeetHostConfigSchema.parse({})),
   })

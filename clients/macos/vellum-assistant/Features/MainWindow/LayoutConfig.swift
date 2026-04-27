@@ -5,6 +5,8 @@ import VellumAssistantShared
 
 public enum NativePanelId: String, Equatable, Sendable {
     case chat, conversationList, settings, logsAndUsage, generated, avatarCustomization, apps, intelligence, home
+    /// Coding agents (ACP sessions) panel.
+    case acpSessions
 }
 
 extension NativePanelId: Codable {

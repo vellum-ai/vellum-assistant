@@ -66,7 +66,7 @@ function pruneAssistantPhoneNumbers(
 /**
  * GET /v1/integrations/twilio/config
  */
-export async function handleGetTwilioConfig(): Promise<Response> {
+async function handleGetTwilioConfig(): Promise<Response> {
   const hasCredentials = await hasTwilioCredentials();
   const accountSid = hasCredentials
     ? (await getTwilioCredentials()).accountSid
@@ -239,7 +239,7 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
 /**
  * GET /v1/integrations/twilio/numbers
  */
-export async function handleListTwilioNumbers(): Promise<Response> {
+async function handleListTwilioNumbers(): Promise<Response> {
   if (!(await hasTwilioCredentials())) {
     return Response.json({
       success: false,
@@ -399,9 +399,7 @@ export async function handleAssignTwilioNumber(
  *
  * Body: { phoneNumber?: string }
  */
-export async function handleReleaseTwilioNumber(
-  req: Request,
-): Promise<Response> {
+async function handleReleaseTwilioNumber(req: Request): Promise<Response> {
   if (!(await hasTwilioCredentials())) {
     return Response.json({
       success: false,

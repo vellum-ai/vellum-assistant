@@ -483,7 +483,7 @@ struct ComposerView: View, Equatable {
 
             if let inferenceProfilePicker, !inferenceProfilePicker.profiles.isEmpty {
                 ChatProfilePicker(
-                    isEnabled: conversationId != nil,
+                    isEnabled: true,
                     current: inferenceProfilePicker.current,
                     profiles: inferenceProfilePicker.profiles,
                     activeProfile: inferenceProfilePicker.activeProfile,
@@ -641,7 +641,7 @@ struct ComposerView: View, Equatable {
                         iconSize: composerActionButtonSize,
                         action: { manager.toggleListening() }
                     )
-                    .disabled(manager.state == .processing)
+                    .disabled(!manager.canToggleListening)
                     .vTooltip(manager.state == .listening ? "Mute" : "Unmute")
 
                     VButton(
@@ -668,7 +668,7 @@ struct ComposerView: View, Equatable {
     private func voiceConversationAmplitude(_ manager: VoiceModeManager) -> Float {
         let raw: Float
         switch manager.state {
-        case .listening: raw = voiceService?.amplitude ?? 0
+        case .listening: raw = max(manager.inputAmplitude, voiceService?.amplitude ?? 0)
         case .speaking: raw = voiceService?.speakingAmplitude ?? 0
         default: raw = 0
         }

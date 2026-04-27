@@ -6,7 +6,7 @@
  *
  * Accepts two JWT audiences:
  *   - `vellum-daemon` — primary audience, used by the gateway's runtime
- *     proxy after token exchange and by daemon-minted delivery tokens.
+ *     proxy after token exchange.
  *   - `vellum-gateway` — fallback audience, used by direct local clients
  *     (e.g., the macOS app's SettingsStore) that hold a guardian-issued
  *     JWT but call daemon endpoints directly without routing through the

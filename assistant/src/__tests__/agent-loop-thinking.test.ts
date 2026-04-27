@@ -55,7 +55,7 @@ describe("AgentLoop thinking and effort", () => {
     expect(thinking.type).toBe("adaptive");
   });
 
-  test("does not include thinking config when thinking is disabled", async () => {
+  test("sends disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
       maxTokens: 64000,
@@ -68,7 +68,7 @@ describe("AgentLoop thinking and effort", () => {
     );
 
     const config = lastConfig()!;
-    expect(config.thinking).toBeUndefined();
+    expect(config.thinking).toEqual({ type: "disabled" });
   });
 
   test("sends effort in provider config", async () => {
@@ -87,7 +87,7 @@ describe("AgentLoop thinking and effort", () => {
     expect(config.effort).toBe("high");
   });
 
-  test("sends effort without thinking when thinking is disabled", async () => {
+  test("sends effort with disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
       maxTokens: 64000,
@@ -102,6 +102,6 @@ describe("AgentLoop thinking and effort", () => {
 
     const config = lastConfig()!;
     expect(config.effort).toBe("medium");
-    expect(config.thinking).toBeUndefined();
+    expect(config.thinking).toEqual({ type: "disabled" });
   });
 });

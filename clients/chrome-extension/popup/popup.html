@@ -8,24 +8,26 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0d1017;
-      --surface: #141820;
-      --surface-2: #1a1f2b;
-      --border: rgba(255, 255, 255, 0.07);
-      --border-hover: rgba(255, 255, 255, 0.12);
-      --text-1: #e4e7ed;
-      --text-2: #8990a0;
-      --text-3: #4e5568;
-      --green: #4ade80;
-      --green-soft: rgba(74, 222, 128, 0.08);
-      --green-border: rgba(74, 222, 128, 0.2);
-      --amber: #fbbf24;
-      --amber-soft: rgba(251, 191, 36, 0.08);
-      --amber-border: rgba(251, 191, 36, 0.2);
-      --red: #fb7185;
-      --red-soft: rgba(251, 113, 133, 0.08);
-      --red-border: rgba(251, 113, 133, 0.2);
-      --accent: #818cf8;
+      /* Vellum design tokens (dark theme from ColorTokens.swift) */
+      --bg: #17191C;               /* surfaceDarkBase */
+      --surface: #1C2024;           /* surfaceDarkOverlay */
+      --surface-2: #24292E;         /* surfaceDarkLift */
+      --border: #24292E;            /* borderDarkBase */
+      --border-hover: #2D3339;      /* borderDarkHover */
+      --text-1: #F6F5F4;            /* contentDarkDefault */
+      --text-2: #A9B2BB;            /* contentDarkSecondary */
+      --text-3: #5A6672;            /* borderDarkElement / contentDarkTertiary */
+      --green: #4C9B50;             /* funGreen */
+      --green-soft: rgba(76, 155, 80, 0.08);
+      --green-border: rgba(76, 155, 80, 0.18);
+      --yellow: #F1B21E;            /* systemDarkMidStrong */
+      --yellow-soft: rgba(241, 178, 30, 0.08);
+      --yellow-border: rgba(241, 178, 30, 0.18);
+      --red: #EF4400;               /* funRed */
+      --red-soft: rgba(239, 68, 0, 0.08);
+      --red-border: rgba(239, 68, 0, 0.18);
+      --accent: #FDFDFCE0;          /* primaryDarkBase with slight transparency */
+      --accent-bg: #24292E;         /* surfaceDarkLift */
     }
 
     body {
@@ -72,89 +74,6 @@
       letter-spacing: 0.01em;
     }
 
-    /* ── Toggle row ──────────────────────────────────────────────── */
-
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px 14px;
-      margin-bottom: 10px;
-      transition: border-color 0.2s;
-    }
-
-    .toggle-copy {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .toggle-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-1);
-    }
-
-    .toggle-hint {
-      font-size: 11px;
-      color: var(--text-3);
-      line-height: 1.35;
-    }
-
-    /* ── Switch ──────────────────────────────────────────────────── */
-
-    .switch {
-      position: relative;
-      width: 40px;
-      height: 22px;
-      flex-shrink: 0;
-    }
-
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-      position: absolute;
-    }
-
-    .switch-slider {
-      position: absolute;
-      inset: 0;
-      background: var(--text-3);
-      border-radius: 999px;
-      transition: background 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      cursor: pointer;
-    }
-
-    .switch-slider::before {
-      content: "";
-      position: absolute;
-      left: 2px;
-      top: 2px;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: #fff;
-      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-    }
-
-    .switch input:checked + .switch-slider {
-      background: var(--green);
-    }
-
-    .switch input:checked + .switch-slider::before {
-      transform: translateX(18px);
-    }
-
-    .switch input:disabled + .switch-slider {
-      cursor: default;
-      opacity: 0.35;
-    }
-
     /* ── Status card ─────────────────────────────────────────────── */
 
     .status-card {
@@ -172,7 +91,7 @@
     }
 
     .status-card:has(.status-dot.paused) {
-      border-color: var(--amber-border);
+      border-color: var(--yellow-border);
     }
 
     .status-card:has(.status-dot.disconnected) {
@@ -212,7 +131,7 @@
     }
 
     .status-dot.paused {
-      background: var(--amber);
+      background: var(--yellow);
       box-shadow: 0 0 6px rgba(251, 191, 36, 0.3);
     }
 
@@ -260,8 +179,8 @@
     }
 
     .status-badge.paused {
-      background: var(--amber-soft);
-      color: var(--amber);
+      background: var(--yellow-soft);
+      color: var(--yellow);
     }
 
     .status-badge.disconnected {
@@ -327,9 +246,9 @@
 
     .setup-message {
       font-size: 12px;
-      color: var(--amber);
-      background: var(--amber-soft);
-      border: 1px solid var(--amber-border);
+      color: var(--yellow);
+      background: var(--yellow-soft);
+      border: 1px solid var(--yellow-border);
       border-radius: 8px;
       padding: 10px 12px;
       margin-bottom: 10px;
@@ -369,7 +288,7 @@
       background-position: right 10px center;
     }
 
-    select:focus { border-color: var(--accent); }
+    select:focus { border-color: var(--text-2); }
 
     /* ── Base label ──────────────────────────────────────────────── */
 
@@ -470,7 +389,7 @@
       margin-bottom: 12px;
     }
 
-    input[type="text"]:focus { border-color: var(--accent); }
+    input[type="text"]:focus { border-color: var(--text-2); }
 
     .hint {
       font-size: 10px;
@@ -530,84 +449,421 @@
     .local-status.error {
       color: var(--red);
     }
+
+    /* ── Screen management ───────────────────────────────────────── */
+
+    .screen { }
+
+    /* ── Welcome screen ──────────────────────────────────────────── */
+
+    .welcome-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 320px;
+      padding: 32px 16px 16px;
+      text-align: center;
+    }
+
+    .welcome-logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      margin-bottom: 20px;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: fade-up 0.5s ease 0.1s forwards;
+    }
+
+    .welcome-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-1);
+      margin-bottom: 6px;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: fade-up 0.5s ease 0.2s forwards;
+    }
+
+    .welcome-subtitle {
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.45;
+      margin-bottom: 28px;
+      opacity: 0;
+      transform: translateY(6px);
+      animation: fade-up 0.5s ease 0.35s forwards;
+    }
+
+    .welcome-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      max-width: 240px;
+      opacity: 0;
+      transform: translateY(8px);
+      animation: fade-up 0.5s ease 0.5s forwards;
+    }
+
+    .welcome-footer {
+      font-size: 10px;
+      color: var(--text-3);
+      margin-top: auto;
+      padding-top: 24px;
+    }
+
+    @keyframes fade-up {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Primary button ──────────────────────────────────────────── */
+
+    .btn-primary {
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: #FDFDFC;           /* primaryDarkBase */
+      color: #17191C;                /* surfaceDarkBase */
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #F2F0EE;           /* primaryDarkHover */
+    }
+
+    .btn-primary:active:not(:disabled) {
+      background: #E9E6E2;           /* primaryDarkActive */
+      transform: scale(0.98);
+    }
+
+    .btn-primary:disabled {
+      background: #2D3339;           /* primaryDarkDisabled */
+      color: #5A6672;
+      cursor: default;
+    }
+
+    /* ── Ghost button ────────────────────────────────────────────── */
+
+    .btn-ghost {
+      width: 100%;
+      padding: 9px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text-2);
+      transition: all 0.15s ease;
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      border-color: var(--border-hover);
+      color: var(--text-1);
+    }
+
+    .btn-ghost-sm {
+      width: auto;
+      padding: 6px 0;
+      border: none;
+      background: transparent;
+      font-size: 11px;
+      color: var(--text-3);
+      cursor: pointer;
+      transition: color 0.15s;
+    }
+
+    .btn-ghost-sm:hover {
+      color: var(--text-2);
+    }
+
+    /* ── Icon button (back arrow) ────────────────────────────────── */
+
+    .btn-icon {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text-2);
+      cursor: pointer;
+      padding: 0;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .btn-icon:hover {
+      border-color: var(--border-hover);
+      color: var(--text-1);
+    }
+
+    /* ── Assistant picker screen ──────────────────────────────────── */
+
+    #screen-picker header {
+      margin-bottom: 4px;
+    }
+
+    .picker-subtitle {
+      font-size: 12px;
+      color: var(--text-2);
+      margin-bottom: 14px;
+    }
+
+    .picker-loading {
+      font-size: 12px;
+      color: var(--text-3);
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .assistant-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .assistant-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .assistant-row:hover {
+      border-color: var(--border-hover);
+    }
+
+    .assistant-row-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: var(--surface-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--text-2);
+    }
+
+    .assistant-row-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-1);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .assistant-row-arrow {
+      color: var(--text-3);
+      flex-shrink: 0;
+    }
+
+    /* ── Connected assistant info bar ────────────────────────────── */
+
+    .assistant-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 10px;
+    }
+
+    .assistant-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: var(--surface-2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      color: var(--text-2);
+    }
+
+    .assistant-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .assistant-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-1);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .assistant-account {
+      font-size: 11px;
+      color: var(--text-3);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Session actions ─────────────────────────────────────────── */
+
+    .session-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 4px;
+    }
+
+    .session-actions .divider {
+      width: 100%;
+    }
+
+    .session-actions .btn-ghost-sm {
+      padding: 8px 0;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <svg class="logo-mark" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-      <path d="M9 1.5L16.5 9L9 16.5L1.5 9L9 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-      <path d="M9 5.5L12.5 9L9 12.5L5.5 9L9 5.5Z" fill="currentColor" opacity="0.3"/>
-    </svg>
-    <h1>Vellum Assistant</h1>
-  </header>
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 1: Welcome / Onboarding
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-welcome" class="screen">
+    <div class="welcome-container">
+      <img class="welcome-logo" src="../icons/icon128.png" alt="Vellum" />
 
-  <div class="toggle-row">
-    <div class="toggle-copy">
-      <p class="toggle-title">Connection</p>
-      <p class="toggle-hint" id="connection-toggle-hint">Turn on to connect.</p>
-    </div>
-    <label class="switch" for="connection-toggle">
-      <input type="checkbox" id="connection-toggle" aria-label="Toggle connection" />
-      <span class="switch-slider"></span>
-    </label>
-  </div>
+      <h1 class="welcome-title">Vellum Assistant</h1>
+      <p class="welcome-subtitle">Bridge your browser to your personal assistant.</p>
 
-  <div class="status-card" role="status" aria-live="polite">
-    <div class="status-row">
-      <div class="status-left">
-        <div class="status-dot disconnected" id="status-dot"></div>
-        <p class="status-text" id="status-text">Not connected</p>
-      </div>
-      <span class="status-badge disconnected" id="status-badge">Offline</span>
-    </div>
-  </div>
-
-  <p class="error-text" id="error-text" style="display:none"></p>
-  <div class="debug-details" id="debug-details" style="display:none">
-    <div class="debug-details-header">
-      <span class="debug-details-title">Debug details</span>
-      <button class="debug-copy-btn" id="copy-debug-details" type="button">Copy</button>
-    </div>
-    <p class="debug-details-text" id="debug-details-text"></p>
-  </div>
-
-  <p id="setup-message" class="setup-message" style="display:none"></p>
-
-  <div class="assistant-selector-group" id="assistant-selector-group" style="display:none">
-    <label for="assistant-select">Assistant</label>
-    <select id="assistant-select"></select>
-  </div>
-
-  <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
-  <div id="troubleshoot-section" hidden>
-    <div class="divider"></div>
-
-    <button
-      type="button"
-      class="troubleshoot-toggle"
-      id="troubleshoot-toggle"
-      aria-expanded="false"
-      aria-controls="troubleshoot-body"
-    >
-      <span class="chevron">&#9654;</span>
-      Advanced
-    </button>
-
-    <div id="troubleshoot-body" hidden>
-      <div class="advanced-setting">
-        <label for="environment-select">Environment</label>
-        <select id="environment-select">
-          <option value="local">Local</option>
-          <option value="dev">Development</option>
-          <option value="staging">Staging</option>
-          <option value="production">Production</option>
-        </select>
-        <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
+      <div class="welcome-buttons">
+        <button id="btn-sign-in" type="button" class="btn-primary">
+          Sign in with Vellum
+        </button>
+        <button id="btn-self-hosted" type="button" class="btn-ghost">
+          Connect to self-hosted
+        </button>
       </div>
 
-      <p class="local-status" id="local-status" style="display:none">Not paired</p>
-      <button id="btn-pair-local" type="button" style="display:none">Re-pair with local assistant</button>
+      <p class="welcome-footer">2026 Vellum Inc.</p>
+    </div>
+  </div>
 
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 2: Assistant Picker (cloud — multiple assistants)
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-picker" class="screen" style="display:none;">
+    <header>
+      <button id="picker-back" type="button" class="btn-icon" aria-label="Back">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7L9 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h1>Choose an Assistant</h1>
+    </header>
+    <p class="picker-subtitle">Select which assistant to connect to.</p>
+    <div id="assistant-list" class="assistant-list"></div>
+    <p id="picker-error" class="error-text" style="display:none;"></p>
+    <p id="picker-loading" class="picker-loading">Loading assistants…</p>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Screen 3: Connected / Main (self-hosted or cloud)
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="screen-main" class="screen" style="display:none;">
+    <!-- Connected assistant info (cloud mode) -->
+    <div id="assistant-info" class="assistant-info" style="display:none;">
+      <div class="assistant-avatar" id="assistant-avatar" aria-hidden="true">
+          <img src="../icons/icon48.png" alt="" width="20" height="20" style="border-radius: 4px;" />
+        </div>
+      <div class="assistant-meta">
+        <p class="assistant-name" id="assistant-name"></p>
+        <p class="assistant-account" id="assistant-account"></p>
+      </div>
+    </div>
+
+    <!-- Error state: shown when assistant fetch fails after login -->
+    <div id="assistants-error" class="status-card" style="display:none;" role="alert">
+      <div style="padding:4px 0;">
+        <p style="color:var(--red);font-size:13px;font-weight:500;margin-bottom:4px;">Unable to load assistants</p>
+        <p id="assistants-error-detail" style="color:var(--text-2);font-size:12px;word-break:break-word;"></p>
+        <button id="btn-retry-assistants" type="button" style="margin-top:8px;font-size:12px;padding:6px 14px;">Retry</button>
+      </div>
+    </div>
+
+    <div id="connection-area">
+        <div class="status-card" role="status" aria-live="polite">
+          <div class="status-row">
+            <div class="status-left">
+              <div class="status-dot disconnected" id="status-dot"></div>
+              <p class="status-text" id="status-text">Connecting…</p>
+            </div>
+            <span class="status-badge disconnected" id="status-badge">Offline</span>
+          </div>
+        </div>
+      </div>
+
+    <p class="error-text" id="error-text" style="display:none"></p>
+    <div class="debug-details" id="debug-details" style="display:none">
+      <div class="debug-details-header">
+        <span class="debug-details-title">Debug details</span>
+        <button class="debug-copy-btn" id="copy-debug-details" type="button">Copy</button>
+      </div>
+      <p class="debug-details-text" id="debug-details-text"></p>
+    </div>
+
+    <p id="setup-message" class="setup-message" style="display:none"></p>
+
+    <!-- Self-hosted: gateway URL (hidden for cloud) -->
+    <div id="self-hosted-settings" class="advanced-setting">
+      <label for="gateway-url-input">Gateway URL</label>
+      <div style="display:flex;gap:6px;align-items:stretch;">
+        <input type="text" id="gateway-url-input" placeholder="http://127.0.0.1:7830" value="http://127.0.0.1:7830" style="margin-bottom:0;flex:1;" />
+        <button id="gateway-url-save" type="button" style="width:auto;flex-shrink:0;padding:8px 14px;">Save</button>
+      </div>
+      <p class="hint">The HTTP address of your self-hosted assistant gateway.</p>
+    </div>
+
+    <!-- Advanced section: collapsed by default, auto-expanded for auth_required/error -->
+    <div id="troubleshoot-section">
+      <div class="divider"></div>
+
+      <button
+        type="button"
+        class="troubleshoot-toggle"
+        id="troubleshoot-toggle"
+        aria-expanded="false"
+        aria-controls="troubleshoot-body"
+      >
+        <span class="chevron">&#9654;</span>
+        Advanced
+      </button>
+
+      <div id="troubleshoot-body" style="display:none;">
+        <p class="local-status" id="local-status">Not paired</p>
+        <button id="btn-pair-local" type="button">Re-pair with gateway</button>
+      </div>
+    </div>
+
+    <!-- Sign out / switch button at bottom -->
+    <div id="session-actions" class="session-actions" style="display:none;">
+      <div class="divider"></div>
+      <button id="btn-sign-out" type="button" class="btn-ghost-sm">
+          Sign out
+        </button>
     </div>
   </div>
 

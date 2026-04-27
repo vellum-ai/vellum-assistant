@@ -80,8 +80,7 @@ const DEFAULT_SEND_REQUEST_TIMEOUT_MS = 30_000;
  * server also tears down on socket close / daemon shutdown, so this is only
  * needed when the client wants to keep the socket but end one subscription.
  */
-export const SKILL_IPC_SUBSCRIBE_CLOSE_METHOD =
-  "host.events.subscribe.close" as const;
+const SKILL_IPC_SUBSCRIBE_CLOSE_METHOD = "host.events.subscribe.close" as const;
 
 /** Stream handle passed to streaming-handler implementations. */
 export interface SkillIpcStream {
@@ -268,11 +267,6 @@ class SkillIpcConnectionState implements SkillIpcConnection {
 // Server
 // ---------------------------------------------------------------------------
 
-export interface SkillIpcServerOptions {
-  /** Override the socket path (tests). Defaults to the resolver output. */
-  socketPath?: string;
-}
-
 export class SkillIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
@@ -293,24 +287,13 @@ export class SkillIpcServer {
   private nextConnectionId = 1;
   private socketPath: string;
 
-  constructor(options: SkillIpcServerOptions = {}) {
-    if (options.socketPath) {
-      this.socketPath = options.socketPath;
-    } else {
-      const socketResolution = resolveSkillIpcSocketPath();
-      this.socketPath = socketResolution.path;
-      if (socketResolution.source !== "workspace") {
-        log.warn(
-          {
-            source: socketResolution.source,
-            workspacePath: socketResolution.workspacePath,
-            resolvedPath: socketResolution.path,
-            maxPathBytes: socketResolution.maxPathBytes,
-          },
-          "Skill IPC socket path exceeded platform limit; using fallback path",
-        );
-      }
-    }
+  constructor() {
+    const resolution = resolveSkillIpcSocketPath();
+    this.socketPath = resolution.path;
+    log.info(
+      { source: resolution.source, path: resolution.path },
+      "Skill IPC socket path resolved",
+    );
     for (const route of skillIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }

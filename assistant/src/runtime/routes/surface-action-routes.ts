@@ -103,7 +103,7 @@ function applyTrustContext(
  *
  * Body: { conversationId?, surfaceId, actionId, data? }
  */
-export async function handleSurfaceAction(
+async function handleSurfaceAction(
   req: Request,
   findConversation: ConversationLookup,
   findConversationBySurfaceId?: ConversationLookupBySurfaceId,
@@ -200,7 +200,7 @@ export async function handleSurfaceAction(
  *
  * Body: { conversationId }
  */
-export async function handleSurfaceUndo(
+async function handleSurfaceUndo(
   req: Request,
   surfaceId: string,
   findConversation: ConversationLookup,

@@ -32,6 +32,11 @@ struct IOSRootNavigationView: View {
 
     @State private var isDrawerOpen: Bool = false
     @State private var isSettingsPresented: Bool = false
+    /// Drives the Coding Agents (ACP sessions) modal sheet. Toggled by the
+    /// terminal-icon toolbar entry on each surface that exposes a top-level
+    /// destination (`compactEmptyRoot`, `ConversationChatView` on compact, and
+    /// `ConversationListView` on iPad). Mirrors `isSettingsPresented`.
+    @State private var isACPSessionsPresented: Bool = false
     @State private var activeConversationId: UUID?
     /// True when `activeConversationId` was populated by the auto-seed path
     /// (cold start / size-class transition / fallback after deletion) rather
@@ -79,6 +84,15 @@ struct IOSRootNavigationView: View {
                 conversationStore: store
             )
         }
+        // Coding Agents (ACP sessions) sheet. Driven from the terminal-icon
+        // toolbar entry on each top-level surface — see `compactEmptyRoot`,
+        // `ConversationChatView` (compact), and `ConversationListView` (iPad).
+        .sheet(isPresented: $isACPSessionsPresented) {
+            ACPSessionsView(
+                store: clientProvider.acpSessionStore,
+                onClose: { isACPSessionsPresented = false }
+            )
+        }
         .task {
             seedActiveConversationIfNeeded()
             applyPendingSelectionRequestIfNeeded()
@@ -89,9 +103,31 @@ struct IOSRootNavigationView: View {
             if navigateToConnect && !isSettingsPresented {
                 isSettingsPresented = true
             }
+            // Mirror the same coverage for ACP deep links: an
+            // `acp_spawn` tap that lands while the sheet is mounted
+            // re-presents naturally via `.onChange` below, but a deep
+            // link that was already set before this view appeared (e.g.
+            // a launch path that wakes the app via the inline card)
+            // would be missed by `.onChange` alone.
+            if clientProvider.acpSessionStore.selectedSessionId != nil
+                && !isACPSessionsPresented {
+                isACPSessionsPresented = true
+            }
         }
         .onChange(of: store.selectionRequest?.id) { _, _ in
             applyPendingSelectionRequestIfNeeded()
+        }
+        .onChange(of: clientProvider.acpSessionStore.selectedSessionId) { _, newValue in
+            // Inline `acp_spawn` taps (rendered by `ToolCallProgressBar`
+            // on iOS) land here by setting the store's
+            // `selectedSessionId`. We surface the Coding Agents sheet
+            // and let `ACPSessionsView` consume the field on its own
+            // observation tick — that's where the actual detail-view
+            // push happens. Clearing the field here would race the
+            // panel's consume helper, so we leave it alone.
+            if newValue != nil && !isACPSessionsPresented {
+                isACPSessionsPresented = true
+            }
         }
         .onChange(of: store.conversations.map(\.id)) { _, _ in
             // Seeds when no conversation is active AND reselects when the
@@ -216,7 +252,8 @@ struct IOSRootNavigationView: View {
                 conversation: conversation,
                 onOpenDrawer: openDrawer,
                 onComposeNew: composeNewConversation,
-                onShowSettings: { isSettingsPresented = true }
+                onShowSettings: { isSettingsPresented = true },
+                onShowACPSessions: { isACPSessionsPresented = true }
             )
             .task(id: id) {
                 store.loadHistoryIfNeeded(for: id)
@@ -285,6 +322,13 @@ struct IOSRootNavigationView: View {
                 .accessibilityLabel("Settings")
             }
             .hideSharedToolbarBackgroundIfAvailable()
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { isACPSessionsPresented = true }) {
+                    VIconView(.terminal, size: 20)
+                }
+                .accessibilityLabel("Coding Agents")
+            }
+            .hideSharedToolbarBackgroundIfAvailable()
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: composeNewConversation) {
                     VIconView(.squarePen, size: 20)
@@ -301,6 +345,7 @@ struct IOSRootNavigationView: View {
         ConversationListView(
             store: store,
             onShowSettings: { isSettingsPresented = true },
+            onShowACPSessions: { isACPSessionsPresented = true },
             selectedConversationId: $activeConversationId
         )
     }

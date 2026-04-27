@@ -277,7 +277,9 @@ mock.module("../oauth/oauth-store.js", () => ({
   updateConnection: () => ({}),
 }));
 
-// Stub out transitive dependencies that token-manager would normally pull in
+// Stub out transitive dependencies that token-manager would normally pull in.
+// All named exports must be present to avoid SyntaxError when bun's module
+// mock is shared across test files in the same run.
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => mockGetSecureKey(account),
   getSecureKeyResultAsync: async (account: string) => ({
@@ -292,10 +294,17 @@ mock.module("../security/secure-keys.js", () => ({
     }
     return "not-found" as const;
   },
+  bulkSetSecureKeysAsync: async () => true,
+  getProviderKeyAsync: async () => undefined,
+  getMaskedProviderKey: async () => undefined,
   listSecureKeysAsync: async () => ({
     accounts: [...secureKeyStore.keys()],
     unreachable: false,
   }),
+  getActiveBackendName: () => "mock",
+  setCesClient: () => {},
+  onCesClientChanged: () => () => {},
+  setCesReconnect: () => {},
   _resetBackend: () => {},
 }));
 
@@ -303,6 +312,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   assertMetadataWritable: () => {},
   getCredentialMetadata: (service: string, field: string) =>
     mockGetCredentialMetadata(service, field),
+  getCredentialMetadataById: () => undefined,
   upsertCredentialMetadata: () => ({}),
   listCredentialMetadata: () => [],
   deleteCredentialMetadata: (service: string, field: string): boolean => {
@@ -313,6 +323,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
     metadataStore.splice(idx, 1);
     return true;
   },
+  _setMetadataPath: () => {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -367,6 +378,7 @@ let mockGetConfig: () => Record<string, unknown> = () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => mockGetConfig(),
+  getConfigReadOnly: () => mockGetConfig(),
   loadConfig: () => mockGetConfig(),
   saveConfig: () => {},
   invalidateConfigCache: () => {},
@@ -378,6 +390,7 @@ mock.module("../config/loader.js", () => ({
   mergeDefaultWorkspaceConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+  _appendQuarantineBulletin: () => {},
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",

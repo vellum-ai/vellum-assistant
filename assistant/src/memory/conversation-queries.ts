@@ -45,13 +45,17 @@ export function listConversations(
   limit?: number,
   backgroundOnly = false,
   offset = 0,
+  includeArchived = true,
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
-  const where = backgroundOnly
+  const typeCond = backgroundOnly
     ? sql`${conversations.conversationType} IN ('background', 'scheduled') AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
     : sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`;
+  const where = includeArchived
+    ? typeCond
+    : sql`${typeCond} AND ${conversations.archivedAt} IS NULL`;
   const query = db
     .select()
     .from(conversations)
@@ -152,24 +156,6 @@ export function countConversations(backgroundOnly = false): number {
     .where(where)
     .all();
   return total;
-}
-
-export function getLatestConversation(): ConversationRow | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(conversations)
-    .where(
-      sql`${conversations.conversationType} NOT IN ('background', 'scheduled')`,
-    )
-    .orderBy(
-      desc(
-        sql`COALESCE(${conversations.lastMessageAt}, ${conversations.updatedAt})`,
-      ),
-    )
-    .limit(1)
-    .get();
-  return row ? parseConversation(row) : null;
 }
 
 /**

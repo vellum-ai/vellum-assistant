@@ -18,7 +18,7 @@ import { truncate } from "../../util/truncate.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
-export function handleListConversationAttention(url: URL): Response {
+function handleListConversationAttention(url: URL): Response {
   const stateParam = url.searchParams.get("state") ?? "all";
   const sourceParam = url.searchParams.get("source") ?? "all";
   const channel = url.searchParams.get("channel") ?? undefined;

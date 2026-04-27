@@ -4,8 +4,8 @@ import { join } from "node:path";
 import type { Command } from "commander";
 
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import { getSignalsDir } from "../../../util/platform.js";
-import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -56,13 +56,13 @@ Examples:
 
       try {
         // Check if already connected
-        const existingUrl = await getSecureKeyViaDaemon(
+        const existingUrl = await getSecureKeyAsync(
           credentialKey(
             CREDENTIAL_KEYS.baseUrl.service,
             CREDENTIAL_KEYS.baseUrl.field,
           ),
         );
-        const existingApiKey = await getSecureKeyViaDaemon(
+        const existingApiKey = await getSecureKeyAsync(
           credentialKey(
             CREDENTIAL_KEYS.apiKey.service,
             CREDENTIAL_KEYS.apiKey.field,

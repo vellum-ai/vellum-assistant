@@ -143,7 +143,6 @@ describe("channel-retry-sweep", () => {
             .run();
           return { messageId };
         },
-        undefined,
       );
 
       expect(capturedOptions?.trustContext?.trustClass).toBe(c.trustClass);
@@ -188,7 +187,6 @@ describe("channel-retry-sweep", () => {
             .run();
           return { messageId };
         },
-        undefined,
       );
 
       // Legacy payloads with trustCtx that can't be parsed into canonical form
@@ -227,7 +225,6 @@ describe("channel-retry-sweep", () => {
           .run();
         return { messageId };
       },
-      undefined,
     );
 
     // trustCtx was present but couldn't be parsed (invalid trustClass),
@@ -290,7 +287,6 @@ describe("channel-retry-sweep", () => {
           .run();
         return { messageId };
       },
-      undefined,
     );
 
     // When trustCtx is absent, the sweep synthesizes an explicit 'unknown'

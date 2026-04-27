@@ -161,13 +161,25 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         tool_choice: { type: "tool", name: "select_memories" },
       },
     });
-    // thinking: { type: "disabled" } should be stripped because the strip
-    // logic doesn't distinguish disabled from adaptive — the Anthropic API
-    // actually accepts disabled + forced tool_choice, but since thinking is
-    // explicitly set by the caller, the callSite resolution path doesn't
-    // overwrite it. The strip is harmless: Anthropic treats absent thinking
-    // the same as disabled.
-    expect(lastConfig()?.thinking).toBeUndefined();
+    expect(lastConfig()?.thinking).toEqual({ type: "disabled" });
+  });
+
+  test("preserves resolved thinking: disabled with forced tool_choice", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        thinking: { enabled: false },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("anthropic");
+    await provider.sendMessage([userMessage], undefined, undefined, {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    expect(lastConfig()?.thinking).toEqual({ type: "disabled" });
   });
 
   test("strips thinking for openrouter with anthropic model and forced tool_choice", async () => {

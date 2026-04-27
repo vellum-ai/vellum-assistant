@@ -17,7 +17,7 @@ import {
 import { getSignalsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
-export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 
 export async function checkServerHealth(
   serverId: string,

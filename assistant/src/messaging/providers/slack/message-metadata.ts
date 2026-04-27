@@ -17,7 +17,7 @@ import { z } from "zod";
 
 export type SlackEventKind = "message" | "reaction";
 
-export const slackReactionMetadataSchema = z.object({
+const slackReactionMetadataSchema = z.object({
   emoji: z.string(),
   actorDisplayName: z.string().optional(),
   targetChannelTs: z.string(),

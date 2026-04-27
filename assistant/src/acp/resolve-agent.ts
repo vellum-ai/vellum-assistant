@@ -27,9 +27,9 @@ import { getConfig } from "../config/loader.js";
  * fell back to the bundled default profile. Surfaced in `acp_list_agents`
  * output so users can see at a glance which agents they've customized.
  */
-export type AcpAgentSource = "config" | "default";
+type AcpAgentSource = "config" | "default";
 
-export type ResolveAcpAgentResult =
+type ResolveAcpAgentResult =
   | { ok: true; agent: AcpAgentConfig }
   | { ok: false; reason: "acp_disabled"; hint: string }
   | { ok: false; reason: "unknown_agent"; available: string[] }
@@ -40,7 +40,7 @@ export type ResolveAcpAgentResult =
       command: string;
     };
 
-export interface AcpAgentEntry {
+interface AcpAgentEntry {
   id: string;
   command: string;
   description?: string;

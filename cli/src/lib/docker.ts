@@ -405,10 +405,12 @@ async function ensureDockerInstalled(): Promise<void> {
 export function dockerResourceNames(instanceName: string) {
   return {
     assistantContainer: `${instanceName}-assistant`,
+    assistantIpcVolume: `${instanceName}-assistant-ipc`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
     dockerdDataVolume: `${instanceName}-dockerd-data`,
     gatewayContainer: `${instanceName}-gateway`,
+    gatewayIpcVolume: `${instanceName}-gateway-ipc`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
     network: `${instanceName}-net`,
     socketVolume: `${instanceName}-socket`,
@@ -464,6 +466,8 @@ export async function retireDocker(name: string): Promise<void> {
   }
   for (const vol of [
     res.socketVolume,
+    res.assistantIpcVolume,
+    res.gatewayIpcVolume,
     res.workspaceVolume,
     res.cesSecurityVolume,
     res.gatewaySecurityVolume,
@@ -695,6 +699,10 @@ export function serviceDockerRunArgs(opts: {
         "-v",
         `${res.socketVolume}:/run/ces-bootstrap`,
         "-v",
+        `${res.assistantIpcVolume}:/run/assistant-ipc`,
+        "-v",
+        `${res.gatewayIpcVolume}:/run/gateway-ipc`,
+        "-v",
         `${res.dockerdDataVolume}:/var/lib/docker`,
         "-e",
         "IS_CONTAINERIZED=true",
@@ -714,6 +722,10 @@ export function serviceDockerRunArgs(opts: {
         "CES_CREDENTIAL_URL=http://localhost:8090",
         "-e",
         `GATEWAY_INTERNAL_URL=http://localhost:${GATEWAY_INTERNAL_PORT}`,
+        "-e",
+        "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",
+        "-e",
+        "ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc",
       ];
       if (defaultWorkspaceConfigPath) {
         const containerPath = `/tmp/vellum-default-workspace-config-${Date.now()}.json`;
@@ -784,6 +796,10 @@ export function serviceDockerRunArgs(opts: {
       `${res.workspaceVolume}:/workspace`,
       "-v",
       `${res.gatewaySecurityVolume}:/gateway-security`,
+      "-v",
+      `${res.assistantIpcVolume}:/run/assistant-ipc`,
+      "-v",
+      `${res.gatewayIpcVolume}:/run/gateway-ipc`,
       "-e",
       "VELLUM_WORKSPACE_DIR=/workspace",
       "-e",
@@ -798,6 +814,10 @@ export function serviceDockerRunArgs(opts: {
       "RUNTIME_PROXY_ENABLED=true",
       "-e",
       "CES_CREDENTIAL_URL=http://localhost:8090",
+      "-e",
+      "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",
+      "-e",
+      "ASSISTANT_IPC_SOCKET_DIR=/run/assistant-ipc",
       ...(cesServiceToken
         ? ["-e", `CES_SERVICE_TOKEN=${cesServiceToken}`]
         : []),
@@ -1283,21 +1303,27 @@ export async function hatchDocker(
     log("📁 Creating network and volumes...");
     await exec("docker", ["network", "create", res.network]);
     await exec("docker", ["volume", "create", res.socketVolume]);
+    await exec("docker", ["volume", "create", res.assistantIpcVolume]);
+    await exec("docker", ["volume", "create", res.gatewayIpcVolume]);
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
     await exec("docker", ["volume", "create", res.gatewaySecurityVolume]);
     await exec("docker", ["volume", "create", res.dockerdDataVolume]);
 
-    // Set workspace volume ownership so non-root containers (UID 1001) can write.
+    // Set volume ownership so non-root containers (UID 1001) can write.
     await exec("docker", [
       "run",
       "--rm",
       "-v",
       `${res.workspaceVolume}:/workspace`,
+      "-v",
+      `${res.assistantIpcVolume}:/run/assistant-ipc`,
+      "-v",
+      `${res.gatewayIpcVolume}:/run/gateway-ipc`,
       "busybox",
-      "chown",
-      "1001:1001",
-      "/workspace",
+      "sh",
+      "-c",
+      "chown 1001:1001 /workspace /run/assistant-ipc /run/gateway-ipc",
     ]);
 
     // Write --config key=value pairs to a temp file that gets bind-mounted

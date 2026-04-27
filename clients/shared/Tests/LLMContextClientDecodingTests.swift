@@ -189,7 +189,7 @@ final class LLMContextClientDecodingTests: XCTestCase {
                   "createdAt": 99887767,
                   "summary": {
                     "provider": "gemini",
-                    "model": "gemini-3-flash-001",
+                    "model": "gemini-3-flash-preview",
                     "stopReason": "STOP"
                   },
                   "requestSections": [

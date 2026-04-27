@@ -5,7 +5,6 @@ import type { RuntimeAttachmentMetadata } from "../runtime/http-types.js";
 type DeliveryCall = {
   callbackUrl: string;
   payload: Record<string, unknown>;
-  bearerToken?: string;
 };
 
 const deliveryCalls: DeliveryCall[] = [];
@@ -59,7 +58,6 @@ mock.module("../runtime/gateway-client.js", () => ({
   deliverChannelReply: async (
     callbackUrl: string,
     payload: Record<string, unknown>,
-    bearerToken?: string,
   ) => {
     if (
       deliveryFailAtIndex >= 0 &&
@@ -67,7 +65,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     ) {
       throw new Error("Simulated delivery failure (502)");
     }
-    deliveryCalls.push({ callbackUrl, payload, bearerToken });
+    deliveryCalls.push({ callbackUrl, payload });
     if (nextDeliveryTs !== null) {
       const ts = nextDeliveryTs;
       // Only the first segment of a multi-segment delivery should carry
@@ -168,7 +166,6 @@ describe("channel-reply-delivery", () => {
       fallbackText: "Before tool.After tool.",
       attachments,
       assistantId: "assistant-1",
-      bearerToken: "token",
       interSegmentDelayMs: 0,
     });
 
@@ -181,7 +178,6 @@ describe("channel-reply-delivery", () => {
         attachments: undefined,
         assistantId: "assistant-1",
       },
-      bearerToken: "token",
     });
     expect(deliveryCalls[1]).toEqual({
       callbackUrl: "http://gateway/deliver/telegram",
@@ -191,7 +187,6 @@ describe("channel-reply-delivery", () => {
         attachments,
         assistantId: "assistant-1",
       },
-      bearerToken: "token",
     });
   });
 
@@ -240,7 +235,6 @@ describe("channel-reply-delivery", () => {
       "conv-1",
       "chat-3",
       "http://gateway/deliver/telegram",
-      "token",
       "assistant-2",
     );
 
@@ -477,7 +471,6 @@ describe("channel-reply-delivery", () => {
       "conv-resume",
       "chat-resume",
       "http://gateway/deliver/telegram",
-      "token",
       "assistant-3",
       {
         startFromSegment: 1,
@@ -552,7 +545,6 @@ describe("channel-reply-delivery", () => {
         "conv-recon-top",
         "C123",
         "http://gateway/deliver/slack",
-        "token",
         "assistant-recon",
       );
 
@@ -582,7 +574,6 @@ describe("channel-reply-delivery", () => {
         "conv-recon-thread",
         "C456",
         "http://gateway/deliver/slack",
-        "token",
         "assistant-recon-thread",
       );
 
@@ -620,7 +611,6 @@ describe("channel-reply-delivery", () => {
         "conv-vellum",
         "chat-vellum",
         "http://gateway/deliver/telegram",
-        "token",
         "assistant-vellum",
       );
 
@@ -661,7 +651,6 @@ describe("channel-reply-delivery", () => {
         "conv-already",
         "C789",
         "http://gateway/deliver/slack",
-        "token",
         "assistant-already",
       );
 
@@ -688,7 +677,6 @@ describe("channel-reply-delivery", () => {
         "conv-multi",
         "C999",
         "http://gateway/deliver/slack",
-        "token",
         "assistant-multi",
       );
 
@@ -709,7 +697,6 @@ describe("channel-reply-delivery", () => {
         "conv-compose",
         "C111",
         "http://gateway/deliver/slack",
-        "token",
         "assistant-compose",
         {
           onMessageTs: (ts) => callerTsSeen.push(ts),
@@ -736,7 +723,6 @@ describe("channel-reply-delivery", () => {
         "conv-readback",
         "C222",
         "http://gateway/deliver/slack",
-        "token",
         "assistant-readback",
       );
 

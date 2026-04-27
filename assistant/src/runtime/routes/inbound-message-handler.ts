@@ -14,7 +14,7 @@ import {
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import type { TrustContext } from "../../daemon/conversation-runtime-assembly.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import * as attachmentsStore from "../../memory/attachments-store.js";
+import { getAttachmentsByIds } from "../../memory/attachments-store.js";
 import {
   recordConversationSeenSignal,
   type SignalType,
@@ -26,10 +26,17 @@ import {
   selectSlackMetaCandidateMetadata,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
-import * as deliveryChannels from "../../memory/delivery-channels.js";
-import * as deliveryCrud from "../../memory/delivery-crud.js";
-import * as deliveryStatus from "../../memory/delivery-status.js";
-import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import {
+  clearPendingVerificationReply,
+  getPendingVerificationReply,
+} from "../../memory/delivery-channels.js";
+import {
+  findMessageBySourceId,
+  linkMessage,
+  recordInbound,
+} from "../../memory/delivery-crud.js";
+import { markProcessed } from "../../memory/delivery-status.js";
+import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   backfillDm,
@@ -45,7 +52,6 @@ import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { mintDaemonDeliveryToken } from "../auth/token-service.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { httpError } from "../http-errors.js";
 import type {
@@ -106,13 +112,6 @@ export async function handleChannelInbound(
   // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
   // principal type required) before this handler runs. The exchange JWT
   // itself proves gateway origin.
-
-  // Factory that mints a fresh short-lived JWT for each daemon-to-gateway
-  // delivery callback. The JWT has a 60-second TTL, so long-running
-  // background operations (typing heartbeats, approval watchers, reply
-  // delivery) must call this at each delivery attempt rather than reusing
-  // a single token from request start.
-  const mintBearerToken = (): string => mintDaemonDeliveryToken();
 
   const body = (await req.json()) as {
     sourceChannel?: string;
@@ -253,7 +252,6 @@ export async function handleChannelInbound(
     actorUsername: body.actorUsername,
     sourceMetadata: body.sourceMetadata,
     replyCallbackUrl: body.replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     externalMessageId,
   });
@@ -272,7 +270,6 @@ export async function handleChannelInbound(
     actorDisplayName: body.actorDisplayName,
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     externalMessageId,
   });
@@ -314,7 +311,7 @@ export async function handleChannelInbound(
     // that window is silently dropped and the deletion signal is lost.
     let original: { messageId: string; conversationId: string } | null = null;
     for (let attempt = 0; attempt <= deleteLookupRetries; attempt++) {
-      original = deliveryCrud.findMessageBySourceId(
+      original = findMessageBySourceId(
         sourceChannel,
         conversationExternalId,
         deletedMessageTs,
@@ -426,7 +423,7 @@ export async function handleChannelInbound(
   }
 
   if (hasAttachments) {
-    const resolved = attachmentsStore.getAttachmentsByIds(attachmentIds);
+    const resolved = getAttachmentsByIds(attachmentIds);
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
@@ -488,7 +485,7 @@ export async function handleChannelInbound(
   }
 
   // ── New message path ──
-  const result = deliveryCrud.recordInbound(
+  const result = recordInbound(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
@@ -502,21 +499,15 @@ export async function handleChannelInbound(
   // gateway retries (duplicates) re-attempt delivery here. On success the
   // pending marker is cleared so further duplicates short-circuit normally.
   if (result.duplicate && replyCallbackUrl) {
-    const pendingReply = deliveryChannels.getPendingVerificationReply(
-      result.eventId,
-    );
+    const pendingReply = getPendingVerificationReply(result.eventId);
     if (pendingReply) {
       try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: pendingReply.chatId,
-            text: pendingReply.text,
-            assistantId: pendingReply.assistantId,
-          },
-          mintBearerToken(),
-        );
-        deliveryChannels.clearPendingVerificationReply(result.eventId);
+        await deliverChannelReply(replyCallbackUrl, {
+          chatId: pendingReply.chatId,
+          text: pendingReply.text,
+          assistantId: pendingReply.assistantId,
+        });
+        clearPendingVerificationReply(result.eventId);
         log.info(
           { eventId: result.eventId },
           "Retried pending verification reply: delivered",
@@ -546,7 +537,7 @@ export async function handleChannelInbound(
   // self so assistant-scoped legacy routes do not overwrite each other's
   // channel binding metadata for the same chat.
   if (canonicalAssistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    externalConversationStore.upsertBinding({
+    upsertBinding({
       conversationId: result.conversationId,
       sourceChannel,
       externalChatId: conversationExternalId,
@@ -601,7 +592,6 @@ export async function handleChannelInbound(
         sourceChannel,
         actorExternalId: canonicalSenderId ?? rawSenderId,
         replyCallbackUrl,
-        bearerToken: mintBearerToken(),
         trustCtx: trustCtxForReaction,
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
@@ -774,7 +764,6 @@ export async function handleChannelInbound(
     conversationId: result.conversationId,
     eventId: result.eventId,
     replyCallbackUrl,
-    mintBearerToken,
     assistantId,
     actorDisplayName: body.actorDisplayName,
     actorUsername: body.actorUsername,
@@ -812,7 +801,6 @@ export async function handleChannelInbound(
     conversationId: result.conversationId,
     eventId: result.eventId,
     replyCallbackUrl,
-    mintBearerToken,
     trustClass: trustCtx.trustClass,
     guardianPrincipalId: trustCtx.guardianPrincipalId,
     approvalConversationGenerator,
@@ -846,7 +834,6 @@ export async function handleChannelInbound(
       sourceChannel,
       actorExternalId: canonicalSenderId ?? rawSenderId,
       replyCallbackUrl,
-      bearerToken: mintBearerToken(),
       trustCtx,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
@@ -940,16 +927,12 @@ export async function handleChannelInbound(
       // and deliver an ephemeral error so the user gets visible feedback
       // instead of a silent no-op (JARVIS-299).
       if (sourceChannel === "slack" && replyCallbackUrl && approvalMessageTs) {
-        deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: conversationExternalId,
-            text: "This approval request has been resolved.",
-            messageTs: approvalMessageTs,
-            assistantId: canonicalAssistantId,
-          },
-          mintBearerToken(),
-        ).catch((err) => {
+        deliverChannelReply(replyCallbackUrl, {
+          chatId: conversationExternalId,
+          text: "This approval request has been resolved.",
+          messageTs: approvalMessageTs,
+          assistantId: canonicalAssistantId,
+        }).catch((err) => {
           log.error(
             { err, conversationId: result.conversationId },
             "Failed to edit stale Slack approval message",
@@ -989,7 +972,7 @@ export async function handleChannelInbound(
 
     if (ingressResult.blocked) {
       // Intentional block — mark the event as processed (not failed/dead-lettered).
-      deliveryStatus.markProcessed(result.eventId);
+      markProcessed(result.eventId);
       log.info(
         {
           eventId: result.eventId,
@@ -1117,7 +1100,6 @@ export async function handleChannelInbound(
         commandIntent,
         sourceLanguageCode,
         replyCallbackUrl,
-        mintBearerToken,
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
         chatType: sourceChatType,
@@ -1238,8 +1220,8 @@ async function persistSlackReactionAsMessage(params: {
     { slackMeta: writeSlackMetadata(slackMeta) },
     { skipIndexing: true },
   );
-  deliveryCrud.linkMessage(params.eventId, persisted.id);
-  deliveryStatus.markProcessed(params.eventId);
+  linkMessage(params.eventId, persisted.id);
+  markProcessed(params.eventId);
 }
 
 /**

@@ -86,7 +86,6 @@ export { createProxyServer } from "./server.js";
 
 // Sidecar configuration
 export type { SidecarConfig } from "./config.js";
-export { ConfigError, loadConfig } from "./config.js";
 
 // Health / readiness server
 export type { HealthServerOptions } from "./health.js";

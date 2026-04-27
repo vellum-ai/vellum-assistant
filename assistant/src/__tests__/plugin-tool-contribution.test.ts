@@ -64,11 +64,11 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 // Redirect plugin-storage-directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum. This matches the
 // convention used by plugin-bootstrap.test.ts.
-const TEST_INSTANCE_DIR = join(
+const TEST_WORKSPACE_DIR = join(
   tmpdir(),
   `vellum-plugin-tool-contrib-test-${process.pid}`,
 );
-process.env.BASE_DATA_DIR = TEST_INSTANCE_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
@@ -122,7 +122,7 @@ describe("plugin tool contributions", () => {
     __clearRegistryForTesting();
     getSecureKeyAsyncMock.mockReset();
     getSecureKeyAsyncMock.mockImplementation(async () => undefined);
-    await rm(TEST_INSTANCE_DIR, { recursive: true, force: true });
+    await rm(TEST_WORKSPACE_DIR, { recursive: true, force: true });
   });
 
   test("bootstrap registers plugin tools and makes them discoverable", async () => {

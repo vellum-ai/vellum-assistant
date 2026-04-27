@@ -64,8 +64,10 @@ import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
+import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
+import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -445,9 +447,7 @@ export class Conversation {
     const publishToolDomainEvent = createToolDomainEventPublisher(
       this.eventBus,
     );
-    const handleToolLifecycleEvent = (
-      event: import("../tools/types.js").ToolLifecycleEvent,
-    ) => {
+    const handleToolLifecycleEvent = (event: ToolLifecycleEvent) => {
       auditToolLifecycleEvent(event);
       return publishToolDomainEvent(event);
     };
@@ -487,7 +487,7 @@ export class Conversation {
     const resolvedModel: string | undefined = modelOverride;
 
     const resolveSystemPromptCallback = (
-      _history: import("../providers/types.js").Message[],
+      _history: Message[],
     ): ResolvedSystemPrompt => {
       const resolved: ResolvedSystemPrompt = {
         systemPrompt: this.hasSystemPromptOverride
