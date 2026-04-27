@@ -488,9 +488,11 @@ Examples:
           producedToolCalls: boolean;
           reason?: "not_found" | "archived" | "timeout" | "no_resolver";
         }>("wake_conversation", {
-          conversationId,
-          hint: opts.hint,
-          source: opts.source,
+          body: {
+            conversationId,
+            hint: opts.hint,
+            source: opts.source,
+          },
         });
 
         if (!result.ok) {

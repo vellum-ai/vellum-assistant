@@ -3291,6 +3291,23 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                title:
+                  type: string
+                  minLength: 1
+              required:
+                - conversationId
+                - title
+              additionalProperties: false
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
@@ -3394,6 +3411,52 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/conversations/wake:
+    post:
+      operationId: conversations_wake_post
+      summary: Wake a conversation
+      description: Invoke the agent loop for a conversation with an opportunity hint.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoked:
+                    type: boolean
+                  producedToolCalls:
+                    type: boolean
+                  reason:
+                    type: string
+                required:
+                  - invoked
+                  - producedToolCalls
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                hint:
+                  type: string
+                  minLength: 1
+                source:
+                  default: cli
+                  type: string
+              required:
+                - conversationId
+                - hint
+                - source
+              additionalProperties: false
   /v1/debug:
     get:
       operationId: debug_get

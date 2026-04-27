@@ -7,6 +7,8 @@
  * and broadcasts real-time events so connected clients update.
  */
 
+import { z } from "zod";
+
 import {
   getConversation,
   updateConversationTitle,
@@ -18,6 +20,11 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
+const RenameConversationBody = z.object({
+  conversationId: z.string().min(1),
+  title: z.string().min(1),
+});
+
 const log = getLogger("rename-conversation-routes");
 
 export const ROUTES: RouteDefinition[] = [
@@ -28,18 +35,14 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Rename a conversation",
     description: "Update the display title of a conversation.",
     tags: ["conversations"],
+    requestBody: RenameConversationBody,
     handler: ({ body }) => {
-      const conversationId = body?.conversationId;
-      const title = body?.title;
-
-      if (
-        !conversationId ||
-        typeof conversationId !== "string" ||
-        !title ||
-        typeof title !== "string"
-      ) {
+      const parsed = RenameConversationBody.safeParse(body);
+      if (!parsed.success) {
         throw new BadRequestError("conversationId and title are required");
       }
+
+      const { conversationId, title } = parsed.data;
 
       const conversation = getConversation(conversationId);
       if (!conversation) {

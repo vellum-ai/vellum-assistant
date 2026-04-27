@@ -18,7 +18,6 @@ import { taskTemplateRoutes } from "./task.js";
 import { taskQueueRoutes } from "./task-queue.js";
 import { uiRequestRoute } from "./ui-request.js";
 import { upsertContactRoute } from "./upsert-contact.js";
-import { wakeConversationRoute } from "./wake-conversation.js";
 import { watcherRoutes } from "./watcher.js";
 import { wipeConversationRoute } from "./wipe-conversation.js";
 
@@ -36,7 +35,6 @@ export const cliIpcRoutes: IpcRoute[] = [
   suggestTrustRuleRoute,
   uiRequestRoute,
   upsertContactRoute,
-  wakeConversationRoute,
   wipeConversationRoute,
   ...notificationRoutes,
   ...cacheRoutes,
