@@ -16,7 +16,7 @@ import {
 import type { IpcRoute } from "./server.js";
 
 const GLOBAL_DEFAULTS = {
-  interactive: "medium",
+  interactive: "low",
   autonomous: "low",
 };
 
