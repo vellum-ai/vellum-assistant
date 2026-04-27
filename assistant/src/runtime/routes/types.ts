@@ -11,11 +11,17 @@ export interface RouteQueryParam {
   description?: string;
 }
 
+export interface RouteHandlerArgs {
+  params?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+  headers?: Record<string, string>;
+}
+
 export interface RouteDefinition {
   operationId: string;
   endpoint: string;
   method: string;
-  handler: (params?: Record<string, unknown>) => unknown | Promise<unknown>;
+  handler: (args: RouteHandlerArgs) => unknown | Promise<unknown>;
   policyKey?: string;
   summary?: string;
   description?: string;

@@ -23,7 +23,7 @@ import {
   FailedDependencyError,
   NotFoundError,
 } from "./errors.js";
-import type { RouteDefinition } from "./types.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const TERMINAL_SESSION_STATUSES = ["completed", "failed", "cancelled"] as const;
 
@@ -51,11 +51,11 @@ type SessionEntry = z.infer<typeof sessionEntrySchema>;
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function spawnSession(params?: Record<string, unknown>) {
-  const agent = params?.agent as string | undefined;
-  const task = params?.task as string | undefined;
-  const conversationId = params?.conversationId as string | undefined;
-  const cwd = (params?.cwd as string | undefined) ?? process.cwd();
+async function spawnSession({ body }: RouteHandlerArgs) {
+  const agent = body?.agent as string | undefined;
+  const task = body?.task as string | undefined;
+  const conversationId = body?.conversationId as string | undefined;
+  const cwd = (body?.cwd as string | undefined) ?? process.cwd();
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError(
@@ -106,9 +106,9 @@ async function spawnSession(params?: Record<string, unknown>) {
   return { acpSessionId, protocolSessionId, agent };
 }
 
-async function steerSession(params?: Record<string, unknown>) {
+async function steerSession({ params, body }: RouteHandlerArgs) {
   const id = params?.id as string;
-  const instruction = params?.instruction as string | undefined;
+  const instruction = body?.instruction as string | undefined;
 
   if (!instruction) {
     throw new BadRequestError("instruction is required");
@@ -123,7 +123,7 @@ async function steerSession(params?: Record<string, unknown>) {
   return { acpSessionId: id, steered: true };
 }
 
-async function cancelSession(params?: Record<string, unknown>) {
+async function cancelSession({ params }: RouteHandlerArgs) {
   const id = params?.id as string;
   const manager = getAcpSessionManager();
   try {
@@ -134,7 +134,7 @@ async function cancelSession(params?: Record<string, unknown>) {
   return { acpSessionId: id, cancelled: true };
 }
 
-function closeSession(params?: Record<string, unknown>) {
+function closeSession({ params }: RouteHandlerArgs) {
   const id = params?.id as string;
   const manager = getAcpSessionManager();
   try {
@@ -145,14 +145,14 @@ function closeSession(params?: Record<string, unknown>) {
   return { acpSessionId: id, closed: true };
 }
 
-function listSessions(params?: Record<string, unknown>) {
+function listSessions({ params }: RouteHandlerArgs) {
   const limit = parseLimit(params?.limit as string | undefined);
   const conversationId = (params?.conversationId as string) ?? undefined;
   const sessions = listMergedSessions({ limit, conversationId });
   return { sessions };
 }
 
-function bulkDeleteSessions(params?: Record<string, unknown>) {
+function bulkDeleteSessions({ params }: RouteHandlerArgs) {
   const status = params?.status as string | undefined;
   if (status !== "completed") {
     throw new BadRequestError(
@@ -168,7 +168,7 @@ function bulkDeleteSessions(params?: Record<string, unknown>) {
   return { deleted };
 }
 
-function deleteSession(params?: Record<string, unknown>) {
+function deleteSession({ params }: RouteHandlerArgs) {
   const id = params?.id as string;
 
   try {

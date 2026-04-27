@@ -94,9 +94,11 @@ describe("POST /v1/acp/spawn", () => {
     const handler = getSpawnHandler();
     await expect(
       handler({
-        agent: "claude",
-        task: "do a thing",
-        conversationId: "conv-1",
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
       }),
     ).rejects.toThrow("acp.enabled");
   });
@@ -111,9 +113,11 @@ describe("POST /v1/acp/spawn", () => {
     const handler = getSpawnHandler();
     await expect(
       handler({
-        agent: "nonexistent",
-        task: "do a thing",
-        conversationId: "conv-1",
+        body: {
+          agent: "nonexistent",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
       }),
     ).rejects.toThrow('Unknown agent "nonexistent"');
   });
@@ -125,9 +129,11 @@ describe("POST /v1/acp/spawn", () => {
     const handler = getSpawnHandler();
     await expect(
       handler({
-        agent: "codex",
-        task: "do a thing",
-        conversationId: "conv-1",
+        body: {
+          agent: "codex",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
       }),
     ).rejects.toThrow("codex-acp is not on PATH");
   });
@@ -136,7 +142,7 @@ describe("POST /v1/acp/spawn", () => {
     config.setConfig({ enabled: false });
 
     const handler = getSpawnHandler();
-    await expect(handler({ agent: "claude" })).rejects.toThrow(
+    await expect(handler({ body: { agent: "claude" } })).rejects.toThrow(
       "agent, task, and conversationId are required",
     );
   });
@@ -201,8 +207,10 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-initializing", "initializing", 5000);
 
     const handler = getBulkDeleteHandler();
-    const body = (await handler({ status: "completed" })) as { deleted: number };
-    expect(body.deleted).toBe(3);
+    const result = (await handler({ params: { status: "completed" } })) as {
+      deleted: number;
+    };
+    expect(result.deleted).toBe(3);
 
     const remaining = listRows();
     expect(remaining.map((r) => r.status).sort()).toEqual([
@@ -215,8 +223,10 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-running", "running", 1000);
 
     const handler = getBulkDeleteHandler();
-    const body = (await handler({ status: "completed" })) as { deleted: number };
-    expect(body.deleted).toBe(0);
+    const result = (await handler({ params: { status: "completed" } })) as {
+      deleted: number;
+    };
+    expect(result.deleted).toBe(0);
 
     const remaining = listRows();
     expect(remaining).toHaveLength(1);
@@ -227,7 +237,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-completed", "completed", 1000);
 
     const handler = getBulkDeleteHandler();
-    expect(() => handler()).toThrow("status");
+    expect(() => handler({})).toThrow("status");
     // Row must still be present — guard short-circuited before the delete.
     expect(listRows()).toHaveLength(1);
   });
@@ -236,7 +246,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-completed", "completed", 1000);
 
     const handler = getBulkDeleteHandler();
-    expect(() => handler({ status: "failed" })).toThrow("status");
+    expect(() => handler({ params: { status: "failed" } })).toThrow("status");
     expect(listRows()).toHaveLength(1);
   });
 });
@@ -289,8 +299,10 @@ describe("DELETE /v1/acp/sessions/:id", () => {
     insertHistoryRow({ id: "sess-completed", status: "completed" });
 
     const handler = getDeleteSessionHandler();
-    const body = (await handler({ id: "sess-completed" })) as { deleted: boolean };
-    expect(body.deleted).toBe(true);
+    const result = (await handler({ params: { id: "sess-completed" } })) as {
+      deleted: boolean;
+    };
+    expect(result.deleted).toBe(true);
 
     // Row really gone.
     const remaining = getDb()
@@ -312,13 +324,12 @@ describe("DELETE /v1/acp/sessions/:id", () => {
         status,
         startedAt: 1_700_000_000_000,
       });
-      // Even if a stale history row exists it must NOT be deleted while the
-      // session is active — the row would be re-written when the session
-      // reaches a terminal state.
       insertHistoryRow({ id: "sess-active", status: "completed" });
 
       const handler = getDeleteSessionHandler();
-      expect(() => handler({ id: "sess-active" })).toThrow(`still ${status}`);
+      expect(() => handler({ params: { id: "sess-active" } })).toThrow(
+        `still ${status}`,
+      );
 
       // Row untouched.
       const remaining = getDb()
@@ -332,14 +343,13 @@ describe("DELETE /v1/acp/sessions/:id", () => {
 
   test("idempotent for unknown id — returns { deleted: false }", async () => {
     const handler = getDeleteSessionHandler();
-    const body = (await handler({ id: "does-not-exist" })) as { deleted: boolean };
-    expect(body.deleted).toBe(false);
+    const result = (await handler({
+      params: { id: "does-not-exist" },
+    })) as { deleted: boolean };
+    expect(result.deleted).toBe(false);
   });
 
   test("deletes a cancelled in-memory session whose row is in history", async () => {
-    // A session whose status flipped to a terminal value but is still
-    // present in the in-memory map (e.g. mid-teardown) must be deletable —
-    // only running/initializing states gate the delete.
     inMemoryStates.set("sess-cancelled", {
       id: "sess-cancelled",
       agentId: "claude",
@@ -352,7 +362,9 @@ describe("DELETE /v1/acp/sessions/:id", () => {
     insertHistoryRow({ id: "sess-cancelled", status: "cancelled" });
 
     const handler = getDeleteSessionHandler();
-    const body = (await handler({ id: "sess-cancelled" })) as { deleted: boolean };
-    expect(body.deleted).toBe(true);
+    const result = (await handler({
+      params: { id: "sess-cancelled" },
+    })) as { deleted: boolean };
+    expect(result.deleted).toBe(true);
   });
 });
