@@ -27,4 +27,4 @@ jobs:
           bun-version: latest
 
       - name: Validate character-components.json
-        run: node scripts/avatar/check-catalog.mjs
+        run: bun scripts/avatar/check-catalog.mjs

@@ -6,7 +6,7 @@
  * produce a diff). Intended for use in CI to prevent catalog drift.
  *
  * Usage:
- *   node scripts/avatar/check-catalog.mjs
+ *   bun scripts/avatar/check-catalog.mjs
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -25,7 +25,7 @@ try {
   before = null;
 }
 
-execSync(`node ${GENERATE_SCRIPT}`, { stdio: "inherit" });
+execSync(`bun ${GENERATE_SCRIPT}`, { stdio: "inherit" });
 
 const after = readFileSync(CATALOG_PATH, "utf-8");
 

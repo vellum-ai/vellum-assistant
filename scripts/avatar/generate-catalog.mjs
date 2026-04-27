@@ -7,7 +7,7 @@
  * depending on the assistant daemon being up.
  *
  * Usage:
- *   node scripts/avatar/generate-catalog.mjs
+ *   bun scripts/avatar/generate-catalog.mjs
  */
 
 import { writeFileSync } from "node:fs";
