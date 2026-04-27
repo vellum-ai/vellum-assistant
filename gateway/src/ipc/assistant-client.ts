@@ -40,6 +40,39 @@ interface IpcResponse {
   id: string;
   result?: unknown;
   error?: string;
+  errorStatusCode?: number;
+  errorCode?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Structured IPC errors (used by the gateway IPC proxy)
+// ---------------------------------------------------------------------------
+
+/**
+ * Error thrown by {@link ipcCallAssistantStrict} when the daemon returns
+ * a handler-level error (e.g. a RouteError with statusCode).
+ */
+export class IpcHandlerError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+
+  constructor(message: string, statusCode: number, code: string) {
+    super(message);
+    this.name = "IpcHandlerError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+/**
+ * Error thrown by {@link ipcCallAssistantStrict} when the daemon is
+ * unreachable (socket error, timeout, closed before response).
+ */
+export class IpcTransportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IpcTransportError";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +192,118 @@ export async function ipcCallAssistant(
         );
       }
       finish(undefined);
+    });
+  });
+}
+
+/**
+ * Strict IPC call that distinguishes handler errors from transport failures.
+ *
+ * - On success: resolves with the result value.
+ * - On handler error (RouteError): throws {@link IpcHandlerError} with
+ *   statusCode and code.
+ * - On transport failure: throws {@link IpcTransportError}.
+ */
+export async function ipcCallAssistantStrict(
+  method: string,
+  params?: Record<string, unknown>,
+): Promise<unknown> {
+  const socketPath = getAssistantSocketPath();
+
+  return new Promise<unknown>((resolve, reject) => {
+    let settled = false;
+    let callTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (value: unknown, error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      if (callTimer) clearTimeout(callTimer);
+      socket.destroy();
+      if (error) {
+        reject(error);
+      } else {
+        resolve(value);
+      }
+    };
+
+    const connectTimer = setTimeout(() => {
+      finish(
+        undefined,
+        new IpcTransportError(
+          `Connect timed out after ${CONNECT_TIMEOUT_MS}ms`,
+        ),
+      );
+    }, CONNECT_TIMEOUT_MS);
+
+    const socket: Socket = connect(socketPath);
+    socket.unref();
+
+    let buffer = "";
+    const reqId = crypto.randomUUID();
+
+    socket.on("connect", () => {
+      clearTimeout(connectTimer);
+      const req: IpcRequest = { id: reqId, method, params };
+      socket.write(JSON.stringify(req) + "\n");
+
+      callTimer = setTimeout(() => {
+        finish(
+          undefined,
+          new IpcTransportError(`Call timed out after ${CALL_TIMEOUT_MS}ms`),
+        );
+      }, CALL_TIMEOUT_MS);
+
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString();
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIdx).trim();
+          buffer = buffer.slice(newlineIdx + 1);
+          if (!line) continue;
+
+          try {
+            const msg = JSON.parse(line) as IpcResponse;
+            if (msg.id === reqId) {
+              if (msg.error) {
+                if (msg.errorStatusCode) {
+                  finish(
+                    undefined,
+                    new IpcHandlerError(
+                      msg.error,
+                      msg.errorStatusCode,
+                      msg.errorCode ?? "UNKNOWN",
+                    ),
+                  );
+                } else {
+                  finish(undefined, new IpcTransportError(msg.error));
+                }
+              } else {
+                finish(msg.result);
+              }
+              return;
+            }
+          } catch {
+            // Ignore malformed lines
+          }
+        }
+      });
+    });
+
+    socket.on("error", (err) => {
+      finish(
+        undefined,
+        new IpcTransportError(err instanceof Error ? err.message : String(err)),
+      );
+    });
+
+    socket.on("close", () => {
+      if (!settled) {
+        finish(
+          undefined,
+          new IpcTransportError("Socket closed before response"),
+        );
+      }
     });
   });
 }

@@ -2,10 +2,18 @@
  * Adapts transport-agnostic RouteDefinitions into IpcRoutes for the
  * AssistantIpcServer.
  *
- * IPC callers currently send a flat params object. The adapter treats it
- * as both pathParams and body for backward compatibility. As CLI callers
- * are updated to send structured `{ pathParams, queryParams, body }`
- * payloads, the flat fallback can be removed.
+ * Generates two handlers per route:
+ *
+ * - `handler` (legacy): receives a flat params bag, treats string values
+ *   as both pathParams and queryParams, full bag as body. Used by CLI
+ *   callers that haven't migrated to structured payloads yet.
+ *
+ * - `structuredHandler`: receives separated { pathParams, queryParams,
+ *   body, headers } and passes them through to the route handler. Used
+ *   by the gateway IPC proxy.
+ *
+ * The IPC server detects the payload shape and dispatches accordingly —
+ * consumers can be migrated one at a time without breaking existing callers.
  */
 
 import type { RouteDefinition } from "../../runtime/routes/types.js";
@@ -14,12 +22,12 @@ import type { IpcRoute } from "../assistant-server.js";
 export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
 ): IpcRoute[] {
-  // Routes that require guardian binding are excluded from IPC — they will
-  // migrate to the gateway which owns guardian identity long-term.
   return routes
     .filter((r) => !r.requireGuardian)
     .map((r) => ({
       method: r.operationId,
+
+      // Legacy flat-params handler for CLI callers
       handler: (params?: Record<string, unknown>) => {
         const stringParams: Record<string, string> = {};
         if (params) {
@@ -33,5 +41,13 @@ export function routeDefinitionsToIpcRoutes(
           body: params,
         });
       },
+
+      // Structured handler for gateway IPC proxy
+      structuredHandler: (args: {
+        pathParams?: Record<string, string>;
+        queryParams?: Record<string, string>;
+        body?: Record<string, unknown>;
+        headers?: Record<string, string>;
+      }) => r.handler(args),
     }));
 }

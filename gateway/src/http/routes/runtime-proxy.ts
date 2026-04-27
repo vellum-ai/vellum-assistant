@@ -15,6 +15,7 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
+import { tryIpcProxy } from "./ipc-runtime-proxy.js";
 
 const log = getLogger("runtime-proxy");
 
@@ -42,6 +43,13 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         { status: 404 },
       );
     }
+
+    // IPC fast-path: when the client sends X-Vellum-Proxy-Server: ipc and
+    // the route is in the schema cache, serve via IPC instead of HTTP.
+    // Auth is handled inside tryIpcProxy — it replicates the same JWT
+    // validation as the HTTP path below.
+    const ipcResponse = await tryIpcProxy(req, config);
+    if (ipcResponse) return ipcResponse;
 
     // Validate the edge JWT (aud=vellum-gateway) when auth is required.
     // On success, mint an exchange token (aud=vellum-daemon) for the runtime.

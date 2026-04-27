@@ -26,23 +26,52 @@ export interface RouteSchemaEntry {
   method: string;
 }
 
+export interface RouteMatch {
+  operationId: string;
+  pathParams: Record<string, string>;
+}
+
+// ---------------------------------------------------------------------------
+// Compiled route — pre-built regex for parameterized endpoint matching
+// ---------------------------------------------------------------------------
+
+interface CompiledRoute {
+  entry: RouteSchemaEntry;
+  regex: RegExp;
+  paramNames: string[];
+}
+
+function compileEndpoint(entry: RouteSchemaEntry): CompiledRoute {
+  const paramNames: string[] = [];
+  const regexSource = entry.endpoint
+    .split("/")
+    .map((segment) => {
+      if (segment.startsWith(":")) {
+        const isCatchAll = segment.endsWith("*");
+        const name = isCatchAll ? segment.slice(1, -1) : segment.slice(1);
+        paramNames.push(name);
+        return isCatchAll ? "(.+)" : "([^/]+)";
+      }
+      return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("\\/");
+
+  return {
+    entry,
+    regex: new RegExp(`^${regexSource}$`),
+    paramNames,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cache state
 // ---------------------------------------------------------------------------
 
 let cachedSchema: RouteSchemaEntry[] = [];
-let operationIdByRoute = new Map<string, string>();
+let compiledRoutes: CompiledRoute[] = [];
 
-function routeKey(method: string, endpoint: string): string {
-  return `${method.toUpperCase()} ${endpoint}`;
-}
-
-function buildIndex(entries: RouteSchemaEntry[]): Map<string, string> {
-  const index = new Map<string, string>();
-  for (const entry of entries) {
-    index.set(routeKey(entry.method, entry.endpoint), entry.operationId);
-  }
-  return index;
+function buildCompiled(entries: RouteSchemaEntry[]): CompiledRoute[] {
+  return entries.map(compileEndpoint);
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +93,7 @@ export async function refreshRouteSchema(): Promise<boolean> {
 
       if (Array.isArray(result)) {
         cachedSchema = result as RouteSchemaEntry[];
-        operationIdByRoute = buildIndex(cachedSchema);
+        compiledRoutes = buildCompiled(cachedSchema);
         log.info(
           { routeCount: cachedSchema.length, attempt },
           "Route schema cache refreshed",
@@ -95,14 +124,31 @@ export async function refreshRouteSchema(): Promise<boolean> {
 }
 
 /**
- * Look up the operationId for an HTTP method + endpoint pattern.
- * Returns `undefined` if the route is not in the schema cache.
+ * Match an HTTP method + path against the cached route schema.
+ *
+ * The `path` should be the portion after `/v1/` (e.g. `acp/abc123/steer`
+ * for a request to `/v1/acp/abc123/steer`).
+ *
+ * Returns the operationId and extracted path params on match, or
+ * `undefined` if no cached route matches.
  */
-export function lookupOperationId(
+export function matchRoute(
   method: string,
-  endpoint: string,
-): string | undefined {
-  return operationIdByRoute.get(routeKey(method, endpoint));
+  path: string,
+): RouteMatch | undefined {
+  const upperMethod = method.toUpperCase();
+  for (const compiled of compiledRoutes) {
+    if (compiled.entry.method.toUpperCase() !== upperMethod) continue;
+    const match = path.match(compiled.regex);
+    if (!match) continue;
+
+    const pathParams: Record<string, string> = {};
+    for (let i = 0; i < compiled.paramNames.length; i++) {
+      pathParams[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
+    }
+    return { operationId: compiled.entry.operationId, pathParams };
+  }
+  return undefined;
 }
 
 /** Get the full cached schema (e.g. for diagnostics). */
