@@ -249,8 +249,9 @@ const DEPRECATED_FIELDS: Record<string, string> = {
  * prompt. Without this migration, removing the mode field from the schema
  * would silently downgrade them to default thresholds (conversation: low).
  *
- * Only migrates when autoApproveUpTo is not already explicitly set — if the
- * user set both, their explicit threshold takes precedence.
+ * Always overrides autoApproveUpTo when mode is "strict" — even if a previous
+ * backfill wrote default thresholds to disk (e.g. { conversation: "low" }),
+ * the user's intent was strict-mode behavior, which means "none".
  */
 function migratePermissionsMode(
   fileConfig: Record<string, unknown>,
@@ -262,8 +263,6 @@ function migratePermissionsMode(
   }
   const p = perms as Record<string, unknown>;
   if (p.mode !== "strict") return;
-  // Only set autoApproveUpTo if the user hasn't already configured it
-  if (p.autoApproveUpTo !== undefined) return;
 
   p.autoApproveUpTo = "none";
   log.info(

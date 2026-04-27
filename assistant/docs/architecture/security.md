@@ -26,10 +26,8 @@ graph TB
     RISK_CHECK -->|"High"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
-    NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>+ Low risk?"}
-    WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
-    WS_CHECK -->|"no"| RISK_THRESHOLD
+    NO_MATCH -->|"workspace-scoped<br/>+ Low risk"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
+    NO_MATCH -->|"otherwise"| RISK_THRESHOLD
 
     RISK_THRESHOLD{"risk ≤ autoApproveUpTo<br/>threshold?"}
     RISK_THRESHOLD -->|"yes"| AUTO_THRESHOLD["decision: allow<br/>within auto-approve threshold"]
@@ -92,11 +90,11 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
+When `autoApproveUpTo` is `"none"`, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) globally allows all skill loads regardless of threshold (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
-The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly in strict mode. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
+The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly when `autoApproveUpTo` is `"none"`. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
 
 | Rule             | Tool             | Pattern             |
 | ---------------- | ---------------- | ------------------- |
@@ -127,7 +125,7 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 | `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
 | `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both workspace and strict modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect regardless of the `autoApproveUpTo` threshold. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Shell Command Identity and Allowlist Options
 

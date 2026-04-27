@@ -212,7 +212,7 @@ When you approve a skill-originated action, the trust rule can record the skill'
 
 #### Starter approval bundle
 
-In strict mode, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
+When `autoApproveUpTo` is `"none"`, a **starter bundle** can be accepted to seed common safe rules (file reads, glob, grep, web search, etc.), reducing initial prompt noise without compromising security for mutation or execution tools.
 
 #### Skill source mutation protection
 

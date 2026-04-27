@@ -14,7 +14,7 @@ Skill-origin tools follow a stricter default permission policy than core tools:
 
 | Scenario                                          | Core tool behavior            | Skill tool behavior |
 | ------------------------------------------------- | ----------------------------- | ------------------- |
-| Low risk, no matching rule                        | Auto-allowed (workspace mode) | **Prompted**        |
+| Low risk, no matching rule                        | Auto-allowed (at default threshold) | **Prompted**        |
 | Medium risk, no matching rule                     | Prompted                      | Prompted            |
 | High risk, no matching rule                       | Prompted                      | Prompted            |
 | Allow rule matches, non-high risk                 | Auto-allowed                  | Auto-allowed        |
@@ -137,15 +137,15 @@ Writing to skill source paths is classified as high risk because it could alter 
 
 **Fix**: If you trust the operation, approve it. To permanently allow it, select "Always allow". Note that high-risk file operations will still prompt for each invocation since runtime auto-allow only applies to containerized bash.
 
-### "Why is strict mode prompting for everything?"
+### "Why is everything prompting?"
 
-Strict mode requires an explicit trust rule for every tool action. There is no implicit auto-allow.
+When `autoApproveUpTo` is set to `"none"`, every tool action requires an explicit trust rule or approval. There is no implicit auto-allow for any risk level.
 
-**Fix**: Accept the starter approval bundle to seed common safe rules. Then approve additional tools as needed — each approval creates a persistent trust rule.
+**Fix**: Accept the starter approval bundle to seed common safe rules. Then approve additional tools as needed — each approval creates a persistent trust rule. Alternatively, raise `autoApproveUpTo` to `"low"` to auto-approve low-risk tools.
 
-### "Why does skill_load prompt in strict mode but not in workspace mode?"
+### "Why does skill_load prompt at some thresholds but not others?"
 
-In workspace mode, `skill_load` may be auto-allowed by system default rules (e.g., `skill_load:*` at priority 100). In strict mode, low-risk auto-allow is disabled, so an explicit rule is needed.
+At the default threshold (`"low"`), `skill_load` may be auto-allowed by system default rules (e.g., `skill_load:*` at priority 100). At `"none"`, low-risk auto-allow is disabled, so an explicit rule is needed.
 
 **Fix**: Create a rule for the specific skill (version-specific or any-version) or accept the starter bundle if it covers your needs.
 
