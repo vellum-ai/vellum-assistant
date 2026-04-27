@@ -143,12 +143,14 @@ struct RiskToleranceSection: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } label: {
-                Text("Advanced")
-                    .onTapGesture {
-                        withAnimation {
-                            isAdvancedExpanded.toggle()
-                        }
+                Button {
+                    withAnimation {
+                        isAdvancedExpanded.toggle()
                     }
+                } label: {
+                    Text("Advanced")
+                }
+                .buttonStyle(.plain)
             }
         }
         .task { await loadThresholds() }
