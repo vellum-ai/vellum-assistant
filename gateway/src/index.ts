@@ -151,6 +151,7 @@ import {
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { capabilityTokenRoutes } from "./ipc/capability-token-handlers.js";
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
+import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
@@ -1247,7 +1248,6 @@ async function main() {
       auth: "edge",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
-
   ];
 
   // The runtime proxy catch-all is only added when the proxy is enabled.
@@ -1977,6 +1977,8 @@ async function main() {
     ...capabilityTokenRoutes,
   ]);
   ipcServer.start();
+
+  void refreshRouteSchema();
 
   const featureFlagWatcher = new FeatureFlagWatcher();
   featureFlagWatcher.start();

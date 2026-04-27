@@ -12,6 +12,7 @@ import { mergeContactsRoute } from "./merge-contacts.js";
 import { notificationRoutes } from "./notification.js";
 import { renameConversationRoute } from "./rename-conversation.js";
 import { routeDefinitionsToIpcRoutes } from "./route-adapter.js";
+import { routeSchemaRoute } from "./route-schema.js";
 import { searchContactsRoute } from "./search-contacts.js";
 import { secretsRoutes } from "./secrets.js";
 import { suggestTrustRuleRoute } from "./suggest-trust-rule.js";
@@ -46,5 +47,6 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...taskTemplateRoutes,
   ...taskQueueRoutes,
   ...watcherRoutes,
+  routeSchemaRoute,
   ...routeDefinitionsToIpcRoutes(ROUTES),
 ];
