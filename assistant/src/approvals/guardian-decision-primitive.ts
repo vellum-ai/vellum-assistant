@@ -5,26 +5,22 @@
  * legacy parser, requester self-cancel) call through this module instead of
  * inlining the decision-application logic.  This centralizes:
  *
- *   1. `approve_always` downgrade for guardian-on-behalf requests (time-bounded
- *      modes like `approve_10m` and `approve_conversation` are preserved)
- *   2. Identity validation (actor must match assigned guardian)
- *   3. Approval-info capture before the pending interaction is consumed
- *   4. Atomic decision application via `handleChannelDecision`
- *   5. Guardian approval record update
- *   6. Scoped grant minting on approve
+ *   1. Identity validation (actor must match assigned guardian)
+ *   2. Approval-info capture before the pending interaction is consumed
+ *   3. Atomic decision application via `handleChannelDecision`
+ *   4. Guardian approval record update
+ *   5. Scoped grant minting on approve
  *
  * The canonical path (`applyCanonicalGuardianDecision`) adds:
- *   7. Canonical request lookup and status validation
- *   8. CAS resolution via `resolveCanonicalGuardianRequest`
- *   9. Kind-specific resolver dispatch via the resolver registry
+ *   6. Canonical request lookup and status validation
+ *   7. CAS resolution via `resolveCanonicalGuardianRequest`
+ *   8. Kind-specific resolver dispatch via the resolver registry
  *
  * Security invariants enforced here:
  *   - Decision authorization is purely principal-based:
  *     actor.guardianPrincipalId === request.guardianPrincipalId (strict equality)
  *   - Decisions are first-response-wins (CAS-like stale protection)
- *   - `approve_always` is downgraded to `approve_once` for guardian-on-behalf
- *     requests; time-bounded modes (`approve_10m`, `approve_conversation`) are
- *     preserved since grants are scoped via `scopeMode: "tool_signature"`
+ *   - Only `approve_once` and `reject` are valid actions
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
@@ -64,26 +60,13 @@ const log = getLogger("guardian-decision-primitive");
 /** TTL for scoped approval grants minted on guardian approve_once decisions. */
 export const GRANT_TTL_MS = 5 * 60 * 1000;
 
-/** TTL for scoped approval grants minted on guardian approve_10m decisions. */
-export const GRANT_TTL_10M_MS = 10 * 60 * 1000;
-
 /**
  * Compute the grant `expiresAt` timestamp for a given approval action.
  *
- * - `approve_10m` → 10 minutes from now
- * - `approve_conversation` → no wall-clock expiry (far-future sentinel;
- *   conversation lifecycle manages cleanup)
- * - All others (`approve_once`, etc.) → 5 minutes from now (default)
+ * All approvals use the default 5-minute TTL.
  */
-function computeGrantExpiresAt(action: ApprovalAction): number {
-  switch (action) {
-    case "approve_10m":
-      return Date.now() + GRANT_TTL_10M_MS;
-    case "approve_conversation":
-      return Number.MAX_SAFE_INTEGER;
-    default:
-      return Date.now() + GRANT_TTL_MS;
-  }
+function computeGrantExpiresAt(_action: ApprovalAction): number {
+  return Date.now() + GRANT_TTL_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,13 +179,10 @@ export interface ApplyGuardianDecisionParams {
  * across callback, conversational engine, legacy parser, and requester
  * self-cancel paths:
  *
- *   1. Downgrade `approve_always` to `approve_once` (guardians cannot
- *      permanently allowlist tools on behalf of requesters). Time-bounded
- *      modes (`approve_10m`, `approve_conversation`) are preserved.
- *   2. Capture pending approval info before resolution
- *   3. Apply the decision atomically via `handleChannelDecision`
- *   4. Update the guardian approval record
- *   5. Mint a scoped grant on approve
+ *   1. Capture pending approval info before resolution
+ *   2. Apply the decision atomically via `handleChannelDecision`
+ *   3. Update the guardian approval record
+ *   4. Mint a scoped grant on approve
  *
  * Returns a structured result so callers can handle stale/race outcomes.
  */
@@ -218,13 +198,7 @@ export async function applyGuardianDecision(
     decisionContext,
   } = params;
 
-  // Guardians cannot grant permanent allow modes on behalf of requesters.
-  // Time-bounded modes (approve_10m, approve_conversation) are safe because
-  // grants are scoped to the tool+input signature via scopeMode: "tool_signature".
-  const effectiveDecision: ApprovalDecisionResult =
-    decision.action === "approve_always"
-      ? { ...decision, action: "approve_once" }
-      : decision;
+  const effectiveDecision: ApprovalDecisionResult = decision;
 
   // Capture pending approval info before handleChannelDecision resolves
   // (and removes) the pending interaction. Needed for grant minting.
@@ -355,9 +329,6 @@ export function mintCanonicalRequestGrant(params: {
 /** Valid actions for canonical guardian decisions. */
 const VALID_CANONICAL_ACTIONS: ReadonlySet<ApprovalAction> = new Set([
   "approve_once",
-  "approve_10m",
-  "approve_conversation",
-  "approve_always",
   "reject",
 ]);
 
@@ -406,11 +377,9 @@ export type CanonicalDecisionResult =
  * Steps:
  *   1. Look up the canonical request by ID
  *   2. Validate: exists, pending status, identity match, valid action
- *   3. Downgrade `approve_always` to `approve_once` (guardian-on-behalf invariant;
- *      time-bounded modes like `approve_10m`/`approve_conversation` are preserved)
- *   4. CAS resolve the canonical request atomically
- *   5. Dispatch to kind-specific resolver
- *   6. Mint grant if applicable
+ *   3. CAS resolve the canonical request atomically
+ *   4. Dispatch to kind-specific resolver
+ *   5. Mint grant if applicable
  */
 export async function applyCanonicalGuardianDecision(
   params: ApplyCanonicalGuardianDecisionParams,
@@ -527,12 +496,8 @@ export async function applyCanonicalGuardianDecision(
     return { applied: false, reason: "expired" };
   }
 
-  // 3. Downgrade approve_always to approve_once for guardian-on-behalf requests.
-  // Time-bounded modes (approve_10m, approve_conversation) are permitted.
-  const effectiveAction: ApprovalAction =
-    action === "approve_always" ? "approve_once" : action;
-
-  // 4. CAS resolve: atomically transition from 'pending' to terminal status
+  // 3. CAS resolve: atomically transition from 'pending' to terminal status
+  const effectiveAction: ApprovalAction = action;
   const targetStatus: CanonicalRequestStatus =
     effectiveAction === "reject" ? "denied" : "approved";
 
@@ -552,7 +517,7 @@ export async function applyCanonicalGuardianDecision(
     return { applied: false, reason: "already_resolved" };
   }
 
-  // 5. Dispatch to kind-specific resolver
+  // 4. Dispatch to kind-specific resolver
   let resolverFailed = false;
   let resolverFailureReason: string | undefined;
   let resolverReplyText: string | undefined;
@@ -596,7 +561,7 @@ export async function applyCanonicalGuardianDecision(
     );
   }
 
-  // 6. Mint grant if the decision is an approval with tool metadata.
+  // 5. Mint grant if the decision is an approval with tool metadata.
   // Skip when the resolver failed — minting a grant on a failed side effect
   // would allow the tool to execute without the intended resolver action
   // (e.g. answerCall) having succeeded.

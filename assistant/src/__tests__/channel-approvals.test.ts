@@ -286,23 +286,6 @@ describe("handleChannelDecision", () => {
     expect(result.requestId).toBeUndefined();
   });
 
-  test("approve_always collapses to one-time allow without persisting rules", () => {
-    registerPendingConfirmation("req-1", "conv-1", "shell");
-    const interaction = pendingInteractions.get("req-1");
-    const decision: ApprovalDecisionResult = {
-      action: "approve_always",
-      source: "plain_text",
-    };
-
-    const result = handleChannelDecision("conv-1", decision);
-
-    // approve_always is collapsed to a one-time allow — no addRule side-effect
-    expect(result.applied).toBe(true);
-    expect(result.requestId).toBe("req-1");
-    expect(
-      interaction!.conversation!.handleConfirmationResponse,
-    ).toHaveBeenCalledWith("req-1", "allow");
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -322,7 +305,7 @@ describe("buildGuardianApprovalPrompt", () => {
     expect(prompt.promptText).toContain("deploy");
   });
 
-  test("excludes approve_always action", () => {
+  test("only contains approve_once and reject actions", () => {
     const approvalInfo: PendingApprovalInfo = {
       requestId: "req-g2",
       toolName: "shell",
@@ -330,9 +313,7 @@ describe("buildGuardianApprovalPrompt", () => {
       riskLevel: "medium",
     };
     const prompt = buildGuardianApprovalPrompt(approvalInfo, "bob");
-    expect(prompt.actions.map((a) => a.id)).not.toContain("approve_always");
-    expect(prompt.actions.map((a) => a.id)).toContain("approve_once");
-    expect(prompt.actions.map((a) => a.id)).toContain("reject");
+    expect(prompt.actions.map((a) => a.id)).toEqual(["approve_once", "reject"]);
   });
 
   test("plainTextFallback contains parser-compatible keywords", () => {
@@ -353,7 +334,6 @@ describe("buildGuardianApprovalPrompt", () => {
       toolName: "shell",
       input: {},
       riskLevel: "medium",
-      persistentDecisionsAllowed: true,
     };
 
     const prompt = buildGuardianApprovalPrompt(approvalInfo, "dana");

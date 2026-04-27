@@ -73,7 +73,7 @@ export interface ActorContext {
 
 /** The decision being applied. */
 export interface ResolverDecision {
-  /** The effective action after any downgrade (e.g. approve_always -> approve_once). */
+  /** The effective action (approve_once or reject). */
   action: ApprovalAction;
   /** Optional user-supplied text (e.g. answer text for pending questions). */
   userText?: string;

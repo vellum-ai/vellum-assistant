@@ -111,13 +111,7 @@ export interface GuardianReplyResult {
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const VALID_ACTIONS: ReadonlySet<string> = new Set([
-  "approve_once",
-  "approve_10m",
-  "approve_conversation",
-  "approve_always",
-  "reject",
-]);
+const VALID_ACTIONS: ReadonlySet<string> = new Set(["approve_once", "reject"]);
 
 interface ParsedCallback {
   requestId: string;
@@ -560,17 +554,7 @@ export async function routeGuardianReply(
     }
 
     // Decision-bearing disposition from the engine
-    let decisionAction = engineResult.disposition as ApprovalAction;
-
-    // Guardians cannot use broad allow modes — the canonical primitive
-    // enforces this too, but enforce it here for clarity.
-    if (
-      decisionAction === "approve_always" ||
-      decisionAction === "approve_10m" ||
-      decisionAction === "approve_conversation"
-    ) {
-      decisionAction = "approve_once";
-    }
+    const decisionAction = engineResult.disposition as ApprovalAction;
 
     // Resolve the target request
     const targetId =

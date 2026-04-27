@@ -26,18 +26,9 @@ export const GUARDIAN_APPROVAL_TTL_MS = 30 * 60 * 1000;
  * these in generated plain-text prompts so text fallback remains actionable.
  */
 export function requiredDecisionKeywords(
-  actions: ApprovalUIMetadata["actions"],
+  _actions: ApprovalUIMetadata["actions"],
 ): string[] {
-  const hasAlways = actions.some((action) => action.id === "approve_always");
-  const has10m = actions.some((action) => action.id === "approve_10m");
-  const hasConversation = actions.some(
-    (action) => action.id === "approve_conversation",
-  );
-  const keywords = ["yes", "no"];
-  if (has10m) keywords.push("approve for 10 minutes");
-  if (hasConversation) keywords.push("approve for conversation");
-  if (hasAlways) keywords.push("always");
-  return keywords;
+  return ["yes", "no"];
 }
 
 // ---------------------------------------------------------------------------
@@ -46,9 +37,6 @@ export function requiredDecisionKeywords(
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
-  "approve_10m",
-  "approve_conversation",
-  "approve_always",
   "reject",
 ]);
 
@@ -84,8 +72,6 @@ const REACTION_EMOJI_MAP: ReadonlyMap<string, ApprovalAction> = new Map([
   ["thumbsup", "approve_once"],
   ["-1", "reject"],
   ["thumbsdown", "reject"],
-  ["alarm_clock", "approve_10m"],
-  ["white_check_mark", "approve_always"],
 ]);
 
 /**

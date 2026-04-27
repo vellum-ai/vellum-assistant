@@ -10,7 +10,6 @@ mock.module("../util/logger.js", () => ({
 
 import {
   applyCanonicalGuardianDecision,
-  GRANT_TTL_10M_MS,
   GRANT_TTL_MS,
   mintCanonicalRequestGrant,
 } from "../approvals/guardian-decision-primitive.js";
@@ -353,9 +352,9 @@ describe("applyCanonicalGuardianDecision", () => {
     expect(unchanged!.status).toBe("pending");
   });
 
-  // ── approve_always downgrade / temporal mode preservation ──────────
+  // ── approve_always / temporal actions are no longer valid ──────────
 
-  test("downgrades approve_always to approve_once", async () => {
+  test("rejects approve_always as invalid_action", async () => {
     const req = createCanonicalGuardianRequest({
       kind: "tool_approval",
       sourceType: "channel",
@@ -370,27 +369,18 @@ describe("applyCanonicalGuardianDecision", () => {
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
+      // @ts-expect-error - approve_always is no longer a valid action
       action: "approve_always",
       actorContext: guardianActor(),
     });
 
-    // Should succeed — approve_always was silently downgraded to approve_once
-    expect(result.applied).toBe(true);
-    if (!result.applied) return;
-
-    // The canonical request should be approved (not "always approved")
-    const resolved = getCanonicalGuardianRequest(req.id);
-    expect(resolved!.status).toBe("approved");
-
-    // Grant is not minted because the tool_approval resolver fails (no pending
-    // interaction registered in the test environment). The decision primitive
-    // correctly skips grant minting when the resolver reports a failure.
-    expect(result.grantMinted).toBe(false);
-    expect(result.resolverFailed).toBe(true);
+    expect(result.applied).toBe(false);
+    if (!result.applied) {
+      expect(result.reason).toBe("invalid_action");
+    }
   });
 
-  test("preserves approve_10m (not downgraded) and mints grant with 10m TTL", async () => {
-    const before = Date.now();
+  test("rejects approve_10m as invalid_action", async () => {
     const req = createCanonicalGuardianRequest({
       kind: "unknown_kind",
       sourceType: "voice",
@@ -405,34 +395,18 @@ describe("applyCanonicalGuardianDecision", () => {
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
+      // @ts-expect-error - approve_10m is no longer a valid action
       action: "approve_10m",
       actorContext: guardianActor(),
     });
 
-    expect(result.applied).toBe(true);
-    if (!result.applied) return;
-
-    // approve_10m is preserved — the request is approved (not downgraded)
-    const resolved = getCanonicalGuardianRequest(req.id);
-    expect(resolved!.status).toBe("approved");
-
-    // Grant is minted because approve_10m is not downgraded and the request
-    // has tool metadata (unknown_kind has no resolver, so resolver doesn't fail)
-    expect(result.grantMinted).toBe(true);
-
-    const db = getDb();
-    const grants = db.select().from(scopedApprovalGrants).all();
-    expect(grants.length).toBe(1);
-    expect(grants[0].toolName).toBe("host_bash");
-    expect(grants[0].conversationId).toBe("conv-10m-1");
-
-    // Grant TTL should be ~10 minutes, not the default 5 minutes
-    const grantExpiresAt = grants[0].expiresAt;
-    expect(grantExpiresAt).toBeGreaterThanOrEqual(before + GRANT_TTL_10M_MS);
-    expect(grantExpiresAt).toBeLessThanOrEqual(Date.now() + GRANT_TTL_10M_MS);
+    expect(result.applied).toBe(false);
+    if (!result.applied) {
+      expect(result.reason).toBe("invalid_action");
+    }
   });
 
-  test("preserves approve_conversation (not downgraded) and mints grant with no wall-clock expiry", async () => {
+  test("rejects approve_conversation as invalid_action", async () => {
     const req = createCanonicalGuardianRequest({
       kind: "unknown_kind",
       sourceType: "voice",
@@ -447,29 +421,15 @@ describe("applyCanonicalGuardianDecision", () => {
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
+      // @ts-expect-error - approve_conversation is no longer a valid action
       action: "approve_conversation",
       actorContext: guardianActor(),
     });
 
-    expect(result.applied).toBe(true);
-    if (!result.applied) return;
-
-    // approve_conversation is preserved — the request is approved (not downgraded)
-    const resolved = getCanonicalGuardianRequest(req.id);
-    expect(resolved!.status).toBe("approved");
-
-    // Grant is minted because approve_conversation is not downgraded and the
-    // request has tool metadata (unknown_kind has no resolver, so no failure)
-    expect(result.grantMinted).toBe(true);
-
-    const db = getDb();
-    const grants = db.select().from(scopedApprovalGrants).all();
-    expect(grants.length).toBe(1);
-    expect(grants[0].toolName).toBe("file_write");
-    expect(grants[0].conversationId).toBe("conv-session-1");
-
-    // Conversation-scoped grants have no wall-clock expiry (far-future sentinel)
-    expect(grants[0].expiresAt).toBe(Number.MAX_SAFE_INTEGER);
+    expect(result.applied).toBe(false);
+    if (!result.applied) {
+      expect(result.reason).toBe("invalid_action");
+    }
   });
 
   // ── Expired request ────────────────────────────────────────────────
@@ -706,64 +666,6 @@ describe("mintCanonicalRequestGrant", () => {
     });
 
     expect(result.minted).toBe(false);
-  });
-
-  test("mints grant with 10m TTL for approve_10m action", () => {
-    const before = Date.now();
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_approval",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-ttl-10m",
-      guardianPrincipalId: TEST_PRINCIPAL_ID,
-      toolName: "shell",
-      inputDigest: "sha256:ttl-10m",
-    });
-
-    const result = mintCanonicalRequestGrant({
-      request: req,
-      actorChannel: "telegram",
-      guardianExternalUserId: "guardian-1",
-      effectiveAction: "approve_10m",
-    });
-
-    expect(result.minted).toBe(true);
-
-    const db = getDb();
-    const grants = db.select().from(scopedApprovalGrants).all();
-    expect(grants.length).toBe(1);
-    expect(grants[0].expiresAt).toBeGreaterThanOrEqual(
-      before + GRANT_TTL_10M_MS,
-    );
-    expect(grants[0].expiresAt).toBeLessThanOrEqual(
-      Date.now() + GRANT_TTL_10M_MS,
-    );
-  });
-
-  test("mints grant with no wall-clock expiry for approve_conversation", () => {
-    const req = createCanonicalGuardianRequest({
-      kind: "tool_approval",
-      sourceType: "channel",
-      sourceChannel: "telegram",
-      conversationId: "conv-ttl-conv",
-      guardianPrincipalId: TEST_PRINCIPAL_ID,
-      toolName: "shell",
-      inputDigest: "sha256:ttl-conv",
-    });
-
-    const result = mintCanonicalRequestGrant({
-      request: req,
-      actorChannel: "telegram",
-      guardianExternalUserId: "guardian-1",
-      effectiveAction: "approve_conversation",
-    });
-
-    expect(result.minted).toBe(true);
-
-    const db = getDb();
-    const grants = db.select().from(scopedApprovalGrants).all();
-    expect(grants.length).toBe(1);
-    expect(grants[0].expiresAt).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   test("mints grant with default 5m TTL for approve_once", () => {

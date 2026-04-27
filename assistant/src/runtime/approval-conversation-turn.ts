@@ -19,24 +19,11 @@ import type {
 } from "./http-types.js";
 
 const VALID_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> =
-  new Set([
-    "keep_pending",
-    "approve_once",
-    "approve_10m",
-    "approve_conversation",
-    "approve_always",
-    "reject",
-  ]);
+  new Set(["keep_pending", "approve_once", "reject"]);
 
 /** Dispositions that represent an actual decision (not just "keep waiting"). */
 const DECISION_BEARING_DISPOSITIONS: ReadonlySet<ApprovalConversationDisposition> =
-  new Set([
-    "approve_once",
-    "approve_10m",
-    "approve_conversation",
-    "approve_always",
-    "reject",
-  ]);
+  new Set(["approve_once", "reject"]);
 
 const FAIL_CLOSED_REPLY =
   "I couldn't process that. Please reply with approve, deny, or cancel to decide on the pending request.";

@@ -55,8 +55,7 @@ export async function tryMintGuardianActionGrant(params: {
   }
 
   // Classify the guardian's answer via the conversational approval engine.
-  // Only allow approve_once (not approve_always) to keep guardian-action
-  // grants strictly one-time and consistent with guardian policy.
+  // Guardian-action grants are always single-use (approve_once only).
   let isApproval = false;
   try {
     const llmResult = await runApprovalConversationTurn(
