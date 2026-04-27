@@ -239,27 +239,32 @@ export function createGuardianBinding(
   const displayName = params.displayName ?? params.externalUserId;
   const verifiedVia = params.verifiedVia ?? "challenge";
 
-  const existingContact = db
-    .query<{ id: string }, [string]>(
-      `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
-    )
-    .get(params.guardianPrincipalId);
-
-  const contactId = existingContact?.id ?? uuid();
-
-  const existingChannel = existingContact
-    ? db
-        .query<{ id: string }, [string, string]>(
-          `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
-        )
-        .get(contactId, params.channel)
-    : null;
-
-  const channelId = existingChannel?.id ?? uuid();
+  let contactId: string;
+  let channelId: string;
 
   // --- Assistant DB write (primary) ---
+  // Lookups + writes inside one transaction to prevent concurrent calls
+  // from racing past the existence check and hitting UNIQUE constraints.
   db.exec("BEGIN IMMEDIATE");
   try {
+    const existingContact = db
+      .query<{ id: string }, [string]>(
+        `SELECT id FROM contacts WHERE role = 'guardian' AND principal_id = ? LIMIT 1`,
+      )
+      .get(params.guardianPrincipalId);
+
+    contactId = existingContact?.id ?? uuid();
+
+    const existingChannel = existingContact
+      ? db
+          .query<{ id: string }, [string, string]>(
+            `SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? LIMIT 1`,
+          )
+          .get(contactId, params.channel)
+      : null;
+
+    channelId = existingChannel?.id ?? uuid();
+
     if (existingContact) {
       db.run(
         `UPDATE contacts SET display_name = ?, updated_at = ? WHERE id = ?`,

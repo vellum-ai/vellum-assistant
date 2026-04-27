@@ -19,7 +19,6 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 import { CURRENT_POLICY_EPOCH } from "./auth/policy.js";
 import { resolveScopeProfile } from "./auth/scopes.js";
 import type { AuthContext } from "./auth/types.js";
-import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
 import { resolveTrustContext } from "./trust-context-resolver.js";
 
 const log = getLogger("local-actor-identity");
@@ -74,33 +73,16 @@ export function resolveLocalTrustContext(
     return { ...trustCtx, sourceChannel };
   }
 
-  // No guardian contact with a principalId — bootstrap via ensureVellumGuardianBinding
-  // to self-heal (creates the binding + contact if missing).
-  log.debug(
-    "No vellum guardian contact found; bootstrapping binding for local session",
+  log.warn(
+    "No vellum guardian binding found — gateway may not have started yet; falling back to minimal trust context",
   );
-  try {
-    const principalId = ensureVellumGuardianBinding(assistantId);
-    const trustCtx = resolveTrustContext({
-      assistantId,
-      sourceChannel: "vellum",
-      conversationExternalId: "local",
-      actorExternalId: principalId,
-    });
-    return { ...trustCtx, sourceChannel };
-  } catch (err) {
-    log.warn(
-      { err },
-      "Self-heal ensureVellumGuardianBinding failed — falling back to minimal trust context",
-    );
-    const trustCtx = resolveTrustContext({
-      assistantId,
-      sourceChannel: "vellum",
-      conversationExternalId: "local",
-      actorExternalId: "local",
-    });
-    return { ...trustCtx, sourceChannel };
-  }
+  const trustCtx = resolveTrustContext({
+    assistantId,
+    sourceChannel: "vellum",
+    conversationExternalId: "local",
+    actorExternalId: "local",
+  });
+  return { ...trustCtx, sourceChannel };
 }
 
 /**
@@ -124,20 +106,8 @@ export function resolveLocalAuthContext(conversationId: string): AuthContext {
     };
   }
 
-  // Self-heal: no guardian contact with principalId — bootstrap via
-  // ensureVellumGuardianBinding (mirrors resolveLocalTrustContext).
-  try {
-    log.debug(
-      "No vellum guardian contact found; bootstrapping binding for local auth",
-    );
-    const principalId = ensureVellumGuardianBinding(authContext.assistantId);
-    return { ...authContext, actorPrincipalId: principalId };
-  } catch (err) {
-    log.warn(
-      { err },
-      "Self-heal ensureVellumGuardianBinding failed in auth context — returning without actorPrincipalId",
-    );
-  }
-
+  log.warn(
+    "No vellum guardian binding found — gateway may not have started yet; returning without actorPrincipalId",
+  );
   return authContext;
 }

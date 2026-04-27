@@ -38,7 +38,6 @@ import {
   resolveBootstrapToken,
 } from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import { ensureVellumGuardianBinding } from "../../guardian-vellum-migration.js";
 import {
   redeemInvite,
   redeemInviteByCode,
@@ -54,11 +53,13 @@ const log = getLogger("runtime-http");
  * contact, matching the same strategy used by `notifyGuardianOfAccessRequest`.
  * This prevents stale or cross-assistant contacts from leaking a wrong name.
  */
-function resolveGuardianLabel(
-  sourceChannel: ChannelId,
-  canonicalAssistantId: string,
-): string {
-  const anchoredPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
+function resolveGuardianLabel(sourceChannel: ChannelId): string {
+  const vellumGuardian = findGuardianForChannel("vellum");
+  const anchoredPrincipalId = vellumGuardian?.contact.principalId;
+
+  if (!anchoredPrincipalId) {
+    return resolveGuardianName(undefined);
+  }
 
   // Try source-channel guardian, but only accept it when the principal
   // matches the assistant's anchor.
@@ -70,17 +71,7 @@ function resolveGuardianLabel(
     return resolveGuardianName(sourceGuardian.contact.displayName);
   }
 
-  // Fall back to the vellum-channel guardian with the same anchor check.
-  const vellumGuardian = findGuardianForChannel("vellum");
-  if (
-    vellumGuardian &&
-    vellumGuardian.contact.principalId === anchoredPrincipalId
-  ) {
-    return resolveGuardianName(vellumGuardian.contact.displayName);
-  }
-
-  // No anchored guardian found — use generic fallback.
-  return resolveGuardianName(undefined);
+  return resolveGuardianName(vellumGuardian.contact.displayName);
 }
 
 // ---------------------------------------------------------------------------
@@ -390,7 +381,7 @@ export async function enforceIngressAcl(
               try {
                 await deliverChannelReply(dmCallbackUrl, {
                   chatId: senderUserId,
-                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                   assistantId,
                 });
               } catch (err) {
@@ -440,7 +431,7 @@ export async function enforceIngressAcl(
         }
 
         const replyText = guardianNotified
-          ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
+          ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
           : "Sorry, you haven't been approved to message this assistant.";
         let replyDelivered = false;
         if (replyCallbackUrl) {
@@ -647,7 +638,7 @@ export async function enforceIngressAcl(
                 try {
                   await deliverChannelReply(dmCallbackUrl, {
                     chatId: senderUserId,
-                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                     assistantId,
                   });
                 } catch (err) {
@@ -702,7 +693,7 @@ export async function enforceIngressAcl(
           }
 
           const inactiveReplyText = guardianNotified
-            ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
+            ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
             : "Sorry, you haven't been approved to message this assistant.";
           let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {
