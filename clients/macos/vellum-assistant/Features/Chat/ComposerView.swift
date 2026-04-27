@@ -32,6 +32,7 @@ struct ComposerView: View, Equatable {
             && lhs.placeholderText == rhs.placeholderText
             && lhs.composerCompactHeight == rhs.composerCompactHeight
             && lhs.conversationId == rhs.conversationId
+            && lhs.assistantConversationId == rhs.assistantConversationId
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
             && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
             && lhs.contextWindowTokens == rhs.contextWindowTokens
@@ -98,6 +99,7 @@ struct ComposerView: View, Equatable {
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
+    var assistantConversationId: String? = nil
     var isInteractionEnabled: Bool = true
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
@@ -450,7 +452,7 @@ struct ComposerView: View, Equatable {
             }
 
             if showThresholdPicker {
-                ComposerThresholdPicker(conversationId: conversationId)
+                ComposerThresholdPicker(assistantConversationId: assistantConversationId)
             }
 
             if let inferenceProfilePicker, !inferenceProfilePicker.profiles.isEmpty {

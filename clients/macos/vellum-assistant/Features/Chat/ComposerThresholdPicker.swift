@@ -109,7 +109,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
 /// with four presets: Strict, Default, Relaxed, and Full access.
 @MainActor
 struct ComposerThresholdPicker: View {
-    let conversationId: UUID?
+    let assistantConversationId: String?
     var thresholdClient: ThresholdClientProtocol = ThresholdClient()
 
     /// The currently displayed preset. Updated optimistically on selection and
@@ -168,7 +168,7 @@ struct ComposerThresholdPicker: View {
                 }
             }
         }
-        .task(id: conversationId) {
+        .task(id: assistantConversationId) {
             hasUserInteracted = false
             await loadState()
         }
@@ -184,23 +184,14 @@ struct ComposerThresholdPicker: View {
         }
 
         writeTask?.cancel()
-        writeTask = Task {
-            guard let conversationId else { return }
-            let conversationIdString = conversationId.uuidString.lowercased()
-
+        writeTask = Task { @MainActor in
             do {
-                if let value = preset.thresholdValue,
-                   value != globalInteractive {
-                    try await thresholdClient.setConversationOverride(
-                        conversationId: conversationIdString,
-                        threshold: value
-                    )
-                } else {
-                    // Default or matching global — remove the override row.
-                    try await thresholdClient.deleteConversationOverride(
-                        conversationId: conversationIdString
-                    )
-                }
+                try await Self.applyPresetSelection(
+                    preset: preset,
+                    globalInteractive: globalInteractive,
+                    assistantConversationId: assistantConversationId,
+                    thresholdClient: thresholdClient
+                )
             } catch {
                 guard !Task.isCancelled else { return }
                 log.error("Failed to write conversation threshold override: \(error.localizedDescription, privacy: .public)")
@@ -221,8 +212,7 @@ struct ComposerThresholdPicker: View {
                 globalInteractive = globals.interactive
 
                 var override: String? = nil
-                if let conversationId {
-                    let conversationIdString = conversationId.uuidString.lowercased()
+                if let conversationIdString = Self.canonicalConversationId(assistantConversationId) {
                     override = try await thresholdClient.getConversationOverride(
                         conversationId: conversationIdString
                     )
@@ -240,5 +230,50 @@ struct ComposerThresholdPicker: View {
         }
         loadTask = task
         await task.value
+    }
+
+    // MARK: - Helpers (testable)
+
+    enum OverrideAction: Equatable {
+        case set(String)
+        case clear
+    }
+
+    static func canonicalConversationId(_ conversationId: String?) -> String? {
+        let trimmed = conversationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        return trimmed.lowercased()
+    }
+
+    static func overrideAction(
+        for preset: ThresholdPreset,
+        globalInteractive: String
+    ) -> OverrideAction {
+        if let value = preset.thresholdValue,
+           value != globalInteractive {
+            return .set(value)
+        }
+        // Default or matching global — remove the override row.
+        return .clear
+    }
+
+    static func applyPresetSelection(
+        preset: ThresholdPreset,
+        globalInteractive: String,
+        assistantConversationId: String?,
+        thresholdClient: any ThresholdClientProtocol
+    ) async throws {
+        guard let canonicalConversationId = canonicalConversationId(assistantConversationId) else { return }
+        switch overrideAction(for: preset, globalInteractive: globalInteractive) {
+        case .set(let threshold):
+            try await thresholdClient.setConversationOverride(
+                conversationId: canonicalConversationId,
+                threshold: threshold
+            )
+        case .clear:
+            try await thresholdClient.deleteConversationOverride(
+                conversationId: canonicalConversationId
+            )
+        }
     }
 }

@@ -479,6 +479,7 @@ struct ChatView: View {
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
                 conversationId: conversationId,
+                assistantConversationId: currentConversation?.conversationId,
                 isInteractionEnabled: isInteractionEnabled,
                 contextWindowFillRatio: viewModel.contextWindowFillRatio,
                 contextWindowTokens: viewModel.contextWindowTokens,

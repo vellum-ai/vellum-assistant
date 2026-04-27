@@ -30,6 +30,7 @@ struct ComposerSection: View, Equatable {
             && lhs.isLoadingAttachment == rhs.isLoadingAttachment
             && lhs.recordingAmplitude == rhs.recordingAmplitude
             && lhs.conversationId == rhs.conversationId
+            && lhs.assistantConversationId == rhs.assistantConversationId
             && lhs.isInteractionEnabled == rhs.isInteractionEnabled
             && lhs.contextWindowFillRatio == rhs.contextWindowFillRatio
             && lhs.contextWindowTokens == rhs.contextWindowTokens
@@ -75,6 +76,7 @@ struct ComposerSection: View, Equatable {
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
+    var assistantConversationId: String? = nil
     var isInteractionEnabled: Bool = true
     var contextWindowFillRatio: Double? = nil
     var contextWindowTokens: Int? = nil
@@ -118,6 +120,7 @@ struct ComposerSection: View, Equatable {
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: isAssistantBusy ? "Working on it..." : "What would you like to do?",
                 conversationId: conversationId,
+                assistantConversationId: assistantConversationId,
                 isInteractionEnabled: isInteractionEnabled,
                 contextWindowFillRatio: contextWindowFillRatio,
                 contextWindowTokens: contextWindowTokens,
