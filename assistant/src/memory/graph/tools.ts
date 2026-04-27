@@ -64,7 +64,7 @@ export const graphRecallDefinition: ToolDefinition = {
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",
   description:
-    "Remember anything concrete: facts, preferences, corrections, plans, felt moments, names, dates, decisions. Default to remembering. Skip only obvious noise. Never wait until end of conversation. Corrections are highest priority — call remember the same turn the correction lands. Almost every turn is correct.",
+    "Remember anything concrete: facts, preferences, corrections, plans, felt moments, names, dates, decisions. Default to remembering. Never wait until end of conversation. Corrections are highest priority — call remember the same turn the correction lands. **CRITICAL:** You should be calling remember on almost every turn. This should be your most frequently used tool.",
   input_schema: {
     type: "object",
     properties: {
