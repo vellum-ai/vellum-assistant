@@ -368,6 +368,14 @@
       "label": "Compaction Playground",
       "description": "Expose the developer-only Compaction Playground tab in macOS Settings and enable the /playground/* HTTP endpoints for exercising compaction conditions. Dev-only; default off.",
       "defaultEnabled": false
+    },
+    {
+      "id": "memory-v2-enabled",
+      "scope": "assistant",
+      "key": "memory-v2-enabled",
+      "label": "Memory v2 (concept-page activation model)",
+      "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. v1 graph + PKB stays write-active until cutover.",
+      "defaultEnabled": false
     }
   ]
 }
