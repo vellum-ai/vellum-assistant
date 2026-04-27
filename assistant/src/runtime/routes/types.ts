@@ -19,6 +19,12 @@ export interface RouteHandlerArgs {
   body?: Record<string, unknown>;
   rawBody?: Uint8Array;
   headers?: Record<string, string>;
+  /**
+   * Abort signal tied to the client connection. Fired when the client
+   * disconnects (e.g. SSE stream closed). The IPC adapter may pass
+   * `undefined` when no abort semantic is available.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /**
