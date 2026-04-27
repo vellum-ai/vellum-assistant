@@ -8623,7 +8623,7 @@ paths:
       tags:
         - skills
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
