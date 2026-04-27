@@ -20,7 +20,9 @@ mock.module("../util/logger.js", () => ({
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import { ROUTES } from "../runtime/routes/settings-routes.js";
+import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 initializeDb();
 
@@ -33,35 +35,24 @@ function resetContactTables(): void {
 }
 
 // ---------------------------------------------------------------------------
-// RouteContext helpers (mirrors workspace-routes.test.ts)
+// Route lookup + invocation helpers
 // ---------------------------------------------------------------------------
 
-function makeCtx(
-  endpoint: string,
-  searchParams: Record<string, string> = {},
-) {
-  const url = new URL(`http://localhost/v1/${endpoint}`);
-  for (const [k, v] of Object.entries(searchParams)) {
-    url.searchParams.set(k, v);
-  }
-  return {
-    url,
-    req: new Request(url),
-    server: {} as ReturnType<typeof Bun.serve>,
-    authContext: {} as never,
-    params: {},
-  };
-}
-
 function getHandler(endpoint: string, method: string) {
-  const routes = settingsRouteDefinitions();
-  const route = routes.find(
+  const route = ROUTES.find(
     (r) => r.endpoint === endpoint && r.method === method,
   );
   if (!route) {
     throw new Error(`No route found for ${method} ${endpoint}`);
   }
   return route.handler;
+}
+
+function makeArgs(
+  queryParams: Record<string, string> = {},
+  body?: Record<string, unknown>,
+): RouteHandlerArgs {
+  return { queryParams, body };
 }
 
 // ---------------------------------------------------------------------------
@@ -76,14 +67,11 @@ describe("GET /workspace-files", () => {
   });
 
   test("with no guardian: returns the static entries only", async () => {
-    const res = await handler(makeCtx("workspace-files"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const result = (await handler(makeArgs())) as {
       files: Array<{ path: string; name: string; exists: boolean }>;
     };
-    const paths = body.files.map((f) => f.path);
+    const paths = result.files.map((f) => f.path);
     expect(paths).toEqual(["IDENTITY.md", "SOUL.md", "skills/"]);
-    // No guardian → no users/*.md entry.
     expect(paths.find((p) => p.startsWith("users/"))).toBeUndefined();
   });
 
@@ -96,35 +84,25 @@ describe("GET /workspace-files", () => {
       verifiedVia: "challenge",
     });
 
-    const res = await handler(makeCtx("workspace-files"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const result = (await handler(makeArgs())) as {
       files: Array<{ path: string; name: string; exists: boolean }>;
     };
-    const paths = body.files.map((f) => f.path);
+    const paths = result.files.map((f) => f.path);
 
-    // The guardian per-user persona is the sole user-profile entry; USER.md
-    // is not included.
     expect(paths).not.toContain("USER.md");
-    // Guardian per-user persona is appended.
     expect(paths).toContain("users/alice.md");
 
-    // The guardian entry reports `exists: true` because the template scaffold
-    // is seeded when the binding is created.
-    const guardianEntry = body.files.find((f) => f.path === "users/alice.md");
+    const guardianEntry = result.files.find((f) => f.path === "users/alice.md");
     expect(guardianEntry).toBeDefined();
     expect(guardianEntry!.exists).toBe(true);
   });
 
   test("reflects guardian changes on a subsequent request (not cached)", async () => {
-    // Initially no guardian.
-    let res = await handler(makeCtx("workspace-files"));
-    let body = (await res.json()) as {
+    let result = (await handler(makeArgs())) as {
       files: Array<{ path: string }>;
     };
-    expect(body.files.map((f) => f.path)).not.toContain("users/alice.md");
+    expect(result.files.map((f) => f.path)).not.toContain("users/alice.md");
 
-    // Create a guardian mid-session.
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "Alice",
@@ -133,13 +111,10 @@ describe("GET /workspace-files", () => {
       verifiedVia: "challenge",
     });
 
-    // The next request must reflect the new guardian — we do not want a
-    // stale module-level cache here.
-    res = await handler(makeCtx("workspace-files"));
-    body = (await res.json()) as {
+    result = (await handler(makeArgs())) as {
       files: Array<{ path: string }>;
     };
-    expect(body.files.map((f) => f.path)).toContain("users/alice.md");
+    expect(result.files.map((f) => f.path)).toContain("users/alice.md");
   });
 });
 
@@ -164,9 +139,6 @@ describe("GET /workspace-files/read", () => {
     });
 
     const personaPath = join(testWorkspaceDir, "users", "alice.md");
-    // The template scaffold is seeded when the binding is created; overwrite
-    // with something recognizable so the test asserts on exact content rather
-    // than scaffold boilerplate.
     expect(existsSync(personaPath)).toBe(true);
     writeFileSync(
       personaPath,
@@ -174,29 +146,23 @@ describe("GET /workspace-files/read", () => {
       "utf-8",
     );
 
-    const res = await handler(
-      makeCtx("workspace-files/read", { path: "users/alice.md" }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { path: string; content: string };
-    expect(body.path).toBe("users/alice.md");
-    expect(body.content).toBe(readFileSync(personaPath, "utf-8"));
-    expect(body.content).toContain("Preferred name/reference: Alice");
+    const result = (await handler(
+      makeArgs({ path: "users/alice.md" }),
+    )) as { path: string; content: string };
+    expect(result.path).toBe("users/alice.md");
+    expect(result.content).toBe(readFileSync(personaPath, "utf-8"));
+    expect(result.content).toContain("Preferred name/reference: Alice");
   });
 
   test("rejects path traversal attempts via users/", async () => {
-    const res = await handler(
-      makeCtx("workspace-files/read", {
-        path: "users/../../etc/passwd",
-      }),
-    );
-    expect(res.status).toBe(400);
+    expect(() =>
+      handler(makeArgs({ path: "users/../../etc/passwd" })),
+    ).toThrow(BadRequestError);
   });
 
   test("returns 404 for a non-existent users/<slug>.md", async () => {
-    const res = await handler(
-      makeCtx("workspace-files/read", { path: "users/nobody.md" }),
-    );
-    expect(res.status).toBe(404);
+    expect(() =>
+      handler(makeArgs({ path: "users/nobody.md" })),
+    ).toThrow(NotFoundError);
   });
 });

@@ -9816,6 +9816,13 @@ paths:
       responses:
         "200":
           description: Successful response
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: File path to read
   /v1/workspace/delete:
     post:
       operationId: workspace_delete_post

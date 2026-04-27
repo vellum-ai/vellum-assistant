@@ -40,6 +40,7 @@ import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
+import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
@@ -86,6 +87,7 @@ export const ROUTES: RouteDefinition[] = [
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
   ...SCHEDULE_ROUTES,
+  ...SETTINGS_ROUTES,
   ...STT_ROUTES,
   ...SUBAGENT_ROUTES,
   ...TELEMETRY_ROUTES,

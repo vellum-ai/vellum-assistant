@@ -179,7 +179,6 @@ import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
@@ -1778,7 +1777,6 @@ export class RuntimeHttpServer {
         onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
       ...workspaceHttpOnlyRouteDefinitions(),
-      ...settingsRouteDefinitions(),
       ...scheduleHttpOnlyRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
