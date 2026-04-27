@@ -56,7 +56,7 @@ import {
   isConversationHostAccessDecision,
   isConversationHostAccessEnabled,
   isConversationHostAccessEnablePrompt,
-} from "../permissions/v2-consent-policy.js";
+} from "../permissions/host-access-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";

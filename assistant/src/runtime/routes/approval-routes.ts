@@ -16,7 +16,7 @@ import type { UserDecision } from "../../permissions/types.js";
 import {
   isConversationHostAccessDecision,
   isConversationHostAccessEnablePrompt,
-} from "../../permissions/v2-consent-policy.js";
+} from "../../permissions/host-access-policy.js";
 import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";

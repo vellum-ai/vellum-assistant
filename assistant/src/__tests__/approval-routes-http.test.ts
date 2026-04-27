@@ -115,7 +115,7 @@ mock.module("../permissions/trust-store.js", () => ({
 }));
 
 import { getDb, initializeDb } from "../memory/db.js";
-import { CONVERSATION_HOST_ACCESS_PROMPT } from "../permissions/v2-consent-policy.js";
+import { CONVERSATION_HOST_ACCESS_PROMPT } from "../permissions/host-access-policy.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
