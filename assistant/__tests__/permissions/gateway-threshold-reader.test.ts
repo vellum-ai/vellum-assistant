@@ -79,8 +79,7 @@ describe("getAutoApproveThreshold", () => {
       if (path === "/v1/permissions/thresholds") {
         return {
           interactive: "medium",
-          background: "low",
-          headless: "none",
+          autonomous: "low",
         };
       }
       return {};
@@ -93,11 +92,13 @@ describe("getAutoApproveThreshold", () => {
 
     _clearGlobalCacheForTesting();
 
+    // background maps to autonomous
     expect(await getAutoApproveThreshold(undefined, "background")).toBe("low");
 
     _clearGlobalCacheForTesting();
 
-    expect(await getAutoApproveThreshold(undefined, "headless")).toBe("none");
+    // headless also maps to autonomous
+    expect(await getAutoApproveThreshold(undefined, "headless")).toBe("low");
   });
 
   test("returns conversation override when it exists", async () => {
@@ -108,8 +109,7 @@ describe("getAutoApproveThreshold", () => {
       if (path === "/v1/permissions/thresholds") {
         return {
           interactive: "low",
-          background: "medium",
-          headless: "none",
+          autonomous: "none",
         };
       }
       return {};
@@ -131,8 +131,7 @@ describe("getAutoApproveThreshold", () => {
       if (path === "/v1/permissions/thresholds") {
         return {
           interactive: "low",
-          background: "medium",
-          headless: "none",
+          autonomous: "none",
         };
       }
       return {};
@@ -159,9 +158,9 @@ describe("getAutoApproveThreshold", () => {
 
     _clearGlobalCacheForTesting();
 
-    // background → "medium"
+    // background → "none" (maps to autonomous, which defaults to "none")
     expect(await getAutoApproveThreshold(undefined, "background")).toBe(
-      "medium",
+      "none",
     );
 
     _clearGlobalCacheForTesting();
@@ -178,8 +177,7 @@ describe("getAutoApproveThreshold", () => {
       // Should not reach global endpoint
       return {
         interactive: "medium",
-        background: "medium",
-        headless: "medium",
+        autonomous: "medium",
       };
     };
 
@@ -199,8 +197,7 @@ describe("getAutoApproveThreshold", () => {
         fetchCount++;
         return {
           interactive: "medium",
-          background: "low",
-          headless: "none",
+          autonomous: "low",
         };
       }
       return {};
@@ -218,7 +215,7 @@ describe("getAutoApproveThreshold", () => {
 
     // Third call — still cached
     const third = await getAutoApproveThreshold(undefined, "headless");
-    expect(third).toBe("none");
+    expect(third).toBe("low");
     expect(fetchCount).toBe(1); // Still 1
 
     // After clearing cache, should re-fetch
@@ -233,8 +230,7 @@ describe("getAutoApproveThreshold", () => {
       if (path === "/v1/permissions/thresholds") {
         return {
           interactive: "medium",
-          background: "low",
-          headless: "none",
+          autonomous: "low",
         };
       }
       return {};
@@ -250,8 +246,7 @@ describe("getAutoApproveThreshold", () => {
       if (path === "/v1/permissions/thresholds") {
         return {
           interactive: "low",
-          background: "medium",
-          headless: "none",
+          autonomous: "none",
         };
       }
       return {};
@@ -268,8 +263,7 @@ describe("getAutoApproveThreshold", () => {
       if (path === "/v1/permissions/thresholds") {
         return {
           interactive: "low",
-          background: "medium",
-          headless: "none",
+          autonomous: "medium",
         };
       }
       return {};

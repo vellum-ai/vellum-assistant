@@ -19,8 +19,7 @@ type Threshold = "none" | "low" | "medium" | "high";
 
 interface GlobalThresholds {
   interactive: string;
-  background: string;
-  headless: string;
+  autonomous: string;
 }
 
 interface ConversationThreshold {
@@ -59,7 +58,7 @@ function mapExecutionContextToField(
   executionContext: ExecutionContext,
 ): keyof GlobalThresholds {
   if (executionContext === "conversation") return "interactive";
-  return executionContext;
+  return "autonomous";
 }
 
 function isValidThreshold(value: string): value is Threshold {

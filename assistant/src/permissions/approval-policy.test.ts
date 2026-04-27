@@ -996,20 +996,19 @@ describe("resolveThreshold", () => {
   describe("object form", () => {
     const perContext = {
       conversation: "low" as const,
-      background: "medium" as const,
-      headless: "none" as const,
+      autonomous: "medium" as const,
     };
 
     test("returns conversation threshold for conversation context", () => {
       expect(resolveThreshold(perContext, "conversation")).toBe("low");
     });
 
-    test("returns background threshold for background context", () => {
+    test("returns autonomous threshold for background context", () => {
       expect(resolveThreshold(perContext, "background")).toBe("medium");
     });
 
-    test("returns headless threshold for headless context", () => {
-      expect(resolveThreshold(perContext, "headless")).toBe("none");
+    test("returns autonomous threshold for headless context", () => {
+      expect(resolveThreshold(perContext, "headless")).toBe("medium");
     });
 
     test("defaults to conversation when executionContext is omitted", () => {
@@ -1087,10 +1086,10 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
     );
   }
 
-  describe('default config (background: "medium") — behavioral parity with old riskLevel !== High', () => {
+  describe('default config (autonomous: "medium") — behavioral parity with old riskLevel !== High', () => {
     test("Low risk → within threshold (auto-approve)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "medium", headless: "none" },
+        { conversation: "low", autonomous: "medium" },
         "background",
       );
       expect(bgThreshold).toBe("medium");
@@ -1099,7 +1098,7 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("Medium risk → within threshold (auto-approve)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "medium", headless: "none" },
+        { conversation: "low", autonomous: "medium" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
@@ -1107,17 +1106,17 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("High risk → above threshold (prompt)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "medium", headless: "none" },
+        { conversation: "low", autonomous: "medium" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
     });
   });
 
-  describe('tighter config (background: "low") — only Low auto-approves', () => {
+  describe('tighter config (autonomous: "low") — only Low auto-approves', () => {
     test("Low risk → within threshold", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "low", headless: "none" },
+        { conversation: "low", autonomous: "low" },
         "background",
       );
       expect(bgThreshold).toBe("low");
@@ -1126,7 +1125,7 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("Medium risk → above threshold (prompt)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "low", headless: "none" },
+        { conversation: "low", autonomous: "low" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
@@ -1134,17 +1133,17 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("High risk → above threshold (prompt)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "low", headless: "none" },
+        { conversation: "low", autonomous: "low" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
     });
   });
 
-  describe('strictest config (background: "none") — nothing auto-approves', () => {
+  describe('strictest config (autonomous: "none") — nothing auto-approves', () => {
     test("Low risk → above threshold (prompt)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "none", headless: "none" },
+        { conversation: "low", autonomous: "none" },
         "background",
       );
       expect(bgThreshold).toBe("none");
@@ -1153,7 +1152,7 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("Medium risk → above threshold (prompt)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "none", headless: "none" },
+        { conversation: "low", autonomous: "none" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
@@ -1161,17 +1160,17 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("High risk → above threshold (prompt)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "none", headless: "none" },
+        { conversation: "low", autonomous: "none" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
     });
   });
 
-  describe('loosest config (background: "high") — everything auto-approves', () => {
+  describe('loosest config (autonomous: "high") — everything auto-approves', () => {
     test("Low risk → within threshold (auto-approve)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "high", headless: "none" },
+        { conversation: "low", autonomous: "high" },
         "background",
       );
       expect(bgThreshold).toBe("high");
@@ -1180,7 +1179,7 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("Medium risk → within threshold (auto-approve)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "high", headless: "none" },
+        { conversation: "low", autonomous: "high" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
@@ -1188,7 +1187,7 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
 
     test("High risk → within threshold (auto-approve)", () => {
       const bgThreshold = resolveThreshold(
-        { conversation: "low", background: "high", headless: "none" },
+        { conversation: "low", autonomous: "high" },
         "background",
       );
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(true);
@@ -1214,12 +1213,12 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
   });
 
   describe("default (undefined) resolves per-context defaults", () => {
-    test("undefined config → medium threshold for background", () => {
+    test("undefined config → none threshold for background (maps to autonomous)", () => {
       const bgThreshold = resolveThreshold(undefined, "background");
-      expect(bgThreshold).toBe("medium");
-      // Low and Medium risk are within threshold, High is not
-      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
-      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
+      expect(bgThreshold).toBe("none");
+      // Nothing auto-approves at the "none" threshold
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(false);
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
     });
 
@@ -1228,7 +1227,7 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
       expect(convThreshold).toBe("low");
     });
 
-    test("undefined config → none threshold for headless", () => {
+    test("undefined config → none threshold for headless (maps to autonomous)", () => {
       const hlThreshold = resolveThreshold(undefined, "headless");
       expect(hlThreshold).toBe("none");
     });

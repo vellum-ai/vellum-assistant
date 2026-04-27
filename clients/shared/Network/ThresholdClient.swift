@@ -45,13 +45,11 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
 /// Global threshold configuration returned by the gateway API.
 public struct GlobalThresholds: Codable, Sendable, Equatable {
     public let interactive: String
-    public let background: String
-    public let headless: String
+    public let autonomous: String
 
-    public init(interactive: String, background: String, headless: String) {
+    public init(interactive: String, autonomous: String) {
         self.interactive = interactive
-        self.background = background
-        self.headless = headless
+        self.autonomous = autonomous
     }
 }
 
@@ -104,8 +102,7 @@ public struct ThresholdClient: ThresholdClientProtocol {
     public func setGlobalThresholds(_ thresholds: GlobalThresholds) async throws {
         let body: [String: Any] = [
             "interactive": thresholds.interactive,
-            "background": thresholds.background,
-            "headless": thresholds.headless,
+            "autonomous": thresholds.autonomous,
         ]
         let response = try await GatewayHTTPClient.put(
             path: "permissions/thresholds", json: body, timeout: 10

@@ -39,8 +39,8 @@ export interface ApprovalContext {
  * direct callers that bypass the IPC path.
  *
  * Note: when a scalar value (e.g. `"low"`) is passed, it applies uniformly to
- * ALL contexts — including headless, whose default here is `"none"`. A scalar
- * `"low"` is therefore *less strict* than the headless default. This is
+ * ALL contexts — including autonomous, whose default here is `"none"`. A scalar
+ * `"low"` is therefore *less strict* than the autonomous default. This is
  * intentional: the caller explicitly chose a uniform threshold.
  */
 const CONTEXT_DEFAULTS: Record<
@@ -48,14 +48,14 @@ const CONTEXT_DEFAULTS: Record<
   "none" | "low" | "medium" | "high"
 > = {
   conversation: "low",
-  background: "medium",
+  background: "none",
   headless: "none",
 };
 
 type ThresholdScalar = "none" | "low" | "medium" | "high";
 type ThresholdConfig =
   | ThresholdScalar
-  | { conversation: ThresholdScalar; background: ThresholdScalar; headless: ThresholdScalar };
+  | { conversation: ThresholdScalar; autonomous: ThresholdScalar };
 
 /**
  * Resolve a threshold config to a scalar threshold for the given execution
@@ -63,6 +63,7 @@ type ThresholdConfig =
  *
  * - Scalar string → returned as-is for all contexts
  * - Object with per-context overrides → returns the value for the context
+ *   (`background` and `headless` both resolve to the `autonomous` field)
  *
  * When `executionContext` is omitted, defaults to `"conversation"`.
  */
@@ -77,7 +78,8 @@ export function resolveThreshold(
     return configValue;
   }
   const ctx = executionContext ?? "conversation";
-  return configValue[ctx];
+  if (ctx === "conversation") return configValue.conversation;
+  return configValue.autonomous;
 }
 
 // ── Ordinal maps for threshold comparison ─────────────────────────────────────

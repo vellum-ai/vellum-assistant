@@ -2906,8 +2906,7 @@ export function buildSchema(): Record<string, unknown> {
                     type: "object",
                     properties: {
                       interactive: { type: "string" },
-                      background: { type: "string" },
-                      headless: { type: "string" },
+                      autonomous: { type: "string" },
                     },
                   },
                 },
@@ -2928,8 +2927,7 @@ export function buildSchema(): Record<string, unknown> {
                   type: "object",
                   properties: {
                     interactive: { type: "string" },
-                    background: { type: "string" },
-                    headless: { type: "string" },
+                    autonomous: { type: "string" },
                   },
                 },
               },
@@ -2944,8 +2942,7 @@ export function buildSchema(): Record<string, unknown> {
                     type: "object",
                     properties: {
                       interactive: { type: "string" },
-                      background: { type: "string" },
-                      headless: { type: "string" },
+                      autonomous: { type: "string" },
                     },
                   },
                 },
@@ -2978,8 +2975,7 @@ export function buildSchema(): Record<string, unknown> {
                     type: "object",
                     properties: {
                       interactive: { type: "string" },
-                      background: { type: "string" },
-                      headless: { type: "string" },
+                      autonomous: { type: "string" },
                     },
                   },
                 },
@@ -3008,8 +3004,7 @@ export function buildSchema(): Record<string, unknown> {
                   type: "object",
                   properties: {
                     interactive: { type: "string" },
-                    background: { type: "string" },
-                    headless: { type: "string" },
+                    autonomous: { type: "string" },
                   },
                 },
               },
@@ -3024,8 +3019,7 @@ export function buildSchema(): Record<string, unknown> {
                     type: "object",
                     properties: {
                       interactive: { type: "string" },
-                      background: { type: "string" },
-                      headless: { type: "string" },
+                      autonomous: { type: "string" },
                     },
                   },
                 },

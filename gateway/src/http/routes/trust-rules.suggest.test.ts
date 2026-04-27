@@ -188,7 +188,7 @@ describe("POST /v1/trust-rules/suggest", () => {
     // Write a threshold row with interactive = "medium"
     const db = getGatewayDb();
     db.insert(autoApproveThresholds)
-      .values({ id: 1, interactive: "medium", background: "high", headless: "none" })
+      .values({ id: 1, interactive: "medium", autonomous: "none" })
       .onConflictDoUpdate({
         target: autoApproveThresholds.id,
         set: { interactive: "medium" },

@@ -8,23 +8,19 @@ private let riskToleranceLog = Logger(
 )
 
 /// Risk Tolerance settings section — lets the user configure auto-approve
-/// thresholds for interactive, background, and headless execution contexts.
+/// thresholds for interactive and autonomous execution contexts.
 @MainActor
 struct RiskToleranceSection: View {
     var thresholdClient: ThresholdClientProtocol
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
-    /// Current selection for the interactive ("When chatting") threshold.
+    /// Current selection for the interactive ("Conversations") threshold.
     /// Defaults to `.low` to match the gateway schema default.
     @State private var interactiveSelection: RiskThreshold = .low
 
-    /// Current selection for the background ("Scheduled tasks") threshold.
-    /// Defaults to `.medium` to match the gateway schema default.
-    @State private var backgroundSelection: RiskThreshold = .medium
-
-    /// Current selection for the headless ("Automation / API") threshold.
+    /// Current selection for the autonomous threshold.
     /// Defaults to `.none` to match the gateway schema default.
-    @State private var headlessSelection: RiskThreshold = .none
+    @State private var autonomousSelection: RiskThreshold = .none
 
     /// In-flight sync task so rapid picker changes cancel the previous
     /// write and only the latest selection reaches the gateway.
@@ -46,8 +42,6 @@ struct RiskToleranceSection: View {
     /// server data.
     @State private var hasUserInteracted: Bool = false
 
-    @State private var isAdvancedExpanded: Bool = false
-
     var body: some View {
         SettingsCard(title: "Risk Tolerance") {
             Text("Control which actions your assistant can take without asking first. Each action is classified by risk level — your tolerance determines which levels auto-approve.")
@@ -56,9 +50,12 @@ struct RiskToleranceSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                Text("When chatting")
+                Text("Conversations")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
+                Text("When you're chatting with your assistant directly.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
                 VDropdown(
                     options: RiskThreshold.allCases.map {
                         VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
@@ -73,76 +70,42 @@ struct RiskToleranceSection: View {
                     ),
                     maxWidth: 280
                 )
-                .accessibilityLabel("When chatting risk threshold")
+                .accessibilityLabel("Conversations risk threshold")
                 Text(interactiveSelection.settingsDescription)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            VDisclosureSection(title: "Advanced", isExpanded: $isAdvancedExpanded) {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    SettingsDivider()
+            SettingsDivider()
 
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Scheduled tasks")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentDefault)
-                        VDropdown(
-                            options: RiskThreshold.allCases.map {
-                                VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
-                            },
-                            selection: Binding(
-                                get: { backgroundSelection },
-                                set: { newValue in
-                                    hasUserInteracted = true
-                                    backgroundSelection = newValue
-                                    syncThresholds()
-                                }
-                            ),
-                            maxWidth: 280
-                        )
-                        .accessibilityLabel("Scheduled tasks risk threshold")
-                        Text("When your assistant runs background tasks like heartbeats and scheduled jobs.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text(backgroundSelection.settingsDescription)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    SettingsDivider()
-
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Automation / API")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentDefault)
-                        VDropdown(
-                            options: RiskThreshold.allCases.map {
-                                VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
-                            },
-                            selection: Binding(
-                                get: { headlessSelection },
-                                set: { newValue in
-                                    hasUserInteracted = true
-                                    headlessSelection = newValue
-                                    syncThresholds()
-                                }
-                            ),
-                            maxWidth: 280
-                        )
-                        .accessibilityLabel("Automation / API risk threshold")
-                        Text("When triggered externally via API or webhooks.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Text(headlessSelection.settingsDescription)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                Text("Autonomous")
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                Text("When your assistant acts without you — scheduled tasks, background jobs, and external triggers.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                VDropdown(
+                    options: RiskThreshold.allCases.map {
+                        VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
+                    },
+                    selection: Binding(
+                        get: { autonomousSelection },
+                        set: { newValue in
+                            hasUserInteracted = true
+                            autonomousSelection = newValue
+                            syncThresholds()
+                        }
+                    ),
+                    maxWidth: 280
+                )
+                .accessibilityLabel("Autonomous risk threshold")
+                Text(autonomousSelection.settingsDescription)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await loadThresholds() }
     }
@@ -164,8 +127,7 @@ struct RiskToleranceSection: View {
                 hasLoadedInitial = true
                 guard !hasUserInteracted else { return }
                 interactiveSelection = RiskThreshold(rawValue: thresholds.interactive) ?? .low
-                backgroundSelection = RiskThreshold(rawValue: thresholds.background) ?? .medium
-                headlessSelection = RiskThreshold(rawValue: thresholds.headless) ?? .none
+                autonomousSelection = RiskThreshold(rawValue: thresholds.autonomous) ?? .none
             } catch {
                 riskToleranceLog.error(
                     "getGlobalThresholds failed: \(error.localizedDescription, privacy: .public)"
@@ -195,8 +157,7 @@ struct RiskToleranceSection: View {
                 try await thresholdClient.setGlobalThresholds(
                     GlobalThresholds(
                         interactive: interactiveSelection.rawValue,
-                        background: backgroundSelection.rawValue,
-                        headless: headlessSelection.rawValue
+                        autonomous: autonomousSelection.rawValue
                     )
                 )
             } catch {
