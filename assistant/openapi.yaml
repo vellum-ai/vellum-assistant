@@ -10619,6 +10619,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "404":
+          description: Work item not found
+        "409":
+          description: Work item is not running
       parameters:
         - name: id
           in: path
@@ -10719,6 +10723,12 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: Required tool permissions not approved
+        "404":
+          description: Work item or associated task not found
+        "409":
+          description: Work item is already running or not runnable
       parameters:
         - name: id
           in: path
