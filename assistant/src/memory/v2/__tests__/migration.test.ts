@@ -664,11 +664,23 @@ describe("runMemoryV2Migration", () => {
     expect(essentials).toContain("User is Alice and works at Vellum");
     expect(result.essentialsLines).toBe(1);
 
-    // -- Embed jobs enqueued (one per page). --
-    expect(enqueuedJobs.length).toBe(3);
-    expect(enqueuedJobs.every((j) => j.type === "embed_concept_page")).toBe(
-      true,
+    // -- Embed jobs enqueued (one per page) plus a single trailing
+    //    rebuild-edges enqueue so page frontmatter picks up edges.json. --
+    expect(enqueuedJobs.length).toBe(4);
+    const embedJobs = enqueuedJobs.filter(
+      (j) => j.type === "embed_concept_page",
     );
+    expect(embedJobs.length).toBe(3);
+    const rebuildJobs = enqueuedJobs.filter(
+      (j) => j.type === "memory_v2_rebuild_edges",
+    );
+    expect(rebuildJobs.length).toBe(1);
+    // Rebuild-edges must come last — the embeds depend only on pages on disk,
+    // but rebuild-edges should observe the final edges.json from this run.
+    expect(enqueuedJobs[enqueuedJobs.length - 1].type).toBe(
+      "memory_v2_rebuild_edges",
+    );
+    expect(result.rebuildEdgesJobId).toBe(`job-${enqueuedJobs.length}`);
 
     // -- Sentinel written. --
     expect(existsSync(join(workspaceDir, MIGRATION_SENTINEL_RELATIVE))).toBe(
@@ -774,6 +786,12 @@ describe("runMemoryV2Migration", () => {
     expect(result.pagesCreated).toBe(0);
     expect(result.embedsEnqueued).toBe(0);
     expect(result.sentinelWritten).toBe(true);
+    // Rebuild-edges still runs even with zero pages — the job is idempotent
+    // and ensures any pre-seeded frontmatter aligns with edges.json.
+    expect(result.rebuildEdgesJobId).toBeTruthy();
+    expect(
+      enqueuedJobs.filter((j) => j.type === "memory_v2_rebuild_edges").length,
+    ).toBe(1);
   });
 });
 
