@@ -10,6 +10,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Threa
 @MainActor
 final class ThreadWindowManager {
     private let services: AppServices
+    private let assistantFeatureFlagStore: AssistantFeatureFlagStore
     private var threadWindows: [UUID: ThreadWindow] = [:]
 
     /// Returns the set of conversation local IDs that have open pop-out windows.
@@ -17,8 +18,9 @@ final class ThreadWindowManager {
         Set(threadWindows.keys)
     }
 
-    init(services: AppServices) {
+    init(services: AppServices, assistantFeatureFlagStore: AssistantFeatureFlagStore) {
         self.services = services
+        self.assistantFeatureFlagStore = assistantFeatureFlagStore
     }
 
     /// Open (or focus) a pop-out window for the given conversation.
@@ -37,7 +39,8 @@ final class ThreadWindowManager {
                 ambientAgent: services.ambientAgent,
                 connectionManager: services.connectionManager,
                 eventStreamClient: services.connectionManager.eventStreamClient,
-                zoomManager: services.zoomManager
+                zoomManager: services.zoomManager,
+                assistantFeatureFlagStore: assistantFeatureFlagStore
             )
             return false
         }
@@ -66,7 +69,8 @@ final class ThreadWindowManager {
             ambientAgent: services.ambientAgent,
             connectionManager: services.connectionManager,
             eventStreamClient: services.connectionManager.eventStreamClient,
-            zoomManager: services.zoomManager
+            zoomManager: services.zoomManager,
+            assistantFeatureFlagStore: assistantFeatureFlagStore
         )
 
         threadWindows[conversationLocalId] = threadWindow

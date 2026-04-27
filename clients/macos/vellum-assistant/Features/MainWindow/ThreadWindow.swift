@@ -31,7 +31,8 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
         ambientAgent: AmbientAgent,
         connectionManager: GatewayConnectionManager,
         eventStreamClient: EventStreamClient,
-        zoomManager: ZoomManager
+        zoomManager: ZoomManager,
+        assistantFeatureFlagStore: AssistantFeatureFlagStore
     ) {
         if let existing = window {
             existing.makeKeyAndOrderFront(nil)
@@ -46,6 +47,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
             settingsStore: settingsStore,
             ambientAgent: ambientAgent,
             zoomManager: zoomManager,
+            assistantFeatureFlagStore: assistantFeatureFlagStore,
             onFork: { [weak conversationManager] daemonMessageId in
                 guard let conversationManager else { return }
                 Task { @MainActor in
@@ -178,6 +180,7 @@ private struct ThreadWindowContentView: View {
     @ObservedObject var settingsStore: SettingsStore
     var ambientAgent: AmbientAgent
     let zoomManager: ZoomManager
+    let assistantFeatureFlagStore: AssistantFeatureFlagStore
     let onFork: (String) -> Void
 
     @State private var anchorMessageId: UUID?
@@ -233,6 +236,9 @@ private struct ThreadWindowContentView: View {
                     conversationManager: conversationManager
                 )
                 .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+                // Required: AssistantProgressView reads this via @Environment
+                // and triggers a SwiftUI assertion crash if it's missing.
+                .environment(assistantFeatureFlagStore)
                 .padding(.bottom, VSpacing.md)
             }
 

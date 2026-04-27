@@ -634,7 +634,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if threadWindowManager == nil {
-            threadWindowManager = ThreadWindowManager(services: services)
+            threadWindowManager = ThreadWindowManager(services: services, assistantFeatureFlagStore: featureFlagStore)
         }
         setupGatewayConnectionManager()
         setupMenuBar()
