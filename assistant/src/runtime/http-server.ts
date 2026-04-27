@@ -129,7 +129,6 @@ import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import { btwRouteDefinitions } from "./routes/btw-routes.js";
-import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
@@ -2209,8 +2208,6 @@ export class RuntimeHttpServer {
           this.guardianFollowUpConversationGenerator,
         getHeartbeatService: this.getHeartbeatService,
       }),
-      ...callRouteDefinitions({ assistantId }),
-
       // Internal Twilio forwarding (gateway -> runtime) — kept inline
       // because these reconstruct fake form-encoded requests from JSON,
       // a pattern specific to the gateway-to-daemon bridge.
