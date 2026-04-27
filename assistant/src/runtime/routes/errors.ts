@@ -19,10 +19,24 @@ export class RouteError extends Error {
   }
 }
 
+export class UnauthorizedError extends RouteError {
+  constructor(message: string) {
+    super(message, "UNAUTHORIZED", 401);
+    this.name = "UnauthorizedError";
+  }
+}
+
 export class BadRequestError extends RouteError {
   constructor(message: string) {
     super(message, "BAD_REQUEST", 400);
     this.name = "BadRequestError";
+  }
+}
+
+export class TooManyRequestsError extends RouteError {
+  constructor(message: string) {
+    super(message, "RATE_LIMITED", 429);
+    this.name = "TooManyRequestsError";
   }
 }
 
@@ -54,10 +68,24 @@ export class FailedDependencyError extends RouteError {
   }
 }
 
+export class BadGatewayError extends RouteError {
+  constructor(message: string) {
+    super(message, "BAD_GATEWAY", 502);
+    this.name = "BadGatewayError";
+  }
+}
+
 export class ServiceUnavailableError extends RouteError {
   constructor(message: string) {
     super(message, "SERVICE_UNAVAILABLE", 503);
     this.name = "ServiceUnavailableError";
+  }
+}
+
+export class GatewayTimeoutError extends RouteError {
+  constructor(message: string) {
+    super(message, "GATEWAY_TIMEOUT", 504);
+    this.name = "GatewayTimeoutError";
   }
 }
 

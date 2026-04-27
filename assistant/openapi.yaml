@@ -8844,18 +8844,64 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        subtitle:
+                          type: string
+                        setupMode:
+                          type: string
+                        setupHint:
+                          type: string
+                        apiKeyProviderName:
+                          type: string
+                        conversationStreamingMode:
+                          type: string
+                        credentialsGuide:
+                          type: string
+                      required:
+                        - id
+                        - displayName
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
   /v1/stt/transcribe:
     post:
       operationId: stt_transcribe_post
       summary: Transcribe audio to text
-      description:
-        Transcribe base64-encoded audio to text using the configured STT provider. Provider selection is resolved
-        globally via config.
+      description: Transcribe base64-encoded audio to text using the configured STT provider.
       tags:
         - stt
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  providerId:
+                    type: string
+                  boundaryId:
+                    type: string
+                required:
+                  - text
+                  - providerId
+                additionalProperties: false
       requestBody:
         required: true
         content:

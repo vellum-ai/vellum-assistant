@@ -190,7 +190,6 @@ import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
-import { sttRouteDefinitions } from "./routes/stt-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
@@ -1833,7 +1832,6 @@ export class RuntimeHttpServer {
           : undefined,
       }),
       ...ttsRouteDefinitions(),
-      ...sttRouteDefinitions(),
 
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped
