@@ -8,12 +8,12 @@
  *   as both pathParams and queryParams, full bag as body. Used by CLI
  *   callers that haven't migrated to structured payloads yet.
  *
- * - `structuredHandler`: receives separated { pathParams, queryParams,
- *   body, headers } and passes them through to the route handler. Used
- *   by the gateway IPC proxy.
+ * - `structuredHandler`: passes through directly to the route handler.
+ *   Used by the gateway IPC proxy, which sends separated
+ *   { pathParams, queryParams, body, headers }.
  *
- * The IPC server detects the payload shape and dispatches accordingly —
- * consumers can be migrated one at a time without breaking existing callers.
+ * The IPC server prefers structuredHandler when present, falling back
+ * to handler for routes that only have the legacy path.
  */
 
 import type { RouteDefinition } from "../../runtime/routes/types.js";
@@ -42,12 +42,7 @@ export function routeDefinitionsToIpcRoutes(
         });
       },
 
-      // Structured handler for gateway IPC proxy
-      structuredHandler: (args: {
-        pathParams?: Record<string, string>;
-        queryParams?: Record<string, string>;
-        body?: Record<string, unknown>;
-        headers?: Record<string, string>;
-      }) => r.handler(args),
+      // Structured handler — direct pass-through to the route handler
+      structuredHandler: r.handler,
     }));
 }
