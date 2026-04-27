@@ -58,7 +58,7 @@ async function callExport(
     // headers so existing test assertions (res.status, res.headers, res.arrayBuffer())
     // keep working.
     if (result instanceof Uint8Array) {
-      return new Response(result, {
+      return new Response(result as unknown as BodyInit, {
         status: 200,
         headers: {
           "Content-Type": "application/gzip",
