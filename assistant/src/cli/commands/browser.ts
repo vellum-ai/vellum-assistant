@@ -201,10 +201,12 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     const ipcResult = await cliIpcCall<BrowserExecuteResult>(
       "browser_execute",
       {
-        operation: meta.operation,
-        input,
-        sessionId,
-        ...(conversationId ? { conversationId } : {}),
+        body: {
+          operation: meta.operation,
+          input,
+          sessionId,
+          ...(conversationId ? { conversationId } : {}),
+        },
       },
       { timeoutMs: 180_000 },
     );

@@ -607,6 +607,12 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Browser operations: local-only (CLI / IPC callers)
+registerPolicy("browser/execute", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],

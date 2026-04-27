@@ -1,6 +1,5 @@
 import { ROUTES } from "../../runtime/routes/index.js";
 import type { IpcRoute } from "../assistant-server.js";
-import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
 import { credentialPromptRoute } from "./credential-prompt.js";
 import { deferRoutes } from "./defer.js";
@@ -22,7 +21,7 @@ import { wipeConversationRoute } from "./wipe-conversation.js";
 /** All built-in CLI IPC routes. */
 export const cliIpcRoutes: IpcRoute[] = [
 
-  browserExecuteRoute,
+
   credentialPromptRoute,
   ...deferRoutes,
   getContactRoute,

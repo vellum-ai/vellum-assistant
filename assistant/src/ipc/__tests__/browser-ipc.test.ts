@@ -1,5 +1,5 @@
 /**
- * Tests for the `browser_execute` IPC route.
+ * Tests for the `browser_execute` route.
  *
  * Mocks executeBrowserOperation at the module boundary so the route
  * handler can be exercised without spinning up real browser state.
@@ -74,9 +74,19 @@ mock.module("../routes/browser-context.js", () => ({
   },
 }));
 
-// Import after mocking
-const { browserExecuteRoute, browserCliConversationKey } =
-  await import("../routes/browser.js");
+// Import after mocking — now from the shared routes location
+const { ROUTES, browserCliConversationKey } = await import(
+  "../../runtime/routes/browser-routes.js"
+);
+
+const browserExecuteHandler = ROUTES.find(
+  (r) => r.operationId === "browser_execute",
+)!.handler;
+
+/** Call the handler with the RouteHandlerArgs shape. */
+function callHandler(body: Record<string, unknown>) {
+  return browserExecuteHandler({ body, pathParams: {}, queryParams: {} });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -93,9 +103,10 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("browser_execute IPC route", () => {
-  test("method is browser_execute", () => {
-    expect(browserExecuteRoute.method).toBe("browser_execute");
+describe("browser_execute route", () => {
+  test("operationId is browser_execute", () => {
+    const route = ROUTES.find((r) => r.operationId === "browser_execute");
+    expect(route).toBeDefined();
   });
 
   // ── Successful dispatch ────────────────────────────────────────────
@@ -106,7 +117,7 @@ describe("browser_execute IPC route", () => {
       isError: false,
     };
 
-    const result = await browserExecuteRoute.handler({
+    const result = await callHandler({
       operation: "navigate",
       input: { url: "https://example.com" },
       sessionId: "test-session",
@@ -127,20 +138,19 @@ describe("browser_execute IPC route", () => {
 
   test("rejects unknown operation with a validation error", async () => {
     await expect(
-      browserExecuteRoute.handler({
+      callHandler({
         operation: "nonexistent_operation",
         input: {},
       }),
     ).rejects.toThrow();
 
-    // Should never reach executeBrowserOperation
     expect(mockOperationCalls).toHaveLength(0);
   });
 
   // ── Session ID mapping ─────────────────────────────────────────────
 
   test("maps sessionId to deterministic conversation key", async () => {
-    await browserExecuteRoute.handler({
+    await callHandler({
       operation: "snapshot",
       input: {},
       sessionId: "my-session",
@@ -151,7 +161,7 @@ describe("browser_execute IPC route", () => {
   });
 
   test("defaults sessionId to 'default' when omitted", async () => {
-    await browserExecuteRoute.handler({
+    await callHandler({
       operation: "snapshot",
       input: {},
     });
@@ -161,7 +171,7 @@ describe("browser_execute IPC route", () => {
   });
 
   test("passes requested conversationId to context resolver", async () => {
-    await browserExecuteRoute.handler({
+    await callHandler({
       operation: "status",
       input: {},
       sessionId: "s1",
@@ -184,7 +194,7 @@ describe("browser_execute IPC route", () => {
       transportInterface: "chrome-extension",
     };
 
-    await browserExecuteRoute.handler({
+    await callHandler({
       operation: "status",
       input: {},
       sessionId: "unused",
@@ -231,7 +241,7 @@ describe("browser_execute IPC route", () => {
       ],
     };
 
-    const result = (await browserExecuteRoute.handler({
+    const result = (await callHandler({
       operation: "screenshot",
       input: {},
       sessionId: "screenshot-test",
@@ -254,7 +264,7 @@ describe("browser_execute IPC route", () => {
       isError: false,
     };
 
-    const result = (await browserExecuteRoute.handler({
+    const result = (await callHandler({
       operation: "snapshot",
       input: {},
     })) as Record<string, unknown>;
@@ -292,7 +302,7 @@ describe("browser_execute IPC route", () => {
       ],
     };
 
-    const result = (await browserExecuteRoute.handler({
+    const result = (await callHandler({
       operation: "screenshot",
       input: { full_page: true },
     })) as {
@@ -315,7 +325,7 @@ describe("browser_execute IPC route", () => {
       isError: true,
     };
 
-    const result = await browserExecuteRoute.handler({
+    const result = await callHandler({
       operation: "navigate",
       input: { url: "https://404.example.com" },
     });
@@ -329,7 +339,7 @@ describe("browser_execute IPC route", () => {
   // ── Input defaults ─────────────────────────────────────────────────
 
   test("defaults input to empty object when omitted", async () => {
-    await browserExecuteRoute.handler({
+    await callHandler({
       operation: "snapshot",
     });
 
