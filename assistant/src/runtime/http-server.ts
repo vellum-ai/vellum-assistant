@@ -148,16 +148,11 @@ import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { heartbeatHttpOnlyRouteDefinitions } from "./routes/heartbeat-routes.js";
-import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
-  hostBrowserRouteDefinitions,
   resolveHostBrowserEvent,
   resolveHostBrowserResultByRequestId,
   resolveHostBrowserSessionInvalidated,
 } from "./routes/host-browser-routes.js";
-import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
-import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
-import { hostTransferRouteDefinitions } from "./routes/host-transfer-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
@@ -2072,12 +2067,6 @@ export class RuntimeHttpServer {
           return { id: persisted.id };
         },
       }),
-      ...hostBashRouteDefinitions(),
-      ...hostBrowserRouteDefinitions(),
-      ...hostCuRouteDefinitions(),
-      ...hostFileRouteDefinitions(),
-      ...hostTransferRouteDefinitions(),
-
       ...contactHttpOnlyRouteDefinitions(),
 
       ...attachmentRouteDefinitions(),
