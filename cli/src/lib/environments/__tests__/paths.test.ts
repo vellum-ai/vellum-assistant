@@ -32,11 +32,13 @@ type EnvironmentDefinition = import("../types.js").EnvironmentDefinition;
 const prod: EnvironmentDefinition = {
   name: "production",
   platformUrl: "https://platform.vellum.ai",
+  webUrl: "https://www.vellum.ai",
 };
 
 const dev: EnvironmentDefinition = {
   name: "dev",
   platformUrl: "https://dev-platform.vellum.ai",
+  webUrl: "https://dev-assistant.vellum.ai",
 };
 
 const XDG_ENV_VARS = ["XDG_DATA_HOME", "XDG_CONFIG_HOME"] as const;
