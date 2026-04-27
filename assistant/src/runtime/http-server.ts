@@ -147,7 +147,6 @@ import { conversationQueryRouteDefinitions } from "./routes/conversation-query-r
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
-import { filingRouteDefinitions } from "./routes/filing-routes.js";
 import { heartbeatHttpOnlyRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
@@ -306,7 +305,6 @@ export class RuntimeHttpServer {
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
-  private getFilingService?: RuntimeHttpServerOptions["getFilingService"];
   private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
 
@@ -326,7 +324,6 @@ export class RuntimeHttpServer {
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
-    this.getFilingService = options.getFilingService;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -1760,9 +1757,6 @@ export class RuntimeHttpServer {
       }),
       ...heartbeatHttpOnlyRouteDefinitions({
         getHeartbeatService: this.getHeartbeatService,
-      }),
-      ...filingRouteDefinitions({
-        getFilingService: this.getFilingService,
       }),
       ...workItemHttpOnlyRouteDefinitions(
         this.sendMessageDeps
