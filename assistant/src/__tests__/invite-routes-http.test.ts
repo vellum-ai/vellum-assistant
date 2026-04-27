@@ -37,14 +37,14 @@ mock.module("../calls/call-domain.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { RouteError } from "../runtime/routes/errors.js";
 import {
   handleCreateInvite as _handleCreateInvite,
   handleListInvites as _handleListInvites,
   handleRedeemInvite as _handleRedeemInvite,
   handleRevokeInvite as _handleRevokeInvite,
   handleTriggerInviteCall as _handleTriggerInviteCall,
-} from "../runtime/routes/invite-routes.js";
+} from "../runtime/routes/contact-routes.js";
+import { RouteError } from "../runtime/routes/errors.js";
 
 /**
  * Compatibility wrappers: translate old handler call signatures into the new
