@@ -65,6 +65,13 @@ export interface RouteDefinition {
    */
   isPublic?: boolean;
   /**
+   * When true, the route requires scope-based policy enforcement that
+   * the HTTP server performs via `enforcePolicy()`. The IPC adapter
+   * excludes these routes until the gateway implements equivalent
+   * scope checking (ATL-315).
+   */
+  requirePolicyEnforcement?: boolean;
+  /**
    * Response headers for this route. Can be:
    * - A static map of header name → value
    * - A function that computes headers from path/query params + request headers
