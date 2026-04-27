@@ -19,6 +19,7 @@ import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attentio
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
+import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
 import { ROUTES as PS_ROUTES } from "./ps-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
@@ -41,6 +42,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_STARTER_ROUTES,
   ...DEBUG_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
+  ...GROUP_ROUTES,
   ...IDENTITY_ROUTES,
   ...PS_ROUTES,
   ...TELEMETRY_ROUTES,
