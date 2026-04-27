@@ -178,7 +178,7 @@ import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
 import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
-import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
+import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
@@ -1780,7 +1780,7 @@ export class RuntimeHttpServer {
       }),
       ...workspaceHttpOnlyRouteDefinitions(),
       ...settingsRouteDefinitions(),
-      ...scheduleRouteDefinitions({
+      ...scheduleHttpOnlyRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
       ...heartbeatRouteDefinitions({

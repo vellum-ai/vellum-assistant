@@ -1,7 +1,9 @@
 /**
- * HTTP route handlers for schedule management.
+ * Route handlers for schedule management.
  *
- * HTTP route handlers for schedule management.
+ * Shared ROUTES are served by both the HTTP server and the IPC server.
+ * The `run` endpoint requires SendMessageDeps and remains HTTP-only
+ * via scheduleHttpOnlyRouteDefinitions().
  */
 
 import { z } from "zod";
@@ -25,6 +27,8 @@ import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
 import type { SendMessageDeps } from "../http-types.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
 const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
@@ -33,15 +37,16 @@ const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
 } as const;
 
 // ---------------------------------------------------------------------------
-// Handlers
+// Handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-function handleListSchedules(opts?: { includeAll?: boolean }): Response {
+function handleListSchedules(queryParams: Record<string, string>) {
+  const includeAll = queryParams.include_all === "true";
   const jobs = listSchedules();
-  const filtered = opts?.includeAll
+  const filtered = includeAll
     ? jobs
     : jobs.filter((j) => j.createdBy !== "defer");
-  return Response.json({
+  return {
     schedules: filtered.map((j) => ({
       id: j.id,
       name: j.name,
@@ -66,53 +71,39 @@ function handleListSchedules(opts?: { includeAll?: boolean }): Response {
       wakeConversationId: j.wakeConversationId,
       isOneShot: j.cronExpression == null,
     })),
-  });
+  };
 }
 
-function handleToggleSchedule(id: string, enabled: boolean): Response {
-  try {
-    const updated = updateSchedule(id, { enabled });
-    if (!updated) {
-      return httpError("NOT_FOUND", "Schedule not found", 404);
-    }
-    log.info({ id, enabled }, "Schedule toggled via HTTP");
-  } catch (err) {
-    log.error({ err }, "Failed to toggle schedule");
-    return httpError("INTERNAL_ERROR", "Failed to toggle schedule", 500);
+function handleToggleSchedule(id: string, body: Record<string, unknown>) {
+  const enabled = body.enabled;
+  if (typeof enabled !== "boolean") {
+    throw new BadRequestError("enabled is required");
   }
-  return handleListSchedules();
+
+  const updated = updateSchedule(id, { enabled });
+  if (!updated) {
+    throw new NotFoundError("Schedule not found");
+  }
+  log.info({ id, enabled }, "Schedule toggled");
+  return handleListSchedules({});
 }
 
-function handleDeleteSchedule(id: string): Response {
-  try {
-    const removed = deleteSchedule(id);
-    if (!removed) {
-      return httpError("NOT_FOUND", "Schedule not found", 404);
-    }
-    log.info({ id }, "Schedule removed via HTTP");
-  } catch (err) {
-    log.error({ err }, "Failed to remove schedule");
-    return httpError("INTERNAL_ERROR", "Failed to remove schedule", 500);
+function handleDeleteSchedule(id: string) {
+  const removed = deleteSchedule(id);
+  if (!removed) {
+    throw new NotFoundError("Schedule not found");
   }
-  return handleListSchedules();
+  log.info({ id }, "Schedule removed");
+  return handleListSchedules({});
 }
 
-function handleCancelSchedule(id: string): Response {
-  try {
-    const cancelled = cancelSchedule(id);
-    if (!cancelled) {
-      return httpError(
-        "NOT_FOUND",
-        "Schedule not found or not cancellable",
-        404,
-      );
-    }
-    log.info({ id }, "Schedule cancelled via HTTP");
-  } catch (err) {
-    log.error({ err }, "Failed to cancel schedule");
-    return httpError("INTERNAL_ERROR", "Failed to cancel schedule", 500);
+function handleCancelSchedule(id: string) {
+  const cancelled = cancelSchedule(id);
+  if (!cancelled) {
+    throw new NotFoundError("Schedule not found or not cancellable");
   }
-  return handleListSchedules();
+  log.info({ id }, "Schedule cancelled");
+  return handleListSchedules({});
 }
 
 const VALID_MODES = ["notify", "execute", "script", "wake"] as const;
@@ -122,20 +113,13 @@ const VALID_ROUTING_INTENTS = [
   "all_channels",
 ] as const;
 
-function handleUpdateSchedule(
-  id: string,
-  body: Record<string, unknown>,
-): Response {
-  const updates: Record<string, unknown> = {};
-
+function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   if (
     "mode" in body &&
     !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])
   ) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid mode: must be one of ${VALID_MODES.join(", ")}`,
-      400,
     );
   }
   if (
@@ -144,13 +128,12 @@ function handleUpdateSchedule(
       body.routingIntent as (typeof VALID_ROUTING_INTENTS)[number],
     )
   ) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid routingIntent: must be one of ${VALID_ROUTING_INTENTS.join(", ")}`,
-      400,
     );
   }
 
+  const updates: Record<string, unknown> = {};
   for (const key of [
     "name",
     "expression",
@@ -171,29 +154,35 @@ function handleUpdateSchedule(
   try {
     const updated = updateSchedule(id, updates);
     if (!updated) {
-      return httpError("NOT_FOUND", "Schedule not found", 404);
+      throw new NotFoundError("Schedule not found");
     }
-    log.info({ id, updates }, "Schedule updated via HTTP");
+    log.info({ id, updates }, "Schedule updated");
   } catch (err) {
+    if (err instanceof NotFoundError || err instanceof BadRequestError) {
+      throw err;
+    }
     if (
       err instanceof Error &&
       (err.message.includes("Invalid") || err.message.includes("invalid"))
     ) {
-      return httpError("BAD_REQUEST", err.message, 400);
+      throw new BadRequestError(err.message);
     }
-    log.error({ err }, "Failed to update schedule");
-    return httpError("INTERNAL_ERROR", "Failed to update schedule", 500);
+    throw err;
   }
-  return handleListSchedules();
+  return handleListSchedules({});
 }
 
-function handleListScheduleRuns(id: string, limit: number): Response {
+function handleListScheduleRuns(id: string, queryParams: Record<string, string>) {
   const schedule = getSchedule(id);
   if (!schedule) {
-    return httpError("NOT_FOUND", "Schedule not found", 404);
+    throw new NotFoundError("Schedule not found");
   }
+  const rawLimit = Number(queryParams.limit ?? 10);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
+    : 10;
   const runs = getScheduleRuns(id, limit);
-  return Response.json({
+  return {
     runs: runs.map((r) => ({
       id: r.id,
       jobId: r.jobId,
@@ -206,8 +195,134 @@ function handleListScheduleRuns(id: string, limit: number): Response {
       conversationId: r.conversationId,
       createdAt: r.createdAt,
     })),
-  });
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Shared route definitions (HTTP + IPC)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listSchedules",
+    endpoint: "schedules",
+    method: "GET",
+    policyKey: "schedules",
+    summary: "List schedules",
+    description: "Return all scheduled jobs.",
+    tags: ["schedules"],
+    queryParams: [
+      {
+        name: "include_all",
+        schema: { type: "string" },
+        description:
+          "When 'true', include deferred schedules that are normally hidden.",
+      },
+    ],
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Schedule objects"),
+    }),
+    handler: ({ queryParams }: RouteHandlerArgs) =>
+      handleListSchedules(queryParams ?? {}),
+  },
+  {
+    operationId: "listScheduleRuns",
+    endpoint: "schedules/:id/runs",
+    method: "GET",
+    policyKey: "schedules",
+    summary: "List schedule runs",
+    description: "Return recent invocation history for a schedule.",
+    tags: ["schedules"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max runs to return (default 10, max 100)",
+      },
+    ],
+    responseBody: z.object({
+      runs: z.array(z.unknown()).describe("Schedule run objects"),
+    }),
+    handler: ({ pathParams, queryParams }: RouteHandlerArgs) =>
+      handleListScheduleRuns(pathParams!.id, queryParams ?? {}),
+  },
+  {
+    operationId: "toggleSchedule",
+    endpoint: "schedules/:id/toggle",
+    method: "POST",
+    policyKey: "schedules/toggle",
+    summary: "Toggle schedule",
+    description: "Enable or disable a schedule.",
+    tags: ["schedules"],
+    requestBody: z.object({
+      enabled: z.boolean().describe("New enabled state"),
+    }),
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+    }),
+    handler: ({ pathParams, body }: RouteHandlerArgs) =>
+      handleToggleSchedule(pathParams!.id, body ?? {}),
+  },
+  {
+    operationId: "deleteSchedule",
+    endpoint: "schedules/:id",
+    method: "DELETE",
+    policyKey: "schedules",
+    summary: "Delete schedule",
+    description: "Remove a schedule by ID.",
+    tags: ["schedules"],
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+    }),
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleDeleteSchedule(pathParams!.id),
+  },
+  {
+    operationId: "updateSchedule",
+    endpoint: "schedules/:id",
+    method: "PATCH",
+    policyKey: "schedules",
+    summary: "Update schedule",
+    description: "Partially update fields on a schedule.",
+    tags: ["schedules"],
+    requestBody: z.object({
+      name: z.string(),
+      expression: z.string(),
+      timezone: z.string(),
+      message: z.string(),
+      script: z.string().nullable().describe("Shell command for script mode"),
+      mode: z.string().describe("notify, execute, or script"),
+      routingIntent: z
+        .string()
+        .describe("single_channel, multi_channel, or all_channels"),
+      quiet: z.boolean(),
+      reuseConversation: z.boolean(),
+    }),
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+    }),
+    handler: ({ pathParams, body }: RouteHandlerArgs) =>
+      handleUpdateSchedule(pathParams!.id, body ?? {}),
+  },
+  {
+    operationId: "cancelSchedule",
+    endpoint: "schedules/:id/cancel",
+    method: "POST",
+    policyKey: "schedules/cancel",
+    summary: "Cancel schedule",
+    description: "Cancel a pending schedule.",
+    tags: ["schedules"],
+    responseBody: z.object({
+      schedules: z.array(z.unknown()).describe("Updated schedule list"),
+    }),
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleCancelSchedule(pathParams!.id),
+  },
+];
+
+// ---------------------------------------------------------------------------
+// HTTP-only route definitions (require SendMessageDeps DI)
+// ---------------------------------------------------------------------------
 
 async function handleRunScheduleNow(
   id: string,
@@ -247,7 +362,7 @@ async function handleRunScheduleNow(
       );
       completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
-    return handleListSchedules();
+    return Response.json(handleListSchedules({}));
   }
 
   // Check if message is a task invocation (run_task:<task_id>)
@@ -315,7 +430,7 @@ async function handleRunScheduleNow(
       const runId = createScheduleRun(schedule.id, fallbackConversation.id);
       completeScheduleRun(runId, { status: "error", error: message });
     }
-    return handleListSchedules();
+    return Response.json(handleListSchedules({}));
   }
 
   // ── Wake mode (resume an existing conversation, no new message) ────
@@ -340,7 +455,7 @@ async function handleRunScheduleNow(
       log.warn({ err, jobId: schedule.id }, "Manual wake execution failed");
       return httpError("INTERNAL_ERROR", message, 500);
     }
-    return handleListSchedules();
+    return Response.json(handleListSchedules({}));
   }
 
   // Regular message-based schedule — respect reuseConversation flag
@@ -400,118 +515,13 @@ async function handleRunScheduleNow(
     );
     completeScheduleRun(runId, { status: "error", error: message });
   }
-  return handleListSchedules();
+  return Response.json(handleListSchedules({}));
 }
 
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-export function scheduleRouteDefinitions(deps: {
+export function scheduleHttpOnlyRouteDefinitions(deps: {
   sendMessageDeps?: SendMessageDeps;
 }): HTTPRouteDefinition[] {
   return [
-    {
-      endpoint: "schedules",
-      method: "GET",
-      policyKey: "schedules",
-      summary: "List schedules",
-      description: "Return all scheduled jobs.",
-      tags: ["schedules"],
-      responseBody: z.object({
-        schedules: z.array(z.unknown()).describe("Schedule objects"),
-      }),
-      handler: ({ url }) => {
-        const includeAll = url.searchParams.get("include_all") === "true";
-        return handleListSchedules({ includeAll });
-      },
-    },
-    {
-      endpoint: "schedules/:id/runs",
-      method: "GET",
-      policyKey: "schedules",
-      summary: "List schedule runs",
-      description: "Return recent invocation history for a schedule.",
-      tags: ["schedules"],
-      responseBody: z.object({
-        runs: z.array(z.unknown()).describe("Schedule run objects"),
-      }),
-      handler: ({ params, url }) => {
-        const rawLimit = Number(url.searchParams.get("limit") ?? 10);
-        const limit = Number.isFinite(rawLimit)
-          ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-          : 10;
-        return handleListScheduleRuns(params.id, limit);
-      },
-    },
-    {
-      endpoint: "schedules/:id/toggle",
-      method: "POST",
-      policyKey: "schedules/toggle",
-      summary: "Toggle schedule",
-      description: "Enable or disable a schedule.",
-      tags: ["schedules"],
-      requestBody: z.object({
-        enabled: z.boolean().describe("New enabled state"),
-      }),
-      responseBody: z.object({
-        schedules: z.array(z.unknown()).describe("Updated schedule list"),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as { enabled?: boolean };
-        if (body.enabled === undefined) {
-          return httpError("BAD_REQUEST", "enabled is required", 400);
-        }
-        return handleToggleSchedule(params.id, body.enabled);
-      },
-    },
-    {
-      endpoint: "schedules/:id",
-      method: "DELETE",
-      policyKey: "schedules",
-      summary: "Delete schedule",
-      description: "Remove a schedule by ID.",
-      tags: ["schedules"],
-      responseBody: z.object({
-        schedules: z.array(z.unknown()).describe("Updated schedule list"),
-      }),
-      handler: ({ params }) => handleDeleteSchedule(params.id),
-    },
-    {
-      endpoint: "schedules/:id",
-      method: "PATCH",
-      policyKey: "schedules",
-      summary: "Update schedule",
-      description: "Partially update fields on a schedule.",
-      tags: ["schedules"],
-      requestBody: z.object({
-        name: z.string(),
-        expression: z.string(),
-        timezone: z.string(),
-        message: z.string(),
-        script: z.string().nullable().describe("Shell command for script mode"),
-        mode: z.string().describe("notify, execute, or script"),
-        routingIntent: z
-          .string()
-          .describe("single_channel, multi_channel, or all_channels"),
-        quiet: z.boolean(),
-        reuseConversation: z.boolean(),
-      }),
-      responseBody: z.object({
-        schedules: z.array(z.unknown()).describe("Updated schedule list"),
-      }),
-      handler: async ({ req, params }) => {
-        const body: unknown = await req.json();
-        if (typeof body !== "object" || !body || Array.isArray(body)) {
-          return httpError(
-            "BAD_REQUEST",
-            "Request body must be a JSON object",
-            400,
-          );
-        }
-        return handleUpdateSchedule(params.id, body as Record<string, unknown>);
-      },
-    },
     {
       endpoint: "schedules/:id/run",
       method: "POST",
@@ -524,18 +534,6 @@ export function scheduleRouteDefinitions(deps: {
       }),
       handler: async ({ params }) =>
         handleRunScheduleNow(params.id, deps.sendMessageDeps),
-    },
-    {
-      endpoint: "schedules/:id/cancel",
-      method: "POST",
-      policyKey: "schedules/cancel",
-      summary: "Cancel schedule",
-      description: "Cancel a pending schedule.",
-      tags: ["schedules"],
-      responseBody: z.object({
-        schedules: z.array(z.unknown()).describe("Updated schedule list"),
-      }),
-      handler: ({ params }) => handleCancelSchedule(params.id),
     },
   ];
 }
