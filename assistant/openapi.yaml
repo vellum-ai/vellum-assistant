@@ -3797,6 +3797,88 @@ paths:
                 - hint
                 - source
               additionalProperties: false
+  /v1/credentials/prompt:
+    post:
+      operationId: credentials_prompt_post
+      summary: Prompt user for a credential
+      description: Trigger a secure input prompt in the user's app to collect a credential value.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  error:
+                    type: string
+                  service:
+                    type: string
+                  field:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  minLength: 1
+                field:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+                  minLength: 1
+                description:
+                  type: string
+                placeholder:
+                  type: string
+                allowedDomains:
+                  type: array
+                  items:
+                    type: string
+                allowedTools:
+                  type: array
+                  items:
+                    type: string
+                injectionTemplates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      hostPattern:
+                        type: string
+                        minLength: 1
+                      injectionType:
+                        type: string
+                        enum:
+                          - header
+                          - query
+                      headerName:
+                        type: string
+                      valuePrefix:
+                        type: string
+                      queryParamName:
+                        type: string
+                    required:
+                      - hostPattern
+                      - injectionType
+                    additionalProperties: false
+              required:
+                - service
+                - field
+                - label
+              additionalProperties: false
   /v1/debug:
     get:
       operationId: debug_get

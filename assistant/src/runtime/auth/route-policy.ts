@@ -607,6 +607,12 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Credential prompt: local-only (CLI / IPC callers)
+registerPolicy("credentials/prompt", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Cache operations: local-only (CLI / IPC callers)
 registerPolicy("cache/set", {
   requiredScopes: ["settings.write"],
