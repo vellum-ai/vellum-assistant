@@ -3653,6 +3653,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "500":
+          description: Failed to create archive
       requestBody:
         required: true
         content:
@@ -3669,9 +3671,7 @@ paths:
                   description: Scope to a single conversation
                   type: string
                 full:
-                  description:
-                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
-                    debugging.
+                  description: Full export — include messages, LLM request logs, and usage events for all conversations.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
@@ -5461,6 +5461,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "500":
+          description: Failed to create archive
       requestBody:
         required: true
         content:
@@ -5477,9 +5479,7 @@ paths:
                   description: Scope to a single conversation
                   type: string
                 full:
-                  description:
-                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
-                    debugging.
+                  description: Full export — include messages, LLM request logs, and usage events for all conversations.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
