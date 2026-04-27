@@ -1592,6 +1592,87 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/browser/execute:
+    post:
+      operationId: browser_execute_post
+      summary: Execute a browser operation
+      description: Invoke a browser operation (navigate, click, type, screenshot, etc.) via the headless browser subsystem.
+      tags:
+        - browser
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                  screenshots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mediaType:
+                          type: string
+                        data:
+                          type: string
+                      required:
+                        - mediaType
+                        - data
+                      additionalProperties: false
+                required:
+                  - content
+                  - isError
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum:
+                    - navigate
+                    - snapshot
+                    - screenshot
+                    - close
+                    - attach
+                    - detach
+                    - click
+                    - type
+                    - press_key
+                    - scroll
+                    - select_option
+                    - hover
+                    - wait_for
+                    - extract
+                    - wait_for_download
+                    - fill_credential
+                    - status
+                input:
+                  default: {}
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                sessionId:
+                  default: default
+                  type: string
+                  minLength: 1
+                conversationId:
+                  type: string
+                  minLength: 1
+              required:
+                - operation
+                - input
+                - sessionId
+              additionalProperties: false
   /v1/btw:
     post:
       operationId: btw_post
