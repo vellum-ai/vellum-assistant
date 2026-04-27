@@ -2154,7 +2154,7 @@ paths:
                   description: Pending interaction request ID
                 decision:
                   type: string
-                  description: "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny"
+                  description: "One of: allow, deny"
                 selectedPattern:
                   type: string
                   description: Allowlist pattern for persistent decisions
