@@ -60,3 +60,10 @@ export class ServiceUnavailableError extends RouteError {
     this.name = "ServiceUnavailableError";
   }
 }
+
+export class InternalError extends RouteError {
+  constructor(message: string) {
+    super(message, "INTERNAL_ERROR", 500);
+    this.name = "InternalError";
+  }
+}

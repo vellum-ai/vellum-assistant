@@ -19,8 +19,8 @@ import {
   getRelationshipStatePath,
 } from "../../home/relationship-state-writer.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { InternalError } from "./errors.js";
+import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("home-state-routes");
 
@@ -60,6 +60,10 @@ const relationshipStateSchema = z.object({
   updatedAt: z.string(),
 });
 
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
 /**
  * Handle `GET /v1/home/state`.
  *
@@ -79,10 +83,9 @@ const relationshipStateSchema = z.object({
  * still owned exclusively by the writer so turn-boundary SSE events
  * remain tied to real state transitions rather than GET traffic.
  */
-export async function handleGetHomeState(): Promise<Response> {
+async function handleGetHomeState(): Promise<unknown> {
   try {
-    const state = await computeRelationshipState();
-    return Response.json(state);
+    return await computeRelationshipState();
   } catch (computeErr) {
     log.warn(
       { err: computeErr },
@@ -97,7 +100,7 @@ export async function handleGetHomeState(): Promise<Response> {
       const parsed: unknown = JSON.parse(raw);
       const validated = relationshipStateSchema.safeParse(parsed);
       if (validated.success) {
-        return Response.json(validated.data);
+        return validated.data;
       }
       log.warn(
         { path, issues: validated.error.issues },
@@ -111,28 +114,28 @@ export async function handleGetHomeState(): Promise<Response> {
     }
   }
 
-  return httpError(
-    "INTERNAL_ERROR",
-    "Failed to compute relationship state",
-    500,
-  );
+  throw new InternalError("Failed to compute relationship state");
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function homeStateRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "home/state",
-      method: "GET",
-      handler: () => handleGetHomeState(),
-      summary: "Get relationship state",
-      description:
-        "Return the current `RelationshipState` snapshot. Reads the persisted `relationship-state.json` when present; falls back to an on-demand compute so fresh installs never see a 404.",
-      tags: ["home"],
-      responseBody: relationshipStateSchema,
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "home_state_get",
+    endpoint: "home/state",
+    method: "GET",
+    handler: handleGetHomeState,
+    summary: "Get relationship state",
+    description:
+      "Return the current `RelationshipState` snapshot. Reads the persisted `relationship-state.json` when present; falls back to an on-demand compute so fresh installs never see a 404.",
+    tags: ["home"],
+    responseBody: relationshipStateSchema,
+    additionalResponses: {
+      "500": {
+        description: "Failed to compute relationship state",
+      },
     },
-  ];
-}
+  },
+];
