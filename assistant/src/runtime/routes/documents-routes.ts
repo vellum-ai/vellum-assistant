@@ -8,8 +8,8 @@ import { z } from "zod";
 
 import { rawAll, rawGet, rawRun } from "../../memory/db.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("documents-routes");
 
@@ -157,113 +157,124 @@ function listDocuments(conversationId?: string): Array<{
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function documentRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "documents",
-      method: "GET",
-      policyKey: "documents",
-      summary: "List documents",
-      description: "Return all documents, optionally filtered by conversation.",
-      tags: ["documents"],
-      queryParams: [
-        {
-          name: "conversationId",
-          schema: { type: "string" },
-          description: "Filter by conversation ID",
-        },
-      ],
-      responseBody: z.object({
-        documents: z.array(z.unknown()).describe("Document summary objects"),
-      }),
-      handler: ({ url }) => {
-        const conversationId =
-          url.searchParams.get("conversationId") ?? undefined;
-        const documents = listDocuments(conversationId);
-        return Response.json({ documents });
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listDocuments",
+    endpoint: "documents",
+    method: "GET",
+    policyKey: "documents",
+    requirePolicyEnforcement: true,
+    summary: "List documents",
+    description: "Return all documents, optionally filtered by conversation.",
+    tags: ["documents"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        description: "Filter by conversation ID",
       },
+    ],
+    responseBody: z.object({
+      documents: z.array(z.unknown()).describe("Document summary objects"),
+    }),
+    handler: ({ queryParams }) => {
+      const conversationId = queryParams?.conversationId ?? undefined;
+      const documents = listDocuments(conversationId);
+      return { documents };
     },
-    {
-      endpoint: "documents/:id",
-      method: "GET",
-      policyKey: "documents",
-      summary: "Get a document",
-      description: "Return a single document by surface ID.",
-      tags: ["documents"],
-      responseBody: z.object({
-        success: z.boolean(),
-        surfaceId: z.string(),
-        conversationId: z.string(),
-        title: z.string(),
-        content: z.string(),
-        wordCount: z.number(),
-        createdAt: z.number(),
-        updatedAt: z.number(),
-      }),
-      handler: ({ params }) => {
-        const result = loadDocument(params.id);
-        if (!result.success) {
-          return httpError("NOT_FOUND", result.error, 404);
-        }
-        return Response.json(result);
-      },
+  },
+
+  {
+    operationId: "getDocument",
+    endpoint: "documents/:id",
+    method: "GET",
+    policyKey: "documents",
+    requirePolicyEnforcement: true,
+    summary: "Get a document",
+    description: "Return a single document by surface ID.",
+    tags: ["documents"],
+    responseBody: z.object({
+      success: z.boolean(),
+      surfaceId: z.string(),
+      conversationId: z.string(),
+      title: z.string(),
+      content: z.string(),
+      wordCount: z.number(),
+      createdAt: z.number(),
+      updatedAt: z.number(),
+    }),
+    handler: ({ pathParams }) => {
+      const result = loadDocument(pathParams!.id);
+      if (!result.success) {
+        throw new NotFoundError(result.error);
+      }
+      return result;
     },
-    {
-      endpoint: "documents",
-      method: "POST",
-      policyKey: "documents",
-      summary: "Save a document",
-      description: "Create or upsert a document (by surfaceId).",
-      tags: ["documents"],
-      requestBody: z.object({
-        surfaceId: z.string().describe("Surface ID (unique key)"),
-        conversationId: z.string().describe("Owning conversation"),
-        title: z.string().describe("Document title"),
-        content: z.string().describe("Document content"),
-        wordCount: z.number().describe("Word count"),
-      }),
-      responseBody: z.object({
-        success: z.boolean(),
-        surfaceId: z.string(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          surfaceId?: string;
-          conversationId?: string;
-          title?: string;
-          content?: string;
-          wordCount?: number;
-        };
+  },
 
-        if (!body.surfaceId || typeof body.surfaceId !== "string") {
-          return httpError("BAD_REQUEST", "surfaceId is required", 400);
-        }
-        if (!body.conversationId || typeof body.conversationId !== "string") {
-          return httpError("BAD_REQUEST", "conversationId is required", 400);
-        }
-        if (!body.title || typeof body.title !== "string") {
-          return httpError("BAD_REQUEST", "title is required", 400);
-        }
-        if (typeof body.content !== "string") {
-          return httpError("BAD_REQUEST", "content is required", 400);
-        }
-        if (typeof body.wordCount !== "number") {
-          return httpError("BAD_REQUEST", "wordCount is required", 400);
-        }
+  {
+    operationId: "saveDocument",
+    endpoint: "documents",
+    method: "POST",
+    policyKey: "documents",
+    requirePolicyEnforcement: true,
+    summary: "Save a document",
+    description: "Create or upsert a document (by surfaceId).",
+    tags: ["documents"],
+    requestBody: z.object({
+      surfaceId: z.string().describe("Surface ID (unique key)"),
+      conversationId: z.string().describe("Owning conversation"),
+      title: z.string().describe("Document title"),
+      content: z.string().describe("Document content"),
+      wordCount: z.number().describe("Word count"),
+    }),
+    responseBody: z.object({
+      success: z.literal(true),
+      surfaceId: z.string(),
+    }),
+    handler: ({ body }) => {
+      const {
+        surfaceId,
+        conversationId,
+        title,
+        content,
+        wordCount,
+      } = (body ?? {}) as {
+        surfaceId?: string;
+        conversationId?: string;
+        title?: string;
+        content?: string;
+        wordCount?: number;
+      };
 
-        const result = saveDocument({
-          surfaceId: body.surfaceId,
-          conversationId: body.conversationId,
-          title: body.title,
-          content: body.content,
-          wordCount: body.wordCount,
-        });
+      if (!surfaceId || typeof surfaceId !== "string") {
+        throw new BadRequestError("surfaceId is required");
+      }
+      if (!conversationId || typeof conversationId !== "string") {
+        throw new BadRequestError("conversationId is required");
+      }
+      if (!title || typeof title !== "string") {
+        throw new BadRequestError("title is required");
+      }
+      if (typeof content !== "string") {
+        throw new BadRequestError("content is required");
+      }
+      if (typeof wordCount !== "number") {
+        throw new BadRequestError("wordCount is required");
+      }
 
-        if (!result.success) {
-          return httpError("INTERNAL_ERROR", result.error, 500);
-        }
-        return Response.json(result);
-      },
+      const result = saveDocument({
+        surfaceId,
+        conversationId,
+        title,
+        content,
+        wordCount,
+      });
+
+      if (!result.success) {
+        throw new InternalError(result.error);
+      }
+      return result;
     },
-  ];
-}
+  },
+];
