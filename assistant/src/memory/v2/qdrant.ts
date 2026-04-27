@@ -224,15 +224,30 @@ export async function deleteConceptPageEmbedding(slug: string): Promise<void> {
  * Each channel returns up to `limit` hits. A slug is included in the result
  * if it appears in either channel; the missing channel's score is left
  * `undefined` so callers can detect single-channel matches.
+ *
+ * `restrictToSlugs`, when provided, filters the search server-side to only
+ * those slugs (Qdrant `slug IN [...]` filter). Used by `simBatch` when the
+ * candidate set is already known so we don't waste hits on unrelated pages.
+ * An empty list short-circuits to no results — the caller is asking for
+ * "nothing", not "everything".
  */
 export async function hybridQueryConceptPages(
   dense: number[],
   sparse: SparseEmbedding,
   limit: number,
+  restrictToSlugs?: readonly string[],
 ): Promise<ConceptPageQueryResult[]> {
+  if (restrictToSlugs && restrictToSlugs.length === 0) {
+    // An empty restriction means "no candidates"; skip the round-trip.
+    return [];
+  }
+
   await ensureConceptPageCollection();
 
   const client = getClient();
+  const filter = restrictToSlugs
+    ? { must: [{ key: "slug", match: { any: [...restrictToSlugs] } }] }
+    : undefined;
 
   const denseQuery = () =>
     client.query(MEMORY_V2_COLLECTION, {
@@ -240,6 +255,7 @@ export async function hybridQueryConceptPages(
       using: "dense",
       limit,
       with_payload: true,
+      filter,
     });
   const sparseQuery = () =>
     client.query(MEMORY_V2_COLLECTION, {
@@ -247,6 +263,7 @@ export async function hybridQueryConceptPages(
       using: "sparse",
       limit,
       with_payload: true,
+      filter,
     });
 
   // Run both queries concurrently — they hit independent named vectors.
