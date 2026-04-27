@@ -14,76 +14,79 @@ import {
   getVercelConfig,
   setVercelConfig,
 } from "../../../daemon/handlers/config-vercel.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
+import { BadRequestError } from "../errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
-/**
- * GET /v1/integrations/vercel/config
- */
-async function handleGetVercelConfig(): Promise<Response> {
-  const result = await getVercelConfig();
-  return Response.json(result);
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+async function handleGetVercelConfig() {
+  return getVercelConfig();
 }
 
-/**
- * POST /v1/integrations/vercel/config
- *
- * Body: { action: "set" | "delete"; apiToken?: string }
- *
- * The Swift client uses POST for both set and delete operations,
- * distinguished by the `action` field.
- */
-async function handlePostVercelConfig(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
+async function handlePostVercelConfig({ body = {} }: RouteHandlerArgs) {
+  const { action, apiToken } = body as {
     action?: "get" | "set" | "delete";
     apiToken?: string;
   };
 
-  switch (body.action) {
-    case "delete": {
-      const result = await deleteVercelConfig();
-      return Response.json(result);
-    }
-    case "get": {
-      const result = await getVercelConfig();
-      return Response.json(result);
-    }
+  switch (action) {
+    case "delete":
+      return deleteVercelConfig();
+    case "get":
+      return getVercelConfig();
     case "set":
     default: {
-      const result = await setVercelConfig(body.apiToken);
-      const status = result.success ? 200 : 400;
-      return Response.json(result, { status });
+      const result = await setVercelConfig(apiToken);
+      if (!result.success) {
+        throw new BadRequestError(
+          (result as { error?: string }).error ?? "Failed to set Vercel config",
+        );
+      }
+      return result;
     }
   }
 }
 
-/**
- * DELETE /v1/integrations/vercel/config
- */
-async function handleDeleteVercelConfig(): Promise<Response> {
-  const result = await deleteVercelConfig();
-  return Response.json(result);
+async function handleDeleteVercelConfig() {
+  return deleteVercelConfig();
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function vercelRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "integrations/vercel/config",
-      method: "GET",
-      handler: () => handleGetVercelConfig(),
-    },
-    {
-      endpoint: "integrations/vercel/config",
-      method: "POST",
-      handler: async ({ req }) => handlePostVercelConfig(req),
-    },
-    {
-      endpoint: "integrations/vercel/config",
-      method: "DELETE",
-      handler: async () => handleDeleteVercelConfig(),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "integrations_vercel_config_get",
+    endpoint: "integrations/vercel/config",
+    method: "GET",
+    summary: "Get Vercel config",
+    description: "Check if a Vercel API token is stored.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleGetVercelConfig(),
+  },
+  {
+    operationId: "integrations_vercel_config_post",
+    endpoint: "integrations/vercel/config",
+    method: "POST",
+    summary: "Set or delete Vercel config",
+    description:
+      "Set or delete the Vercel API token. Action is determined by the body action field.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handlePostVercelConfig,
+  },
+  {
+    operationId: "integrations_vercel_config_delete",
+    endpoint: "integrations/vercel/config",
+    method: "DELETE",
+    summary: "Delete Vercel config",
+    description: "Delete the stored Vercel API token.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleDeleteVercelConfig(),
+  },
+];

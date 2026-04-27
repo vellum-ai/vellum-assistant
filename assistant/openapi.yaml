@@ -5587,22 +5587,28 @@ paths:
   /v1/integrations/vercel/config:
     delete:
       operationId: integrations_vercel_config_delete
+      summary: Delete Vercel config
+      description: Delete the stored Vercel API token.
       tags:
-        - vercel
+        - integrations
       responses:
         "200":
           description: Successful response
     get:
       operationId: integrations_vercel_config_get
+      summary: Get Vercel config
+      description: Check if a Vercel API token is stored.
       tags:
-        - vercel
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_vercel_config_post
+      summary: Set or delete Vercel config
+      description: Set or delete the Vercel API token. Action is determined by the body action field.
       tags:
-        - vercel
+        - integrations
       responses:
         "200":
           description: Successful response

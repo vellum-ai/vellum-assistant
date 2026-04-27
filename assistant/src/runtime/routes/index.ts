@@ -32,6 +32,7 @@ import { ROUTES as HEARTBEAT_ROUTES } from "./heartbeat-routes.js";
 import { ROUTES as HOME_FEED_ROUTES } from "./home-feed-routes.js";
 import { ROUTES as HOME_STATE_ROUTES } from "./home-state-routes.js";
 import { ROUTES as IDENTITY_ROUTES } from "./identity-routes.js";
+import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
@@ -101,6 +102,7 @@ export const ROUTES: RouteDefinition[] = [
   ...TTS_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,
   ...USAGE_ROUTES,
+  ...VERCEL_ROUTES,
   ...WORK_ITEM_ROUTES,
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
