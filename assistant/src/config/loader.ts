@@ -232,9 +232,11 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "Permission prompts are now always shown when required. " +
     "The field will be removed from your config file.",
   "permissions.mode":
-    "permissions.mode has been removed. Permission behavior is now controlled " +
-    "entirely by permissions.autoApproveUpTo. The field will be removed from " +
-    "your config file.",
+    "permissions.mode has been removed. The gateway now controls all auto-approve " +
+    "thresholds. The field will be removed from your config file.",
+  "permissions.autoApproveUpTo":
+    "permissions.autoApproveUpTo has been removed. The gateway now controls all " +
+    "auto-approve thresholds. The field will be removed from your config file.",
 };
 
 /**
@@ -242,46 +244,6 @@ const DEPRECATED_FIELDS: Record<string, string> = {
  * and strip them from both the in-memory object and the on-disk config file
  * so the warning is only emitted once.
  */
-/**
- * Migrate `permissions.mode: "strict"` → `permissions.autoApproveUpTo: "none"`.
- *
- * Users who explicitly set mode to "strict" expect all tool invocations to
- * prompt. Without this migration, removing the mode field from the schema
- * would silently downgrade them to default thresholds (conversation: low).
- *
- * Always overrides autoApproveUpTo when mode is "strict" — even if a previous
- * backfill wrote default thresholds to disk (e.g. { conversation: "low" }),
- * the user's intent was strict-mode behavior, which means "none".
- */
-function migratePermissionsMode(
-  fileConfig: Record<string, unknown>,
-  configPath: string,
-): void {
-  const perms = fileConfig.permissions;
-  if (perms == null || typeof perms !== "object" || Array.isArray(perms)) {
-    return;
-  }
-  const p = perms as Record<string, unknown>;
-  if (p.mode !== "strict") return;
-
-  p.autoApproveUpTo = "none";
-  log.info(
-    'Migrated permissions.mode "strict" → autoApproveUpTo "none" to preserve strict behavior',
-  );
-
-  // Persist to disk so migration is permanent
-  try {
-    if (existsSync(configPath)) {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (raw?.permissions && typeof raw.permissions === "object") {
-        raw.permissions.autoApproveUpTo = "none";
-        writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
-      }
-    }
-  } catch {
-    // Best-effort — the in-memory value is already set
-  }
-}
 
 function warnAndStripDeprecatedFields(
   fileConfig: Record<string, unknown>,
@@ -578,10 +540,6 @@ export function loadConfig(): AssistantConfig {
     } else {
       configFileExisted = false;
     }
-
-    // Migrate permissions.mode → autoApproveUpTo before stripping.
-    // "strict" users must not silently downgrade to default thresholds.
-    migratePermissionsMode(fileConfig, configPath);
 
     // Warn about and strip deprecated config fields so users know their
     // settings are no longer honored rather than silently dropping them.

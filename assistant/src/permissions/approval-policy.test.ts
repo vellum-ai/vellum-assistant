@@ -74,7 +74,7 @@ describe("ask rule", () => {
   const askRule = makeRule({ decision: "ask" });
 
   test("ask at Low risk", () => {
-    const result = evaluate({ riskLevel: RiskLevel.Low, matchedRule: askRule });
+    const result = evaluate({ riskLevel: RiskLevel.Low, matchedRule: askRule, autoApproveUpTo: "none" });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("ask rule");
     expect(result.matchedRule).toBe(askRule);
@@ -307,18 +307,19 @@ describe("sandbox auto-approve", () => {
 // ── No rule: third-party skill tool ──────────────────────────────────────────
 
 describe("no rule — third-party skill tool", () => {
-  test("skill origin, not bundled → prompt", () => {
+  test("skill origin, not bundled, strict threshold → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "custom_tool",
       toolOrigin: "skill",
       isSkillBundled: false,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("skill origin, not bundled, Medium risk → prompt", () => {
+  test("skill origin, not bundled, Medium risk → prompt (above default threshold)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Medium,
       toolName: "custom_tool",
@@ -329,11 +330,12 @@ describe("no rule — third-party skill tool", () => {
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("no tool origin but hasManifestOverride → prompt (unregistered skill tool)", () => {
+  test("no tool origin but hasManifestOverride, strict threshold → prompt (unregistered skill tool)", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "unknown_tool",
       hasManifestOverride: true,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
@@ -350,39 +352,36 @@ describe("no rule — third-party skill tool", () => {
     expect(result.decision).toBe("allow");
   });
 
-  test("skill origin, not bundled, gateway threshold covers risk → allow", () => {
+  test("skill origin, not bundled, threshold covers risk → allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "custom_tool",
       toolOrigin: "skill",
       isSkillBundled: false,
       autoApproveUpTo: "medium",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("within auto-approve threshold");
   });
 
-  test("skill origin, not bundled, gateway threshold does not cover risk → prompt", () => {
+  test("skill origin, not bundled, threshold does not cover risk → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "custom_tool",
       toolOrigin: "skill",
       isSkillBundled: false,
       autoApproveUpTo: "medium",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
   });
 
-  test("hasManifestOverride, gateway threshold covers risk → allow", () => {
+  test("hasManifestOverride, threshold covers risk → allow", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "unknown_tool",
       hasManifestOverride: true,
       autoApproveUpTo: "low",
-      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("within auto-approve threshold");
@@ -624,6 +623,7 @@ describe("edge cases", () => {
       toolName: "bash",
       matchedRule: askRule,
       isContainerized: true,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
   });
@@ -689,6 +689,7 @@ describe("edge cases", () => {
       toolOrigin: "skill",
       isSkillBundled: false,
       hasManifestOverride: true,
+      autoApproveUpTo: "none",
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Skill tool");
@@ -853,45 +854,43 @@ describe("autoApproveUpTo threshold", () => {
       expect(result.matchedRule).toBe(denyRule);
     });
 
-    test("ask rule still prompts without gateway threshold flag", () => {
+    test("ask rule auto-approves when risk is within threshold", () => {
       const askRule = makeRule({ decision: "ask" });
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "bash",
         matchedRule: askRule,
         autoApproveUpTo: "medium",
-      });
-      expect(result.decision).toBe("prompt");
-      expect(result.matchedRule).toBe(askRule);
-    });
-
-    test("ask rule auto-approves when gateway threshold covers the risk", () => {
-      const askRule = makeRule({ decision: "ask" });
-      const result = evaluate({
-        riskLevel: RiskLevel.Low,
-        toolName: "bash",
-        matchedRule: askRule,
-        autoApproveUpTo: "medium",
-        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("within auto-approve threshold");
     });
 
-    test("ask rule still prompts when gateway threshold does not cover the risk", () => {
+    test("ask rule still prompts when threshold does not cover the risk", () => {
       const askRule = makeRule({ decision: "ask" });
       const result = evaluate({
         riskLevel: RiskLevel.High,
         toolName: "bash",
         matchedRule: askRule,
         autoApproveUpTo: "medium",
-        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("prompt");
       expect(result.matchedRule).toBe(askRule);
     });
 
-    test("skill_load_dynamic ask rule always prompts even with gateway threshold", () => {
+    test("ask rule prompts when threshold is strict (none)", () => {
+      const askRule = makeRule({ decision: "ask" });
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "bash",
+        matchedRule: askRule,
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.matchedRule).toBe(askRule);
+    });
+
+    test("skill_load_dynamic ask rule always prompts even with high threshold", () => {
       const dynamicSkillAskRule = makeRule({
         decision: "ask",
         pattern: "skill_load_dynamic:my-skill",
@@ -901,7 +900,6 @@ describe("autoApproveUpTo threshold", () => {
         toolName: "skill_load",
         matchedRule: dynamicSkillAskRule,
         autoApproveUpTo: "high",
-        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("prompt");
       expect(result.matchedRule).toBe(dynamicSkillAskRule);

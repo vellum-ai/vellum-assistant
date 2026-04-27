@@ -18,9 +18,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const testConfig = {
-  permissions: {
-    autoApproveUpTo: "low" as const,
-  },
   skills: { load: { extraDirs: [] as string[] } },
 };
 
@@ -79,9 +76,10 @@ mock.module("../util/platform.js", () => ({
   getDeprecatedDir: () => "/mock/workspace/deprecated",
 }));
 
-// Mock gateway threshold reader — no gateway threshold by default.
+// Mock gateway threshold reader — return "low" by default (conversation context default).
 mock.module("./gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => undefined,
+  getAutoApproveThreshold: async () => "low",
+  _clearGlobalCacheForTesting: () => {},
 }));
 
 // Mock trust-store — no rules by default.
@@ -136,7 +134,6 @@ import { RiskLevel } from "./types.js";
 
 describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
-    testConfig.permissions = { autoApproveUpTo: "low" };
     testConfig.skills = { load: { extraDirs: [] } };
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;

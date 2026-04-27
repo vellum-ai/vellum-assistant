@@ -1,4 +1,3 @@
-import type { PermissionsConfig } from "../config/schemas/security.js";
 import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
@@ -30,13 +29,6 @@ export interface ApprovalContext {
    * - "high": auto-approve everything unconditionally
    */
   autoApproveUpTo?: "none" | "low" | "medium" | "high";
-  /**
-   * When true, the auto-approve threshold was resolved from the gateway.
-   * This enables threshold-based override of ask rules — the user's
-   * threshold setting takes precedence over default ask rules when the
-   * risk falls within the threshold.
-   */
-  isGatewayThreshold?: boolean;
 }
 
 // ── Threshold resolution ─────────────────────────────────────────────────────
@@ -71,10 +63,15 @@ const CONTEXT_DEFAULTS: Record<
   headless: "none",
 };
 
+type ThresholdScalar = "none" | "low" | "medium" | "high";
+type ThresholdConfig =
+  | ThresholdScalar
+  | { conversation: ThresholdScalar; background: ThresholdScalar; headless: ThresholdScalar };
+
 export function resolveThreshold(
-  configValue: PermissionsConfig["autoApproveUpTo"] | undefined,
+  configValue: ThresholdConfig | undefined,
   executionContext?: ExecutionContext,
-): "none" | "low" | "medium" | "high" {
+): ThresholdScalar {
   if (configValue == null) {
     return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
   }
@@ -132,7 +129,7 @@ export interface ApprovalPolicy {
  *
  * 1. Deny rule → deny
  * 2. Ask rule + risk > autoApproveUpTo → prompt
- *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask)
+ *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask rule)
  *    Exception: skill_load_dynamic ask rules always prompt (inline-command safety gate)
  * 3. Sandbox auto-approve: bash + sandboxAutoApprove + autoApproveUpTo !== "none" → allow
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
@@ -141,7 +138,7 @@ export interface ApprovalPolicy {
  * 4. Allow rule + non-High → allow
  * 5. Allow rule + High → fall through to risk-based
  * 6. No rule + third-party skill tool + risk > autoApproveUpTo → prompt
- *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow
+ *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow (threshold overrides)
  * 7. No rule + Low + workspace-scoped + within threshold → allow
  * 8. No rule + Low + bundled skill + within threshold → allow
  * 9. Risk ≤ autoApproveUpTo threshold → allow
@@ -169,11 +166,10 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 2. Ask rules prompt — unless the gateway threshold covers the risk.
-    // When a gateway threshold is active (isGatewayThreshold), the user's
-    // threshold setting takes precedence over ask rules: if the risk falls
-    // within autoApproveUpTo, the ask rule is overridden and the tool
-    // auto-approves.
+    // ── 2. Ask rules prompt — unless the threshold covers the risk.
+    // The user's threshold setting takes precedence over ask rules: if the
+    // risk falls within autoApproveUpTo, the ask rule is overridden and
+    // the tool auto-approves.
     // Exception: skill_load_dynamic ask rules always prompt — they gate
     // inline-command skill loads that execute embedded commands and must
     // never be silently auto-approved.
@@ -183,7 +179,6 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       );
       if (
         !isDynamicSkillAsk &&
-        context.isGatewayThreshold &&
         isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
       ) {
         return {
@@ -227,16 +222,13 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       // High risk: fall through to risk-based regardless of rule
     }
 
-    // ── 6. No rule + third-party skill tool → prompt (unless v3 threshold covers it)
+    // ── 6. No rule + third-party skill tool → prompt (unless threshold covers it)
     if (!matchedRule) {
       const isThirdPartySkill =
         (toolOrigin === "skill" && !isSkillBundled) ||
         (hasManifestOverride && !toolOrigin);
       if (isThirdPartySkill) {
-        if (
-          context.isGatewayThreshold &&
-          isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
-        ) {
+        if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
           return {
             decision: "allow",
             reason: `${riskLevel} risk: within auto-approve threshold (skill tool)`,

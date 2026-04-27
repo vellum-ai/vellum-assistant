@@ -1,6 +1,4 @@
 import { getIsContainerized } from "../config/env-registry.js";
-import { getConfig } from "../config/loader.js";
-import { resolveThreshold } from "../permissions/approval-policy.js";
 import {
   check,
   classifyRisk,
@@ -83,8 +81,6 @@ export class PermissionChecker {
         }
       | undefined,
   ): Promise<PermissionDecision> {
-    const cfg = getConfig();
-
     const { level: risk, reason: riskReason } = await classifyRisk(
       name,
       input,
@@ -219,17 +215,13 @@ export class PermissionChecker {
           !context.requireFreshApproval &&
           !isDynamicSkillLoad
         ) {
-          // Use gateway threshold when v3 is enabled, falling back to config.
           // getAutoApproveThreshold returns from cache (populated by check() above).
           // Deferred inside the non-interactive branch so interactive prompts
           // don't pay the gateway I/O cost.
-          const gatewayBgThreshold = await getAutoApproveThreshold(
+          const bgThreshold = await getAutoApproveThreshold(
             context.conversationId,
             "background",
           );
-          const bgThreshold =
-            gatewayBgThreshold ??
-            resolveThreshold(cfg.permissions.autoApproveUpTo, "background");
           const thresholdOrdinal: Record<string, number> = {
             none: -1,
             low: 0,

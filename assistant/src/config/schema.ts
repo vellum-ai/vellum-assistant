@@ -102,14 +102,8 @@ export {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-export type {
-  PermissionsConfig,
-  SecretDetectionConfig,
-} from "./schemas/security.js";
-export {
-  PermissionsConfigSchema,
-  SecretDetectionConfigSchema,
-} from "./schemas/security.js";
+export type { SecretDetectionConfig } from "./schemas/security.js";
+export { SecretDetectionConfigSchema } from "./schemas/security.js";
 export type {
   ImageGenerationService,
   InferenceService,
@@ -206,10 +200,7 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
-import {
-  PermissionsConfigSchema,
-  SecretDetectionConfigSchema,
-} from "./schemas/security.js";
+import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
 import {
@@ -231,9 +222,6 @@ export const AssistantConfigSchema = z
     rateLimit: RateLimitConfigSchema.default(RateLimitConfigSchema.parse({})),
     secretDetection: SecretDetectionConfigSchema.default(
       SecretDetectionConfigSchema.parse({}),
-    ),
-    permissions: PermissionsConfigSchema.default(
-      PermissionsConfigSchema.parse({}),
     ),
     auditLog: AuditLogConfigSchema.default(AuditLogConfigSchema.parse({})),
     logFile: LogFileConfigSchema.default(
