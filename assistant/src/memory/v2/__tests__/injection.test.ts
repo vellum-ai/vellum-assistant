@@ -1,0 +1,534 @@
+/**
+ * Tests for `assistant/src/memory/v2/injection.ts`.
+ *
+ * Coverage matrix from PR 19 acceptance criteria:
+ *   - Empty state seeds the first injection (initial conversation turn).
+ *   - Second turn whose `topNow` overlaps prior `everInjected` returns
+ *     `toInject = []` and `block = null` (cache-stable empty path).
+ *   - A new topic appearing on a later turn injects only the new slug.
+ *   - `evictCompactedTurns` re-enables a previously-injected slug —
+ *     after eviction the same slug appears again in `toInject`.
+ *
+ * Hermetic by design: the embedding backend, qdrant client, and `getConfig`
+ * are mocked at the module level so the suite never reaches a real backend.
+ * The activation-store uses an in-memory SQLite database so writes are real
+ * but contained.
+ *
+ * Tests use a temp workspace (mkdtemp) and never touch `~/.vellum/`. Sample
+ * page content uses generic placeholders (Alice, Bob, etc.) per the cross-
+ * cutting safety rules.
+ */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
+import type { AssistantConfig } from "../../../config/types.js";
+
+// ---------------------------------------------------------------------------
+// Module-level mocks
+// ---------------------------------------------------------------------------
+
+mock.module("../../../util/logger.js", () => ({
+  getLogger: () => makeMockLogger(),
+}));
+
+const STUB_QDRANT_CONFIG = {
+  memory: {
+    qdrant: {
+      url: "http://127.0.0.1:6333",
+      vectorSize: 384,
+      onDisk: true,
+    },
+  },
+};
+mock.module("../../../config/loader.js", () => ({
+  getConfig: () => STUB_QDRANT_CONFIG,
+  loadConfig: () => STUB_QDRANT_CONFIG,
+}));
+
+const realQdrantClient = await import("../../qdrant-client.js");
+mock.module("../../qdrant-client.js", () => ({
+  ...realQdrantClient,
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
+}));
+
+// Programmable embedding + Qdrant state — drives `selectCandidates`,
+// `simBatch`, and friends without a live backend.
+const state = {
+  embedReturn: [[0.1, 0.2, 0.3]] as number[][],
+  sparseReturn: { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] },
+  queryResponses: {
+    dense: [] as Array<{
+      points: Array<{ score?: number; payload: Record<string, unknown> }>;
+    }>,
+    sparse: [] as Array<{
+      points: Array<{ score?: number; payload: Record<string, unknown> }>;
+    }>,
+  },
+};
+
+const realEmbeddingBackend = await import("../../embedding-backend.js");
+mock.module("../../embedding-backend.js", () => ({
+  ...realEmbeddingBackend,
+  embedWithBackend: async () => ({
+    provider: "local",
+    model: "test-model",
+    vectors: state.embedReturn,
+  }),
+  generateSparseEmbedding: () => state.sparseReturn,
+}));
+
+class MockQdrantClient {
+  constructor(_opts: unknown) {}
+  async collectionExists(_name: string) {
+    return { exists: true };
+  }
+  async createCollection() {
+    return {};
+  }
+  async createPayloadIndex() {
+    return {};
+  }
+  async query(
+    _name: string,
+    params: { using: string; limit: number; filter?: unknown },
+  ) {
+    const queue = state.queryResponses[params.using as "dense" | "sparse"];
+    return queue.shift() ?? { points: [] };
+  }
+}
+
+mock.module("@qdrant/js-client-rest", () => ({
+  QdrantClient: MockQdrantClient,
+}));
+
+// ---------------------------------------------------------------------------
+// Workspace + DB setup
+// ---------------------------------------------------------------------------
+
+let tmpWorkspace: string;
+let previousWorkspaceEnv: string | undefined;
+
+beforeAll(() => {
+  tmpWorkspace = mkdtempSync(join(tmpdir(), "memory-v2-injection-test-"));
+  previousWorkspaceEnv = process.env.VELLUM_WORKSPACE_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = tmpWorkspace;
+
+  // Seed the v2 directory layout the migration would normally create.
+  mkdirSync(join(tmpWorkspace, "memory", "concepts"), { recursive: true });
+  // edges.json: one edge so spreading-activation has structure to walk.
+  writeFileSync(
+    join(tmpWorkspace, "memory", "edges.json"),
+    JSON.stringify({
+      version: 1,
+      edges: [["alice-vscode", "bob-coffee"]],
+    }),
+  );
+  // Three concept pages with generic, placeholder bodies.
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "alice-vscode.md"),
+    `---
+edges: [bob-coffee]
+ref_files: []
+---
+Alice prefers VS Code as her editor.`,
+  );
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "bob-coffee.md"),
+    `---
+edges: [alice-vscode]
+ref_files: []
+---
+Bob takes his coffee black, no sugar.`,
+  );
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "carol-jazz.md"),
+    `---
+edges: []
+ref_files: []
+---
+Carol loves jazz music — Coltrane in particular.`,
+  );
+});
+
+afterAll(() => {
+  if (previousWorkspaceEnv === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceEnv;
+  }
+  rmSync(tmpWorkspace, { recursive: true, force: true });
+});
+
+// Static `import type` is fine — types erase, so they don't run module-init
+// code that would race the mocks above.
+import type { DrizzleDb } from "../../db-connection.js";
+
+const { getSqliteFrom } = await import("../../db-connection.js");
+const { migrateActivationState } =
+  await import("../../migrations/232-activation-state.js");
+const schema = await import("../../schema.js");
+const { evictCompactedTurns, hydrate, save } =
+  await import("../activation-store.js");
+const { injectMemoryV2Block } = await import("../injection.js");
+const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
+
+function createTestDb(): DrizzleDb {
+  const sqlite = new Database(":memory:");
+  sqlite.exec("PRAGMA journal_mode=WAL");
+  sqlite.exec("PRAGMA foreign_keys = ON");
+  const db = drizzle(sqlite, { schema });
+
+  // Migration uses the checkpoints table for crash recovery — bootstrap it.
+  getSqliteFrom(db).exec(/*sql*/ `
+    CREATE TABLE IF NOT EXISTS memory_checkpoints (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  migrateActivationState(db);
+  return db;
+}
+
+function makeConfig(
+  overrides: Partial<{
+    d: number;
+    c_user: number;
+    c_assistant: number;
+    c_now: number;
+    k: number;
+    hops: number;
+    top_k: number;
+    epsilon: number;
+    dense_weight: number;
+    sparse_weight: number;
+  }> = {},
+): AssistantConfig {
+  return {
+    memory: {
+      v2: {
+        d: 0.3,
+        c_user: 0.3,
+        c_assistant: 0.2,
+        c_now: 0.2,
+        k: 0.5,
+        hops: 2,
+        top_k: 20,
+        epsilon: 0.01,
+        dense_weight: 1.0,
+        sparse_weight: 0.0,
+        ...overrides,
+      },
+    },
+  } as unknown as AssistantConfig;
+}
+
+/**
+ * Stage one set of dense/sparse hits, used uniformly by every `simBatch`
+ * channel call (user/assistant/now) AND by the un-restricted ANN candidate
+ * query. The candidate query runs first, then three simBatch calls, so we
+ * push 4 dense + 4 sparse responses per turn.
+ *
+ * Each entry is mapped to a hit per channel; pass `denseScore`/`sparseScore`
+ * undefined to omit a slug from that channel.
+ */
+function stageTurn(
+  hits: Array<{ slug: string; denseScore?: number; sparseScore?: number }>,
+  channels = 4,
+): void {
+  for (let i = 0; i < channels; i++) {
+    state.queryResponses.dense.push({
+      points: hits
+        .filter((h) => h.denseScore !== undefined)
+        .map((h) => ({ score: h.denseScore, payload: { slug: h.slug } })),
+    });
+    state.queryResponses.sparse.push({
+      points: hits
+        .filter((h) => h.sparseScore !== undefined)
+        .map((h) => ({ score: h.sparseScore, payload: { slug: h.slug } })),
+    });
+  }
+}
+
+function resetState(): void {
+  state.embedReturn = [[0.1, 0.2, 0.3]];
+  state.sparseReturn = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
+  state.queryResponses.dense.length = 0;
+  state.queryResponses.sparse.length = 0;
+  // The qdrant module caches its client; the cached client may be a
+  // MockQdrantClient instance from a sibling test file. Reset to force a
+  // fresh `new QdrantClient()` against this file's mock.
+  _resetMemoryV2QdrantForTests();
+}
+
+let db: DrizzleDb;
+beforeEach(() => {
+  db = createTestDb();
+  resetState();
+});
+afterEach(resetState);
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("injectMemoryV2Block", () => {
+  test("seeds first injection from an empty state", async () => {
+    // First turn: no prior state. The ANN candidate call surfaces alice; the
+    // three simBatch channels score her highly enough to dominate top-K.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Tell me about Alice's editor",
+      assistantMessage: "",
+      nowText: "Spring afternoon",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["alice-vscode"]);
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("<memory __injected>");
+    expect(result.block).toContain("## What I Remember Right Now");
+    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).toContain("VS Code");
+    expect(result.block).toContain("</memory>");
+
+    // State persisted: alice's activation is above epsilon and recorded;
+    // everInjected captured the new slug + currentTurn.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted).not.toBeNull();
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 1 },
+    ]);
+    expect(persisted!.state["alice-vscode"]).toBeGreaterThan(0.01);
+    expect(persisted!.currentTurn).toBe(1);
+    expect(persisted!.messageId).toBe("msg-1");
+  });
+
+  test("second turn with overlapping topNow returns null block + empty toInject", async () => {
+    // Turn 1 — seed alice as injected.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // Turn 2 — the same slug is still top-of-mind. After subtracting
+    // everInjected, toInject is empty → block is null.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "And what about VS Code?",
+      assistantMessage: "Alice loves it.",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual([]);
+    expect(result.block).toBeNull();
+
+    // State still advanced (currentTurn moved forward) and the existing
+    // everInjected entry is preserved (no duplicate added).
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.currentTurn).toBe(2);
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 1 },
+    ]);
+    expect(persisted!.messageId).toBe("msg-2");
+  });
+
+  test("new topic appears → only the new slug attaches", async () => {
+    // Turn 1 — seed alice.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Editor preferences",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // Turn 2 — carol is now in the candidate pool with high relevance.
+    // Both alice (carry-forward) and carol should appear in topNow, but only
+    // carol should be in toInject (alice was already attached on turn 1).
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.6 },
+      { slug: "carol-jazz", denseScore: 0.95 },
+    ]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Tell me about Carol's music taste",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["carol-jazz"]);
+    expect(result.block).toContain("### carol-jazz");
+    // The block only shows the new slug — alice's attachment lives on the
+    // previous turn's user message.
+    expect(result.block).not.toContain("### alice-vscode");
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 1 },
+      { slug: "carol-jazz", turn: 2 },
+    ]);
+  });
+
+  test("compaction eviction makes a previously-injected slug eligible again", async () => {
+    // Turn 1 — seed alice.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // Simulate compaction: drop all everInjected entries with turn <= 1.
+    const beforeEvict = await hydrate(db, "conv-1");
+    expect(beforeEvict).not.toBeNull();
+    const afterEvict = evictCompactedTurns(beforeEvict!, 1);
+    expect(afterEvict.everInjected).toEqual([]);
+    await save(db, "conv-1", afterEvict);
+
+    // Turn 2 — alice should now be re-injectable since eviction cleared the
+    // everInjected entry. Same simulated relevance as before.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Alice's editor again",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["alice-vscode"]);
+    expect(result.block).toContain("### alice-vscode");
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "alice-vscode", turn: 2 },
+    ]);
+  });
+
+  test("renders pages in activation-descending order", async () => {
+    // Both slugs are fresh (no prior state). carol scores higher than alice
+    // on every channel — so carol should be ranked first in topNow and
+    // therefore appear first in the rendered block.
+    stageTurn([
+      { slug: "carol-jazz", denseScore: 0.95 },
+      { slug: "alice-vscode", denseScore: 0.5 },
+    ]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "music and editors",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["carol-jazz", "alice-vscode"]);
+    const carolIdx = result.block!.indexOf("### carol-jazz");
+    const aliceIdx = result.block!.indexOf("### alice-vscode");
+    expect(carolIdx).toBeGreaterThan(-1);
+    expect(aliceIdx).toBeGreaterThan(-1);
+    expect(carolIdx).toBeLessThan(aliceIdx);
+  });
+
+  test("persists sparse state — only slugs above epsilon survive", async () => {
+    // Carol scores high; alice/bob essentially zero. After saving, only
+    // carol should appear in the persisted state map.
+    stageTurn([
+      { slug: "carol-jazz", denseScore: 1.0 },
+      { slug: "alice-vscode", denseScore: 0.0 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "carol",
+      assistantMessage: "",
+      nowText: "",
+      messageId: "msg-1",
+      config: makeConfig({ epsilon: 0.05 }),
+    });
+
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.state["carol-jazz"]).toBeGreaterThan(0.05);
+    expect(persisted!.state["alice-vscode"]).toBeUndefined();
+  });
+
+  test("returns null block when toInject slugs all reference missing pages", async () => {
+    // The ANN response contains a slug that is NOT on disk. After ranking,
+    // toInject is non-empty (we don't pre-filter), but `renderInjectionBlock`
+    // discovers the page is missing and returns null. The state is still
+    // persisted so we don't keep re-attempting.
+    stageTurn([{ slug: "phantom-slug", denseScore: 0.99 }]);
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "phantom",
+      assistantMessage: "",
+      nowText: "",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["phantom-slug"]);
+    expect(result.block).toBeNull();
+
+    // everInjected still records the slug so future turns subtract it and
+    // we don't infinite-loop on a missing page.
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([
+      { slug: "phantom-slug", turn: 1 },
+    ]);
+  });
+});

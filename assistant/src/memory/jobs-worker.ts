@@ -66,6 +66,7 @@ import {
   memoryV2RebuildEdgesJob,
   memoryV2ReembedJob,
 } from "./v2/backfill-jobs.js";
+import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
@@ -465,6 +466,9 @@ async function processJob(
     case "memory_v2_sweep":
       await memoryV2SweepJob(job, config);
       return;
+    case "memory_v2_consolidate":
+      await memoryV2ConsolidateJob(job, config);
+      return;
     case "memory_v2_migrate":
       await memoryV2MigrateJob(job, config);
       return;
@@ -476,12 +480,6 @@ async function processJob(
       return;
     case "memory_v2_activation_recompute":
       await memoryV2ActivationRecomputeJob(job, config);
-      return;
-    case "memory_v2_consolidate":
-      log.warn(
-        { jobId: job.id, type: job.type },
-        `Memory v2 job type ${job.type} not yet implemented; ignoring`,
-      );
       return;
 
     default: {
