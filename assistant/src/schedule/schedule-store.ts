@@ -532,7 +532,7 @@ export function retryOneShot(id: string): void {
  * disabled. Used when a wake has exceeded its retry cap and should not
  * be retried further.
  */
-export function failOneShotPermanently(id: string, error?: string): void {
+export function failOneShotPermanently(id: string): void {
   const db = getDb();
   const now = Date.now();
   db.update(scheduleJobs)
@@ -544,9 +544,6 @@ export function failOneShotPermanently(id: string, error?: string): void {
     })
     .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
     .run();
-  if (error) {
-    logger.warn({ scheduleId: id, error }, "One-shot permanently failed");
-  }
 }
 
 /**

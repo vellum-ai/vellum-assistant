@@ -274,10 +274,7 @@ async function runScheduleOnce(
               },
               "Wake timed out and exceeded max retries — permanently failing",
             );
-            failOneShotPermanently(
-              job.id,
-              `Conversation remained busy for ${job.retryCount} retries (~${Math.round((job.retryCount * TICK_INTERVAL_MS) / 60_000)} minutes)`,
-            );
+            failOneShotPermanently(job.id);
           } else {
             log.warn(
               {
