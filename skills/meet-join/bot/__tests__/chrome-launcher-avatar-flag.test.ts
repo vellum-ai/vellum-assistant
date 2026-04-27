@@ -19,7 +19,7 @@
  *      runtime camera-permission dialog the bot can't click.
  *   4. The avatar device-path default is `/dev/video10` (matching
  *      `DEFAULT_VIDEO_DEVICE_PATH` in `src/media/video-device.ts` and the
- *      CLI's `VELLUM_MEET_AVATAR_DEVICE` default), and an explicit
+ *      CLI's `VELLUM_AVATAR_DEVICE` default), and an explicit
  *      override threads through to the `--use-file-for-fake-video-capture`
  *      argument.
  *   5. CDP trip-wires (`--remote-debugging-*`, `--enable-automation`)
@@ -224,7 +224,7 @@ describe("launchChrome avatarEnabled flag", () => {
   test("avatarDevicePath override threads into --use-file-for-fake-video-capture", async () => {
     // Operators running v4l2loopback with a custom `video_nr` point the
     // device path to something other than `/dev/video10` via the CLI's
-    // `VELLUM_MEET_AVATAR_DEVICE` env; that value flows through the
+    // `VELLUM_AVATAR_DEVICE` env; that value flows through the
     // session manager as `avatarDevicePath`.
     const child = makeFakeChild();
     const fake = makeFakeSpawn(child);
@@ -286,9 +286,8 @@ describe("launchChrome avatarEnabled flag", () => {
 
   test("DEFAULT_AVATAR_DEVICE_PATH is /dev/video10 (mirrors PR 2)", async () => {
     // Lock the default string so a future edit can't silently drift from
-    // `DEFAULT_VIDEO_DEVICE_PATH` in `src/media/video-device.ts` or from
-    // `DEFAULT_MEET_AVATAR_DEVICE_PATH` in `cli/src/lib/docker.ts`. All
-    // three must agree.
+    // `DEFAULT_VIDEO_DEVICE_PATH` in `src/media/video-device.ts`. The CLI
+    // defines the same default independently (see cli/AGENTS.md).
     expect(DEFAULT_AVATAR_DEVICE_PATH).toBe("/dev/video10");
   });
 });

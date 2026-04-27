@@ -85,7 +85,7 @@ describe("workspace migration 045-release-notes-meet-avatar", () => {
     // Covers the key user-facing setup details so a regression that nukes
     // critical instructions will fail loudly.
     expect(content).toContain("v4l2loopback");
-    expect(content).toContain("VELLUM_MEET_AVATAR=1");
+    expect(content).toContain("VELLUM_AVATAR_DEVICE");
     expect(content).toContain("default-avatar.glb");
     expect(content).toContain("meet_enable_avatar");
     expect(content).toContain("meet_disable_avatar");

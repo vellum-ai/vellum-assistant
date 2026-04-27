@@ -2261,15 +2261,12 @@ describe("MeetSessionManager TTS lip-sync forwarder wiring", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Covers the preflight introduced to cross-check the daemon's
- * `services.meet.avatar.enabled` config against the CLI's
- * `VELLUM_MEET_AVATAR=1` env-var opt-in. In Docker mode these two controls
- * are orthogonal: the CLI's env-var bind-mounts `/dev/video10` into the
- * assistant container on hatch/wake, and the daemon's config drives
- * `DockerRunner`'s `--device` pass-through. If config is on but the env-var
- * is off, the inner `dockerd` would reject container-create with a cryptic
- * "device not found" error. The preflight moves the failure to meet-join
- * time with a pointer at the env-var.
+ * Covers the preflight that verifies the avatar device node is present
+ * inside the container when `services.meet.avatar.enabled` is true. The
+ * CLI passes `VELLUM_AVATAR_DEVICE` and bind-mounts the device when it
+ * exists on the host. If the device is missing, the inner `dockerd` would
+ * reject container-create with a cryptic "device not found" error. The
+ * preflight moves the failure to meet-join time with a clear message.
  *
  * The block writes `config/meet.json` overrides under its own tmp
  * workspace (the same dir it threads through `getWorkspaceDir` so
@@ -2347,7 +2344,7 @@ describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
     await expect(joinPromise).rejects.toBeInstanceOf(
       MeetAvatarDeviceMissingError,
     );
-    await expect(joinPromise).rejects.toThrow(/VELLUM_MEET_AVATAR=1/);
+    await expect(joinPromise).rejects.toThrow(/VELLUM_AVATAR_DEVICE/);
     await expect(joinPromise).rejects.toThrow(/\/dev\/video10/);
 
     // Preflight short-circuits before the Docker runner is ever touched.

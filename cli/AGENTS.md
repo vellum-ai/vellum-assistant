@@ -41,6 +41,12 @@ Every command must have high-quality `--help` output. Follow the same standards 
    AI agents parse help text to decide which command to run and how. Avoid vague
    language — say exactly what the command does and where state is stored.
 
+## Boundary: No integration-specific references
+
+The CLI is a generic lifecycle manager. It must **never** contain references to specific skills, integrations, or features (e.g. "Meet", "Slack", "Telegram"). Environment variables, volume mounts, and device passthroughs defined here must use generic names (e.g. `VELLUM_AVATAR_DEVICE`, not `VELLUM_MEET_AVATAR_DEVICE`). The skill that uses a resource decides how to interpret it — the CLI just passes it through.
+
+Cross-package imports into `skills/` are forbidden. The CLI is distributed as an npm package; anything outside `cli/` is not included in the tarball and will fail to resolve at runtime.
+
 ## Boundary: No `.vellum/` directory access
 
 The CLI must **never** read from or write to the `.vellum/` directory (e.g. `~/.vellum/protected/`, `<instanceDir>/.vellum/`). That directory structure is an **assistant daemon / gateway implementation detail**. The CLI's job is to spawn those processes and pass configuration via environment variables — not to reach into their internal storage.
