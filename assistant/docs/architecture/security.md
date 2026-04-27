@@ -36,29 +36,20 @@ graph TB
     RISK_THRESHOLD -->|"no"| PROMPT_THRESHOLD["decision: prompt<br/>above auto-approve threshold"]
 ```
 
-### Permission Modes: Workspace and Strict
+### Auto-Approve Threshold
 
-The `permissions.mode` config option (`workspace` or `strict`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
+The `permissions.autoApproveUpTo` config option controls which risk levels are auto-approved without prompting. It accepts a scalar (`"none"`, `"low"`, `"medium"`, `"high"`) or per-context overrides (`{ conversation, background, headless }`).
 
-| Behavior                                           | Workspace mode (default)                      | Strict mode                                   |
-| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      |
-| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      |
-| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      |
-| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      |
-| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
-| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
-| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules + containerized bash (high risk)       | Auto-allowed (runtime check)                  | Auto-allowed (runtime check)                  |
-| Deny rules                                         | Blocked                                       | Blocked                                       |
+| `autoApproveUpTo` | Low-risk tools | Medium-risk tools | High-risk tools |
+| ------------------ | -------------- | ----------------- | --------------- |
+| `"none"`           | Prompted       | Prompted          | Prompted        |
+| `"low"` (default)  | Auto-allowed   | Prompted          | Prompted        |
+| `"medium"`         | Auto-allowed   | Auto-allowed      | Prompted        |
+| `"high"`           | Auto-allowed   | Auto-allowed      | Auto-allowed    |
 
-**Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
+When set to `"none"`, every tool invocation requires explicit approval — equivalent to the former "strict" permission mode. Explicit deny and ask rules always take precedence over the threshold.
 
-**Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
-
-> **Migration note:** Existing config files with `permissions.mode = "legacy"` are automatically migrated to `workspace` during config loading. The `legacy` value is not a supported steady-state mode.
+> **Migration note:** Existing config files with the removed `permissions.mode = "strict"` are automatically migrated to `autoApproveUpTo: "none"` during config loading to preserve strict behavior. The `permissions.mode` field is no longer recognized.
 
 ### Trust Rules (v3 Schema)
 
@@ -184,7 +175,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict`)                                                                                                             |
+| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.autoApproveUpTo` (`none` / `low` / `medium` / `high` or per-context object)                                                                |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 

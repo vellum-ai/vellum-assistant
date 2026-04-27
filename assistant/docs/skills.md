@@ -25,7 +25,7 @@ Even if a skill's `TOOLS.json` declares `"risk": "low"` for one of its tools, th
 
 ## Skill Load Approval
 
-The `skill_load` tool activates a skill within the current session. In **strict mode** (`permissions.mode = 'strict'`), loading a skill requires an explicit matching trust rule. In **workspace mode** (default), `skill_load` is prompted unless a matching trust rule exists.
+The `skill_load` tool activates a skill within the current session. When `autoApproveUpTo` is set to `"none"`, loading a skill requires an explicit matching trust rule. At the default threshold (`"low"`), `skill_load` is prompted unless a matching trust rule exists.
 
 When `skill_load` is invoked, the permission checker generates multiple command candidates for rule matching:
 
@@ -87,11 +87,11 @@ The path classifier resolves symlinks before checking paths against skill root d
 
 The `normalizeFilePath()` function walks up the directory tree to find the nearest existing ancestor, resolves it via `realpathSync`, and re-appends the remaining segments.
 
-## Strict Mode
+## Strict Threshold (`autoApproveUpTo: "none"`)
 
-When `permissions.mode` is set to `strict` in the assistant configuration, **all** tool actions require a matching trust rule. There is no implicit auto-allow for any risk level. This means:
+When `permissions.autoApproveUpTo` is set to `"none"`, **all** tool actions require a matching trust rule or explicit approval. There is no implicit auto-allow for any risk level. This means:
 
-- Low-risk tools that would normally auto-execute in workspace mode (e.g., `file_read`, `web_search`) will prompt unless a trust rule allows them.
+- Low-risk tools that would normally auto-execute at the default threshold (e.g., `file_read`, `web_search`) will prompt unless a trust rule allows them.
 - `skill_load` requires an explicit rule match, even though it is classified as low risk.
 - The **starter bundle** can be accepted to seed common safe rules and reduce prompt noise.
 
