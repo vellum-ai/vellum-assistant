@@ -477,7 +477,8 @@ export const ROUTES: RouteDefinition[] = [
       profileSource: z.string().describe("How the profile was resolved"),
     }),
     handler: async ({ body = {} }: RouteHandlerArgs) => {
-      const { transcription, context, profileId } = body as DictationBody;
+      const { transcription, context, profileId } =
+        body as unknown as DictationBody;
       if (!transcription) {
         throw new BadRequestError("transcription is required");
       }
