@@ -17,7 +17,21 @@
  */
 
 import type { RouteDefinition } from "../../runtime/routes/types.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type {
+  IpcBinaryResponse,
+  IpcRoute,
+  IpcStreamingResponse,
+} from "../assistant-server.js";
+
+function resolveResponseHeaders(
+  spec: RouteDefinition["responseHeaders"],
+  pathParams: Record<string, string>,
+  queryParams: Record<string, string>,
+): Record<string, string> {
+  if (!spec) return {};
+  if (typeof spec === "function") return spec({ pathParams, queryParams });
+  return spec;
+}
 
 export function routeDefinitionsToIpcRoutes(
   routes: RouteDefinition[],
@@ -26,20 +40,47 @@ export function routeDefinitionsToIpcRoutes(
     .filter((r) => !r.requireGuardian)
     .map((r) => ({
       method: r.operationId,
-
-      // Legacy flat-params handler for CLI callers
-      handler: (params?: Record<string, unknown>) => {
+      handler: async (params?: Record<string, unknown>) => {
         const stringParams: Record<string, string> = {};
         if (params) {
           for (const [k, v] of Object.entries(params)) {
             if (typeof v === "string") stringParams[k] = v;
           }
         }
-        return r.handler({
+
+        const result = await r.handler({
           pathParams: stringParams,
           queryParams: stringParams,
           body: params,
         });
+
+        // ReadableStream → chunked binary frames
+        if (result instanceof ReadableStream) {
+          const headers = resolveResponseHeaders(
+            r.responseHeaders,
+            stringParams,
+            stringParams,
+          );
+          return {
+            stream: result,
+            headers,
+          } satisfies IpcStreamingResponse;
+        }
+
+        // Uint8Array → single binary frame with content-length
+        if (result instanceof Uint8Array) {
+          const headers = resolveResponseHeaders(
+            r.responseHeaders,
+            stringParams,
+            stringParams,
+          );
+          return {
+            binary: result,
+            headers,
+          } satisfies IpcBinaryResponse;
+        }
+
+        return result;
       },
 
       // Structured handler — direct pass-through to the route handler

@@ -16,6 +16,10 @@
  * When a message's headers map contains "content-length", a binary data
  * frame immediately follows the JSON frame.
  *
+ * Chunked streaming: when the response headers contain
+ * "transfer-encoding: chunked", multiple binary data frames follow the
+ * JSON envelope. A zero-length frame terminates the stream.
+ *
  * Legacy newline-delimited JSON is auto-detected and supported for
  * backward compatibility with older CLI clients.
  *
@@ -36,6 +40,8 @@ import {
   IpcFrameReader,
   writeLegacyMessage,
   writeMessage,
+  writeStreamChunk,
+  writeStreamEnd,
 } from "./ipc-framing.js";
 import { cliIpcRoutes } from "./routes/index.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -78,6 +84,51 @@ export type IpcRoute = {
    *  server prefers this over `handler` when present. */
   structuredHandler?: RouteDefinition["handler"];
 };
+
+/**
+ * Wrapper returned by route handlers that produce a streaming response.
+ * The IPC server detects this and pipes the ReadableStream as chunked
+ * binary frames instead of serializing to JSON.
+ */
+export interface IpcStreamingResponse {
+  stream: ReadableStream<Uint8Array>;
+  headers: Record<string, string>;
+}
+
+/**
+ * Wrapper returned by route handlers that produce a single binary response.
+ * Sent as a JSON envelope with content-length followed by one binary frame.
+ */
+export interface IpcBinaryResponse {
+  binary: Uint8Array;
+  headers: Record<string, string>;
+}
+
+export function isIpcStreamingResponse(
+  value: unknown,
+): value is IpcStreamingResponse {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "stream" in value &&
+    (value as IpcStreamingResponse).stream instanceof ReadableStream &&
+    "headers" in value &&
+    typeof (value as IpcStreamingResponse).headers === "object"
+  );
+}
+
+export function isIpcBinaryResponse(
+  value: unknown,
+): value is IpcBinaryResponse {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "binary" in value &&
+    (value as IpcBinaryResponse).binary instanceof Uint8Array &&
+    "headers" in value &&
+    typeof (value as IpcBinaryResponse).headers === "object"
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Server
@@ -221,7 +272,7 @@ export class AssistantIpcServer {
       if (result instanceof Promise) {
         result
           .then((value) => {
-            this.sendResponse(socket, reader, { id: req.id, result: value });
+            this.sendResult(socket, reader, req.id, value);
           })
           .catch((err) => {
             log.warn({ err, method: req.method }, "IPC handler error");
@@ -232,7 +283,7 @@ export class AssistantIpcServer {
             );
           });
       } else {
-        this.sendResponse(socket, reader, { id: req.id, result });
+        this.sendResult(socket, reader, req.id, result);
       }
     } catch (err) {
       log.warn({ err, method: req.method }, "IPC handler error");
@@ -250,6 +301,146 @@ export class AssistantIpcServer {
       };
     }
     return { id, error: String(err) };
+  }
+
+  /**
+   * Route a handler result to the appropriate send path:
+   * - IpcStreamingResponse → chunked binary frames
+   * - IpcBinaryResponse → single binary frame with content-length
+   * - Everything else → JSON response
+   */
+  private sendResult(
+    socket: Socket,
+    reader: IpcFrameReader,
+    requestId: string,
+    value: unknown,
+  ): void {
+    if (isIpcStreamingResponse(value)) {
+      this.sendStreamingResponse(socket, reader, requestId, value);
+    } else if (isIpcBinaryResponse(value)) {
+      const envelope: IpcResponse = {
+        id: requestId,
+        headers: {
+          ...value.headers,
+          "content-length": String(value.binary.byteLength),
+        },
+      };
+      this.sendResponse(socket, reader, envelope, value.binary);
+    } else {
+      this.sendResponse(socket, reader, { id: requestId, result: value });
+    }
+  }
+
+  /**
+   * Pipe a ReadableStream as chunked binary frames over IPC.
+   *
+   * Wire format:
+   *   [JSON envelope: { id, headers: { "transfer-encoding": "chunked", ... } }]
+   *   [chunk frame 1]
+   *   [chunk frame 2]
+   *   ...
+   *   [zero-length terminator]
+   */
+  private sendStreamingResponse(
+    socket: Socket,
+    reader: IpcFrameReader,
+    requestId: string,
+    response: IpcStreamingResponse,
+  ): void {
+    if (socket.destroyed) return;
+
+    // Legacy clients can't handle chunked streaming — fall back to
+    // buffering the full stream and sending as a single binary response.
+    if (reader.isLegacy) {
+      this.bufferAndSendStream(socket, reader, requestId, response);
+      return;
+    }
+
+    const envelope: IpcResponse = {
+      id: requestId,
+      headers: {
+        ...response.headers,
+        "transfer-encoding": "chunked",
+      },
+    };
+    writeMessage(socket, envelope);
+
+    const streamReader = response.stream.getReader();
+    const pump = (): void => {
+      streamReader
+        .read()
+        .then(({ done, value }) => {
+          if (socket.destroyed) {
+            streamReader.cancel().catch(() => {});
+            return;
+          }
+          if (done) {
+            writeStreamEnd(socket);
+            return;
+          }
+          writeStreamChunk(socket, value);
+          pump();
+        })
+        .catch((err) => {
+          log.warn({ err }, "IPC stream read error");
+          if (!socket.destroyed) {
+            writeStreamEnd(socket);
+          }
+        });
+    };
+    pump();
+  }
+
+  /**
+   * Legacy fallback: buffer the entire stream, then send as a single
+   * binary response with content-length.
+   */
+  private bufferAndSendStream(
+    socket: Socket,
+    reader: IpcFrameReader,
+    requestId: string,
+    response: IpcStreamingResponse,
+  ): void {
+    const chunks: Uint8Array[] = [];
+    const streamReader = response.stream.getReader();
+
+    const pump = (): void => {
+      streamReader
+        .read()
+        .then(({ done, value }) => {
+          if (done) {
+            const totalLength = chunks.reduce(
+              (sum, c) => sum + c.byteLength,
+              0,
+            );
+            const merged = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const c of chunks) {
+              merged.set(c, offset);
+              offset += c.byteLength;
+            }
+            const envelope: IpcResponse = {
+              id: requestId,
+              headers: {
+                ...response.headers,
+                "content-length": String(totalLength),
+              },
+            };
+            this.sendResponse(socket, reader, envelope, merged);
+            return;
+          }
+          chunks.push(value);
+          pump();
+        })
+        .catch((err) => {
+          log.warn({ err }, "IPC legacy stream buffer error");
+          this.sendResponse(socket, reader, {
+            id: requestId,
+            error: "Stream read failed",
+          });
+        });
+    };
+    pump();
   }
 
   private sendResponse(
