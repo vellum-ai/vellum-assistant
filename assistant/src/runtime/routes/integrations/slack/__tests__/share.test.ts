@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../../../../../security/credential-key.js";
-import { BadRequestError, ServiceUnavailableError } from "../../../errors.js";
+import { ServiceUnavailableError } from "../../../errors.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 
