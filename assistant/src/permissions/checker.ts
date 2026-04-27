@@ -525,7 +525,6 @@ export async function check(
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
-    permissionsMode: config.permissions.mode,
     isContainerized: getIsContainerized(),
     isWorkspaceScoped:
       risk === RiskLevel.Low

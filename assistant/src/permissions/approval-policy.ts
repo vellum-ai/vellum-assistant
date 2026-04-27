@@ -12,7 +12,6 @@ export interface ApprovalContext {
   riskLevel: RiskLevel;
   toolName: string;
   matchedRule?: TrustRule;
-  permissionsMode: "strict" | "workspace";
   isContainerized: boolean;
   isWorkspaceScoped: boolean;
   /** Where the tool originates from — "skill" for skill-provided tools, "builtin" for core tools. */
@@ -135,7 +134,7 @@ export interface ApprovalPolicy {
  * 2. Ask rule + risk > autoApproveUpTo → prompt
  *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask)
  *    Exception: skill_load_dynamic ask rules always prompt (inline-command safety gate)
- * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove → allow
+ * 3. Sandbox auto-approve: bash + sandboxAutoApprove + autoApproveUpTo !== "none" → allow
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
  *    environments skip path checks; non-containerized environments validate all
  *    path arguments against the workspace root.)
@@ -143,12 +142,10 @@ export interface ApprovalPolicy {
  * 5. Allow rule + High → fall through to risk-based
  * 6. No rule + third-party skill tool + risk > autoApproveUpTo → prompt
  *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow
- * 7. No rule + strict mode + risk > autoApproveUpTo → prompt
- *    No rule + strict mode + risk ≤ autoApproveUpTo → allow
- * 8. No rule + workspace mode + Low + workspace-scoped → allow
- * 9. No rule + Low + bundled skill → allow
- * 10. Risk ≤ autoApproveUpTo threshold → allow
- * 11. Risk > autoApproveUpTo threshold → prompt
+ * 7. No rule + Low + workspace-scoped + within threshold → allow
+ * 8. No rule + Low + bundled skill + within threshold → allow
+ * 9. Risk ≤ autoApproveUpTo threshold → allow
+ * 10. Risk > autoApproveUpTo threshold → prompt
  */
 export class DefaultApprovalPolicy implements ApprovalPolicy {
   evaluate(context: ApprovalContext): ApprovalDecision {
@@ -156,7 +153,6 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       riskLevel,
       toolName,
       matchedRule,
-      permissionsMode,
       isWorkspaceScoped,
       toolOrigin,
       isSkillBundled,
@@ -203,14 +199,12 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     }
 
     // ── 3. Sandbox auto-approve: bash + allowlisted → allow ──
-    // Only fires in workspace mode — strict mode always requires explicit rules.
-    // Respects the autoApproveUpTo threshold: when set to "none" (Strict),
-    // sandbox auto-approve is suppressed — the user wants to approve everything.
+    // Respects the autoApproveUpTo threshold: when set to "none", sandbox
+    // auto-approve is suppressed — the user wants to approve everything.
     // Path resolution is baked into `hasSandboxAutoApprove` upstream:
     // containerized environments skip path checks (entire fs is workspace),
     // non-containerized environments validate all path args against workspace root.
     if (
-      permissionsMode === "workspace" &&
       toolName === "bash" &&
       hasSandboxAutoApprove === true &&
       context.autoApproveUpTo !== "none"
@@ -255,48 +249,34 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       }
     }
 
-    // ── 7. No rule + strict mode → prompt (unless v3 threshold covers it)
-    if (permissionsMode === "strict" && !matchedRule) {
-      if (
-        context.isGatewayThreshold &&
-        isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
-      ) {
-        return {
-          decision: "allow",
-          reason: `${riskLevel} risk: within auto-approve threshold (strict mode overridden)`,
-        };
-      }
+    // ── 7. No rule + Low + workspace-scoped + within threshold → allow ──
+    if (
+      !matchedRule &&
+      riskLevel === RiskLevel.Low &&
+      isWorkspaceScoped &&
+      isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
+    ) {
       return {
-        decision: "prompt",
-        reason: "Strict mode: no matching rule, requires approval",
+        decision: "allow",
+        reason: "Workspace-scoped low-risk operation auto-allowed",
       };
     }
 
-    // ── 8. No rule + workspace mode + Low + workspace-scoped → allow ──
+    // ── 8. No rule + Low + bundled skill + within threshold → allow ──
     if (
-      permissionsMode === "workspace" &&
       !matchedRule &&
-      riskLevel === RiskLevel.Low
+      riskLevel === RiskLevel.Low &&
+      toolOrigin === "skill" &&
+      isSkillBundled &&
+      isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
     ) {
-      if (isWorkspaceScoped) {
-        return {
-          decision: "allow",
-          reason: "Workspace mode: workspace-scoped operation auto-allowed",
-        };
-      }
+      return {
+        decision: "allow",
+        reason: "Bundled skill tool: low risk, auto-allowed",
+      };
     }
 
-    // ── 9. No rule + Low + bundled skill → allow ──────────────────────
-    if (!matchedRule && riskLevel === RiskLevel.Low) {
-      if (toolOrigin === "skill" && isSkillBundled) {
-        return {
-          decision: "allow",
-          reason: "Bundled skill tool: low risk, auto-allowed",
-        };
-      }
-    }
-
-    // ── 10–11. Risk-based fallback: compare risk against configured threshold ─
+    // ── 9–10. Risk-based fallback: compare risk against configured threshold ─
     if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
       return {
         decision: "allow",

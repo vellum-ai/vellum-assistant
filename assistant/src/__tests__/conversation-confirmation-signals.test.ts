@@ -88,7 +88,7 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },
-    permissions: { mode: "workspace" },
+    permissions: {},
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},

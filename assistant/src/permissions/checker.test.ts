@@ -17,10 +17,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mutable config object so tests can switch permissions.mode.
 const testConfig = {
   permissions: {
-    mode: "workspace" as "strict" | "workspace",
     autoApproveUpTo: "low" as const,
   },
   skills: { load: { extraDirs: [] as string[] } },
@@ -138,7 +136,7 @@ import { RiskLevel } from "./types.js";
 
 describe("Permission Checker (gateway IPC)", () => {
   beforeEach(() => {
-    testConfig.permissions = { mode: "workspace", autoApproveUpTo: "low" };
+    testConfig.permissions = { autoApproveUpTo: "low" };
     testConfig.skills = { load: { extraDirs: [] } };
     mockIsContainerized = false;
     mockIpcClassifyRiskResult = undefined;

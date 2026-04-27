@@ -42,16 +42,16 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mutable config object so tests can switch permissions.mode between
-// 'strict' and 'workspace' without re-registering the mock.
+// Mutable config object so tests can switch autoApproveUpTo between
+// values without re-registering the mock.
 interface TestConfig {
-  permissions: { mode: "strict" | "workspace" };
+  permissions: { autoApproveUpTo?: "none" | "low" | "medium" | "high" };
   skills: { load: { extraDirs: string[] } };
   [key: string]: unknown;
 }
 
 const testConfig: TestConfig = {
-  permissions: { mode: "workspace" },
+  permissions: {},
   skills: { load: { extraDirs: [] } },
 };
 
@@ -196,8 +196,8 @@ describe("Permission Checker", () => {
     mockRisk("low");
     // Reset trust-store state and risk classification cache between tests
     clearRiskCache();
-    // Reset permissions mode to workspace (default) so existing tests are not affected
-    testConfig.permissions = { mode: "workspace" };
+    // Reset permissions to defaults so existing tests are not affected
+    testConfig.permissions = {};
     testConfig.skills = { load: { extraDirs: [] } };
     // Reset guardian persona mock so each test opts in explicitly
     mockGuardianPersonaPath = null;
@@ -905,21 +905,21 @@ describe("Permission Checker", () => {
 
   describe("strict mode — no implicit allow (PR 21)", () => {
     test("bash prompts in strict mode (no default allow rule outside container)", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check("bash", { command: "ls" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
     test("host_bash prompts low risk in strict mode (no matching rule)", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check("host_bash", { command: "ls" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
     test("high-risk host_bash (rm) with no matching rule returns prompt in strict mode", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check(
         "host_bash",
         { command: "rm file.txt" },
@@ -929,7 +929,7 @@ describe("Permission Checker", () => {
     });
 
     test("high-risk host_bash with no matching rule returns prompt in strict mode", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check(
         "host_bash",
         { command: "sudo rm -rf /" },
@@ -939,21 +939,21 @@ describe("Permission Checker", () => {
     });
 
     test("file_read (low risk) prompts in strict mode with no rule", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check(
         "file_read",
         { path: "/tmp/test.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
     test("web_search (low risk) prompts in strict mode with no rule", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check("web_search", { query: "test" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
   });
@@ -1194,14 +1194,14 @@ describe("Permission Checker", () => {
 
   describe("strict mode + high-risk integration (PR 25)", () => {
     test("strict mode: low-risk with no rule prompts (baseline)", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check(
         "file_read",
         { path: "/tmp/test.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
   });
@@ -1219,7 +1219,7 @@ describe("Permission Checker", () => {
 
     describe("strict mode: skill source writes prompt with high risk", () => {
       test("strict mode: file_write to skill source prompts (no implicit allow)", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1234,7 +1234,7 @@ describe("Permission Checker", () => {
 
       test("strict mode: file_edit of skill source prompts (no implicit allow)", async () => {
         mockRisk("high");
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1247,17 +1247,17 @@ describe("Permission Checker", () => {
       });
 
       test("strict mode: file_write to non-skill path prompts as Strict mode", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const normalPath = "/tmp/some-file.txt";
         const result = await check("file_write", { path: normalPath }, "/tmp");
         expect(result.decision).toBe("prompt");
         // Low-risk file_write in strict mode with no rule → Strict mode reason
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
       test("workspace mode: file_write to skill source still prompts", async () => {
         mockRisk("high");
-        testConfig.permissions.mode = "workspace";
+        testConfig.permissions = {};
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1270,7 +1270,7 @@ describe("Permission Checker", () => {
       });
 
       test("strict mode: host_file_write to skill source prompts (high risk overrides host ask)", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1287,7 +1287,7 @@ describe("Permission Checker", () => {
       });
 
       test("strict mode: host_file_edit of skill source prompts", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -1378,14 +1378,14 @@ describe("Permission Checker", () => {
 
   describe("strict mode — skill_load behavior (PR 34)", () => {
     test("skill_load prompts in strict mode without an explicit user rule", async () => {
-      testConfig.permissions.mode = "strict";
+      testConfig.permissions.autoApproveUpTo = "none";
       const result = await check("skill_load", { skill: "some-skill" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
 
     test("skill_load auto-allows in workspace mode (low risk fallback)", async () => {
-      testConfig.permissions.mode = "workspace";
+      testConfig.permissions = {};
       const result = await check("skill_load", { skill: "any-skill" }, "/tmp");
       expect(result.decision).toBe("allow");
     });
@@ -1405,59 +1405,59 @@ describe("Permission Checker", () => {
 
     describe("Invariant 1: strict mode requires explicit matching rule for every tool", () => {
       test("bash prompts in strict mode (no default allow rule outside container)", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check("bash", { command: "echo hello" }, "/tmp");
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
       test("low-risk host_bash prompts in strict mode (no matching rule)", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check(
           "host_bash",
           { command: "echo hello" },
           "/tmp",
         );
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
       test("low-risk file_read with no rule prompts in strict mode", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check(
           "file_read",
           { path: "/tmp/test.txt" },
           "/tmp",
         );
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
       test("low-risk skill_load prompts in strict mode without an explicit rule", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check(
           "skill_load",
           { skill: "any-skill" },
           "/tmp",
         );
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
       test("low-risk file_write with no rule prompts in strict mode", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check(
           "file_write",
           { path: "/tmp/file.txt" },
           "/tmp",
         );
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
       test("high-risk bash prompts in strict mode (no default allow rule outside container)", async () => {
         mockRisk("high");
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check(
           "bash",
           { command: "sudo apt update" },
@@ -1467,7 +1467,7 @@ describe("Permission Checker", () => {
       });
 
       test("high-risk host_bash command with no user rule prompts in strict mode", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check(
           "host_bash",
           { command: "sudo apt update" },
@@ -1477,16 +1477,16 @@ describe("Permission Checker", () => {
       });
 
       test("skill-origin tool with no rule prompts in strict mode", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check("skill_test_tool", {}, "/tmp");
         expect(result.decision).toBe("prompt");
       });
 
       test("bundled skill-origin tool with no rule prompts in strict mode", async () => {
-        testConfig.permissions.mode = "strict";
+        testConfig.permissions.autoApproveUpTo = "none";
         const result = await check("skill_bundled_test_tool", {}, "/tmp");
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("Strict mode");
+        expect(result.reason).toContain("above auto-approve threshold");
       });
 
     });
@@ -1528,7 +1528,7 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   beforeEach(() => {
     mockRisk("low");
     clearRiskCache();
-    testConfig.permissions = { mode: "workspace" };
+    testConfig.permissions = {};
     testConfig.skills = { load: { extraDirs: [] } };
   });
 
@@ -1580,7 +1580,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   beforeEach(() => {
     mockRisk("low");
     clearRiskCache();
-    testConfig.permissions = { mode: "workspace" };
+    testConfig.permissions = {};
     testConfig.skills = { load: { extraDirs: [] } };
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
@@ -1590,7 +1590,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 
   afterEach(() => {
-    testConfig.permissions = { mode: "workspace" };
+    testConfig.permissions = {};
   });
 
   // ── workspace-scoped file operations auto-allow ──────────────────
@@ -1602,7 +1602,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
   });
 
   test("file_write within workspace → allow (workspace-scoped)", async () => {
@@ -1612,7 +1612,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
   });
 
   test("file_edit within workspace → allow (workspace-scoped)", async () => {
@@ -1622,7 +1622,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Workspace mode");
+    expect(result.reason).toContain("Workspace-scoped");
   });
 
   // ── file operations outside workspace follow risk-based fallback ──
@@ -1665,7 +1665,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       { command: "some-unknown-program --flag" },
       workspaceDir,
     );
-    expect(result.reason).not.toContain("Workspace mode");
+    expect(result.reason).not.toContain("Workspace-scoped");
     expect(result.decision).toBe("prompt");
   });
 
@@ -1731,7 +1731,7 @@ describe("integration regressions (PR 11)", () => {
     } catch {
       /* may not exist */
     }
-    testConfig.permissions = { mode: "workspace" };
+    testConfig.permissions = {};
   });
 
   afterEach(() => {
