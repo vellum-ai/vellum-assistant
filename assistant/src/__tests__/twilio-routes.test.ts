@@ -1385,35 +1385,21 @@ describe("twilio webhook routes", () => {
       mockRawConfigStore = {};
       mockSecureKeyStore = {};
 
-      const res = await handleSetTwilioCredentials(
-        new Request("http://127.0.0.1/v1/integrations/twilio/credentials", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accountSid: "AC_new_credentials",
-            authToken: "new-auth-token",
-          }),
-        }),
-      );
+      const result = await handleSetTwilioCredentials({
+        body: {
+          accountSid: "AC_new_credentials",
+          authToken: "new_auth_token_value",
+        },
+      });
 
-      const json = (await res.json()) as {
-        success: boolean;
-        hasCredentials: boolean;
-      };
-      expect(res.status).toBe(200);
-      expect(json.success).toBe(true);
-      expect(json.hasCredentials).toBe(true);
+      expect(result.success).toBe(true);
+      expect(result.hasCredentials).toBe(true);
     });
 
     test("clearing credentials succeeds", async () => {
-      const res = await handleClearTwilioCredentials();
-      const json = (await res.json()) as {
-        success: boolean;
-        hasCredentials: boolean;
-      };
+      const result = await handleClearTwilioCredentials();
 
-      expect(res.status).toBe(200);
-      expect(json).toEqual({ success: true, hasCredentials: false });
+      expect(result).toEqual({ success: true, hasCredentials: false });
     });
 
     test("provisioning a number syncs Twilio webhooks", async () => {
@@ -1424,27 +1410,13 @@ describe("twilio webhook routes", () => {
         twilio: { accountSid: "AC_existing" },
       };
 
-      const res = await handleProvisionTwilioNumber(
-        new Request(
-          "http://127.0.0.1/v1/integrations/twilio/numbers/provision",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ country: "US" }),
-          },
-        ),
-      );
+      const result = await handleProvisionTwilioNumber({
+        body: { country: "US" },
+      });
 
-      const json = (await res.json()) as {
-        success: boolean;
-        hasCredentials: boolean;
-        phoneNumber: string;
-        warning?: string;
-      };
-      expect(res.status).toBe(200);
-      expect(json.success).toBe(true);
-      expect(json.hasCredentials).toBe(true);
-      expect(json.phoneNumber).toBe("+15557778888");
+      expect(result.success).toBe(true);
+      expect(result.hasCredentials).toBe(true);
+      expect(result.phoneNumber).toBe("+15557778888");
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
       expect(updatePhoneNumberWebhookCalls[0]!.urls).toEqual({
         voiceUrl: "https://numbers.example.com/webhooks/twilio/voice",
@@ -1455,24 +1427,13 @@ describe("twilio webhook routes", () => {
     test("assigning a number syncs Twilio webhooks", async () => {
       mockIngressPublicBaseUrl = "https://assign.example.com";
 
-      const res = await handleAssignTwilioNumber(
-        new Request("http://127.0.0.1/v1/integrations/twilio/numbers/assign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phoneNumber: "+15558889999" }),
-        }),
-      );
+      const result = await handleAssignTwilioNumber({
+        body: { phoneNumber: "+15558889999" },
+      });
 
-      const json = (await res.json()) as {
-        success: boolean;
-        hasCredentials: boolean;
-        phoneNumber: string;
-        warning?: string;
-      };
-      expect(res.status).toBe(200);
-      expect(json.success).toBe(true);
-      expect(json.hasCredentials).toBe(true);
-      expect(json.phoneNumber).toBe("+15558889999");
+      expect(result.success).toBe(true);
+      expect(result.hasCredentials).toBe(true);
+      expect(result.phoneNumber).toBe("+15558889999");
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
     });
   });
