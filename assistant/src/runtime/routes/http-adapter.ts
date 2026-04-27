@@ -7,8 +7,16 @@ import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
 import { RouteError } from "./errors.js";
-import type { RouteDefinition } from "./types.js";
-import { isRouteResponse } from "./types.js";
+import type { ResponseHeaderArgs, RouteDefinition } from "./types.js";
+
+function resolveResponseHeaders(
+  spec: RouteDefinition["responseHeaders"],
+  args: ResponseHeaderArgs,
+): Record<string, string> | undefined {
+  if (!spec) return undefined;
+  if (typeof spec === "function") return spec(args);
+  return spec;
+}
 
 export function routeDefinitionsToHTTPRoutes(
   routes: RouteDefinition[],
@@ -76,12 +84,23 @@ export function routeDefinitionsToHTTPRoutes(
           headers,
         });
 
-        if (isRouteResponse(result)) {
-          return new Response(result.body as BodyInit, {
-            headers: result.headers,
+        const responseHeaders = resolveResponseHeaders(r.responseHeaders, {
+          pathParams,
+          queryParams,
+          headers,
+        });
+
+        // Non-JSON responses: handler returned string or Uint8Array
+        if (typeof result === "string" || result instanceof Uint8Array) {
+          return new Response(result as BodyInit, {
+            headers: responseHeaders,
           });
         }
-        return Response.json(result);
+
+        // JSON responses: use responseHeaders if specified, otherwise default
+        return Response.json(result, {
+          headers: responseHeaders,
+        });
       } catch (err) {
         if (err instanceof RouteError) {
           return httpError(

@@ -61,15 +61,28 @@ mock.module("node:fs", () => ({
   },
 }));
 
-import { handleServePage } from "../runtime/routes/app-routes.js";
 import { ROUTES } from "../runtime/routes/app-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import type { ResponseHeaderArgs } from "../runtime/routes/types.js";
 
-/** Find a route handler by operationId. */
-function getHandler(operationId: string) {
+/** Find a route by operationId. */
+function getRoute(operationId: string) {
   const route = ROUTES.find((r) => r.operationId === operationId);
   if (!route) throw new Error(`Route not found: ${operationId}`);
-  return route.handler;
+  return route;
+}
+
+/** Resolve responseHeaders from a route definition for the given args. */
+function getResponseHeaders(
+  operationId: string,
+  args: ResponseHeaderArgs,
+): Record<string, string> {
+  const route = getRoute(operationId);
+  if (!route.responseHeaders) return {};
+  if (typeof route.responseHeaders === "function") {
+    return route.responseHeaders(args);
+  }
+  return route.responseHeaders;
 }
 
 /** Parse CSP header into a directive map. */
@@ -87,23 +100,26 @@ function parseCsp(header: string): Record<string, string> {
 describe("app-routes CSP headers", () => {
   describe("legacy apps", () => {
     test("includes 'unsafe-inline' in script-src", () => {
-      const result = handleServePage({ pathParams: { appId: "legacy-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "legacy-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["script-src"]).toContain("'unsafe-inline'");
     });
 
     test("includes 'unsafe-inline' in style-src", () => {
-      const result = handleServePage({ pathParams: { appId: "legacy-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "legacy-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["style-src"]).toContain("'unsafe-inline'");
     });
 
     test("has img-src with self, data, and https", () => {
-      const result = handleServePage({ pathParams: { appId: "legacy-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "legacy-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["img-src"]).toContain("'self'");
       expect(directives["img-src"]).toContain("data:");
       expect(directives["img-src"]).toContain("https:");
@@ -112,30 +128,34 @@ describe("app-routes CSP headers", () => {
 
   describe("multifile apps", () => {
     test("does NOT include 'unsafe-inline' in script-src", () => {
-      const result = handleServePage({ pathParams: { appId: "multi-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "multi-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["script-src"]).not.toContain("'unsafe-inline'");
     });
 
     test("includes 'self' in script-src for external main.js", () => {
-      const result = handleServePage({ pathParams: { appId: "multi-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "multi-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["script-src"]).toContain("'self'");
     });
 
     test("includes 'unsafe-inline' in style-src", () => {
-      const result = handleServePage({ pathParams: { appId: "multi-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "multi-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["style-src"]).toContain("'unsafe-inline'");
     });
 
     test("has img-src with self, data, and https", () => {
-      const result = handleServePage({ pathParams: { appId: "multi-1" } });
-      const csp = result.headers!["Content-Security-Policy"];
-      const directives = parseCsp(csp);
+      const headers = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "multi-1" },
+      });
+      const directives = parseCsp(headers["Content-Security-Policy"]);
       expect(directives["img-src"]).toContain("'self'");
       expect(directives["img-src"]).toContain("data:");
       expect(directives["img-src"]).toContain("https:");
@@ -143,17 +163,17 @@ describe("app-routes CSP headers", () => {
   });
 
   describe("handleServeDistFile appId validation", () => {
-    const handleServeDistFile = getHandler("apps_dist_file");
+    const distHandler = getRoute("apps_dist_file").handler;
 
     test("rejects appId with encoded path traversal (..)", () => {
       expect(() =>
-        handleServeDistFile({ pathParams: { appId: "..", filename: "main.js" } }),
+        distHandler({ pathParams: { appId: "..", filename: "main.js" } }),
       ).toThrow(BadRequestError);
     });
 
     test("rejects appId with forward slash", () => {
       expect(() =>
-        handleServeDistFile({
+        distHandler({
           pathParams: { appId: "../../etc", filename: "main.js" },
         }),
       ).toThrow(BadRequestError);
@@ -161,7 +181,7 @@ describe("app-routes CSP headers", () => {
 
     test("rejects appId with backslash", () => {
       expect(() =>
-        handleServeDistFile({
+        distHandler({
           pathParams: { appId: "foo\\bar", filename: "main.js" },
         }),
       ).toThrow(BadRequestError);
@@ -169,13 +189,13 @@ describe("app-routes CSP headers", () => {
 
     test("rejects empty appId", () => {
       expect(() =>
-        handleServeDistFile({ pathParams: { appId: "", filename: "main.js" } }),
+        distHandler({ pathParams: { appId: "", filename: "main.js" } }),
       ).toThrow(BadRequestError);
     });
 
     test("rejects appId with leading whitespace", () => {
       expect(() =>
-        handleServeDistFile({
+        distHandler({
           pathParams: { appId: " multi-1", filename: "main.js" },
         }),
       ).toThrow(BadRequestError);
@@ -183,7 +203,7 @@ describe("app-routes CSP headers", () => {
 
     test("rejects appId with trailing whitespace", () => {
       expect(() =>
-        handleServeDistFile({
+        distHandler({
           pathParams: { appId: "multi-1 ", filename: "main.js" },
         }),
       ).toThrow(BadRequestError);
@@ -191,7 +211,7 @@ describe("app-routes CSP headers", () => {
 
     test("rejects appId containing .. in the middle", () => {
       expect(() =>
-        handleServeDistFile({
+        distHandler({
           pathParams: { appId: "foo..bar", filename: "main.js" },
         }),
       ).toThrow(BadRequestError);
@@ -199,7 +219,7 @@ describe("app-routes CSP headers", () => {
 
     test("allows valid appId and filename (file not found throws NotFoundError)", () => {
       expect(() =>
-        handleServeDistFile({
+        distHandler({
           pathParams: { appId: "multi-1", filename: "main.js" },
         }),
       ).toThrow(NotFoundError);
@@ -208,18 +228,26 @@ describe("app-routes CSP headers", () => {
 
   describe("consistent directives across formats", () => {
     test("both formats share the same style-src policy", () => {
-      const legacy = handleServePage({ pathParams: { appId: "legacy-1" } });
-      const multi = handleServePage({ pathParams: { appId: "multi-1" } });
-      const legacyCsp = parseCsp(legacy.headers!["Content-Security-Policy"]);
-      const multiCsp = parseCsp(multi.headers!["Content-Security-Policy"]);
+      const legacyHeaders = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "legacy-1" },
+      });
+      const multiHeaders = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "multi-1" },
+      });
+      const legacyCsp = parseCsp(legacyHeaders["Content-Security-Policy"]);
+      const multiCsp = parseCsp(multiHeaders["Content-Security-Policy"]);
       expect(legacyCsp["style-src"]).toBe(multiCsp["style-src"]);
     });
 
     test("both formats share the same img-src policy", () => {
-      const legacy = handleServePage({ pathParams: { appId: "legacy-1" } });
-      const multi = handleServePage({ pathParams: { appId: "multi-1" } });
-      const legacyCsp = parseCsp(legacy.headers!["Content-Security-Policy"]);
-      const multiCsp = parseCsp(multi.headers!["Content-Security-Policy"]);
+      const legacyHeaders = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "legacy-1" },
+      });
+      const multiHeaders = getResponseHeaders("pages_serve", {
+        pathParams: { appId: "multi-1" },
+      });
+      const legacyCsp = parseCsp(legacyHeaders["Content-Security-Policy"]);
+      const multiCsp = parseCsp(multiHeaders["Content-Security-Policy"]);
       expect(legacyCsp["img-src"]).toBe(multiCsp["img-src"]);
     });
   });

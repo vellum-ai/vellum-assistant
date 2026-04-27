@@ -23,9 +23,9 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type {
+  ResponseHeaderArgs,
   RouteDefinition,
   RouteHandlerArgs,
-  RouteResponse,
 } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -54,7 +54,43 @@ function loadDesignSystemCss(): string {
   return designSystemCssCache;
 }
 
-export function handleServePage({ pathParams }: RouteHandlerArgs): RouteResponse {
+// ---------------------------------------------------------------------------
+// CSP helpers (shared between handlers and responseHeaders)
+// ---------------------------------------------------------------------------
+
+function buildCsp(scriptSrc: string): string {
+  return [
+    "default-src 'self'",
+    `style-src 'self' 'unsafe-inline'`,
+    `script-src ${scriptSrc}`,
+    "img-src 'self' data: https:",
+    "font-src 'self' data: https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+}
+
+function servePageHeaders({ pathParams }: ResponseHeaderArgs): Record<string, string> {
+  const appId = pathParams?.appId as string;
+  const app = getApp(appId);
+  // Multifile apps use external scripts — no 'unsafe-inline' for script-src.
+  // Legacy apps contain inline event handlers that require 'unsafe-inline'.
+  const scriptSrc = app && isMultifileApp(app)
+    ? "'self'"
+    : "'self' 'unsafe-inline'";
+  return {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": buildCsp(scriptSrc),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Handlers (return body only)
+// ---------------------------------------------------------------------------
+
+function handleServePage({ pathParams }: RouteHandlerArgs): string {
   const appId = pathParams?.appId as string;
   const app = getApp(appId);
   if (!app) {
@@ -82,7 +118,7 @@ export function handleServePage({ pathParams }: RouteHandlerArgs): RouteResponse
     `<script nonce="${nonce}"`,
   );
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -94,37 +130,13 @@ export function handleServePage({ pathParams }: RouteHandlerArgs): RouteResponse
 ${noncedHtml}
 </body>
 </html>`;
-
-  // App HTML is user- or LLM-generated and commonly contains inline event
-  // handlers (onclick, onkeydown, etc.). Nonce-only script-src blocks those
-  // because CSP nonces only authorize <script> blocks, not handler attributes.
-  // We keep 'unsafe-inline' so arbitrary app content works.
-  const csp = [
-    "default-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https:",
-    "font-src 'self' data: https:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-  ].join("; ");
-
-  return {
-    body: html,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": csp,
-    },
-  };
 }
 
 /**
  * Serve compiled output for multifile TSX apps.
  * Falls back to a "not compiled yet" message if dist/index.html is missing.
  */
-function serveMultifileApp(appId: string, appName: string): RouteResponse {
+function serveMultifileApp(appId: string, appName: string): string {
   const distDir = join(getAppDirPath(appId), "dist");
   const indexPath = join(distDir, "index.html");
 
@@ -133,12 +145,10 @@ function serveMultifileApp(appId: string, appName: string): RouteResponse {
       /[<>&"]/g,
       (c) => HTML_ESCAPE_MAP[c] ?? c,
     );
-    return {
-      body:
-        `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
-        `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    };
+    return (
+      `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
+      `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`
+    );
   }
 
   // Rewrite relative asset paths to absolute HTTP routes so browsers and
@@ -154,28 +164,7 @@ function serveMultifileApp(appId: string, appName: string): RouteResponse {
     },
   );
 
-  // Compiled apps use external scripts so 'unsafe-inline' is not needed for
-  // script-src; however we keep it for style-src since the app HTML may use
-  // inline styles.
-  const csp = [
-    "default-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self'",
-    "img-src 'self' data: https:",
-    "font-src 'self' data: https:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-  ].join("; ");
-
-  return {
-    body: html,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": csp,
-    },
-  };
+  return html;
 }
 
 /** Content-Type map for static dist/ assets. */
@@ -198,7 +187,7 @@ const DIST_CONTENT_TYPES: Record<string, string> = {
  */
 function handleServeDistFile({
   pathParams,
-}: RouteHandlerArgs): RouteResponse {
+}: RouteHandlerArgs): Uint8Array {
   const appId = pathParams?.appId as string;
   const filename = pathParams?.filename as string;
 
@@ -229,17 +218,7 @@ function handleServeDistFile({
     throw new NotFoundError("File not found");
   }
 
-  const ext = extname(filename).toLowerCase();
-  const contentType = DIST_CONTENT_TYPES[ext] ?? "application/octet-stream";
-  const content = readFileSync(filePath);
-
-  return {
-    body: new Uint8Array(content),
-    headers: {
-      "Content-Type": contentType,
-      "Cache-Control": "no-cache",
-    },
-  };
+  return new Uint8Array(readFileSync(filePath));
 }
 
 /** 50 MB — generous cap for zip app bundles. */
@@ -297,7 +276,7 @@ async function handleShareApp({
 
 function handleDownloadSharedApp({
   pathParams,
-}: RouteHandlerArgs): RouteResponse {
+}: RouteHandlerArgs): Uint8Array {
   const shareToken = pathParams?.token as string;
   const record = getSharedAppLink(shareToken);
   if (!record) {
@@ -306,13 +285,7 @@ function handleDownloadSharedApp({
 
   incrementDownloadCount(shareToken);
 
-  return {
-    body: new Uint8Array(record.bundleData),
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": 'attachment; filename="app.vellum"',
-    },
-  };
+  return new Uint8Array(record.bundleData);
 }
 
 function handleGetSharedAppMetadata({ pathParams }: RouteHandlerArgs) {
@@ -352,6 +325,17 @@ function handleDeleteSharedApp({ pathParams }: RouteHandlerArgs) {
 
 export const ROUTES: RouteDefinition[] = [
   {
+    operationId: "pages_serve",
+    endpoint: "pages/:appId",
+    method: "GET",
+    policyKey: "pages",
+    summary: "Serve app page",
+    description: "Render and serve a shareable app page as HTML.",
+    tags: ["apps"],
+    responseHeaders: servePageHeaders,
+    handler: handleServePage,
+  },
+  {
     operationId: "apps_dist_file",
     endpoint: "apps/:appId/dist/:filename",
     method: "GET",
@@ -360,6 +344,12 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Serve a static asset from an app's compiled dist/ directory.",
     tags: ["apps"],
+    responseHeaders: ({ pathParams }) => ({
+      "Content-Type":
+        DIST_CONTENT_TYPES[extname(pathParams?.filename ?? "").toLowerCase()] ??
+        "application/octet-stream",
+      "Cache-Control": "no-cache",
+    }),
     handler: handleServeDistFile,
   },
   {
@@ -400,6 +390,10 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Download shared app",
     description: "Download a shared app bundle as a zip file.",
     tags: ["apps"],
+    responseHeaders: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": 'attachment; filename="app.vellum"',
+    },
     handler: handleDownloadSharedApp,
   },
   {

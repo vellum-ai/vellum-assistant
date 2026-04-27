@@ -20,29 +20,20 @@ export interface RouteHandlerArgs {
 }
 
 /**
- * Wrapper for non-JSON handler responses (HTML, binary, etc.).
- * When a handler returns a RouteResponse, adapters use `body` as the raw
- * payload and forward `headers` (Content-Type, Content-Disposition, etc.)
- * to the transport layer.
+ * Subset of RouteHandlerArgs available to responseHeaders.
+ * Excludes body/rawBody since header computation must be fast
+ * and should not depend on the request payload.
  */
-export interface RouteResponse {
-  body: Uint8Array | string;
-  headers?: Record<string, string>;
-}
-
-export function isRouteResponse(val: unknown): val is RouteResponse {
-  if (val == null || typeof val !== "object" || !("body" in val)) return false;
-  const { body } = val as { body: unknown };
-  return body instanceof Uint8Array || typeof body === "string";
-}
+export type ResponseHeaderArgs = Pick<
+  RouteHandlerArgs,
+  "pathParams" | "queryParams" | "headers"
+>;
 
 export interface RouteDefinition {
   operationId: string;
   endpoint: string;
   method: string;
-  handler: (
-    args: RouteHandlerArgs,
-  ) => unknown | RouteResponse | Promise<unknown | RouteResponse>;
+  handler: (args: RouteHandlerArgs) => unknown | Promise<unknown>;
   policyKey?: string;
   summary?: string;
   description?: string;
@@ -50,4 +41,14 @@ export interface RouteDefinition {
   queryParams?: RouteQueryParam[];
   requestBody?: z.ZodType;
   responseBody?: z.ZodType;
+  /**
+   * Response headers for this route. Can be:
+   * - A static map of header name → value
+   * - A function that computes headers from path/query params + request headers
+   *
+   * When omitted, the adapter defaults to application/json for object results.
+   */
+  responseHeaders?:
+    | Record<string, string>
+    | ((args: ResponseHeaderArgs) => Record<string, string>);
 }
