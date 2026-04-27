@@ -1,0 +1,30 @@
+name: PR Avatar Checks
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+    paths:
+      - 'avatar/**'
+      - 'assistant/src/avatar/character-components.ts'
+      - 'scripts/avatar/**'
+      - '.github/workflows/pr-avatar.yaml'
+
+concurrency:
+  group: pr-avatar-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check-catalog:
+    name: Check character-components.json is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2
+        with:
+          bun-version: latest
+
+      - name: Validate character-components.json
+        run: node scripts/avatar/check-catalog.mjs
