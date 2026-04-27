@@ -91,7 +91,7 @@ import {
   AppSourceWatcher,
   setEnsureAppSourceWatcher,
 } from "./app-source-watcher.js";
-import { ConfigWatcher } from "./config-watcher.js";
+import { getConfigWatcher } from "./config-watcher.js";
 import {
   Conversation,
   type ConversationMemoryPolicy,
@@ -124,7 +124,6 @@ import {
   type ConversationCreateOptions,
   type HandlerContext,
 } from "./handlers/shared.js";
-import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -329,7 +328,7 @@ export class DaemonServer {
   private _hubChain: Promise<void> = Promise.resolve();
 
   // Composed subsystems
-  private configWatcher = new ConfigWatcher();
+  private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
@@ -1256,20 +1255,6 @@ export class DaemonServer {
         this.getOrCreateConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,
-    };
-  }
-
-  /** Public subset of handler context for skill management HTTP routes. */
-  getSkillContext(): SkillOperationContext {
-    return {
-      debounceTimers: this.configWatcher.timers,
-      setSuppressConfigReload: (value: boolean) => {
-        this.configWatcher.suppressConfigReload = value;
-      },
-      updateConfigFingerprint: () => {
-        this.configWatcher.updateFingerprint();
-      },
-      broadcast: (msg) => this.broadcast(msg),
     };
   }
 

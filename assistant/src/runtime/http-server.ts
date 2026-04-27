@@ -170,7 +170,7 @@ import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { skillRouteDefinitions } from "./routes/skills-routes.js";
+import { skillHttpOnlyRouteDefinitions } from "./routes/skills-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workItemHttpOnlyRouteDefinitions } from "./routes/work-items-routes.js";
@@ -307,7 +307,6 @@ export class RuntimeHttpServer {
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
   private sendMessageDeps?: SendMessageDeps;
-  private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
@@ -328,7 +327,6 @@ export class RuntimeHttpServer {
       options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
-    this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
     this.getCesClient = options.getCesClient;
@@ -2095,11 +2093,7 @@ export class RuntimeHttpServer {
       ...hostCuRouteDefinitions(),
       ...hostFileRouteDefinitions(),
       ...hostTransferRouteDefinitions(),
-      ...(this.getSkillContext
-        ? skillRouteDefinitions({
-            getSkillContext: this.getSkillContext,
-          })
-        : []),
+      ...skillHttpOnlyRouteDefinitions(),
       ...surfaceContentRouteDefinitions(),
       ...guardianActionRouteDefinitions(),
 

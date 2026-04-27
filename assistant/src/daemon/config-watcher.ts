@@ -559,6 +559,20 @@ function safeGetCleanupConfig(): MemoryCleanupConfig | undefined {
  *
  * Exported for unit testing.
  */
+// ─── Module-level singleton ──────────────────────────────────────────────────
+
+let _instance: ConfigWatcher | undefined;
+
+/**
+ * Return the global ConfigWatcher instance, lazily creating it on first access.
+ */
+export function getConfigWatcher(): ConfigWatcher {
+  if (!_instance) {
+    _instance = new ConfigWatcher();
+  }
+  return _instance;
+}
+
 export function cleanupSettingsChanged(
   prev: MemoryCleanupConfig | undefined,
   next: MemoryCleanupConfig | undefined,
