@@ -7147,6 +7147,13 @@ paths:
                 required:
                   - schedules
                 additionalProperties: false
+      parameters:
+        - name: include_all
+          in: query
+          required: false
+          schema:
+            type: string
+          description: When 'true', include deferred schedules that are normally hidden.
   /v1/schedules/{id}:
     delete:
       operationId: schedules_by_id_delete
@@ -7327,6 +7334,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 10, max 100)
   /v1/schedules/{id}/toggle:
     post:
       operationId: schedules_by_id_toggle_post
