@@ -18,9 +18,8 @@ import {
   verifyTrustedContact,
 } from "../../daemon/handlers/config-channels.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { revokePendingSessions } from "../channel-verification-service.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   cancelOutbound,
   deliverVerificationSlack,
@@ -29,9 +28,15 @@ import {
   startOutbound,
 } from "../verification-outbound-actions.js";
 import { verificationRateLimiter } from "../verification-rate-limiter.js";
+import {
+  BadRequestError,
+  ConflictError,
+  TooManyRequestsError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Channel verification (unified session API)
+// Handlers
 // ---------------------------------------------------------------------------
 
 /**
@@ -41,14 +46,23 @@ import { verificationRateLimiter } from "../verification-rate-limiter.js";
  * - `purpose: "trusted_contact"` with `contactChannelId`: trusted contact verification
  * - `destination` present: outbound guardian verification
  * - Otherwise: inbound guardian challenge
- *
- * Body: { channel?: ChannelId; destination?: string; rebind?: boolean; conversationId?: string; originConversationId?: string; purpose?: string; contactChannelId?: string }
  */
-export async function handleCreateVerificationSession(
-  req: Request,
-  assistantId: string,
-): Promise<Response> {
-  const body = (await req.json()) as {
+export async function handleCreateVerificationSession({
+  body,
+}: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const {
+    channel,
+    destination,
+    rebind,
+    conversationId,
+    originConversationId,
+    purpose: rawPurpose,
+    contactChannelId,
+  } = body as {
     channel?: ChannelId;
     destination?: string;
     rebind?: boolean;
@@ -58,63 +72,66 @@ export async function handleCreateVerificationSession(
     contactChannelId?: string;
   };
 
-  const purpose = body.purpose ?? "guardian";
+  const purpose = rawPurpose ?? "guardian";
 
-  if (purpose === "trusted_contact" && !body.contactChannelId) {
-    return httpError(
-      "BAD_REQUEST",
+  if (purpose === "trusted_contact" && !contactChannelId) {
+    throw new BadRequestError(
       "contactChannelId is required for trusted_contact purpose",
-      400,
     );
   }
 
-  // Trusted contact verification path — delegates to the shared transport-agnostic
-  // function and wraps the result in an HTTP response.
+  // Trusted contact verification path
   if (purpose === "trusted_contact") {
     const result = await verifyTrustedContact(
-      body.contactChannelId!,
-      assistantId,
+      contactChannelId!,
+      DAEMON_INTERNAL_ASSISTANT_ID,
     );
-    const status = result.success
-      ? 200
-      : result.error === "rate_limited"
-        ? 429
-        : result.error === "already_verified"
-          ? 409
-          : 400;
-    return Response.json(result, { status });
+    if (!result.success) {
+      if (result.error === "rate_limited") {
+        throw new TooManyRequestsError(
+          (result as { message?: string }).message ?? "Rate limited",
+        );
+      }
+      if (result.error === "already_verified") {
+        throw new ConflictError(
+          (result as { message?: string }).message ?? "Already verified",
+        );
+      }
+      throw new BadRequestError(
+        (result as { message?: string }).message ??
+          "Trusted contact verification failed",
+      );
+    }
+    return result;
   }
 
-  if (body.destination) {
+  if (destination) {
     // Outbound verification path — requires a channel
-    if (!body.channel) {
-      return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
+    if (!channel) {
+      throw new BadRequestError('The "channel" field is required.');
     }
 
     // Normalize destination to prevent rate-limit bypass via format variations
-    // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
-    let rateLimitKey: string | undefined = body.destination;
+    let rateLimitKey: string | undefined = destination;
     if (rateLimitKey) {
-      if (body.channel === "phone") {
+      if (channel === "phone") {
         rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
-      } else if (body.channel === "telegram") {
+      } else if (channel === "telegram") {
         rateLimitKey = normalizeTelegramDestination(rateLimitKey);
       }
     }
 
     if (rateLimitKey && verificationRateLimiter.isBlocked(rateLimitKey)) {
-      return httpError(
-        "RATE_LIMITED",
+      throw new TooManyRequestsError(
         "Too many verification attempts for this identity. Please try again later.",
-        429,
       );
     }
 
     const result = await startOutbound({
-      channel: body.channel,
-      destination: body.destination,
-      rebind: body.rebind,
-      originConversationId: body.originConversationId,
+      channel,
+      destination,
+      rebind,
+      originConversationId,
     });
 
     if (!result.success && rateLimitKey) {
@@ -127,57 +144,63 @@ export async function handleCreateVerificationSession(
       deliverVerificationSlack(userId, text, aid);
     }
 
-    const status = result.success
-      ? 200
-      : result.error === "rate_limited"
-        ? 429
-        : 400;
+    if (!result.success) {
+      if (result.error === "rate_limited") {
+        throw new TooManyRequestsError(
+          (result as { message?: string }).message ?? "Rate limited",
+        );
+      }
+      throw new BadRequestError(
+        (result as { message?: string }).message ??
+          "Outbound verification failed",
+      );
+    }
+
     // Strip internal field from the response
     const { _pendingSlackDm: _, ...publicResult } = result;
-    return Response.json(publicResult, { status });
+    return publicResult;
   }
 
   // Inbound challenge path
-  const result = createInboundChallenge(
-    body.channel,
-    body.rebind,
-    body.conversationId,
-  );
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+  const result = createInboundChallenge(channel, rebind, conversationId);
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { message?: string }).message ??
+        "Inbound challenge creation failed",
+    );
+  }
+  return result;
 }
 
 /**
  * GET /v1/channel-verification-sessions/status
- *
- * Query params: channel?
  */
-function handleGetVerificationStatus(url: URL): Response {
-  const channel =
-    (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
-  const result = getVerificationStatus(channel);
-  return Response.json(result);
+function handleGetVerificationStatus({
+  queryParams = {},
+}: RouteHandlerArgs) {
+  const channel = (queryParams.channel as ChannelId | undefined) ?? undefined;
+  return getVerificationStatus(channel);
 }
 
 /**
  * POST /v1/channel-verification-sessions/resend
- *
- * Body: { channel: ChannelId; originConversationId?: string }
  */
-export async function handleResendVerificationSession(
-  req: Request,
-): Promise<Response> {
-  const body = (await req.json()) as {
+export async function handleResendVerificationSession({
+  body,
+}: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const { channel, originConversationId } = body as {
     channel?: ChannelId;
     originConversationId?: string;
   };
-  if (!body.channel) {
-    return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
+  if (!channel) {
+    throw new BadRequestError('The "channel" field is required.');
   }
-  const result = resendOutbound({
-    channel: body.channel,
-    originConversationId: body.originConversationId,
-  });
+
+  const result = resendOutbound({ channel, originConversationId });
 
   // Dispatch Slack DM delivery from the daemon process (not sandboxed).
   if (result._pendingSlackDm) {
@@ -185,138 +208,135 @@ export async function handleResendVerificationSession(
     deliverVerificationSlack(userId, text, aid);
   }
 
-  const status = result.success
-    ? 200
-    : result.error === "rate_limited"
-      ? 429
-      : 400;
+  if (!result.success) {
+    if (result.error === "rate_limited") {
+      throw new TooManyRequestsError(
+        (result as { message?: string }).message ?? "Rate limited",
+      );
+    }
+    throw new BadRequestError(
+      (result as { message?: string }).message ?? "Resend failed",
+    );
+  }
+
   const { _pendingSlackDm: _, ...publicResult } = result;
-  return Response.json(publicResult, { status });
+  return publicResult;
 }
 
 /**
  * DELETE /v1/channel-verification-sessions
- *
- * Cancels both inbound challenges and outbound sessions.
- *
- * Body: { channel: ChannelId }
  */
-export async function handleCancelVerificationSession(
-  req: Request,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    channel?: ChannelId;
-  };
-  if (!body.channel) {
-    return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
+export async function handleCancelVerificationSession({
+  body,
+}: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
 
-  // Cancel any active outbound session
-  cancelOutbound({ channel: body.channel });
-  // Cancel any pending inbound challenge
-  revokePendingSessions(body.channel);
+  const { channel } = body as { channel?: ChannelId };
+  if (!channel) {
+    throw new BadRequestError('The "channel" field is required.');
+  }
 
-  return Response.json({ success: true, channel: body.channel });
+  cancelOutbound({ channel });
+  revokePendingSessions(channel);
+
+  return { success: true, channel };
 }
 
 /**
  * POST /v1/channel-verification-sessions/revoke
- *
- * Cancels all active sessions and revokes the guardian binding.
- *
- * Body: { channel?: ChannelId }
  */
-async function handleRevokeVerificationBinding(
-  req: Request,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    channel?: ChannelId;
-  };
+async function handleRevokeVerificationBinding({
+  body = {},
+}: RouteHandlerArgs) {
+  const { channel } = body as { channel?: ChannelId };
 
-  // revokeVerificationForChannel already handles cancelOutbound + revokePendingSessions + binding revocation
-  const result = revokeVerificationForChannel(body.channel);
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+  const result = revokeVerificationForChannel(channel);
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { message?: string }).message ?? "Revocation failed",
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function channelVerificationRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "channel-verification-sessions",
-      method: "POST",
-      summary: "Create verification session",
-      description:
-        "Create a channel verification session (inbound challenge, outbound, or trusted contact).",
-      tags: ["channel-verification"],
-      requestBody: z.object({
-        channel: z.string().describe("Channel ID"),
-        destination: z.string().describe("Outbound destination"),
-        rebind: z.boolean(),
-        conversationId: z.string(),
-        originConversationId: z.string(),
-        purpose: z.string().describe("guardian or trusted_contact"),
-        contactChannelId: z.string(),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleCreateVerificationSession(req, authContext.assistantId),
-    },
-    {
-      endpoint: "channel-verification-sessions/resend",
-      method: "POST",
-      summary: "Resend verification code",
-      description: "Resend the outbound verification code.",
-      tags: ["channel-verification"],
-      requestBody: z.object({
-        channel: z.string(),
-        originConversationId: z.string().optional(),
-      }),
-      handler: async ({ req }) => handleResendVerificationSession(req),
-    },
-    {
-      endpoint: "channel-verification-sessions",
-      method: "DELETE",
-      summary: "Cancel verification sessions",
-      description:
-        "Cancel all active inbound and outbound verification sessions.",
-      tags: ["channel-verification"],
-      requestBody: z.object({
-        channel: z.string(),
-      }),
-      responseBody: z.object({
-        success: z.boolean(),
-        channel: z.string(),
-      }),
-      handler: async ({ req }) => handleCancelVerificationSession(req),
-    },
-    {
-      endpoint: "channel-verification-sessions/revoke",
-      method: "POST",
-      summary: "Revoke verification binding",
-      description: "Cancel all sessions and revoke the guardian binding.",
-      tags: ["channel-verification"],
-      requestBody: z.object({
-        channel: z.string(),
-      }),
-      handler: async ({ req }) => handleRevokeVerificationBinding(req),
-    },
-    {
-      endpoint: "channel-verification-sessions/status",
-      method: "GET",
-      summary: "Get verification status",
-      description: "Check guardian binding and verification session status.",
-      tags: ["channel-verification"],
-      queryParams: [
-        {
-          name: "channel",
-          schema: { type: "string" },
-          description: "Optional channel ID filter",
-        },
-      ],
-      handler: ({ url }) => handleGetVerificationStatus(url),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "channel_verification_sessions_create",
+    endpoint: "channel-verification-sessions",
+    method: "POST",
+    summary: "Create verification session",
+    description:
+      "Create a channel verification session (inbound challenge, outbound, or trusted contact).",
+    tags: ["channel-verification"],
+    requestBody: z.object({
+      channel: z.string().describe("Channel ID"),
+      destination: z.string().describe("Outbound destination"),
+      rebind: z.boolean(),
+      conversationId: z.string(),
+      originConversationId: z.string(),
+      purpose: z.string().describe("guardian or trusted_contact"),
+      contactChannelId: z.string(),
+    }),
+    handler: handleCreateVerificationSession,
+  },
+  {
+    operationId: "channel_verification_sessions_resend",
+    endpoint: "channel-verification-sessions/resend",
+    method: "POST",
+    summary: "Resend verification code",
+    description: "Resend the outbound verification code.",
+    tags: ["channel-verification"],
+    requestBody: z.object({
+      channel: z.string(),
+      originConversationId: z.string().optional(),
+    }),
+    handler: handleResendVerificationSession,
+  },
+  {
+    operationId: "channel_verification_sessions_cancel",
+    endpoint: "channel-verification-sessions",
+    method: "DELETE",
+    summary: "Cancel verification sessions",
+    description:
+      "Cancel all active inbound and outbound verification sessions.",
+    tags: ["channel-verification"],
+    requestBody: z.object({
+      channel: z.string(),
+    }),
+    handler: handleCancelVerificationSession,
+  },
+  {
+    operationId: "channel_verification_sessions_revoke",
+    endpoint: "channel-verification-sessions/revoke",
+    method: "POST",
+    summary: "Revoke verification binding",
+    description: "Cancel all sessions and revoke the guardian binding.",
+    tags: ["channel-verification"],
+    requestBody: z.object({
+      channel: z.string(),
+    }),
+    handler: handleRevokeVerificationBinding,
+  },
+  {
+    operationId: "channel_verification_sessions_status",
+    endpoint: "channel-verification-sessions/status",
+    method: "GET",
+    summary: "Get verification status",
+    description: "Check guardian binding and verification session status.",
+    tags: ["channel-verification"],
+    queryParams: [
+      {
+        name: "channel",
+        schema: { type: "string" },
+        description: "Optional channel ID filter",
+      },
+    ],
+    handler: handleGetVerificationStatus,
+  },
+];

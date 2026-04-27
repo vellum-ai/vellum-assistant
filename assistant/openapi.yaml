@@ -2079,19 +2079,6 @@ paths:
       responses:
         "200":
           description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  channel:
-                    type: string
-                required:
-                  - success
-                  - channel
-                additionalProperties: false
       requestBody:
         required: true
         content:

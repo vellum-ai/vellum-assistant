@@ -21,6 +21,7 @@ import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
 import { ROUTES as CACHE_ROUTES } from "./cache-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
+import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
@@ -77,6 +78,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BACKUP_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
+  ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_READINESS_ROUTES,
   ...BROWSER_ROUTES,
   ...BRAIN_GRAPH_ROUTES,

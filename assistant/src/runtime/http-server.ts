@@ -138,7 +138,6 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
 import { contactHttpOnlyRouteDefinitions } from "./routes/contact-routes.js";
 import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import {
@@ -2104,7 +2103,6 @@ export class RuntimeHttpServer {
 
       ...contactHttpOnlyRouteDefinitions(),
 
-      ...channelVerificationRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
       {
