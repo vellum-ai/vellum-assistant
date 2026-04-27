@@ -41,6 +41,15 @@ import type { ActivationState, EverInjectedEntry } from "./types.js";
 // Public types
 // ---------------------------------------------------------------------------
 
+/**
+ * Discriminator the wiring layer (`conversation-graph-memory.ts`) sets to
+ * tell the v2 injector which call site is asking. Both modes currently share
+ * the same block layout (mirroring v1 which also wraps both flows in
+ * `<memory __injected>...</memory>`); the parameter exists so future tuning
+ * can shape the conversation-start block without touching the call site.
+ */
+export type InjectMemoryV2Mode = "context-load" | "per-turn";
+
 export interface InjectMemoryV2BlockParams {
   /** SQLite database handle for activation_state hydrate/save. */
   database: DrizzleDb;
@@ -56,6 +65,13 @@ export interface InjectMemoryV2BlockParams {
   nowText: string;
   /** Resolved messageId to persist on the activation_state row. */
   messageId: string;
+  /**
+   * Whether the caller is doing a fresh context-load (turn 1 / post-compaction)
+   * or a per-turn append injection. Currently informational — both modes
+   * produce the same block layout — but accepted so callers don't have to
+   * change when the layouts diverge.
+   */
+  mode?: InjectMemoryV2Mode;
   config: AssistantConfig;
 }
 
