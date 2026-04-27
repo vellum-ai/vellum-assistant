@@ -265,7 +265,7 @@ export async function embedGraphTriggerJob(
   if (!triggerId) return;
 
   // Import here to avoid circular dependency
-  const { getDb } = await import("../db.js");
+  const { getDb } = await import("../db-connection.js");
   const { eq } = await import("drizzle-orm");
   const { memoryGraphTriggers } = await import("../schema.js");
   const { embedWithBackend } = await import("../embedding-backend.js");
