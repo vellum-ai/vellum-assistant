@@ -529,6 +529,30 @@ export async function checkExistingPlatformAssistant(
   return active ?? null;
 }
 
+/**
+ * Fetch all active assistants for the authenticated user from the platform.
+ * Returns an empty array on failure (non-fatal).
+ */
+export async function fetchPlatformAssistants(
+  token: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant[]> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/`;
+
+  const response = await fetch(url, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (!response.ok) return [];
+
+  const body = (await response.json()) as {
+    results?: HatchedAssistant[];
+  };
+
+  return (body.results ?? []).filter((a) => a.status === "active");
+}
+
 export interface PlatformUser {
   id: string;
   email: string;
