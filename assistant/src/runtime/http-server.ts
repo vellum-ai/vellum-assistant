@@ -192,7 +192,6 @@ import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import { skillRouteDefinitions } from "./routes/skills-routes.js";
 import { sttRouteDefinitions } from "./routes/stt-routes.js";
-import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { ttsRouteDefinitions } from "./routes/tts-routes.js";
@@ -1826,7 +1825,6 @@ export class RuntimeHttpServer {
             }
           : undefined,
       ),
-      ...subagentRouteDefinitions(),
       ...conversationQueryRouteDefinitions({
         getModelSetContext: this.getModelSetContext,
         findConversationForQueue: this.findConversation
