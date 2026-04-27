@@ -73,6 +73,13 @@ final class ComposerThresholdPickerTests: XCTestCase {
             globalInteractive: RiskThreshold.low.rawValue
         )
         XCTAssertNil(`default`)
+
+        // When global is medium, Conservative should explicitly override to low
+        let conservativeOverride = ComposerThresholdPicker.stagedDraftOverride(
+            for: .default,
+            globalInteractive: RiskThreshold.medium.rawValue
+        )
+        XCTAssertEqual(conservativeOverride, RiskThreshold.low.rawValue)
     }
 
     func testPresetFromNoOverrideReflectsGlobalInteractiveThreshold() {

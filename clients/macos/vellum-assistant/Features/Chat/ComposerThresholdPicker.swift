@@ -11,7 +11,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Compo
 enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     /// Prompt for everything (maps to ``RiskThreshold.none``).
     case strict
-    /// Match the global interactive default (no override stored).
+    /// Conservative: auto-approve low-risk tools (maps to ``RiskThreshold.low``).
     case `default`
     /// Auto-approve most tools (maps to ``RiskThreshold.medium``).
     case relaxed
@@ -48,7 +48,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     }
 
     /// The ``RiskThreshold`` value represented by this preset.
-    /// `.default` maps to `.low` for surfaces that persist explicit globals.
+    /// Each preset maps to exactly one threshold level.
     var riskThreshold: RiskThreshold {
         switch self {
         case .strict: return .none
@@ -59,11 +59,11 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     }
 
     /// The ``RiskThreshold`` raw value to write when this preset is selected.
-    /// Returns `nil` for `.default` — the caller should delete the override instead.
-    var thresholdValue: String? {
+    /// Returns the explicit threshold raw value to persist for each preset.
+    var thresholdValue: String {
         switch self {
         case .strict: return RiskThreshold.none.rawValue
-        case .default: return nil
+        case .default: return RiskThreshold.low.rawValue
         case .relaxed: return RiskThreshold.medium.rawValue
         case .fullAccess: return RiskThreshold.high.rawValue
         }
@@ -324,11 +324,11 @@ struct ComposerThresholdPicker: View {
         for preset: ThresholdPreset,
         globalInteractive: String
     ) -> OverrideAction {
-        if let value = preset.thresholdValue,
-           value != globalInteractive {
+        let value = preset.thresholdValue
+        if value != globalInteractive {
             return .set(value)
         }
-        // Default or matching global — remove the override row.
+        // Matches global — remove the override row.
         return .clear
     }
 
