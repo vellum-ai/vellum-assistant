@@ -119,7 +119,7 @@ Examples:
         ];
 
         const rows: string[][] = rules.map((r: TrustRule) => [
-          r.id.slice(0, 8),
+          r.id.slice(0, 16),
           r.tool,
           r.pattern,
           r.risk,
@@ -280,6 +280,15 @@ Examples:
           return;
         }
 
+        if (opts.risk) {
+          const validRisks = ["low", "medium", "high"];
+          if (!validRisks.includes(opts.risk)) {
+            log.error(`Invalid --risk "${opts.risk}". Must be one of: low, medium, high`);
+            process.exitCode = 1;
+            return;
+          }
+        }
+
         // Prefix resolution: fetch all rules to find the full ID
         const listResult = await cliIpcCall<{ rules: TrustRule[] }>(
           "trust_rules_list",
@@ -306,11 +315,11 @@ Examples:
             process.stdout.write(
               JSON.stringify({
                 ok: false,
-                error: "No trust rule found matching: " + id,
+                error: `No trust rule found matching prefix "${id}". Run 'assistant trust list --all' to see all rule IDs.`,
               }) + "\n",
             );
           } else {
-            log.error("No trust rule found matching: " + id);
+            log.error(`No trust rule found matching prefix "${id}". Run 'assistant trust list --all' to see all rule IDs.`);
           }
           process.exitCode = 1;
           return;
@@ -318,7 +327,7 @@ Examples:
 
         if (matches.length > 1) {
           const details = matches
-            .map((r) => `  ${r.id.slice(0, 8)}  ${r.tool}  ${r.pattern}`)
+            .map((r) => `  ${r.id.slice(0, 20)}  ${r.tool}  ${r.pattern}`)
             .join("\n");
           if (opts.json) {
             process.stdout.write(
@@ -414,11 +423,11 @@ Examples:
             process.stdout.write(
               JSON.stringify({
                 ok: false,
-                error: "No trust rule found matching: " + id,
+                error: `No trust rule found matching prefix "${id}". Run 'assistant trust list --all' to see all rule IDs.`,
               }) + "\n",
             );
           } else {
-            log.error("No trust rule found matching: " + id);
+            log.error(`No trust rule found matching prefix "${id}". Run 'assistant trust list --all' to see all rule IDs.`);
           }
           process.exitCode = 1;
           return;
@@ -426,7 +435,7 @@ Examples:
 
         if (matches.length > 1) {
           const details = matches
-            .map((r) => `  ${r.id.slice(0, 8)}  ${r.tool}  ${r.pattern}`)
+            .map((r) => `  ${r.id.slice(0, 20)}  ${r.tool}  ${r.pattern}`)
             .join("\n");
           if (opts.json) {
             process.stdout.write(
