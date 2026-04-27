@@ -25,7 +25,7 @@ describe("trust-context guards", () => {
 
   it("guardianPrincipalId is not typed as string | null in TrustContext", () => {
     const source = readFileSync(
-      join(srcDir, "daemon", "conversation-runtime-assembly.ts"),
+      join(srcDir, "daemon", "trust-context.ts"),
       "utf-8",
     );
 

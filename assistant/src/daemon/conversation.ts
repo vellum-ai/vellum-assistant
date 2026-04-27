@@ -92,10 +92,7 @@ import {
 } from "./conversation-process.js";
 import type { QueueDrainReason } from "./conversation-queue-manager.js";
 import { MessageQueue } from "./conversation-queue-manager.js";
-import type {
-  ChannelCapabilities,
-  TrustContext,
-} from "./conversation-runtime-assembly.js";
+import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
 import {
   createSurfaceMutex,
@@ -149,6 +146,7 @@ export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
+import type { TrustContext } from "./trust-context.js";
 
 export class Conversation {
   public readonly conversationId: string;

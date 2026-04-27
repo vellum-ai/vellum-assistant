@@ -12,7 +12,7 @@ import {
   parseInterfaceId,
 } from "../../channels/types.js";
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
-import type { TrustContext } from "../../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../../daemon/trust-context.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { getAttachmentsByIds } from "../../memory/attachments-store.js";
 import {

@@ -20,7 +20,8 @@ mock.module("../../../memory/delivery-status.js", () => ({
   recordProcessingFailure: () => {},
 }));
 
-import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
+
+import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   clearThreadTs,
   getThreadTs,

@@ -23,8 +23,8 @@ import {
   provenanceFromTrustContext,
 } from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
-import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type { TrustContext } from "./trust-context.js";
 
 /**
  * Subset of Conversation state that notifier callbacks need to read at

@@ -15,7 +15,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   DEFAULT_TOOL_ERROR_NUDGE_TEXT,
   defaultToolErrorPlugin,

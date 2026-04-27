@@ -23,7 +23,7 @@ import {
   truncateToolResultText,
   TRUNCATION_SUFFIX,
 } from "../context/tool-result-truncation.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultToolResultTruncatePlugin,
   defaultToolResultTruncateTerminal,

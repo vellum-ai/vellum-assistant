@@ -22,8 +22,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { trackCompactionOutcome } from "../daemon/conversation-agent-loop.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
   defaultCircuitBreakerPlugin,
