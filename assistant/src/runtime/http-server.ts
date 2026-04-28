@@ -48,7 +48,6 @@ import {
   addMessage,
   createConversation,
   deleteConversation,
-  forkConversation as forkConversationInStore,
   getConversation,
 } from "../memory/conversation-crud.js";
 import {
@@ -114,10 +113,7 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import {
-  type ConversationManagementDeps,
-  conversationManagementRouteDefinitions,
-} from "./routes/conversation-management-routes.js";
+import { getConversationDestroy } from "./routes/conversation-management-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
 import {
@@ -131,7 +127,6 @@ import { ROUTES } from "./routes/index.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { buildConversationDetailResponse } from "./services/conversation-serializer.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -263,7 +258,6 @@ export class RuntimeHttpServer {
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
   private sendMessageDeps?: SendMessageDeps;
-  private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
 
   private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
@@ -279,7 +273,6 @@ export class RuntimeHttpServer {
       options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
-    this.conversationManagementDeps = options.conversationManagementDeps;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -1506,31 +1499,6 @@ export class RuntimeHttpServer {
     });
   }
 
-  private getConversationManagementRouteDeps(): ConversationManagementDeps | null {
-    if (!this.conversationManagementDeps) {
-      return null;
-    }
-
-    return {
-      ...this.conversationManagementDeps,
-      forkConversation:
-        this.conversationManagementDeps.forkConversation ??
-        (async ({ conversationId, throughMessageId }) => {
-          const forkedConversation = forkConversationInStore({
-            conversationId,
-            throughMessageId,
-          });
-          const detail = buildConversationDetailResponse(forkedConversation.id);
-          if (!detail) {
-            throw new Error(
-              `Forked conversation ${forkedConversation.id} could not be loaded`,
-            );
-          }
-          return detail.conversation;
-        }),
-    };
-  }
-
   // ---------------------------------------------------------------------------
   // Declarative route table
   // ---------------------------------------------------------------------------
@@ -1546,15 +1514,9 @@ export class RuntimeHttpServer {
    */
   private buildRouteTable(): HTTPRouteDefinition[] {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const conversationManagementDeps =
-      this.getConversationManagementRouteDeps();
 
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
-
-      ...(conversationManagementDeps
-        ? conversationManagementRouteDefinitions(conversationManagementDeps)
-        : []),
 
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
@@ -1599,7 +1561,7 @@ export class RuntimeHttpServer {
           // and summary IDs. Without this, seeded-then-deleted playground
           // conversations leak vectors and zombie Conversation objects.
           if (findConversation(id)) {
-            this.conversationManagementDeps?.destroyConversation(id);
+            getConversationDestroy()?.(id);
           }
           const deleted = deleteConversation(id);
           for (const segId of deleted.segmentIds) {

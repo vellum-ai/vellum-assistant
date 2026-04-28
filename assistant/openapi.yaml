@@ -3129,11 +3129,11 @@ paths:
     delete:
       operationId: conversations_delete
       summary: Clear all conversations
-      description: Permanently delete ALL conversations, messages, and memory. Requires X-Confirm-Destructive header.
+      description: Permanently delete ALL conversations, messages, and memory.
       tags:
         - conversations
       responses:
-        "200":
+        "204":
           description: Successful response
     get:
       operationId: conversations_get
@@ -3160,10 +3160,13 @@ paths:
                     type: string
                   conversationType:
                     type: string
+                  created:
+                    type: boolean
                 required:
                   - id
                   - conversationKey
                   - conversationType
+                  - created
                 additionalProperties: false
       requestBody:
         required: true
@@ -3190,7 +3193,7 @@ paths:
       tags:
         - conversations
       responses:
-        "200":
+        "204":
           description: Successful response
       parameters:
         - name: id
@@ -3229,9 +3232,7 @@ paths:
     post:
       operationId: conversations_by_id_archive_post
       summary: Archive a conversation
-      description:
-        Move a conversation to the archived state. Archived conversations are hidden from the default sidebar but
-        preserved for search and recall.
+      description: Move a conversation to the archived state.
       tags:
         - conversations
       responses:
@@ -3251,7 +3252,7 @@ paths:
       tags:
         - conversations
       responses:
-        "200":
+        "202":
           description: Successful response
       parameters:
         - name: id
@@ -3263,9 +3264,7 @@ paths:
     put:
       operationId: conversations_by_id_inferenceprofile_put
       summary: Set conversation inference profile
-      description:
-        Override the LLM inference profile for a single conversation. Pass `null` to clear the override and fall
-        back to the workspace `llm.activeProfile`.
+      description: Override the LLM inference profile for a single conversation.
       tags:
         - conversations
       responses:
@@ -3418,7 +3417,7 @@ paths:
       tags:
         - conversations
       responses:
-        "200":
+        "202":
           description: Successful response
       parameters:
         - name: id

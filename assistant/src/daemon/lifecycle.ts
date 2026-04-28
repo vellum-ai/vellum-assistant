@@ -79,6 +79,14 @@ import {
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import {
+  registerCancelGeneration,
+  registerClearAllConversations,
+  registerConversationDestroy,
+  registerRegenerateResponse,
+  registerSwitchConversation,
+  registerUndoLastMessage,
+} from "../runtime/routes/conversation-management-routes.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
@@ -123,7 +131,6 @@ import {
   cancelGeneration,
   clearAllConversations,
   regenerateResponse,
-  renameConversation,
   switchConversation,
   undoLastMessage,
 } from "./handlers/conversations.js";
@@ -974,53 +981,52 @@ export async function runDaemon(): Promise<void> {
           }));
         },
       },
-      conversationManagementDeps: {
-        switchConversation: (conversationId) =>
-          switchConversation(conversationId, server.getHandlerContext()),
-        renameConversation: (conversationId, name) =>
-          renameConversation(conversationId, name),
-        clearAllConversations: () =>
-          clearAllConversations(server.getHandlerContext()),
-        cancelGeneration: (conversationId) =>
-          cancelGeneration(conversationId, server.getHandlerContext()),
-        destroyConversation: (conversationId) =>
-          server.destroyConversation(conversationId),
-        undoLastMessage: (conversationId) =>
-          undoLastMessage(conversationId, server.getHandlerContext()),
-        regenerateResponse: (conversationId) => {
-          // Resolve conversation key up front so SSE events are tagged with
-          // the internal conversation ID, not the raw client key.
-          const resolvedId =
-            resolveConversationId(conversationId) ?? conversationId;
-          let hubChain: Promise<void> = Promise.resolve();
-          const sendEvent = (event: ServerMessage) => {
-            const ae = buildAssistantEvent(
-              DAEMON_INTERNAL_ASSISTANT_ID,
-              event,
-              resolvedId,
-            );
-            hubChain = (async () => {
-              await hubChain;
-              try {
-                await assistantEventHub.publish(ae);
-              } catch (err) {
-                log.warn(
-                  { err },
-                  "assistant-events hub subscriber threw during regenerate",
-                );
-              }
-            })();
-          };
-          return regenerateResponse(
-            conversationId,
-            server.getHandlerContext(),
-            sendEvent,
-          );
-        },
-      },
     });
 
-    // Wire secrets route deps now that the server is available.
+    // Wire route deps now that the server is available.
+    registerSwitchConversation((conversationId) =>
+      switchConversation(conversationId, server.getHandlerContext()),
+    );
+    registerClearAllConversations(() =>
+      clearAllConversations(server.getHandlerContext()),
+    );
+    registerCancelGeneration((conversationId) =>
+      cancelGeneration(conversationId, server.getHandlerContext()),
+    );
+    registerConversationDestroy((conversationId) =>
+      server.destroyConversation(conversationId),
+    );
+    registerUndoLastMessage((conversationId) =>
+      undoLastMessage(conversationId, server.getHandlerContext()),
+    );
+    registerRegenerateResponse((conversationId) => {
+      const resolvedId =
+        resolveConversationId(conversationId) ?? conversationId;
+      let hubChain: Promise<void> = Promise.resolve();
+      const sendEvent = (event: ServerMessage) => {
+        const ae = buildAssistantEvent(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+          event,
+          resolvedId,
+        );
+        hubChain = (async () => {
+          await hubChain;
+          try {
+            await assistantEventHub.publish(ae);
+          } catch (err) {
+            log.warn(
+              { err },
+              "assistant-events hub subscriber threw during regenerate",
+            );
+          }
+        })();
+      };
+      return regenerateResponse(
+        conversationId,
+        server.getHandlerContext(),
+        sendEvent,
+      );
+    });
     registerSecretsDeps({
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>

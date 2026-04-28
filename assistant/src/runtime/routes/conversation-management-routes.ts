@@ -4,8 +4,6 @@
  * POST   /v1/conversations                 — create a new conversation
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
- * GET    /v1/conversations/:id/host-access — read host access for one conversation
- * PATCH  /v1/conversations/:id/host-access — update host access for one conversation
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
@@ -28,12 +26,13 @@ import {
   batchSetDisplayOrders,
   countConversationsByScheduleJobId,
   deleteConversation,
+  forkConversation as forkConversationInStore,
   getConversation,
   setConversationInferenceProfile,
   unarchiveConversation,
+  updateConversationTitle,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
-import { updateConversationTitle } from "../../memory/conversation-crud.js";
 import {
   getOrCreateConversation,
   resolveConversationId,
@@ -46,717 +45,709 @@ import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-management-routes");
 
 // ---------------------------------------------------------------------------
-// Dependency types — injected by the daemon at wiring time
+// Daemon-owned callbacks — registered at startup via register* functions.
+// Route handlers import these directly; no DI interface needed.
 // ---------------------------------------------------------------------------
 
-export interface ConversationManagementDeps {
-  forkConversation?: (params: {
-    conversationId: string;
-    throughMessageId?: string;
-  }) => Promise<Record<string, unknown>> | Record<string, unknown>;
-  switchConversation: (conversationId: string) => Promise<{
-    conversationId: string;
-    title: string;
-    conversationType: string;
-    inferenceProfile?: string;
-  } | null>;
-  renameConversation: (conversationId: string, name: string) => boolean;
-  clearAllConversations: () => number;
-  cancelGeneration: (conversationId: string) => boolean;
-  /** Abort and dispose an active in-memory conversation (if any) before deletion. */
-  destroyConversation: (conversationId: string) => void;
-  undoLastMessage: (
-    conversationId: string,
-  ) => Promise<{ removedCount: number } | null>;
-  regenerateResponse: (
-    conversationId: string,
-  ) => Promise<{ requestId: string } | null>;
+let _switchConversation:
+  | ((
+      conversationId: string,
+    ) => Promise<{
+      conversationId: string;
+      title: string;
+      conversationType: string;
+      inferenceProfile?: string;
+    } | null>)
+  | null = null;
+
+let _clearAllConversations: (() => number) | null = null;
+
+let _cancelGeneration:
+  | ((conversationId: string) => boolean)
+  | null = null;
+
+let _destroyConversation:
+  | ((conversationId: string) => void)
+  | null = null;
+
+let _undoLastMessage:
+  | ((conversationId: string) => Promise<{ removedCount: number } | null>)
+  | null = null;
+
+let _regenerateResponse:
+  | ((conversationId: string) => Promise<{ requestId: string } | null>)
+  | null = null;
+
+export function registerSwitchConversation(
+  fn: NonNullable<typeof _switchConversation>,
+): void {
+  _switchConversation = fn;
+}
+
+export function registerClearAllConversations(
+  fn: NonNullable<typeof _clearAllConversations>,
+): void {
+  _clearAllConversations = fn;
+}
+
+export function registerCancelGeneration(
+  fn: NonNullable<typeof _cancelGeneration>,
+): void {
+  _cancelGeneration = fn;
+}
+
+export function registerConversationDestroy(
+  fn: NonNullable<typeof _destroyConversation>,
+): void {
+  _destroyConversation = fn;
+}
+
+export function getConversationDestroy(): typeof _destroyConversation {
+  return _destroyConversation;
+}
+
+export function registerUndoLastMessage(
+  fn: NonNullable<typeof _undoLastMessage>,
+): void {
+  _undoLastMessage = fn;
+}
+
+export function registerRegenerateResponse(
+  fn: NonNullable<typeof _regenerateResponse>,
+): void {
+  _regenerateResponse = fn;
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Helpers
 // ---------------------------------------------------------------------------
 
-export function conversationManagementRouteDefinitions(
-  deps: ConversationManagementDeps,
-): HTTPRouteDefinition[] {
-  return [
+function resolveOrThrow(rawId: string): string {
+  const id = resolveConversationId(rawId);
+  if (!id) throw new NotFoundError(`Conversation ${rawId} not found`);
+  return id;
+}
+
+function publishListInvalidated(reason: string): void {
+  assistantEventHub
+    .publish(
+      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+        type: "conversation_list_invalidated",
+        reason,
+      }),
+    )
+    .catch((err) => {
+      log.warn(
+        { err },
+        `Failed to publish conversation_list_invalidated (${reason})`,
+      );
+    });
+}
+
+function cancelScheduleIfLast(conversationId: string): void {
+  const conv = getConversation(conversationId);
+  if (
+    conv?.scheduleJobId &&
+    countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
+  ) {
+    deleteSchedule(conv.scheduleJobId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+function handleCreateConversation({ body = {} }: RouteHandlerArgs) {
+  const conversationKey =
+    (body.conversationKey as string | undefined) ?? crypto.randomUUID();
+  const result = getOrCreateConversation(conversationKey, {
+    conversationType: "standard",
+  });
+  if (result.created) {
+    updateConversationTitle(result.conversationId, "New Conversation");
+  }
+  log.info(
     {
-      endpoint: "conversations",
-      method: "POST",
-      policyKey: "conversations",
-      summary: "Create a conversation",
-      description: "Create or get an existing conversation by key.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        conversationKey: z
-          .string()
-          .describe("Idempotency key for the conversation"),
-        conversationType: z
-          .literal("standard")
-          .optional()
-          .describe("Only standard conversations are created by this endpoint"),
-      }),
-      responseBody: z.object({
-        id: z.string(),
-        conversationKey: z.string(),
-        conversationType: z.string(),
-      }),
-      handler: async ({ req }) => {
-        let body: { conversationKey?: string } = {};
-        try {
-          body = (await req.json()) as typeof body;
-        } catch {
-          // Empty or malformed body — fall through with defaults.
-        }
-        const conversationKey = body.conversationKey ?? crypto.randomUUID();
-        const result = getOrCreateConversation(conversationKey, {
-          conversationType: "standard",
-        });
-        if (result.created) {
-          updateConversationTitle(result.conversationId, "New Conversation");
-        }
-        log.info(
+      conversationId: result.conversationId,
+      conversationKey,
+      created: result.created,
+    },
+    "Created conversation via POST",
+  );
+  return {
+    id: result.conversationId,
+    conversationKey,
+    conversationType: normalizeConversationType(result.conversationType),
+    created: result.created,
+  };
+}
+
+async function handleForkConversation({ body = {} }: RouteHandlerArgs) {
+  const conversationId = body.conversationId as string | undefined;
+  if (!conversationId || typeof conversationId !== "string") {
+    throw new BadRequestError("Missing conversationId");
+  }
+  if (
+    body.throughMessageId !== undefined &&
+    typeof body.throughMessageId !== "string"
+  ) {
+    throw new BadRequestError("throughMessageId must be a string");
+  }
+
+  const resolvedConversationId =
+    resolveConversationId(conversationId) ?? conversationId;
+
+  try {
+    const forkedConversation = forkConversationInStore({
+      conversationId: resolvedConversationId,
+      throughMessageId: body.throughMessageId as string | undefined,
+    });
+    const detail = buildConversationDetailResponse(forkedConversation.id);
+    if (!detail) {
+      throw new InternalError(
+        `Forked conversation ${forkedConversation.id} could not be loaded`,
+      );
+    }
+    return { conversation: detail.conversation };
+  } catch (err) {
+    if (err instanceof UserError) {
+      throw new NotFoundError(err.message);
+    }
+    throw err;
+  }
+}
+
+async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
+  if (!_switchConversation) {
+    throw new ServiceUnavailableError("Switch not available yet");
+  }
+  const conversationId = body.conversationId as string | undefined;
+  if (!conversationId || typeof conversationId !== "string") {
+    throw new BadRequestError("Missing conversationId");
+  }
+  const result = await _switchConversation(conversationId);
+  if (!result) {
+    throw new NotFoundError(`Conversation ${conversationId} not found`);
+  }
+  if (body.conversationKey && typeof body.conversationKey === "string") {
+    setConversationKeyIfAbsent(body.conversationKey, conversationId);
+  }
+  return {
+    conversationId: result.conversationId,
+    title: result.title,
+    conversationType: normalizeConversationType(result.conversationType),
+    ...(result.inferenceProfile != null
+      ? { inferenceProfile: result.inferenceProfile }
+      : {}),
+  };
+}
+
+function handleSetInferenceProfile({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const resolvedId =
+    resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+
+  if (
+    body.profile !== null &&
+    (typeof body.profile !== "string" ||
+      (body.profile as string).length === 0)
+  ) {
+    throw new BadRequestError(
+      "profile must be a non-empty string or null",
+    );
+  }
+
+  const profile = body.profile as string | null;
+  if (profile !== null) {
+    const profiles = loadConfig().llm?.profiles ?? {};
+    if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
+      throw new BadRequestError(
+        `Profile "${profile}" is not defined in llm.profiles`,
+      );
+    }
+  }
+
+  if (conversation.inferenceProfile !== profile) {
+    setConversationInferenceProfile(resolvedId, profile);
+    assistantEventHub
+      .publish(
+        buildAssistantEvent(
+          DAEMON_INTERNAL_ASSISTANT_ID,
           {
-            conversationId: result.conversationId,
-            conversationKey,
-            created: result.created,
-          },
-          "Created conversation via POST",
-        );
-        return Response.json(
-          {
-            id: result.conversationId,
-            conversationKey,
-            conversationType: normalizeConversationType(
-              result.conversationType,
-            ),
-          },
-          { status: result.created ? 201 : 200 },
-        );
-      },
-    },
-    {
-      endpoint: "conversations/fork",
-      method: "POST",
-      policyKey: "conversations/fork",
-      summary: "Fork a conversation",
-      description:
-        "Create a copy of a conversation, optionally truncated at a specific message.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        conversationId: z.string(),
-        throughMessageId: z
-          .string()
-          .describe("Truncate the fork at this message")
-          .optional(),
-      }),
-      handler: async ({ req }) => {
-        if (!deps.forkConversation) {
-          return httpError(
-            "INTERNAL_ERROR",
-            "Conversation forking not available",
-            500,
-          );
-        }
-
-        const rawBody = (await req.json()) as unknown;
-        if (
-          rawBody == null ||
-          typeof rawBody !== "object" ||
-          Array.isArray(rawBody)
-        ) {
-          return httpError("BAD_REQUEST", "Invalid request body", 400);
-        }
-
-        const body = rawBody as {
-          conversationId?: string;
-          throughMessageId?: string;
-        };
-        const conversationId = body.conversationId;
-        if (!conversationId || typeof conversationId !== "string") {
-          return httpError("BAD_REQUEST", "Missing conversationId", 400);
-        }
-        if (
-          body.throughMessageId !== undefined &&
-          typeof body.throughMessageId !== "string"
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            "throughMessageId must be a string",
-            400,
-          );
-        }
-
-        const resolvedConversationId =
-          resolveConversationId(conversationId) ?? conversationId;
-
-        try {
-          const conversation = await deps.forkConversation({
-            conversationId: resolvedConversationId,
-            throughMessageId: body.throughMessageId,
-          });
-          return Response.json({ conversation });
-        } catch (err) {
-          if (err instanceof UserError) {
-            return httpError("NOT_FOUND", err.message, 404);
-          }
-          throw err;
-        }
-      },
-    },
-    {
-      endpoint: "conversations/switch",
-      method: "POST",
-      policyKey: "conversations/switch",
-      summary: "Switch active conversation",
-      description: "Set the active conversation for the current session.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        conversationId: z.string(),
-        conversationKey: z
-          .string()
-          .describe("Optional key to register for this conversation")
-          .optional(),
-      }),
-      responseBody: z.object({
-        conversationId: z.string(),
-        title: z.string(),
-        conversationType: z.string(),
-        inferenceProfile: z.string().optional(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          conversationId?: string;
-          conversationKey?: string;
-        };
-        const conversationId = body.conversationId;
-        if (!conversationId || typeof conversationId !== "string") {
-          return httpError("BAD_REQUEST", "Missing conversationId", 400);
-        }
-        const result = await deps.switchConversation(conversationId);
-        if (!result) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${conversationId} not found`,
-            404,
-          );
-        }
-        // Register the conversation key mapping so the client can use it
-        // for SSE subscriptions and message endpoints after switching.
-        if (body.conversationKey && typeof body.conversationKey === "string") {
-          setConversationKeyIfAbsent(body.conversationKey, conversationId);
-        }
-        return Response.json({
-          conversationId: result.conversationId,
-          title: result.title,
-          conversationType: normalizeConversationType(result.conversationType),
-          ...(result.inferenceProfile != null
-            ? { inferenceProfile: result.inferenceProfile }
-            : {}),
-        });
-      },
-    },
-    {
-      endpoint: "conversations/:id/inference-profile",
-      method: "PUT",
-      policyKey: "conversations/inference-profile",
-      summary: "Set conversation inference profile",
-      description:
-        "Override the LLM inference profile for a single conversation. Pass `null` to clear the override and fall back to the workspace `llm.activeProfile`.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        profile: z.string().nullable(),
-      }),
-      responseBody: z.object({
-        conversationId: z.string(),
-        profile: z.string().nullable(),
-      }),
-      handler: async ({ req, params }) => {
-        const resolvedId = resolveConversationId(params.id) ?? params.id;
-        const conversation = getConversation(resolvedId);
-        if (!conversation) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-
-        let body: { profile?: unknown };
-        try {
-          body = (await req.json()) as { profile?: unknown };
-        } catch {
-          return httpError("BAD_REQUEST", "Invalid request body", 400);
-        }
-        if (body == null || typeof body !== "object" || Array.isArray(body)) {
-          return httpError("BAD_REQUEST", "Invalid request body", 400);
-        }
-        if (
-          body.profile !== null &&
-          (typeof body.profile !== "string" || body.profile.length === 0)
-        ) {
-          return httpError(
-            "BAD_REQUEST",
-            "profile must be a non-empty string or null",
-            400,
-          );
-        }
-
-        const profile = body.profile as string | null;
-        if (profile !== null) {
-          const profiles = loadConfig().llm?.profiles ?? {};
-          if (!Object.prototype.hasOwnProperty.call(profiles, profile)) {
-            return httpError(
-              "BAD_REQUEST",
-              `Profile "${profile}" is not defined in llm.profiles`,
-              400,
-            );
-          }
-        }
-
-        if (conversation.inferenceProfile !== profile) {
-          setConversationInferenceProfile(resolvedId, profile);
-          assistantEventHub
-            .publish(
-              buildAssistantEvent(
-                DAEMON_INTERNAL_ASSISTANT_ID,
-                {
-                  type: "conversation_inference_profile_updated",
-                  conversationId: resolvedId,
-                  profile,
-                },
-                resolvedId,
-              ),
-            )
-            .catch((err) => {
-              log.warn(
-                { err, conversationId: resolvedId },
-                "Failed to publish conversation_inference_profile_updated event",
-              );
-            });
-        }
-
-        return Response.json({ conversationId: resolvedId, profile });
-      },
-    },
-    {
-      endpoint: "conversations/:id/name",
-      method: "PATCH",
-      policyKey: "conversations/name",
-      summary: "Rename a conversation",
-      description: "Update the display name of a conversation.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        name: z.string(),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as { name?: string };
-        const name = body.name;
-        if (!name || typeof name !== "string") {
-          return httpError("BAD_REQUEST", "Missing name", 400);
-        }
-        const success = deps.renameConversation(params.id, name);
-        if (!success) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-
-        // Broadcast conversation_title_updated so the client currently
-        // viewing this conversation can update the header in-place.
-        // Scoped to the conversation id so foreign conversationId values
-        // don't leak to other subscribers' speculative ID-resolution
-        // paths. Other clients learn about the rename via the unscoped
-        // `conversation_list_invalidated` published below, which triggers
-        // their sidebars to refetch and pick up the new title.
-        assistantEventHub
-          .publish(
-            buildAssistantEvent(
-              DAEMON_INTERNAL_ASSISTANT_ID,
-              {
-                type: "conversation_title_updated",
-                conversationId: params.id,
-                title: name,
-              },
-              params.id,
-            ),
-          )
-          .catch((err) => {
-            log.warn(
-              { err, conversationId: params.id },
-              "Failed to publish conversation_title_updated",
-            );
-          });
-
-        // Notify all connected clients that the conversation list changed
-        // so sidebars on other devices can refresh.
-        assistantEventHub
-          .publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-              type: "conversation_list_invalidated",
-              reason: "renamed",
-            }),
-          )
-          .catch((err) => {
-            log.warn(
-              { err },
-              "Failed to publish conversation_list_invalidated for rename",
-            );
-          });
-
-        return Response.json({ ok: true });
-      },
-    },
-    {
-      endpoint: "conversations",
-      method: "DELETE",
-      policyKey: "conversations/clear-all",
-      summary: "Clear all conversations",
-      description:
-        "Permanently delete ALL conversations, messages, and memory. Requires X-Confirm-Destructive header.",
-      tags: ["conversations"],
-      handler: ({ req }) => {
-        const confirm = req.headers.get("x-confirm-destructive");
-        if (confirm !== "clear-all-conversations") {
-          return httpError(
-            "BAD_REQUEST",
-            "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
-              "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
-            400,
-          );
-        }
-        deps.clearAllConversations();
-        return new Response(null, { status: 204 });
-      },
-    },
-    {
-      endpoint: "conversations/:id/wipe",
-      method: "POST",
-      policyKey: "conversations/wipe",
-      summary: "Wipe a conversation",
-      description:
-        "Delete all messages in a conversation and revert associated memory changes.",
-      tags: ["conversations"],
-      responseBody: z.object({
-        wiped: z.boolean(),
-        unsupersededItems: z.number().int(),
-        deletedSummaries: z.number().int(),
-        cancelledJobs: z.number().int(),
-      }),
-      handler: async ({ params }) => {
-        const resolvedId = resolveConversationId(params.id);
-        if (!resolvedId) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-
-        // Cancel the associated schedule job (if any) before wiping the
-        // conversation — but only when this is the last conversation that
-        // references the schedule.  Recurring schedules create a new
-        // conversation per run, so we must not cancel the schedule when
-        // earlier run conversations are cleaned up.
-        const conv = getConversation(resolvedId);
-        if (
-          conv?.scheduleJobId &&
-          countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
-        ) {
-          deleteSchedule(conv.scheduleJobId);
-        }
-
-        deps.destroyConversation(resolvedId);
-        const result = wipeConversation(resolvedId);
-        // Enqueue Qdrant vector cleanup jobs
-        for (const segId of result.segmentIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "segment",
-            targetId: segId,
-          });
-        }
-        for (const summaryId of result.deletedSummaryIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "summary",
-            targetId: summaryId,
-          });
-        }
-        log.info(
-          {
+            type: "conversation_inference_profile_updated",
             conversationId: resolvedId,
-            summariesDeleted: result.deletedSummaryIds.length,
-            jobsCancelled: result.cancelledJobCount,
+            profile,
           },
-          "Wiped conversation and reverted memory changes",
+          resolvedId,
+        ),
+      )
+      .catch((err) => {
+        log.warn(
+          { err, conversationId: resolvedId },
+          "Failed to publish conversation_inference_profile_updated event",
         );
-        return Response.json({
-          wiped: true,
-          unsupersededItems: 0,
-          deletedSummaries: result.deletedSummaryIds.length,
-          cancelledJobs: result.cancelledJobCount,
-        });
-      },
-    },
-    {
-      endpoint: "conversations/:id",
-      method: "DELETE",
-      policyKey: "conversations",
-      summary: "Delete a conversation",
-      description: "Permanently delete a single conversation and its messages.",
-      tags: ["conversations"],
-      handler: async ({ params }) => {
-        const resolvedId = resolveConversationId(params.id);
-        if (!resolvedId) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
+      });
+  }
 
-        // Cancel the associated schedule job (if any) before deleting the
-        // conversation — but only when this is the last conversation that
-        // references the schedule.  Recurring schedules create a new
-        // conversation per run, so we must not cancel the schedule when
-        // earlier run conversations are cleaned up.
-        const conv = getConversation(resolvedId);
-        if (
-          conv?.scheduleJobId &&
-          countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
-        ) {
-          deleteSchedule(conv.scheduleJobId);
-        }
-
-        // Tear down the in-memory conversation (abort + dispose) before removing
-        // persistence so that a running agent loop doesn't write to a deleted
-        // conversation row, tripping FK constraints.
-        deps.destroyConversation(resolvedId);
-        const deleted = deleteConversation(resolvedId);
-        // Enqueue Qdrant vector cleanup jobs rather than calling directly.
-        // Qdrant may not be initialized yet when the HTTP server starts
-        // accepting requests, so enqueueing ensures cleanup is retried.
-        for (const segId of deleted.segmentIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "segment",
-            targetId: segId,
-          });
-        }
-        for (const summaryId of deleted.deletedSummaryIds) {
-          enqueueMemoryJob("delete_qdrant_vectors", {
-            targetType: "summary",
-            targetId: summaryId,
-          });
-        }
-        log.info({ conversationId: resolvedId }, "Deleted conversation");
-
-        // Notify all connected clients that the conversation list changed
-        // so sidebars on other devices can refresh.
-        assistantEventHub
-          .publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-              type: "conversation_list_invalidated",
-              reason: "deleted",
-            }),
-          )
-          .catch((err) => {
-            log.warn(
-              { err },
-              "Failed to publish conversation_list_invalidated for delete",
-            );
-          });
-
-        return new Response(null, { status: 204 });
-      },
-    },
-    {
-      endpoint: "conversations/:id/archive",
-      method: "POST",
-      policyKey: "conversations",
-      summary: "Archive a conversation",
-      description:
-        "Move a conversation to the archived state. Archived conversations are hidden from the default sidebar but preserved for search and recall.",
-      tags: ["conversations"],
-      handler: ({ params }) => {
-        const resolvedId = resolveConversationId(params.id);
-        if (!resolvedId) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-        const archived = archiveConversation(resolvedId);
-        if (!archived) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-        return Response.json({ ok: true, conversationId: resolvedId });
-      },
-    },
-    {
-      endpoint: "conversations/:id/unarchive",
-      method: "POST",
-      policyKey: "conversations",
-      summary: "Unarchive a conversation",
-      description:
-        "Restore an archived conversation back to the default sidebar.",
-      tags: ["conversations"],
-      handler: ({ params }) => {
-        const resolvedId = resolveConversationId(params.id);
-        if (!resolvedId) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-        const unarchived = unarchiveConversation(resolvedId);
-        if (!unarchived) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
-        }
-        return Response.json({ ok: true, conversationId: resolvedId });
-      },
-    },
-    {
-      endpoint: "conversations/:id/cancel",
-      method: "POST",
-      policyKey: "conversations/cancel",
-      summary: "Cancel generation",
-      description:
-        "Abort the in-progress assistant response for a conversation.",
-      tags: ["conversations"],
-      handler: ({ params }) => {
-        const resolvedId = resolveConversationId(params.id) ?? params.id;
-        deps.cancelGeneration(resolvedId);
-        return new Response(null, { status: 202 });
-      },
-    },
-    {
-      endpoint: "conversations/:id/undo",
-      method: "POST",
-      policyKey: "conversations/undo",
-      summary: "Undo last message",
-      description:
-        "Remove the most recent user+assistant message pair from the conversation.",
-      tags: ["conversations"],
-      responseBody: z.object({
-        removedCount: z.number().int(),
-        conversationId: z.string(),
-      }),
-      handler: async ({ params }) => {
-        const result = await deps.undoLastMessage(params.id);
-        if (!result) {
-          return httpError(
-            "NOT_FOUND",
-            `No active conversation for ${params.id}`,
-            404,
-          );
-        }
-        return Response.json({
-          removedCount: result.removedCount,
-          conversationId: params.id,
-        });
-      },
-    },
-    {
-      endpoint: "conversations/:id/regenerate",
-      method: "POST",
-      policyKey: "conversations/regenerate",
-      summary: "Regenerate response",
-      description:
-        "Re-run the assistant for the last user message in a conversation.",
-      tags: ["conversations"],
-      handler: async ({ params }) => {
-        try {
-          const result = await deps.regenerateResponse(params.id);
-          if (!result) {
-            return httpError(
-              "NOT_FOUND",
-              `No active conversation for ${params.id}`,
-              404,
-            );
-          }
-          return new Response(null, { status: 202 });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.error(
-            { err, conversationId: params.id },
-            "Error regenerating via HTTP",
-          );
-          return httpError(
-            "INTERNAL_ERROR",
-            `Failed to regenerate: ${message}`,
-            500,
-          );
-        }
-      },
-    },
-    {
-      endpoint: "conversations/reorder",
-      method: "POST",
-      policyKey: "conversations/reorder",
-      summary: "Reorder conversations",
-      description:
-        "Batch-update display order and pin state for conversations.",
-      tags: ["conversations"],
-      requestBody: z.object({
-        updates: z
-          .array(z.unknown())
-          .describe(
-            "Array of { conversationId, displayOrder?, isPinned? } objects",
-          ),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          updates?: Array<{
-            conversationId: string;
-            displayOrder?: number;
-            isPinned?: boolean;
-            groupId?: string | null;
-          }>;
-        };
-        if (!Array.isArray(body.updates)) {
-          return httpError("BAD_REQUEST", "Missing updates array", 400);
-        }
-        batchSetDisplayOrders(
-          body.updates.map((u) => ({
-            id: u.conversationId,
-            displayOrder: u.displayOrder ?? null,
-            isPinned: u.isPinned ?? false,
-            groupId: u.groupId,
-          })),
-        );
-        assistantEventHub
-          .publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-              type: "conversation_list_invalidated",
-              reason: "reordered",
-            }),
-          )
-          .catch((err) => {
-            log.warn(
-              { err },
-              "Failed to publish conversation_list_invalidated (reordered)",
-            );
-          });
-        return Response.json({ ok: true });
-      },
-    },
-  ];
+  return { conversationId: resolvedId, profile };
 }
+
+function handleRenameConversation({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const name = body.name as string | undefined;
+  if (!name || typeof name !== "string") {
+    throw new BadRequestError("Missing name");
+  }
+  const conversation = getConversation(pathParams.id!);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+  updateConversationTitle(pathParams.id!, name, 0);
+
+  assistantEventHub
+    .publish(
+      buildAssistantEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        {
+          type: "conversation_title_updated",
+          conversationId: pathParams.id!,
+          title: name,
+        },
+        pathParams.id!,
+      ),
+    )
+    .catch((err) => {
+      log.warn(
+        { err, conversationId: pathParams.id },
+        "Failed to publish conversation_title_updated",
+      );
+    });
+
+  publishListInvalidated("renamed");
+
+  return { ok: true };
+}
+
+function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
+  if (!_clearAllConversations) {
+    throw new ServiceUnavailableError("Clear not available yet");
+  }
+  const confirm = headers["x-confirm-destructive"];
+  if (confirm !== "clear-all-conversations") {
+    throw new BadRequestError(
+      "DELETE /v1/conversations permanently deletes ALL conversations, messages, and memory. " +
+        "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
+    );
+  }
+  _clearAllConversations();
+  return undefined;
+}
+
+function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
+  if (!_destroyConversation) {
+    throw new ServiceUnavailableError("Wipe not available yet");
+  }
+  const resolvedId = resolveOrThrow(pathParams.id!);
+
+  cancelScheduleIfLast(resolvedId);
+
+  _destroyConversation(resolvedId);
+  const result = wipeConversation(resolvedId);
+  for (const segId of result.segmentIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "segment",
+      targetId: segId,
+    });
+  }
+  for (const summaryId of result.deletedSummaryIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "summary",
+      targetId: summaryId,
+    });
+  }
+  log.info(
+    {
+      conversationId: resolvedId,
+      summariesDeleted: result.deletedSummaryIds.length,
+      jobsCancelled: result.cancelledJobCount,
+    },
+    "Wiped conversation and reverted memory changes",
+  );
+  return {
+    wiped: true,
+    unsupersededItems: 0,
+    deletedSummaries: result.deletedSummaryIds.length,
+    cancelledJobs: result.cancelledJobCount,
+  };
+}
+
+function handleDeleteConversation({ pathParams = {} }: RouteHandlerArgs) {
+  if (!_destroyConversation) {
+    throw new ServiceUnavailableError("Delete not available yet");
+  }
+  const resolvedId = resolveOrThrow(pathParams.id!);
+
+  cancelScheduleIfLast(resolvedId);
+
+  _destroyConversation(resolvedId);
+  const deleted = deleteConversation(resolvedId);
+  for (const segId of deleted.segmentIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "segment",
+      targetId: segId,
+    });
+  }
+  for (const summaryId of deleted.deletedSummaryIds) {
+    enqueueMemoryJob("delete_qdrant_vectors", {
+      targetType: "summary",
+      targetId: summaryId,
+    });
+  }
+  log.info({ conversationId: resolvedId }, "Deleted conversation");
+
+  publishListInvalidated("deleted");
+
+  return undefined;
+}
+
+function handleArchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
+  const resolvedId = resolveOrThrow(pathParams.id!);
+  const archived = archiveConversation(resolvedId);
+  if (!archived) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+  return { ok: true, conversationId: resolvedId };
+}
+
+function handleUnarchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
+  const resolvedId = resolveOrThrow(pathParams.id!);
+  const unarchived = unarchiveConversation(resolvedId);
+  if (!unarchived) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+  return { ok: true, conversationId: resolvedId };
+}
+
+function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
+  if (!_cancelGeneration) {
+    throw new ServiceUnavailableError("Cancel not available yet");
+  }
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  _cancelGeneration(resolvedId);
+  return undefined;
+}
+
+async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
+  if (!_undoLastMessage) {
+    throw new ServiceUnavailableError("Undo not available yet");
+  }
+  const result = await _undoLastMessage(pathParams.id!);
+  if (!result) {
+    throw new NotFoundError(
+      `No active conversation for ${pathParams.id}`,
+    );
+  }
+  return {
+    removedCount: result.removedCount,
+    conversationId: pathParams.id!,
+  };
+}
+
+async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
+  if (!_regenerateResponse) {
+    throw new ServiceUnavailableError("Regenerate not available yet");
+  }
+  try {
+    const result = await _regenerateResponse(pathParams.id!);
+    if (!result) {
+      throw new NotFoundError(
+        `No active conversation for ${pathParams.id}`,
+      );
+    }
+    return undefined;
+  } catch (err) {
+    if (err instanceof NotFoundError) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err, conversationId: pathParams.id },
+      "Error regenerating via HTTP",
+    );
+    throw new InternalError(`Failed to regenerate: ${message}`);
+  }
+}
+
+function handleReorderConversations({ body = {} }: RouteHandlerArgs) {
+  const updates = body.updates as
+    | Array<{
+        conversationId: string;
+        displayOrder?: number;
+        isPinned?: boolean;
+        groupId?: string | null;
+      }>
+    | undefined;
+  if (!Array.isArray(updates)) {
+    throw new BadRequestError("Missing updates array");
+  }
+  batchSetDisplayOrders(
+    updates.map((u) => ({
+      id: u.conversationId,
+      displayOrder: u.displayOrder ?? null,
+      isPinned: u.isPinned ?? false,
+      groupId: u.groupId,
+    })),
+  );
+  publishListInvalidated("reordered");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Transport-agnostic route definitions
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "createConversation",
+    endpoint: "conversations",
+    method: "POST",
+    policyKey: "conversations",
+    summary: "Create a conversation",
+    description: "Create or get an existing conversation by key.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationKey: z
+        .string()
+        .describe("Idempotency key for the conversation"),
+      conversationType: z
+        .literal("standard")
+        .optional()
+        .describe("Only standard conversations are created by this endpoint"),
+    }),
+    responseBody: z.object({
+      id: z.string(),
+      conversationKey: z.string(),
+      conversationType: z.string(),
+      created: z.boolean(),
+    }),
+    handler: handleCreateConversation,
+  },
+  {
+    operationId: "forkConversation",
+    endpoint: "conversations/fork",
+    method: "POST",
+    policyKey: "conversations/fork",
+    summary: "Fork a conversation",
+    description:
+      "Create a copy of a conversation, optionally truncated at a specific message.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      throughMessageId: z
+        .string()
+        .describe("Truncate the fork at this message")
+        .optional(),
+    }),
+    handler: handleForkConversation,
+  },
+  {
+    operationId: "switchConversation",
+    endpoint: "conversations/switch",
+    method: "POST",
+    policyKey: "conversations/switch",
+    summary: "Switch active conversation",
+    description: "Set the active conversation for the current session.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationId: z.string(),
+      conversationKey: z
+        .string()
+        .describe("Optional key to register for this conversation")
+        .optional(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      title: z.string(),
+      conversationType: z.string(),
+      inferenceProfile: z.string().optional(),
+    }),
+    handler: handleSwitchConversation,
+  },
+  {
+    operationId: "setConversationInferenceProfile",
+    endpoint: "conversations/:id/inference-profile",
+    method: "PUT",
+    policyKey: "conversations/inference-profile",
+    summary: "Set conversation inference profile",
+    description:
+      "Override the LLM inference profile for a single conversation.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      profile: z.string().nullable(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      profile: z.string().nullable(),
+    }),
+    handler: handleSetInferenceProfile,
+  },
+  {
+    operationId: "renameConversation",
+    endpoint: "conversations/:id/name",
+    method: "PATCH",
+    policyKey: "conversations/name",
+    summary: "Rename a conversation",
+    description: "Update the display name of a conversation.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      name: z.string(),
+    }),
+    handler: handleRenameConversation,
+  },
+  {
+    operationId: "clearAllConversations",
+    endpoint: "conversations",
+    method: "DELETE",
+    policyKey: "conversations/clear-all",
+    summary: "Clear all conversations",
+    description:
+      "Permanently delete ALL conversations, messages, and memory.",
+    tags: ["conversations"],
+    responseStatus: "204",
+    handler: handleClearAllConversations,
+  },
+  {
+    operationId: "wipeConversation",
+    endpoint: "conversations/:id/wipe",
+    method: "POST",
+    policyKey: "conversations/wipe",
+    summary: "Wipe a conversation",
+    description:
+      "Delete all messages in a conversation and revert associated memory changes.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      wiped: z.boolean(),
+      unsupersededItems: z.number().int(),
+      deletedSummaries: z.number().int(),
+      cancelledJobs: z.number().int(),
+    }),
+    handler: handleWipeConversation,
+  },
+  {
+    operationId: "deleteConversation",
+    endpoint: "conversations/:id",
+    method: "DELETE",
+    policyKey: "conversations",
+    summary: "Delete a conversation",
+    description: "Permanently delete a single conversation and its messages.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    responseStatus: "204",
+    handler: handleDeleteConversation,
+  },
+  {
+    operationId: "archiveConversation",
+    endpoint: "conversations/:id/archive",
+    method: "POST",
+    policyKey: "conversations",
+    summary: "Archive a conversation",
+    description: "Move a conversation to the archived state.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    handler: handleArchiveConversation,
+  },
+  {
+    operationId: "unarchiveConversation",
+    endpoint: "conversations/:id/unarchive",
+    method: "POST",
+    policyKey: "conversations",
+    summary: "Unarchive a conversation",
+    description:
+      "Restore an archived conversation back to the default sidebar.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    handler: handleUnarchiveConversation,
+  },
+  {
+    operationId: "cancelConversationGeneration",
+    endpoint: "conversations/:id/cancel",
+    method: "POST",
+    policyKey: "conversations/cancel",
+    summary: "Cancel generation",
+    description:
+      "Abort the in-progress assistant response for a conversation.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id" }],
+    responseStatus: "202",
+    handler: handleCancelGeneration,
+  },
+  {
+    operationId: "undoLastMessage",
+    endpoint: "conversations/:id/undo",
+    method: "POST",
+    policyKey: "conversations/undo",
+    summary: "Undo last message",
+    description:
+      "Remove the most recent user+assistant message pair from the conversation.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    responseBody: z.object({
+      removedCount: z.number().int(),
+      conversationId: z.string(),
+    }),
+    handler: handleUndoLastMessage,
+  },
+  {
+    operationId: "regenerateResponse",
+    endpoint: "conversations/:id/regenerate",
+    method: "POST",
+    policyKey: "conversations/regenerate",
+    summary: "Regenerate response",
+    description:
+      "Re-run the assistant for the last user message in a conversation.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    responseStatus: "202",
+    handler: handleRegenerateResponse,
+  },
+  {
+    operationId: "reorderConversations",
+    endpoint: "conversations/reorder",
+    method: "POST",
+    policyKey: "conversations/reorder",
+    summary: "Reorder conversations",
+    description:
+      "Batch-update display order and pin state for conversations.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      updates: z
+        .array(z.unknown())
+        .describe(
+          "Array of { conversationId, displayOrder?, isPinned? } objects",
+        ),
+    }),
+    handler: handleReorderConversations,
+  },
+];

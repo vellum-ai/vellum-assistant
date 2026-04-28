@@ -18,7 +18,7 @@ import type {
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
 } from "./message-composer-types.js";
-import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
+
 
 export type {
   ApprovalCopyGenerator,
@@ -185,8 +185,6 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
-  /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
-  conversationManagementDeps?: ConversationManagementDeps;
 }
 
 export interface RuntimeAttachmentMetadata {
