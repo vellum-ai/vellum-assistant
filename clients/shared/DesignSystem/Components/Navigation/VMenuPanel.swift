@@ -63,11 +63,24 @@ public class VMenuPanel: NSPanel {
         @ViewBuilder content: () -> Content,
         onDismiss: @escaping () -> Void
     ) -> VMenuPanel {
-        // Dismiss any existing root panel before showing a new one.
+        // Dismiss ALL existing VMenuPanel trees before showing a new one.
         // This matches NSMenu's native behavior: only one menu visible at a time.
-        // Using the coordinator's dismissAll() ensures the entire panel tree
-        // (root + submenus) is closed and the old onDismiss handler fires.
-        activeRootPanel?.coordinator?.dismissAll()
+        //
+        // We sweep NSApp.windows instead of relying solely on the
+        // activeRootPanel weak reference. If a panel's last strong
+        // Swift reference is released without calling close() (e.g., due
+        // to SwiftUI view recreation or @State reset), the weak ref
+        // becomes nil but the panel remains on screen — the window
+        // server retains ordered-in windows independently of ARC.
+        // The sweep catches these orphaned panels.
+        for window in NSApp.windows {
+            guard let existing = window as? VMenuPanel, existing.isVisible else { continue }
+            if let coordinator = existing.coordinator {
+                coordinator.dismissAll()
+            } else {
+                existing.close()
+            }
+        }
 
         let panel = VMenuPanel(
             contentRect: .zero,
@@ -365,10 +378,11 @@ public class VMenuPanel: NSPanel {
             VMenuPanel.activeRootPanel = nil
         }
 
-        // Make the panel fully transparent before any teardown so that
-        // SwiftUI-rendered shadows don't flash during the removeChildWindow
-        // → orderOut compositor transition.
+        // Make the panel fully transparent and remove its SwiftUI
+        // content immediately so no shadow/background artifacts
+        // persist during the removeChildWindow → orderOut transition.
         alphaValue = 0
+        contentView = nil
 
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
