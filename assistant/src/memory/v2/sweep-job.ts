@@ -13,9 +13,10 @@
  * extraction-trigger path. Until then this handler is invoked only by
  * `memory_v2_sweep` rows enqueued explicitly (tests, future CLI).
  *
- * Skipped entirely when the `memory-v2-enabled` feature flag is off — keeps
- * the sweep dormant in v1-only workspaces even if a stale row sits in the
- * queue at flag-flip time.
+ * Skipped entirely when the `memory-v2-enabled` feature flag is off, or when
+ * `config.memory.v2.sweep_enabled` is false — keeps the sweep dormant in
+ * v1-only workspaces and in v2 workspaces that haven't opted in, even if a
+ * stale row sits in the queue at flag-flip time.
  */
 
 import { readFileSync } from "node:fs";
@@ -105,6 +106,11 @@ export async function memoryV2SweepJob(
 ): Promise<number> {
   if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
     log.debug("memory-v2-enabled flag off; sweep skipped");
+    return 0;
+  }
+
+  if (!config.memory?.v2?.sweep_enabled) {
+    log.debug("memory.v2.sweep_enabled is false; sweep skipped");
     return 0;
   }
 

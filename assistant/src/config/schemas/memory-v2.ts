@@ -25,6 +25,12 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Whether the v2 memory subsystem (concept-page activation model) is enabled. Independent of the memory-v2-enabled feature flag — both must be true for v2 to run.",
       ),
+    sweep_enabled: z
+      .boolean({ error: "memory.v2.sweep_enabled must be a boolean" })
+      .default(false)
+      .describe(
+        "Whether the v2 idle-debounced sweep job is enabled. Off by default — `remember()` is the primary capture path; opt in only when the model is missing entries the sweep would have caught.",
+      ),
     d: z
       .number({ error: "memory.v2.d must be a number" })
       .min(0, "memory.v2.d must be >= 0")
