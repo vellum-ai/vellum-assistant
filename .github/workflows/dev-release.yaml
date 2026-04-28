@@ -870,6 +870,13 @@ jobs:
           COMMIT_SHA="${{ github.sha }}" \
           ./build.sh binaries
 
+      - name: Compute build version
+        id: version
+        run: |
+          BUILD_VERSION=$(date -u +%Y%m%d%H%M)
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Build version: $BUILD_VERSION"
+
       - name: Build macOS app
         timeout-minutes: 20
         run: |
@@ -877,6 +884,7 @@ jobs:
           SKIP_BUN_REBUILD=1 \
           BUNDLE_DISPLAY_NAME="Vellum Dev" \
           DISPLAY_VERSION="${{ needs.compute-version.outputs.version }}" \
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}" \
           COMMIT_SHA="${{ github.sha }}" \
           VELLUM_ENVIRONMENT=dev \
           SU_PUBLIC_ED_KEY="${{ secrets.SPARKLE_ED_PUBLIC_KEY }}" \
@@ -1034,6 +1042,7 @@ jobs:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}"
 
           ED_KEY_FILE=$(mktemp)
           echo "$SPARKLE_ED_PRIVATE_KEY" > "$ED_KEY_FILE"
@@ -1062,7 +1071,7 @@ jobs:
               <title>Vellum Dev</title>
               <item>
                 <title>${VERSION}</title>
-                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:version>${BUILD_VERSION}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
                 <enclosure
                   url="https://github.com/${REPO}/releases/download/dev-latest/vellum-assistant-dev.zip"
@@ -1073,7 +1082,7 @@ jobs:
             </channel>
           </rss>
           EOF
-          echo "Dev appcast generated"
+          echo "Dev appcast generated (version=$VERSION, build=$BUILD_VERSION)"
 
       - name: Upload DMG
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -1146,7 +1155,7 @@ jobs:
 
           # Delete existing release if present (gh release upload --clobber
           # doesn't update the release body/title).
-          gh release delete "$TAG" --repo "$REPO" --yes 2>/dev/null || true
+          gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag 2>/dev/null || true
 
           ASSETS=("$ZIP#vellum-assistant-dev.zip" "$APPCAST#appcast.xml")
           [ -n "$DMG" ] && ASSETS+=("$DMG#vellum-assistant-dev.dmg")
