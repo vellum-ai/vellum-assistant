@@ -389,6 +389,20 @@ struct ButtonsGallerySection: View {
                                     VMenuItem(label: "Allow always") {}
                                 }
                             }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Mini Items").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
+                                    VMenuItem(label: "Allow & Create Rule", size: .mini) {}
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Compact Items").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
+                                    VMenuItem(label: "Allow & Create Rule", size: .compact) {}
+                                }
+                            }
                         }
                     }
                 }
