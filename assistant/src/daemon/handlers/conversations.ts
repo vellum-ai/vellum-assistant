@@ -31,13 +31,13 @@ import type {
 } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
 import {
-  type HandlerContext,
+  type ConversationHandlerContext,
   log,
   pendingStandaloneSecrets,
 } from "./shared.js";
 
 export function makeEventSender(params: {
-  ctx: HandlerContext;
+  ctx: ConversationHandlerContext;
   conversation: Conversation;
   conversationId: string;
   sourceChannel: string;
@@ -141,7 +141,7 @@ export function makeEventSender(params: {
 
 export function handleConfirmationResponse(
   msg: ConfirmationResponse,
-  ctx: HandlerContext,
+  ctx: ConversationHandlerContext,
 ): void {
   // Route by requestId to the conversation that originated the prompt, not by
   // the current conversation binding which may have changed since the
@@ -172,7 +172,7 @@ export function handleConfirmationResponse(
 
 export function handleSecretResponse(
   msg: SecretResponse,
-  ctx: HandlerContext,
+  ctx: ConversationHandlerContext,
 ): void {
   // Check standalone (non-conversation) prompts first, since they use a dedicated
   // requestId that won't collide with conversation prompts.
@@ -222,9 +222,7 @@ export function clearAllConversations(): number {
  * Switch to an existing conversation. Returns conversation info on success,
  * or throws/returns an error result when the conversation is not found.
  */
-export async function switchConversation(
-  conversationId: string,
-): Promise<{
+export async function switchConversation(conversationId: string): Promise<{
   conversationId: string;
   title: string;
   conversationType: ReturnType<typeof normalizeConversationType>;
@@ -263,9 +261,7 @@ export function renameConversation(
 /**
  * Cancel generation for a conversation. Returns true if a conversation was found and cancelled.
  */
-export function cancelGeneration(
-  conversationId: string,
-): boolean {
+export function cancelGeneration(conversationId: string): boolean {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return false;

@@ -3,7 +3,7 @@
  *
  * The daemon server registers its `getOrCreateConversation` and `broadcast`
  * callbacks at startup. Tool implementations can then trigger async
- * work item execution without needing direct access to HandlerContext.
+ * work item execution without needing direct access to server internals.
  */
 
 import type { Conversation } from "../daemon/conversation.js";

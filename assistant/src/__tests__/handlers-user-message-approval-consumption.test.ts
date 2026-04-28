@@ -11,10 +11,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { HandlerContext } from "../daemon/handlers/shared.js";
+import type { ConversationHandlerContext } from "../daemon/handlers/shared.js";
 import type { ConfirmationResponse } from "../daemon/message-protocol.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { DebouncerMap } from "../util/debounce.js";
 
 const resolveCanonicalGuardianRequestMock = mock(
   () => null as { id: string } | null,
@@ -177,23 +176,15 @@ interface TestConversation {
   processMessage: (...args: unknown[]) => Promise<string>;
 }
 
-function createContext(conversationObj: TestConversation): {
-  ctx: HandlerContext;
+function createContext(_conversationObj: TestConversation): {
+  ctx: ConversationHandlerContext;
   sent: ServerMessage[];
 } {
   const sent: ServerMessage[] = [];
-  const ctx: HandlerContext = {
-    sharedRequestTimestamps: [],
-    debounceTimers: new DebouncerMap({ defaultDelayMs: 100 }),
-    suppressConfigReload: false,
-    setSuppressConfigReload: () => {},
-    updateConfigFingerprint: () => {},
+  const ctx: ConversationHandlerContext = {
     send: (msg) => {
       sent.push(msg);
     },
-    broadcast: () => {},
-    clearAllConversations: () => 0,
-    getOrCreateConversation: async () => conversationObj as any,
     touchConversation: () => {},
   };
   return { ctx, sent };

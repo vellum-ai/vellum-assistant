@@ -91,25 +91,22 @@ import type {
 // Re-export for use by route layer and future consumers.
 export type { SkillCategory };
 export { inferCategory };
-import {
-  CONFIG_RELOAD_DEBOUNCE_MS,
-  ensureSkillEntry,
-  type HandlerContext,
-  log,
-} from "./shared.js";
+import type { DebouncerMap } from "../../util/debounce.js";
+import type { ServerMessage } from "../message-protocol.js";
+import { CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, log } from "./shared.js";
 
 // ─── Shared context for standalone functions ─────────────────────────────────
 
 /**
  * Minimal context needed by the standalone skill business-logic functions.
- * HandlerContext satisfies this interface, but HTTP routes can also provide
- * a compatible object without coupling to handler internals.
+ * HTTP routes can provide a compatible object without coupling to handler
+ * internals.
  */
 export interface SkillOperationContext {
-  debounceTimers: HandlerContext["debounceTimers"];
+  debounceTimers: DebouncerMap;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
-  broadcast: HandlerContext["broadcast"];
+  broadcast(msg: ServerMessage): void;
 }
 
 // ─── Provider chain for uninstalled skill file preview ───────────────────────

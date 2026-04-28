@@ -168,35 +168,21 @@ import {
   handleRecordingStatusCore,
   handleRecordingStop,
 } from "../daemon/handlers/recording.js";
-import type { HandlerContext } from "../daemon/handlers/shared.js";
+import type { BroadcastContext } from "../daemon/handlers/shared.js";
 import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
-import { DebouncerMap } from "../util/debounce.js";
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 
 function createCtx(): {
-  ctx: HandlerContext;
+  ctx: BroadcastContext;
   sent: Array<{ type: string; [k: string]: unknown }>;
 } {
   const sent: Array<{ type: string; [k: string]: unknown }> = [];
 
-  const ctx: HandlerContext = {
-    sharedRequestTimestamps: [],
-    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
-    suppressConfigReload: false,
-    setSuppressConfigReload: noop,
-    updateConfigFingerprint: noop,
-    send: (msg) => {
-      sent.push(msg as { type: string; [k: string]: unknown });
-    },
+  const ctx: BroadcastContext = {
     broadcast: (msg) => {
       sent.push(msg as { type: string; [k: string]: unknown });
     },
-    clearAllConversations: () => 0,
-    getOrCreateConversation: () => {
-      throw new Error("not implemented");
-    },
-    touchConversation: noop,
   };
 
   return { ctx, sent };

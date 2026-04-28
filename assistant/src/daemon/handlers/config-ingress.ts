@@ -23,7 +23,7 @@ import {
 import type { IngressConfigRequest } from "../message-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
-  type HandlerContext,
+  type IngressConfigContext,
   log,
 } from "./shared.js";
 
@@ -120,7 +120,7 @@ export async function syncTwilioWebhooks(
 
 export async function handleIngressConfig(
   msg: IngressConfigRequest,
-  ctx: HandlerContext,
+  ctx: IngressConfigContext,
 ): Promise<void> {
   const localGatewayTarget = computeGatewayTarget();
   try {

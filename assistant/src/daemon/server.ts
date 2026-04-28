@@ -49,7 +49,6 @@ import { ConversationEvictor } from "./conversation-evictor.js";
 import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import {
   allConversations,
-  clearAllActiveConversations,
   clearConversations,
   conversationEntries,
   deleteConversation,
@@ -62,10 +61,7 @@ import {
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
-import {
-  type ConversationCreateOptions,
-  type HandlerContext,
-} from "./handlers/shared.js";
+import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import type {
   ServerMessage,
@@ -706,28 +702,6 @@ export class DaemonServer {
     this.evictConversationsForReload();
   }
 
-  // ── Handler context ────────────────────────────────────────────────
-
-  private handlerContext(): HandlerContext {
-    return {
-      sharedRequestTimestamps: this.sharedRequestTimestamps,
-      debounceTimers: this.configWatcher.timers,
-      suppressConfigReload: this.configWatcher.suppressConfigReload,
-      setSuppressConfigReload: (value: boolean) => {
-        this.configWatcher.suppressConfigReload = value;
-      },
-      updateConfigFingerprint: () => {
-        this.configWatcher.updateFingerprint();
-      },
-      send: (msg) => this.broadcast(msg),
-      broadcast: (msg) => this.broadcast(msg),
-      clearAllConversations: () => clearAllActiveConversations(),
-      getOrCreateConversation: (id, options?) =>
-        getOrCreateActiveConversation(id, options),
-      touchConversation: (id) => this.evictor.touch(id),
-    };
-  }
-
   // ── HTTP message processing ─────────────────────────────────────────
 
   async persistAndProcessMessage(
@@ -807,14 +781,6 @@ export class DaemonServer {
     options?: ConversationCreateOptions,
   ): Promise<Conversation> {
     return getOrCreateActiveConversation(conversationId, options);
-  }
-
-  /**
-   * Expose the handler context for use by conversation management HTTP routes.
-   * The context is built on-the-fly so it always reflects the current server state.
-   */
-  getHandlerContext(): HandlerContext {
-    return this.handlerContext();
   }
 }
 

@@ -3,13 +3,11 @@ import * as path from "node:path";
 
 import { v4 as uuid } from "uuid";
 
-import {
-  attachFileBackedAttachmentToMessage,
-} from "../../memory/attachments-store.js";
+import { attachFileBackedAttachmentToMessage } from "../../memory/attachments-store.js";
 import { addMessage, getConversation } from "../../memory/conversation-crud.js";
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
 import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
-import { type HandlerContext, log } from "./shared.js";
+import { type BroadcastContext, log } from "./shared.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -79,7 +77,7 @@ const deferredRestartByConversation = new Map<string, DeferredRestartParams>();
 export function handleRecordingStart(
   conversationId: string,
   options: RecordingOptions | undefined,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
   operationToken?: string,
 ): string | null {
   const existingRecordingId = recordingOwnerByConversation.get(conversationId);
@@ -141,7 +139,7 @@ export function handleRecordingStart(
  */
 export function handleRecordingStop(
   conversationId: string,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
   let ownerConversationId = conversationId;
@@ -238,7 +236,7 @@ export interface RecordingRestartResult {
  */
 export function handleRecordingRestart(
   conversationId: string,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): RecordingRestartResult {
   // Generate a restart operation token for race hardening
   const operationToken = uuid();
@@ -325,7 +323,7 @@ export function handleRecordingRestart(
  */
 export function handleRecordingPause(
   conversationId: string,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
 
@@ -362,7 +360,7 @@ export function handleRecordingPause(
  */
 export function handleRecordingResume(
   conversationId: string,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
 
@@ -448,7 +446,7 @@ async function finalizeAndPublishRecording(params: {
   conversationId: string;
   filePath?: string;
   durationMs?: number;
-  ctx: HandlerContext;
+  ctx: BroadcastContext;
 }): Promise<{ success: boolean; messageId?: string }> {
   const { recordingId, conversationId, filePath, ctx } = params;
 
@@ -730,7 +728,7 @@ async function finalizeAndPublishRecording(params: {
  */
 export async function handleRecordingStatusCore(
   msg: RecordingStatus,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): Promise<void> {
   const recordingId = msg.conversationId;
   let conversationId = standaloneRecordingConversationId.get(recordingId);
