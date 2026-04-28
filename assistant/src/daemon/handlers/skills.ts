@@ -25,6 +25,7 @@ import {
   seedSkillGraphNodes,
   seedUninstalledCatalogSkillMemories,
 } from "../../memory/graph/capability-seed.js";
+import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import {
   createTimeout,
   extractText,
@@ -319,6 +320,13 @@ function postInstallSkill(
 
   // Seed skill memories
   seedSkillGraphNodes();
+  const config = getConfig();
+  if (
+    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+    config.memory.v2.enabled
+  ) {
+    void seedV2SkillEntries().catch(() => {});
+  }
   void seedUninstalledCatalogSkillMemories().catch(() => {});
 }
 
@@ -986,6 +994,13 @@ export function enableSkill(
       state: "enabled",
     });
     seedSkillGraphNodes();
+    const config = getConfig();
+    if (
+      isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+      config.memory.v2.enabled
+    ) {
+      void seedV2SkillEntries().catch(() => {});
+    }
     void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
@@ -1009,6 +1024,13 @@ export function disableSkill(
       state: "disabled",
     });
     seedSkillGraphNodes();
+    const config = getConfig();
+    if (
+      isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+      config.memory.v2.enabled
+    ) {
+      void seedV2SkillEntries().catch(() => {});
+    }
     void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {
@@ -1104,6 +1126,12 @@ export async function installSkill(
         );
       }
       seedSkillGraphNodes();
+      if (
+        isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+        config.memory.v2.enabled
+      ) {
+        void seedV2SkillEntries().catch(() => {});
+      }
       void seedUninstalledCatalogSkillMemories().catch(() => {});
       return { success: true, skillId: spec.slug };
     }
@@ -1678,6 +1706,13 @@ export async function createSkill(
     }
 
     seedSkillGraphNodes();
+    const config = getConfig();
+    if (
+      isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+      config.memory.v2.enabled
+    ) {
+      void seedV2SkillEntries().catch(() => {});
+    }
     void seedUninstalledCatalogSkillMemories().catch(() => {});
     return { success: true };
   } catch (err) {

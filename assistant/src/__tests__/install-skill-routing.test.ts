@@ -78,7 +78,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: () => true,
 }));
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({}),
+  getConfig: () => ({ memory: { v2: { enabled: false } } }),
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
