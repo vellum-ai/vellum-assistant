@@ -349,6 +349,14 @@ struct ButtonsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Rounded Rect").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, buttonShape: .roundedRectangle, action: {}) {
+                                    Button("Allow once") {}
+                                    Button("Allow always") {}
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Long Label").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow for this conversation", icon: VIcon.check.rawValue, style: .primary, action: {}) {
                                     Button("Allow once") {}

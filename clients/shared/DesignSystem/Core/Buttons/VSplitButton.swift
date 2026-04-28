@@ -9,12 +9,21 @@ public struct VSplitButton<MenuContent: View>: View {
         case up
     }
 
+    /// Controls the outer shape of the split button.
+    public enum ButtonShape {
+        /// Pill / capsule ends (fully rounded).
+        case capsule
+        /// Rounded rectangle matching `VRadius.md`.
+        case roundedRectangle
+    }
+
     public let label: String
     public var icon: String?
     public var style: VButton.Style
     public var size: VButton.Size
     public var isDisabled: Bool
     public var chevronDirection: ChevronDirection
+    public var buttonShape: ButtonShape
     public var accessibilityID: String?
     public let action: () -> Void
     @ViewBuilder public let menuContent: () -> MenuContent
@@ -35,6 +44,7 @@ public struct VSplitButton<MenuContent: View>: View {
         size: VButton.Size = .regular,
         isDisabled: Bool = false,
         chevronDirection: ChevronDirection = .down,
+        buttonShape: ButtonShape = .capsule,
         accessibilityID: String? = nil,
         action: @escaping () -> Void,
         @ViewBuilder menuContent: @escaping () -> MenuContent
@@ -45,6 +55,7 @@ public struct VSplitButton<MenuContent: View>: View {
         self.size = size
         self.isDisabled = isDisabled
         self.chevronDirection = chevronDirection
+        self.buttonShape = buttonShape
         self.accessibilityID = accessibilityID
         self.action = action
         self.menuContent = menuContent
@@ -59,8 +70,17 @@ public struct VSplitButton<MenuContent: View>: View {
         chevronDirection == .up ? .chevronUp : .chevronDown
     }
 
+    private var resolvedShape: AnyInsettableShape {
+        switch buttonShape {
+        case .capsule:
+            return AnyInsettableShape(Capsule())
+        case .roundedRectangle:
+            return AnyInsettableShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+    }
+
     public var body: some View {
-        let shape = Capsule()
+        let shape = resolvedShape
 
         HStack(spacing: 0) {
             // Primary action zone
@@ -358,4 +378,25 @@ private extension View {
             self
         }
     }
+}
+
+// MARK: - AnyInsettableShape
+
+/// Type-erased `InsettableShape` so VSplitButton can switch between
+/// `Capsule` and `RoundedRectangle` at runtime while still using
+/// `strokeBorder` (which requires `InsettableShape`).
+private struct AnyInsettableShape: InsettableShape {
+    private let _path: (CGRect) -> Path
+    private let _sizeThatFits: (ProposedViewSize) -> CGSize
+    private let _inset: (CGFloat) -> AnyInsettableShape
+
+    init<S: InsettableShape>(_ shape: S) {
+        _path = shape.path
+        _sizeThatFits = shape.sizeThatFits
+        _inset = { AnyInsettableShape(shape.inset(by: $0)) }
+    }
+
+    func path(in rect: CGRect) -> Path { _path(rect) }
+    func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize { _sizeThatFits(proposal) }
+    func inset(by amount: CGFloat) -> AnyInsettableShape { _inset(amount) }
 }
