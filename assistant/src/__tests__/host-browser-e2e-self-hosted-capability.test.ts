@@ -57,7 +57,6 @@ mock.module("../config/loader.js", () => ({
 
 // ── Real imports (after mocks) ──────────────────────────────────────
 
-import type { Conversation } from "../daemon/conversation.js";
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getDb } from "../memory/db-connection.js";
@@ -79,32 +78,26 @@ initializeDb();
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /**
- * Wrap a HostBrowserProxy in a sendToClient that routes
- * host_browser_request / host_browser_cancel frames through the
- * ChromeExtensionRegistry for the given guardianId, and registers the
- * corresponding pending interaction so `/v1/host-browser-result` can
- * resolve it back through the proxy. Mirrors the cloud e2e test's
- * `createBoundProxy` helper.
+ * Point `HostBrowserProxy.instance` at the test's proxy so the
+ * `/v1/host-browser-result` handler can resolve results correctly.
  */
+let activeTestProxy: HostBrowserProxy | null = null;
+Object.defineProperty(HostBrowserProxy, "instance", {
+  get() {
+    return activeTestProxy ?? undefined;
+  },
+  configurable: true,
+});
+
 function createBoundProxy(
   guardianId: string,
   conversationId: string,
-): { proxy: HostBrowserProxy; conversation: Conversation } {
-  let proxyRef: HostBrowserProxy | null = null;
-  const conversation = {
-    resolveHostBrowser(
-      requestId: string,
-      response: { content: string; isError: boolean },
-    ) {
-      proxyRef?.resolve(requestId, response);
-    },
-  } as unknown as Conversation;
-
+): { proxy: HostBrowserProxy } {
   const sendToClient = (msg: ServerMessage) => {
     if ((msg as { type: string }).type === "host_browser_request") {
       const requestId = (msg as { requestId: string }).requestId;
       pendingInteractions.register(requestId, {
-        conversation,
+        conversation: null,
         conversationId,
         kind: "host_browser",
       });
@@ -118,8 +111,8 @@ function createBoundProxy(
   };
 
   const proxy = new HostBrowserProxy(sendToClient);
-  proxyRef = proxy;
-  return { proxy, conversation };
+  activeTestProxy = proxy;
+  return { proxy };
 }
 
 // ── Tests ───────────────────────────────────────────────────────────

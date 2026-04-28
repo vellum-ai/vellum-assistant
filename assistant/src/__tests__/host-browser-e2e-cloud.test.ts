@@ -10,7 +10,7 @@
  *     → mock extension WebSocket receives host_browser_request
  *     → mock CDP handler (Browser.getVersion fake)
  *     → POST /v1/host-browser-result
- *     → handleHostBrowserResult → conversation.resolveHostBrowser
+ *     → handleHostBrowserResult → HostBrowserProxy.instance.resolve()
  *     → proxy.resolve() → request() resolves
  *
  * Covers:
@@ -63,7 +63,6 @@ mock.module("../config/loader.js", () => ({
 
 // ── Real imports (after mocks) ──────────────────────────────────────
 
-import type { Conversation } from "../daemon/conversation.js";
 import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { getDb } from "../memory/db-connection.js";
@@ -81,41 +80,33 @@ initializeDb();
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /**
- * Wrap a HostBrowserProxy in a sendToClient that:
- *   1. Routes host_browser_request/host_browser_cancel via the Chrome
- *      extension registry for the given guardianId.
- *   2. Registers a pending interaction for each request so the
- *      `/v1/host-browser-result` HTTP route can find the stub
- *      conversation and call `resolveHostBrowser` on it.
- *
- * Returns the proxy and its stub conversation. In production this
- * wiring lives in `conversation-routes.ts` `makeHubPublisher`; the test
- * reproduces the minimum surface needed for the round-trip.
+ * The result handler at `/v1/host-browser-result` resolves via
+ * `HostBrowserProxy.instance`. Point the singleton at whatever proxy
+ * the current test is driving so results route back correctly.
+ */
+let activeTestProxy: HostBrowserProxy | null = null;
+// Patch the static instance getter to return the test proxy.
+Object.defineProperty(HostBrowserProxy, "instance", {
+  get() {
+    return activeTestProxy ?? undefined;
+  },
+  configurable: true,
+});
+
+/**
+ * Wrap a HostBrowserProxy in a sendToClient that routes
+ * host_browser_request/host_browser_cancel via the Chrome extension
+ * registry for the given guardianId and registers pending interactions.
  */
 function createBoundProxy(
   guardianId: string,
   conversationId: string,
-): { proxy: HostBrowserProxy; conversation: Conversation } {
-  // The stub Conversation's `resolveHostBrowser` routes straight back
-  // to the real proxy. Declare the proxy reference first so the stub
-  // can close over it before the proxy itself is constructed below.
-  let proxyRef: HostBrowserProxy | null = null;
-  const conversation = {
-    resolveHostBrowser(
-      requestId: string,
-      response: { content: string; isError: boolean },
-    ) {
-      proxyRef?.resolve(requestId, response);
-    },
-  } as unknown as Conversation;
-
+): { proxy: HostBrowserProxy } {
   const sendToClient = (msg: ServerMessage) => {
-    // Register pending interactions for host_browser_request envelopes
-    // so the /v1/host-browser-result route can look them up.
     if ((msg as { type: string }).type === "host_browser_request") {
       const requestId = (msg as { requestId: string }).requestId;
       pendingInteractions.register(requestId, {
-        conversation,
+        conversation: null,
         conversationId,
         kind: "host_browser",
       });
@@ -129,8 +120,8 @@ function createBoundProxy(
   };
 
   const proxy = new HostBrowserProxy(sendToClient);
-  proxyRef = proxy;
-  return { proxy, conversation };
+  activeTestProxy = proxy;
+  return { proxy };
 }
 
 /**
@@ -627,26 +618,10 @@ describe("macOS SSE bridge ingress (no extension registry)", () => {
     token: string,
   ): {
     proxy: HostBrowserProxy;
-    conversation: Conversation;
     sentFrames: Array<{ type: string; [key: string]: unknown }>;
   } {
-    let proxyRef: HostBrowserProxy | null = null;
-    const conversation = {
-      resolveHostBrowser(
-        requestId: string,
-        response: { content: string; isError: boolean },
-      ) {
-        proxyRef?.resolve(requestId, response);
-      },
-    } as unknown as Conversation;
-
     const sentFrames: Array<{ type: string; [key: string]: unknown }> = [];
 
-    // The SSE sender simulates what `assistantEventHub.publish` does in
-    // production: it delivers the message to the connected SSE client.
-    // Here we capture the frame and immediately simulate the macOS client
-    // handling it — executing a mock CDP command and POSTing the result
-    // back to the runtime.
     const sseSender = (msg: ServerMessage) => {
       const frame = msg as { type: string; [key: string]: unknown };
       sentFrames.push(frame);
@@ -654,10 +629,8 @@ describe("macOS SSE bridge ingress (no extension registry)", () => {
       if (frame.type === "host_browser_request") {
         const requestId = frame.requestId as string;
 
-        // Register the pending interaction (in production this happens
-        // in makeHubPublisher inside conversation-routes.ts).
         pendingInteractions.register(requestId, {
-          conversation,
+          conversation: null,
           conversationId,
           kind: "host_browser",
         });
@@ -697,8 +670,8 @@ describe("macOS SSE bridge ingress (no extension registry)", () => {
     };
 
     const proxy = new HostBrowserProxy(sseSender);
-    proxyRef = proxy;
-    return { proxy, conversation, sentFrames };
+    activeTestProxy = proxy;
+    return { proxy, sentFrames };
   }
 
   test("happy path: Browser.getVersion round-trips through the SSE bridge without extension registry", async () => {
@@ -739,32 +712,21 @@ describe("macOS SSE bridge ingress (no extension registry)", () => {
 
     // Use a CDP handler that hangs forever so we can abort mid-flight.
     const sentFrames: Array<{ type: string; [key: string]: unknown }> = [];
-    let proxyRef: HostBrowserProxy | null = null;
-    const conversation = {
-      resolveHostBrowser(
-        requestId: string,
-        response: { content: string; isError: boolean },
-      ) {
-        proxyRef?.resolve(requestId, response);
-      },
-    } as unknown as Conversation;
-
     const hangingSender = (msg: ServerMessage) => {
       const frame = msg as { type: string; [key: string]: unknown };
       sentFrames.push(frame);
       if (frame.type === "host_browser_request") {
         const requestId = frame.requestId as string;
         pendingInteractions.register(requestId, {
-          conversation,
+          conversation: null,
           conversationId: "conv-macos-sse-abort",
           kind: "host_browser",
         });
-        // Simulate a macOS client that never responds (hangs).
       }
     };
 
     const proxy = new HostBrowserProxy(hangingSender);
-    proxyRef = proxy;
+    activeTestProxy = proxy;
 
     const controller = new AbortController();
     const resultPromise = proxy.request(
@@ -794,15 +756,6 @@ describe("macOS SSE bridge ingress (no extension registry)", () => {
     const _token = mintActorToken(guardianId);
 
     const sentFrames: Array<{ type: string; [key: string]: unknown }> = [];
-    let proxyRef: HostBrowserProxy | null = null;
-    const conversation = {
-      resolveHostBrowser(
-        requestId: string,
-        response: { content: string; isError: boolean },
-      ) {
-        proxyRef?.resolve(requestId, response);
-      },
-    } as unknown as Conversation;
 
     const hangingSender = (msg: ServerMessage) => {
       const frame = msg as { type: string; [key: string]: unknown };
@@ -810,16 +763,15 @@ describe("macOS SSE bridge ingress (no extension registry)", () => {
       if (frame.type === "host_browser_request") {
         const requestId = frame.requestId as string;
         pendingInteractions.register(requestId, {
-          conversation,
+          conversation: null,
           conversationId: "conv-macos-sse-timeout",
           kind: "host_browser",
         });
-        // Never respond — simulate unresponsive macOS client.
       }
     };
 
     const proxy = new HostBrowserProxy(hangingSender);
-    proxyRef = proxy;
+    activeTestProxy = proxy;
 
     const result = await proxy.request(
       { cdpMethod: "Browser.getVersion", timeout_seconds: 0.05 },
