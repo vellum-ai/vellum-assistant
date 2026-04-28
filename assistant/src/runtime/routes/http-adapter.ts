@@ -9,6 +9,7 @@ import { httpError } from "../http-errors.js";
 import type { HTTPRouteDefinition } from "../http-router.js";
 import { RouteError } from "./errors.js";
 import type { ResponseHeaderArgs, RouteDefinition } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 function resolveResponseHeaders(
   spec: RouteDefinition["responseHeaders"],
@@ -19,6 +20,15 @@ function resolveResponseHeaders(
   return spec;
 }
 
+function resolveResponseStatus(
+  spec: RouteDefinition["responseStatus"],
+  args: ResponseHeaderArgs,
+): number {
+  if (!spec) return 200;
+  if (typeof spec === "function") return Number(spec(args));
+  return Number(spec);
+}
+
 export function routeDefinitionsToHTTPRoutes(
   routes: RouteDefinition[],
 ): HTTPRouteDefinition[] {
@@ -26,15 +36,15 @@ export function routeDefinitionsToHTTPRoutes(
     endpoint: r.endpoint,
     method: r.method,
     policyKey:
-      r.policyKey ??
-      r.endpoint.replace(/\/:[^/]+/g, "").replace(/^:/, ""),
+      r.policyKey ?? r.endpoint.replace(/\/:[^/]+/g, "").replace(/^:/, ""),
     summary: r.summary,
     description: r.description,
     tags: r.tags,
     queryParams: r.queryParams,
     requestBody: r.requestBody,
     responseBody: r.responseBody,
-    responseStatus: r.responseStatus,
+    responseStatus:
+      typeof r.responseStatus === "string" ? r.responseStatus : undefined,
     additionalResponses: r.additionalResponses,
     handler: async ({ req, url, params, authContext }) => {
       try {
@@ -58,7 +68,12 @@ export function routeDefinitionsToHTTPRoutes(
         const contentType = req.headers.get("content-type") ?? "";
         let body: Record<string, unknown> | undefined;
         let rawBody: Uint8Array | undefined;
-        if (r.method === "POST" || r.method === "PUT" || r.method === "PATCH" || r.method === "DELETE") {
+        if (
+          r.method === "POST" ||
+          r.method === "PUT" ||
+          r.method === "PATCH" ||
+          r.method === "DELETE"
+        ) {
           if (contentType.includes("application/json") || contentType === "") {
             try {
               const parsed = (await req.json()) as Record<string, unknown>;
@@ -82,8 +97,7 @@ export function routeDefinitionsToHTTPRoutes(
         // Inject auth context fields so transport-agnostic handlers can
         // resolve trust context without importing auth internals.
         if (authContext?.actorPrincipalId) {
-          headers["x-vellum-actor-principal-id"] =
-            authContext.actorPrincipalId;
+          headers["x-vellum-actor-principal-id"] = authContext.actorPrincipalId;
         }
         if (authContext?.principalType) {
           headers["x-vellum-principal-type"] = authContext.principalType;
@@ -98,23 +112,31 @@ export function routeDefinitionsToHTTPRoutes(
           abortSignal: req.signal,
         });
 
-        // Handlers that need full HTTP control (e.g. Range/206 responses)
-        // may return a Response directly — pass it through unchanged.
-        if (result instanceof Response) {
-          return result;
-        }
-
-        const responseHeaders = resolveResponseHeaders(r.responseHeaders, {
+        const headerArgs: ResponseHeaderArgs = {
           pathParams,
           queryParams,
           headers,
-        });
+        };
 
-        const status = r.responseStatus ? Number(r.responseStatus) : 200;
+        const responseHeaders = resolveResponseHeaders(
+          r.responseHeaders,
+          headerArgs,
+        );
+
+        const status = resolveResponseStatus(r.responseStatus, headerArgs);
 
         // 204 No Content — discard handler result, return empty body
         if (status === 204) {
           return new Response(null, { status: 204, headers: responseHeaders });
+        }
+
+        // RouteResponse — handler-supplied body + headers (e.g. binary
+        // content with dynamic Content-Type / Content-Range).
+        if (result instanceof RouteResponse) {
+          return new Response(result.body, {
+            status,
+            headers: { ...responseHeaders, ...result.headers },
+          });
         }
 
         // Non-JSON responses: handler returned string, Uint8Array, or ReadableStream

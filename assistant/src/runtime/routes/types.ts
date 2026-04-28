@@ -37,6 +37,20 @@ export type ResponseHeaderArgs = Pick<
   "pathParams" | "queryParams" | "headers"
 >;
 
+/**
+ * Wrapper for handlers that need to set per-response headers alongside
+ * a non-JSON body (e.g. binary content with Content-Type, Content-Range).
+ *
+ * Unlike returning a raw `Response`, this is transport-agnostic — both
+ * the HTTP and IPC adapters can interpret it.
+ */
+export class RouteResponse {
+  constructor(
+    public readonly body: BodyInit | null,
+    public readonly headers: Record<string, string>,
+  ) {}
+}
+
 export interface RouteDefinition {
   operationId: string;
   endpoint: string;
@@ -54,8 +68,11 @@ export interface RouteDefinition {
    * Use "201" for resource creation, "204" for no-content responses.
    * When "204", the HTTP adapter returns an empty body regardless of
    * what the handler returns.
+   *
+   * Can be a static string or a function that computes the status from
+   * request metadata (e.g. returning "206" when a Range header is present).
    */
-  responseStatus?: string;
+  responseStatus?: string | ((args: ResponseHeaderArgs) => string);
   /**
    * When true, the HTTP adapter verifies the caller is the bound guardian
    * before invoking the handler. The IPC adapter excludes these routes

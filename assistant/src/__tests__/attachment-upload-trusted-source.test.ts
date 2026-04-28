@@ -27,6 +27,7 @@ mock.module("../config/env.js", () => ({
 
 import { initializeDb } from "../memory/db-init.js";
 import { ROUTES } from "../runtime/routes/attachment-routes.js";
+import { RouteError } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 const SMALL_PNG_BASE64 =
@@ -71,12 +72,10 @@ describe("attachment upload — trustedSource flag", () => {
         },
         "svc_gateway",
       ),
-    )) as Response;
+    )) as { id: string; mime_type: string };
 
-    expect(result.status).toBe(200);
-    const body = (await result.json()) as { id: string; mime_type: string };
-    expect(body.id).toBeDefined();
-    expect(body.mime_type).toBe("video/x-matroska");
+    expect(result.id).toBeDefined();
+    expect(result.mime_type).toBe("video/x-matroska");
   });
 
   test("svc_gateway + trustedSource:true accepts a dangerous extension", async () => {
@@ -90,43 +89,51 @@ describe("attachment upload — trustedSource flag", () => {
         },
         "svc_gateway",
       ),
-    )) as Response;
+    )) as { id: string };
 
-    expect(result.status).toBe(200);
+    expect(result.id).toBeDefined();
   });
 
   test("actor caller with trustedSource:true is still rejected (gating works)", async () => {
-    const result = (await uploadRoute.handler(
-      makeUploadArgs(
-        {
-          filename: "clip.mkv",
-          mimeType: "video/x-matroska",
-          data: SMALL_PNG_BASE64,
-          trustedSource: true,
-        },
-        "actor",
-      ),
-    )) as Response;
-
-    expect(result.status).toBe(415);
-    const body = (await result.json()) as { error: { message: string } };
-    expect(body.error.message).toContain("Unsupported MIME type");
+    try {
+      await uploadRoute.handler(
+        makeUploadArgs(
+          {
+            filename: "clip.mkv",
+            mimeType: "video/x-matroska",
+            data: SMALL_PNG_BASE64,
+            trustedSource: true,
+          },
+          "actor",
+        ),
+      );
+      throw new Error("Expected handler to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      const routeErr = err as RouteError;
+      expect(routeErr.statusCode).toBe(415);
+      expect(routeErr.message).toContain("Unsupported MIME type");
+    }
   });
 
   test("svc_gateway without trustedSource keeps existing rejection", async () => {
-    const result = (await uploadRoute.handler(
-      makeUploadArgs(
-        {
-          filename: "payload.exe",
-          mimeType: "application/octet-stream",
-          data: SMALL_PNG_BASE64,
-        },
-        "svc_gateway",
-      ),
-    )) as Response;
-
-    expect(result.status).toBe(415);
-    const body = (await result.json()) as { error: { message: string } };
-    expect(body.error.message).toContain("Dangerous file type");
+    try {
+      await uploadRoute.handler(
+        makeUploadArgs(
+          {
+            filename: "payload.exe",
+            mimeType: "application/octet-stream",
+            data: SMALL_PNG_BASE64,
+          },
+          "svc_gateway",
+        ),
+      );
+      throw new Error("Expected handler to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      const routeErr = err as RouteError;
+      expect(routeErr.statusCode).toBe(415);
+      expect(routeErr.message).toContain("Dangerous file type");
+    }
   });
 });

@@ -61,6 +61,27 @@ export class ConflictError extends RouteError {
   }
 }
 
+export class PayloadTooLargeError extends RouteError {
+  constructor(message: string) {
+    super(message, "PAYLOAD_TOO_LARGE", 413);
+    this.name = "PayloadTooLargeError";
+  }
+}
+
+export class UnsupportedMediaTypeError extends RouteError {
+  constructor(message: string) {
+    super(message, "UNSUPPORTED_MEDIA_TYPE", 415);
+    this.name = "UnsupportedMediaTypeError";
+  }
+}
+
+export class RangeNotSatisfiableError extends RouteError {
+  constructor(message: string) {
+    super(message, "RANGE_NOT_SATISFIABLE", 416);
+    this.name = "RangeNotSatisfiableError";
+  }
+}
+
 export class FailedDependencyError extends RouteError {
   constructor(message: string) {
     super(message, "FAILED_DEPENDENCY", 424);

@@ -27,9 +27,16 @@ import {
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { httpError } from "../http-errors.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  PayloadTooLargeError,
+  RangeNotSatisfiableError,
+  UnsupportedMediaTypeError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
@@ -110,16 +117,16 @@ export function resolveAllowedFileBackedAttachmentPath(
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 /**
- * Build the standard JSON success response for an uploaded attachment.
+ * Build the standard JSON success payload for an uploaded attachment.
  */
-function attachmentResponse(attachment: StoredAttachment): Response {
-  return Response.json({
+function attachmentPayload(attachment: StoredAttachment) {
+  return {
     id: attachment.id,
     original_filename: attachment.originalFilename,
     mime_type: attachment.mimeType,
     size_bytes: attachment.sizeBytes,
     kind: attachment.kind,
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -137,13 +144,11 @@ async function handleMultipartUpload(
   rawBody: Uint8Array,
   headers: Record<string, string>,
   gatewayTrustedSource: boolean,
-): Promise<Response> {
+) {
   const contentLength = headers["content-length"];
   if (contentLength && Number(contentLength) > MAX_UPLOAD_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new PayloadTooLargeError(
       `File too large (limit: ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB)`,
-      413,
     );
   }
 
@@ -158,33 +163,27 @@ async function handleMultipartUpload(
   try {
     formData = await syntheticReq.formData();
   } catch {
-    return httpError("BAD_REQUEST", "Invalid multipart form data", 400);
+    throw new BadRequestError("Invalid multipart form data");
   }
 
   const file = formData.get("file");
   if (!file || !(file instanceof Blob)) {
-    return httpError(
-      "BAD_REQUEST",
-      'Multipart upload requires a "file" field',
-      400,
-    );
+    throw new BadRequestError('Multipart upload requires a "file" field');
   }
 
   const filename = formData.get("filename");
   if (!filename || typeof filename !== "string") {
-    return httpError("BAD_REQUEST", "filename field is required", 400);
+    throw new BadRequestError("filename field is required");
   }
 
   const mimeType = formData.get("mimeType");
   if (!mimeType || typeof mimeType !== "string") {
-    return httpError("BAD_REQUEST", "mimeType field is required", 400);
+    throw new BadRequestError("mimeType field is required");
   }
 
   if (file.size > MAX_UPLOAD_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new PayloadTooLargeError(
       `File is ${Math.round(file.size / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
-      413,
     );
   }
 
@@ -195,13 +194,13 @@ async function handleMultipartUpload(
     trustedSource,
   });
   if (!validation.ok) {
-    return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
+    throw new UnsupportedMediaTypeError(validation.error);
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
 
   const attachment = uploadAttachmentFromBytes(filename, mimeType, bytes);
-  return attachmentResponse(attachment);
+  return attachmentPayload(attachment);
 }
 
 /**
@@ -215,39 +214,27 @@ function handleOctetStreamUpload(
   headers: Record<string, string>,
   queryParams: Record<string, string>,
   gatewayTrustedSource: boolean,
-): Response {
+) {
   const contentLength = headers["content-length"];
   if (contentLength && Number(contentLength) > MAX_UPLOAD_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new PayloadTooLargeError(
       `File too large (limit: ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB)`,
-      413,
     );
   }
 
   const filename = queryParams.filename;
   if (!filename || typeof filename !== "string") {
-    return httpError(
-      "BAD_REQUEST",
-      "filename query parameter is required",
-      400,
-    );
+    throw new BadRequestError("filename query parameter is required");
   }
 
   const mimeType = queryParams.mimeType;
   if (!mimeType || typeof mimeType !== "string") {
-    return httpError(
-      "BAD_REQUEST",
-      "mimeType query parameter is required",
-      400,
-    );
+    throw new BadRequestError("mimeType query parameter is required");
   }
 
   if (rawBody.byteLength > MAX_UPLOAD_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new PayloadTooLargeError(
       `File is ${Math.round(rawBody.byteLength / (1024 * 1024))} MB which exceeds the ${MAX_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
-      413,
     );
   }
 
@@ -258,11 +245,11 @@ function handleOctetStreamUpload(
     trustedSource,
   });
   if (!validation.ok) {
-    return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
+    throw new UnsupportedMediaTypeError(validation.error);
   }
 
   const attachment = uploadAttachmentFromBytes(filename, mimeType, rawBody);
-  return attachmentResponse(attachment);
+  return attachmentPayload(attachment);
 }
 
 /**
@@ -274,12 +261,10 @@ function handleJsonUpload(
   body: Record<string, unknown>,
   rawBody: Uint8Array | undefined,
   gatewayTrustedSource: boolean,
-): Response {
+) {
   if (rawBody && rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new PayloadTooLargeError(
       `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
-      413,
     );
   }
 
@@ -292,21 +277,22 @@ function handleJsonUpload(
   };
 
   if (!filename || typeof filename !== "string") {
-    return httpError("BAD_REQUEST", "filename is required", 400);
+    throw new BadRequestError("filename is required");
   }
 
   if (!mimeType || typeof mimeType !== "string") {
-    return httpError("BAD_REQUEST", "mimeType is required", 400);
+    throw new BadRequestError("mimeType is required");
   }
 
   const trustedSource =
-    gatewayTrustedSource && (body as { trustedSource?: boolean }).trustedSource === true;
+    gatewayTrustedSource &&
+    (body as { trustedSource?: boolean }).trustedSource === true;
 
   const validation = validateAttachmentUpload(filename, mimeType, {
     trustedSource,
   });
   if (!validation.ok) {
-    return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
+    throw new UnsupportedMediaTypeError(validation.error);
   }
 
   let attachment: StoredAttachment;
@@ -317,15 +303,13 @@ function handleJsonUpload(
     if (!resolvedPath) {
       const canonicalSource = resolveCanonicalPath(filePath);
       if (!existsSync(canonicalSource)) {
-        return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
+        throw new BadRequestError("filePath does not exist on disk");
       }
       const sourceSize = statSync(canonicalSource).size;
       if (sourceSize > MAX_FILE_BACKED_UPLOAD_BYTES) {
         const sizeMB = Math.round(sourceSize / (1024 * 1024));
-        return httpError(
-          "BAD_REQUEST",
+        throw new PayloadTooLargeError(
           `File is ${sizeMB} MB which exceeds the ${MAX_FILE_BACKED_UPLOAD_BYTES / (1024 * 1024)} MB upload limit`,
-          413,
         );
       }
       const workspaceAttachmentsDir = join(
@@ -341,7 +325,7 @@ function handleJsonUpload(
     }
 
     if (!existsSync(resolvedPath)) {
-      return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
+      throw new BadRequestError("filePath does not exist on disk");
     }
     const sizeBytes = statSync(resolvedPath).size;
     attachment = uploadFileBackedAttachment(
@@ -352,7 +336,7 @@ function handleJsonUpload(
     );
   } else {
     if (!data || typeof data !== "string") {
-      return httpError("BAD_REQUEST", "data (base64) is required", 400);
+      throw new BadRequestError("data (base64) is required");
     }
 
     try {
@@ -364,21 +348,19 @@ function handleJsonUpload(
       );
     } catch (err) {
       if (err instanceof AttachmentUploadError) {
-        const status = err.message.startsWith("Attachment too large")
-          ? 413
-          : 400;
-        return httpError("BAD_REQUEST", err.message, status);
+        if (err.message.startsWith("Attachment too large")) {
+          throw new PayloadTooLargeError(err.message);
+        }
+        throw new BadRequestError(err.message);
       }
       throw err;
     }
   }
 
-  return attachmentResponse(attachment);
+  return attachmentPayload(attachment);
 }
 
-async function handleUploadAttachmentRoute(
-  args: RouteHandlerArgs,
-): Promise<Response> {
+async function handleUploadAttachmentRoute(args: RouteHandlerArgs) {
   const { rawBody, headers = {}, queryParams = {}, body } = args;
   const contentType = headers["content-type"] ?? "";
 
@@ -465,7 +447,7 @@ function handleGetAttachmentRoute({ pathParams }: RouteHandlerArgs) {
 function handleGetAttachmentContentRoute({
   pathParams,
   headers = {},
-}: RouteHandlerArgs): Response {
+}: RouteHandlerArgs): RouteResponse {
   const attachmentId = pathParams!.id;
   const filePath = getFilePathForAttachment(attachmentId);
   const isFileBacked = !!filePath;
@@ -474,15 +456,15 @@ function handleGetAttachmentContentRoute({
     hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
-    return httpError("NOT_FOUND", "Attachment not found", 404);
+    throw new NotFoundError("Attachment not found");
   }
   if (filePath) {
     const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
     if (!resolvedPath) {
-      return httpError("NOT_FOUND", "Attachment content not found", 404);
+      throw new NotFoundError("Attachment content not found");
     }
     if (!existsSync(resolvedPath)) {
-      return httpError("NOT_FOUND", "Recording file not found on disk", 404);
+      throw new NotFoundError("Recording file not found on disk");
     }
 
     const file = Bun.file(resolvedPath);
@@ -501,12 +483,11 @@ function handleGetAttachmentContentRoute({
       } else {
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (!match) {
-          return new Response(file, {
-            headers: {
-              "Content-Type": attachment.mimeType,
-              "Content-Length": String(fileSize),
-              "Accept-Ranges": "bytes",
-            },
+          // Unparseable range — return full file
+          return new RouteResponse(file, {
+            "Content-Type": attachment.mimeType,
+            "Content-Length": String(fileSize),
+            "Accept-Ranges": "bytes",
           });
         }
         start = parseInt(match[1]);
@@ -516,53 +497,41 @@ function handleGetAttachmentContentRoute({
       end = Math.min(end, fileSize - 1);
 
       if (start > end || start >= fileSize) {
-        return new Response(null, {
-          status: 416,
-          headers: { "Content-Range": `bytes */${fileSize}` },
-        });
+        throw new RangeNotSatisfiableError(`bytes */${fileSize}`);
       }
 
       const slice = file.slice(start, end + 1);
-      return new Response(slice, {
-        status: 206,
-        headers: {
-          "Content-Type": attachment.mimeType,
-          "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-          "Accept-Ranges": "bytes",
-          "Content-Length": String(end - start + 1),
-        },
+      return new RouteResponse(slice, {
+        "Content-Type": attachment.mimeType,
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": String(end - start + 1),
       });
     }
 
-    return new Response(file, {
-      headers: {
-        "Content-Type": attachment.mimeType,
-        "Content-Length": String(attachment.sizeBytes),
-        "Accept-Ranges": "bytes",
-      },
+    return new RouteResponse(file, {
+      "Content-Type": attachment.mimeType,
+      "Content-Length": String(attachment.sizeBytes),
+      "Accept-Ranges": "bytes",
     });
   }
 
   // Fall back to base64-decoded content for inline attachments
   if (!attachment.dataBase64) {
-    return httpError("NOT_FOUND", "No content available", 404);
+    throw new NotFoundError("No content available");
   }
 
   const buffer = Buffer.from(attachment.dataBase64, "base64");
-  return new Response(buffer, {
-    headers: {
-      "Content-Type": attachment.mimeType,
-      "Content-Length": String(buffer.length),
-      "Accept-Ranges": "bytes",
-    },
+  return new RouteResponse(buffer, {
+    "Content-Type": attachment.mimeType,
+    "Content-Length": String(buffer.length),
+    "Accept-Ranges": "bytes",
   });
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
-
-
 
 // ---------------------------------------------------------------------------
 // Shared (transport-agnostic) routes — served via HTTP + IPC
@@ -685,6 +654,10 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Serve raw file bytes for an attachment. Supports Range headers.",
     tags: ["attachments"],
+    responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
+    additionalResponses: {
+      "416": { description: "Range Not Satisfiable" },
+    },
     handler: handleGetAttachmentContentRoute,
   },
   {
@@ -705,8 +678,7 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "attachments/:id",
     method: "GET",
     summary: "Get attachment metadata",
-    description:
-      "Return metadata and optional base64 data for an attachment.",
+    description: "Return metadata and optional base64 data for an attachment.",
     tags: ["attachments"],
     responseBody: z.object({
       id: z.string(),
