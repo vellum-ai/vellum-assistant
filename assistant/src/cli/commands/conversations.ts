@@ -390,7 +390,7 @@ Examples:
         unsupersededItems: number;
         deletedSummaries: number;
         cancelledJobs: number;
-      }>("wipe_conversation", { conversationId: conversation.id });
+      }>("wipe_conversation", { body: { conversationId: conversation.id } });
       if (ipcWipe.ok && ipcWipe.result) {
         log.info(
           `Wiped conversation "${conversation.title ?? "Untitled"}". ` +

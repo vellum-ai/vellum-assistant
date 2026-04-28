@@ -55,7 +55,7 @@ beforeEach(async () => {
 afterEach(async () => {
   // Clean up watchers created during the test.
   for (const id of createdWatcherIds) {
-    await cliIpcCall("watcher/delete", { watcher_id: id });
+    await cliIpcCall("watcher_delete", { body: { watcher_id: id } });
   }
   createdWatcherIds.length = 0;
 
@@ -67,12 +67,12 @@ afterEach(async () => {
 async function createTestWatcher(
   overrides?: Record<string, unknown>,
 ): Promise<Watcher> {
-  const result = await cliIpcCall<Watcher>("watcher/create", {
+  const result = await cliIpcCall<Watcher>("watcher_create", { body: {
     name: "Test Watcher",
     provider: "test-provider",
     action_prompt: "Handle events",
     ...overrides,
-  });
+  } });
   expect(result.ok).toBe(true);
   expect(result.result).toBeDefined();
   createdWatcherIds.push(result.result!.id);
@@ -96,7 +96,7 @@ describe("watcher IPC routes", () => {
     expect(watcher.status).toBe("idle");
 
     // List all
-    const listResult = await cliIpcCall<Watcher[]>("watcher/list", {});
+    const listResult = await cliIpcCall<Watcher[]>("watcher_list", { body: {} });
     expect(listResult.ok).toBe(true);
     expect(Array.isArray(listResult.result)).toBe(true);
     const found = listResult.result!.find((w) => w.id === watcher.id);
@@ -106,23 +106,23 @@ describe("watcher IPC routes", () => {
     const detailResult = await cliIpcCall<{
       watcher: Watcher;
       events: WatcherEvent[];
-    }>("watcher/list", { watcher_id: watcher.id });
+    }>("watcher_list", { body: { watcher_id: watcher.id } });
     expect(detailResult.ok).toBe(true);
     expect(detailResult.result!.watcher.id).toBe(watcher.id);
     expect(Array.isArray(detailResult.result!.events)).toBe(true);
 
     // Update
-    const updateResult = await cliIpcCall<Watcher>("watcher/update", {
+    const updateResult = await cliIpcCall<Watcher>("watcher_update", { body: {
       watcher_id: watcher.id,
       name: "Updated Watcher",
-    });
+    } });
     expect(updateResult.ok).toBe(true);
     expect(updateResult.result!.name).toBe("Updated Watcher");
 
     // Delete
     const deleteResult = await cliIpcCall<{ deleted: boolean; name: string }>(
-      "watcher/delete",
-      { watcher_id: watcher.id },
+      "watcher_delete",
+      { body: { watcher_id: watcher.id } },
     );
     expect(deleteResult.ok).toBe(true);
     expect(deleteResult.result!.deleted).toBe(true);
@@ -133,7 +133,7 @@ describe("watcher IPC routes", () => {
     if (idx >= 0) createdWatcherIds.splice(idx, 1);
 
     // Confirm gone
-    const afterDelete = await cliIpcCall<Watcher[]>("watcher/list", {});
+    const afterDelete = await cliIpcCall<Watcher[]>("watcher_list", { body: {} });
     expect(afterDelete.ok).toBe(true);
     const gone = afterDelete.result!.find((w) => w.id === watcher.id);
     expect(gone).toBeUndefined();
@@ -142,11 +142,11 @@ describe("watcher IPC routes", () => {
   // -- Create: unknown provider -----------------------------------------------
 
   test("watcher/create rejects unknown provider", async () => {
-    const result = await cliIpcCall("watcher/create", {
+    const result = await cliIpcCall("watcher_create", { body: {
       name: "Bad Watcher",
       provider: "nonexistent",
       action_prompt: "Do stuff",
-    });
+    } });
     expect(result.ok).toBe(false);
     expect(result.error).toContain('Unknown provider "nonexistent"');
     expect(result.error).toContain("test-provider");
@@ -155,12 +155,12 @@ describe("watcher IPC routes", () => {
   // -- Create: poll interval too low ------------------------------------------
 
   test("watcher/create rejects poll_interval_ms < 15000", async () => {
-    const result = await cliIpcCall("watcher/create", {
+    const result = await cliIpcCall("watcher_create", { body: {
       name: "Fast Watcher",
       provider: "test-provider",
       action_prompt: "Handle events",
       poll_interval_ms: 5000,
-    });
+    } });
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
@@ -168,7 +168,7 @@ describe("watcher IPC routes", () => {
   // -- List: empty state ------------------------------------------------------
 
   test("watcher/list returns empty array when no watchers exist", async () => {
-    const result = await cliIpcCall<Watcher[]>("watcher/list", {});
+    const result = await cliIpcCall<Watcher[]>("watcher_list", { body: {} });
     expect(result.ok).toBe(true);
     expect(Array.isArray(result.result)).toBe(true);
     // There might be leftover watchers from other tests, but the important
@@ -179,9 +179,9 @@ describe("watcher IPC routes", () => {
 
   test("watcher/update rejects when no update fields provided", async () => {
     const watcher = await createTestWatcher();
-    const result = await cliIpcCall("watcher/update", {
+    const result = await cliIpcCall("watcher_update", { body: {
       watcher_id: watcher.id,
-    });
+    } });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("No updates provided");
   });
@@ -189,9 +189,9 @@ describe("watcher IPC routes", () => {
   // -- Delete: non-existent watcher -------------------------------------------
 
   test("watcher/delete returns error for non-existent watcher", async () => {
-    const result = await cliIpcCall("watcher/delete", {
+    const result = await cliIpcCall("watcher_delete", { body: {
       watcher_id: "does-not-exist",
-    });
+    } });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Watcher not found");
   });
@@ -202,7 +202,7 @@ describe("watcher IPC routes", () => {
     const result = await cliIpcCall<{
       events: WatcherEvent[];
       watcherNames: Record<string, string>;
-    }>("watcher/digest", {});
+    }>("watcher_digest", { body: {} });
     expect(result.ok).toBe(true);
     expect(Array.isArray(result.result!.events)).toBe(true);
     expect(typeof result.result!.watcherNames).toBe("object");
@@ -211,11 +211,11 @@ describe("watcher IPC routes", () => {
   // -- Underscore aliases -----------------------------------------------------
 
   test("watcher_create alias works identically to watcher/create", async () => {
-    const result = await cliIpcCall<Watcher>("watcher_create", {
+    const result = await cliIpcCall<Watcher>("watcher_create", { body: {
       name: "Alias Watcher",
       provider: "test-provider",
       action_prompt: "Handle events",
-    });
+    } });
     expect(result.ok).toBe(true);
     expect(result.result!.name).toBe("Alias Watcher");
     createdWatcherIds.push(result.result!.id);
@@ -223,7 +223,7 @@ describe("watcher IPC routes", () => {
 
   test("watcher_list alias works identically to watcher/list", async () => {
     const watcher = await createTestWatcher();
-    const result = await cliIpcCall<Watcher[]>("watcher_list", {});
+    const result = await cliIpcCall<Watcher[]>("watcher_list", { body: {} });
     expect(result.ok).toBe(true);
     expect(Array.isArray(result.result)).toBe(true);
     const found = result.result!.find((w) => w.id === watcher.id);
@@ -232,10 +232,10 @@ describe("watcher IPC routes", () => {
 
   test("watcher_update alias works identically to watcher/update", async () => {
     const watcher = await createTestWatcher();
-    const result = await cliIpcCall<Watcher>("watcher_update", {
+    const result = await cliIpcCall<Watcher>("watcher_update", { body: {
       watcher_id: watcher.id,
       name: "Alias Updated",
-    });
+    } });
     expect(result.ok).toBe(true);
     expect(result.result!.name).toBe("Alias Updated");
   });
@@ -244,7 +244,7 @@ describe("watcher IPC routes", () => {
     const watcher = await createTestWatcher();
     const result = await cliIpcCall<{ deleted: boolean; name: string }>(
       "watcher_delete",
-      { watcher_id: watcher.id },
+      { body: { watcher_id: watcher.id } },
     );
     expect(result.ok).toBe(true);
     expect(result.result!.deleted).toBe(true);
@@ -258,7 +258,7 @@ describe("watcher IPC routes", () => {
     const result = await cliIpcCall<{
       events: WatcherEvent[];
       watcherNames: Record<string, string>;
-    }>("watcher_digest", {});
+    }>("watcher_digest", { body: {} });
     expect(result.ok).toBe(true);
     expect(Array.isArray(result.result!.events)).toBe(true);
   });

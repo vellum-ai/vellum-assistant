@@ -70,13 +70,13 @@ describe("ui_request IPC route", () => {
       }),
     );
 
-    const result = await cliIpcCall<InteractiveUiResult>("ui_request", {
+    const result = await cliIpcCall<InteractiveUiResult>("ui_request", { body: {
       ...baseParams(),
       actions: [
         { id: "confirm", label: "Yes", variant: "primary" },
         { id: "deny", label: "No", variant: "secondary" },
       ],
-    });
+    } });
 
     expect(result.ok).toBe(true);
     expect(result.result).toBeDefined();
@@ -97,7 +97,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams(),
+      { body: baseParams() },
     );
 
     expect(result.ok).toBe(true);
@@ -117,7 +117,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams({ timeoutMs: 1000 }),
+      { body: baseParams({ timeoutMs: 1000 }) },
     );
 
     expect(result.ok).toBe(true);
@@ -134,7 +134,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams({ conversationId: "conv-nonexistent" }),
+      { body: baseParams({ conversationId: "conv-nonexistent" }) },
     );
 
     // requestInteractiveUi catches resolver errors and fails closed
@@ -153,7 +153,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams(),
+      { body: baseParams() },
     );
 
     expect(result.ok).toBe(true);
@@ -166,90 +166,90 @@ describe("ui_request IPC route", () => {
   // ── Schema validation ─────────────────────────────────────────────
 
   test("rejects missing conversationId", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       surfaceType: "confirmation",
       data: { message: "test" },
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects empty conversationId", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "",
       surfaceType: "confirmation",
       data: { message: "test" },
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects invalid surfaceType", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "conv-1",
       surfaceType: "unsupported",
       data: {},
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects missing data field", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "conv-1",
       surfaceType: "confirmation",
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects non-positive timeoutMs", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "conv-1",
       surfaceType: "confirmation",
       data: {},
       timeoutMs: 0,
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects non-integer timeoutMs", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "conv-1",
       surfaceType: "confirmation",
       data: {},
       timeoutMs: 1.5,
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects action with empty id", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "conv-1",
       surfaceType: "confirmation",
       data: {},
       actions: [{ id: "", label: "OK" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
   });
 
   test("rejects action with empty label", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       conversationId: "conv-1",
       surfaceType: "confirmation",
       data: {},
       actions: [{ id: "ok", label: "" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -258,10 +258,10 @@ describe("ui_request IPC route", () => {
   // ── Reserved action IDs ──────────────────────────────────────────
 
   test("rejects action with reserved id 'selection_changed'", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       ...baseParams(),
       actions: [{ id: "selection_changed", label: "Select" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -269,10 +269,10 @@ describe("ui_request IPC route", () => {
   });
 
   test("rejects action with reserved id 'content_changed'", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       ...baseParams(),
       actions: [{ id: "content_changed", label: "Change" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -280,10 +280,10 @@ describe("ui_request IPC route", () => {
   });
 
   test("rejects action with reserved id 'state_update'", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       ...baseParams(),
       actions: [{ id: "state_update", label: "Update" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -291,10 +291,10 @@ describe("ui_request IPC route", () => {
   });
 
   test("rejects action with reserved id 'cancel'", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       ...baseParams(),
       actions: [{ id: "cancel", label: "Cancel" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -302,10 +302,10 @@ describe("ui_request IPC route", () => {
   });
 
   test("rejects action with reserved id 'dismiss'", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       ...baseParams(),
       actions: [{ id: "dismiss", label: "Dismiss" }],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -313,13 +313,13 @@ describe("ui_request IPC route", () => {
   });
 
   test("rejects when any action in the array uses a reserved id", async () => {
-    const result = await cliIpcCall("ui_request", {
+    const result = await cliIpcCall("ui_request", { body: {
       ...baseParams(),
       actions: [
         { id: "approve", label: "Approve" },
         { id: "state_update", label: "Bad Action" },
       ],
-    });
+    } });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBeDefined();
@@ -340,7 +340,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams({ title: "Confirm Action" }),
+      { body: baseParams({ title: "Confirm Action" }) },
     );
 
     expect(result.ok).toBe(true);
@@ -361,7 +361,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams(),
+      { body: baseParams() },
     );
 
     expect(result.ok).toBe(true);
@@ -381,7 +381,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams({ conversationId: "conv-missing" }),
+      { body: baseParams({ conversationId: "conv-missing" }) },
     );
 
     expect(result.ok).toBe(true);
@@ -401,7 +401,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams(),
+      { body: baseParams() },
     );
 
     expect(result.ok).toBe(true);
@@ -432,7 +432,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams({ conversationId: hydratedConversationId }),
+      { body: baseParams({ conversationId: hydratedConversationId }) },
     );
 
     expect(result.ok).toBe(true);
@@ -458,7 +458,7 @@ describe("ui_request IPC route", () => {
 
     const result = await cliIpcCall<InteractiveUiResult>(
       "ui_request",
-      baseParams({ conversationId: "conv-truly-unknown-xyz" }),
+      { body: baseParams({ conversationId: "conv-truly-unknown-xyz" }) },
     );
 
     expect(result.ok).toBe(true);
@@ -479,11 +479,11 @@ describe("ui_request IPC route", () => {
       }),
     );
 
-    const result = await cliIpcCall<InteractiveUiResult>("ui_request", {
+    const result = await cliIpcCall<InteractiveUiResult>("ui_request", { body: {
       conversationId: "conv-form",
       surfaceType: "form",
       data: { fields: [{ name: "name" }, { name: "email" }] },
-    });
+    } });
 
     expect(result.ok).toBe(true);
     expect(result.result!.status).toBe("submitted");

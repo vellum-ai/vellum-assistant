@@ -22,7 +22,7 @@ import { Command } from "commander";
 /** The last `cliIpcCall` invocation captured for assertions. */
 let lastIpcCall: {
   method: string;
-  params?: Record<string, unknown>;
+  params?: any;
   options?: { timeoutMs?: number };
 } | null = null;
 
@@ -50,7 +50,7 @@ let savedEnv: Record<string, string | undefined> = {};
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (
     method: string,
-    params?: Record<string, unknown>,
+    params?: any,
     options?: { timeoutMs?: number },
   ) => {
     lastIpcCall = { method, params, options };
@@ -172,8 +172,8 @@ describe("ui confirm — surface shape", () => {
 
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("ui_request");
-    expect(lastIpcCall!.params!.surfaceType).toBe("confirmation");
-    expect(lastIpcCall!.params!.actions).toEqual([
+    expect(lastIpcCall!.params.body.surfaceType).toBe("confirmation");
+    expect(lastIpcCall!.params.body.actions).toEqual([
       { id: "confirm", label: "Confirm", variant: "primary" },
       { id: "deny", label: "Deny", variant: "secondary" },
     ]);
@@ -182,7 +182,7 @@ describe("ui confirm — surface shape", () => {
   test("maps --message to data.message", async () => {
     await runCommand(["ui", "confirm", "--message", "Are you sure?"]);
 
-    expect(lastIpcCall!.params!.data).toEqual({
+    expect(lastIpcCall!.params.body.data).toEqual({
       message: "Are you sure?",
       confirmLabel: "Confirm",
       cancelLabel: "Deny",
@@ -199,7 +199,7 @@ describe("ui confirm — surface shape", () => {
       "Really?",
     ]);
 
-    expect(lastIpcCall!.params!.title).toBe("Danger");
+    expect(lastIpcCall!.params.body.title).toBe("Danger");
   });
 
   test("uses custom --confirm-label and --deny-label in actions", async () => {
@@ -214,7 +214,7 @@ describe("ui confirm — surface shape", () => {
       "No",
     ]);
 
-    expect(lastIpcCall!.params!.actions).toEqual([
+    expect(lastIpcCall!.params.body.actions).toEqual([
       { id: "confirm", label: "Yes", variant: "primary" },
       { id: "deny", label: "No", variant: "secondary" },
     ]);
@@ -232,7 +232,7 @@ describe("ui confirm — surface shape", () => {
       "No",
     ]);
 
-    const data = lastIpcCall!.params!.data as Record<string, unknown>;
+    const data = lastIpcCall!.params.body.data as Record<string, unknown>;
     expect(data.confirmLabel).toBe("Yes");
     expect(data.cancelLabel).toBe("No");
   });
@@ -240,7 +240,7 @@ describe("ui confirm — surface shape", () => {
   test("passes default labels in data.confirmLabel and data.cancelLabel", async () => {
     await runCommand(["ui", "confirm", "--message", "OK?"]);
 
-    const data = lastIpcCall!.params!.data as Record<string, unknown>;
+    const data = lastIpcCall!.params.body.data as Record<string, unknown>;
     expect(data.confirmLabel).toBe("Confirm");
     expect(data.cancelLabel).toBe("Deny");
   });
@@ -248,7 +248,7 @@ describe("ui confirm — surface shape", () => {
   test("includes confirmLabel and cancelLabel in data even when --message is omitted", async () => {
     await runCommand(["ui", "confirm"]);
 
-    const data = lastIpcCall!.params!.data as Record<string, unknown>;
+    const data = lastIpcCall!.params.body.data as Record<string, unknown>;
     expect(data.confirmLabel).toBe("Confirm");
     expect(data.cancelLabel).toBe("Deny");
   });
@@ -539,13 +539,13 @@ describe("ui confirm — conversation ID", () => {
       "explicit-conv",
     ]);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("explicit-conv");
+    expect(lastIpcCall!.params.body.conversationId).toBe("explicit-conv");
   });
 
   test("falls back to __SKILL_CONTEXT_JSON", async () => {
     await runCommand(["ui", "confirm", "--message", "OK?"]);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("conv-default");
+    expect(lastIpcCall!.params.body.conversationId).toBe("conv-default");
   });
 
   test("errors when no conversation ID is available", async () => {
@@ -581,14 +581,14 @@ describe("ui confirm — timeout", () => {
       "30000",
     ]);
 
-    expect(lastIpcCall!.params!.timeoutMs).toBe(30_000);
+    expect(lastIpcCall!.params.body.timeoutMs).toBe(30_000);
     expect(lastIpcCall!.options!.timeoutMs).toBe(40_000); // +10s buffer
   });
 
   test("uses default timeout when --timeout is omitted", async () => {
     await runCommand(["ui", "confirm", "--message", "OK?"]);
 
-    expect(lastIpcCall!.params!.timeoutMs).toBe(300_000);
+    expect(lastIpcCall!.params.body.timeoutMs).toBe(300_000);
     expect(lastIpcCall!.options!.timeoutMs).toBe(310_000);
   });
 

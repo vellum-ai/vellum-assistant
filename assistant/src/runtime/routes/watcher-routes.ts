@@ -1,11 +1,5 @@
 /**
- * IPC routes for watcher CRUD operations.
- *
- * Exposes create/list/update/delete/digest operations so CLI commands
- * and external processes can manage watchers via the daemon IPC socket.
- *
- * Each operation is registered under both a slash-style method name
- * (e.g. `watcher/create`) and an underscore alias (`watcher_create`).
+ * Transport-agnostic routes for watcher CRUD operations.
  */
 
 import { z } from "zod";
@@ -22,9 +16,10 @@ import {
   listWatchers,
   updateWatcher,
 } from "../../watcher/watcher-store.js";
-import type { IpcRoute } from "../assistant-server.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-// -- Param schemas ------------------------------------------------------------
+// ── Param schemas ─────────────────────────────────────────────────────
 
 const WatcherCreateParams = z.object({
   name: z.string().min(1),
@@ -59,9 +54,13 @@ const WatcherDigestParams = z.object({
   limit: z.number().int().positive().optional().default(50),
 });
 
-// -- Handlers -----------------------------------------------------------------
+// ── Response schemas ──────────────────────────────────────────────────
 
-function handleWatcherCreate(params?: Record<string, unknown>): unknown {
+const WatcherResponse = z.object({}).passthrough();
+
+// ── Handlers ──────────────────────────────────────────────────────────
+
+function handleWatcherCreate({ body = {} }: RouteHandlerArgs) {
   const {
     name,
     provider: providerId,
@@ -69,7 +68,7 @@ function handleWatcherCreate(params?: Record<string, unknown>): unknown {
     poll_interval_ms: pollIntervalMs,
     config,
     credential_service: credentialServiceOverride,
-  } = WatcherCreateParams.parse(params);
+  } = WatcherCreateParams.parse(body);
 
   const provider = getWatcherProvider(providerId);
   if (!provider) {
@@ -77,7 +76,7 @@ function handleWatcherCreate(params?: Record<string, unknown>): unknown {
       listWatcherProviders()
         .map((p) => p.id)
         .join(", ") || "none";
-    throw new Error(
+    throw new BadRequestError(
       `Unknown provider "${providerId}". Available: ${available}`,
     );
   }
@@ -97,14 +96,14 @@ function handleWatcherCreate(params?: Record<string, unknown>): unknown {
   return watcher;
 }
 
-function handleWatcherList(params?: Record<string, unknown>): unknown {
+function handleWatcherList({ body = {} }: RouteHandlerArgs) {
   const { watcher_id: watcherId, enabled_only: enabledOnly } =
-    WatcherListParams.parse(params ?? {});
+    WatcherListParams.parse(body);
 
   if (watcherId) {
     const watcher = getWatcher(watcherId);
     if (!watcher) {
-      throw new Error(`Watcher not found: ${watcherId}`);
+      throw new NotFoundError(`Watcher not found: ${watcherId}`);
     }
     const events = listWatcherEvents({ watcherId, limit: 10 });
     return { watcher, events };
@@ -113,7 +112,7 @@ function handleWatcherList(params?: Record<string, unknown>): unknown {
   return listWatchers({ enabledOnly });
 }
 
-function handleWatcherUpdate(params?: Record<string, unknown>): unknown {
+function handleWatcherUpdate({ body = {} }: RouteHandlerArgs) {
   const {
     watcher_id: watcherId,
     name,
@@ -121,7 +120,7 @@ function handleWatcherUpdate(params?: Record<string, unknown>): unknown {
     poll_interval_ms: pollIntervalMs,
     enabled,
     config,
-  } = WatcherUpdateParams.parse(params);
+  } = WatcherUpdateParams.parse(body);
 
   const updates: {
     name?: string;
@@ -138,42 +137,41 @@ function handleWatcherUpdate(params?: Record<string, unknown>): unknown {
   if (config !== undefined) updates.configJson = JSON.stringify(config);
 
   if (Object.keys(updates).length === 0) {
-    throw new Error(
+    throw new BadRequestError(
       "No updates provided. Specify at least one field to update.",
     );
   }
 
   const watcher = updateWatcher(watcherId, updates);
   if (!watcher) {
-    throw new Error(`Watcher not found: ${watcherId}`);
+    throw new NotFoundError(`Watcher not found: ${watcherId}`);
   }
 
   return watcher;
 }
 
-function handleWatcherDelete(params?: Record<string, unknown>): unknown {
-  const { watcher_id: watcherId } = WatcherDeleteParams.parse(params);
+function handleWatcherDelete({ body = {} }: RouteHandlerArgs) {
+  const { watcher_id: watcherId } = WatcherDeleteParams.parse(body);
 
   const watcher = getWatcher(watcherId);
   if (!watcher) {
-    throw new Error(`Watcher not found: ${watcherId}`);
+    throw new NotFoundError(`Watcher not found: ${watcherId}`);
   }
 
   deleteWatcher(watcherId);
 
-  // Evict any in-process provider state (e.g. Linear issue-state cache)
   const provider = getWatcherProvider(watcher.providerId);
   provider?.cleanup?.(watcherId);
 
   return { deleted: true, name: watcher.name };
 }
 
-function handleWatcherDigest(params?: Record<string, unknown>): unknown {
+function handleWatcherDigest({ body = {} }: RouteHandlerArgs) {
   const {
     watcher_id: watcherId,
     hours,
     limit,
-  } = WatcherDigestParams.parse(params ?? {});
+  } = WatcherDigestParams.parse(body);
 
   const since = Date.now() - hours * 3_600_000;
   const events = listWatcherEvents({ watcherId, limit, since });
@@ -187,17 +185,64 @@ function handleWatcherDigest(params?: Record<string, unknown>): unknown {
   return { events, watcherNames };
 }
 
-// -- Route definitions --------------------------------------------------------
+// ── Route definitions ─────────────────────────────────────────────────
 
-export const watcherRoutes: IpcRoute[] = [
-  { method: "watcher/create", handler: handleWatcherCreate },
-  { method: "watcher_create", handler: handleWatcherCreate },
-  { method: "watcher/list", handler: handleWatcherList },
-  { method: "watcher_list", handler: handleWatcherList },
-  { method: "watcher/update", handler: handleWatcherUpdate },
-  { method: "watcher_update", handler: handleWatcherUpdate },
-  { method: "watcher/delete", handler: handleWatcherDelete },
-  { method: "watcher_delete", handler: handleWatcherDelete },
-  { method: "watcher/digest", handler: handleWatcherDigest },
-  { method: "watcher_digest", handler: handleWatcherDigest },
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "watcher_create",
+    endpoint: "watchers/create",
+    method: "POST",
+    handler: handleWatcherCreate,
+    summary: "Create a watcher",
+    description: "Create a new watcher with a provider and action prompt.",
+    tags: ["watchers"],
+    requestBody: WatcherCreateParams,
+    responseBody: WatcherResponse,
+  },
+  {
+    operationId: "watcher_list",
+    endpoint: "watchers/list",
+    method: "POST",
+    handler: handleWatcherList,
+    summary: "List watchers",
+    description:
+      "List all watchers, or get details for a specific watcher by ID.",
+    tags: ["watchers"],
+    requestBody: WatcherListParams,
+    responseBody: WatcherResponse,
+  },
+  {
+    operationId: "watcher_update",
+    endpoint: "watchers/update",
+    method: "POST",
+    handler: handleWatcherUpdate,
+    summary: "Update a watcher",
+    description: "Update an existing watcher's configuration.",
+    tags: ["watchers"],
+    requestBody: WatcherUpdateParams,
+    responseBody: WatcherResponse,
+  },
+  {
+    operationId: "watcher_delete",
+    endpoint: "watchers/delete",
+    method: "POST",
+    handler: handleWatcherDelete,
+    summary: "Delete a watcher",
+    description: "Delete a watcher by ID.",
+    tags: ["watchers"],
+    requestBody: WatcherDeleteParams,
+    responseBody: WatcherResponse,
+  },
+  {
+    operationId: "watcher_digest",
+    endpoint: "watchers/digest",
+    method: "POST",
+    handler: handleWatcherDigest,
+    summary: "Get watcher event digest",
+    description:
+      "Get recent watcher events, optionally filtered by watcher ID.",
+    tags: ["watchers"],
+    requestBody: WatcherDigestParams,
+    responseBody: WatcherResponse,
+  },
 ];

@@ -96,7 +96,7 @@ Examples:
 
         const result = await cliIpcCall<
           WatcherRecord[] | { watcher: WatcherRecord; events: WatcherEvent[] }
-        >("watcher/list", params);
+        >("watcher_list", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
@@ -239,8 +239,8 @@ Examples:
         }
 
         const result = await cliIpcCall<WatcherRecord>(
-          "watcher/create",
-          params,
+          "watcher_create",
+          { body: params },
         );
 
         if (!result.ok) {
@@ -340,8 +340,8 @@ Examples:
         }
 
         const result = await cliIpcCall<WatcherRecord>(
-          "watcher/update",
-          params,
+          "watcher_update",
+          { body: params },
         );
 
         if (!result.ok) {
@@ -390,8 +390,8 @@ Examples:
     )
     .action(async (watcherId: string, opts: { json?: boolean }) => {
       const result = await cliIpcCall<{ deleted: boolean; name: string }>(
-        "watcher/delete",
-        { watcher_id: watcherId },
+        "watcher_delete",
+        { body: { watcher_id: watcherId } },
       );
 
       if (!result.ok) {
@@ -461,7 +461,7 @@ Examples:
         const result = await cliIpcCall<{
           events: WatcherEvent[];
           watcherNames: Record<string, string>;
-        }>("watcher/digest", params);
+        }>("watcher_digest", { body: params });
 
         if (!result.ok) {
           if (opts.json) {

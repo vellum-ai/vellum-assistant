@@ -26,7 +26,7 @@ import { Command } from "commander";
 /** The last `cliIpcCall` invocation captured for assertions. */
 let lastIpcCall: {
   method: string;
-  params?: Record<string, unknown>;
+  params?: any;
   options?: { timeoutMs?: number };
 } | null = null;
 
@@ -60,7 +60,7 @@ let savedEnv: Record<string, string | undefined> = {};
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (
     method: string,
-    params?: Record<string, unknown>,
+    params?: any,
     options?: { timeoutMs?: number },
   ) => {
     lastIpcCall = { method, params, options };
@@ -234,7 +234,7 @@ describe("ui request — payload parsing", () => {
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("ui_request");
-    expect(lastIpcCall!.params!.data).toEqual({ message: "Proceed?" });
+    expect(lastIpcCall!.params.body.data).toEqual({ message: "Proceed?" });
   });
 
   test("parses JSON from stdin when no --payload flag", async () => {
@@ -246,7 +246,7 @@ describe("ui request — payload parsing", () => {
     const { exitCode } = await runCommand(["ui", "request"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.data).toEqual({ message: "From stdin" });
+    expect(lastIpcCall!.params.body.data).toEqual({ message: "From stdin" });
   });
 
   test("errors on invalid JSON in --payload", async () => {
@@ -334,7 +334,7 @@ describe("ui request — conversation ID resolution", () => {
       "explicit-id",
     ]);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("explicit-id");
+    expect(lastIpcCall!.params.body.conversationId).toBe("explicit-id");
   });
 
   test("falls back to __SKILL_CONTEXT_JSON.conversationId", async () => {
@@ -344,7 +344,7 @@ describe("ui request — conversation ID resolution", () => {
 
     await runCommand(["ui", "request", "--payload", '{"msg":"test"}']);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("skill-conv-42");
+    expect(lastIpcCall!.params.body.conversationId).toBe("skill-conv-42");
   });
 
   test("errors when no conversation ID is available", async () => {
@@ -416,7 +416,7 @@ describe("ui request — IPC param mapping", () => {
       "form",
     ]);
 
-    expect(lastIpcCall!.params!.surfaceType).toBe("form");
+    expect(lastIpcCall!.params.body.surfaceType).toBe("form");
   });
 
   test("defaults surfaceType to confirmation", async () => {
@@ -426,7 +426,7 @@ describe("ui request — IPC param mapping", () => {
 
     await runCommand(["ui", "request", "--payload", '{"msg":"test"}']);
 
-    expect(lastIpcCall!.params!.surfaceType).toBe("confirmation");
+    expect(lastIpcCall!.params.body.surfaceType).toBe("confirmation");
   });
 
   test("passes title from --title flag", async () => {
@@ -443,7 +443,7 @@ describe("ui request — IPC param mapping", () => {
       "Important",
     ]);
 
-    expect(lastIpcCall!.params!.title).toBe("Important");
+    expect(lastIpcCall!.params.body.title).toBe("Important");
   });
 
   test("does not include title when --title is omitted", async () => {
@@ -453,7 +453,7 @@ describe("ui request — IPC param mapping", () => {
 
     await runCommand(["ui", "request", "--payload", '{"msg":"test"}']);
 
-    expect(lastIpcCall!.params!.title).toBeUndefined();
+    expect(lastIpcCall!.params.body.title).toBeUndefined();
   });
 
   test("passes timeoutMs from --timeout flag", async () => {
@@ -470,7 +470,7 @@ describe("ui request — IPC param mapping", () => {
       "60000",
     ]);
 
-    expect(lastIpcCall!.params!.timeoutMs).toBe(60_000);
+    expect(lastIpcCall!.params.body.timeoutMs).toBe(60_000);
   });
 
   test("uses default timeoutMs when --timeout is omitted", async () => {
@@ -480,7 +480,7 @@ describe("ui request — IPC param mapping", () => {
 
     await runCommand(["ui", "request", "--payload", '{"msg":"test"}']);
 
-    expect(lastIpcCall!.params!.timeoutMs).toBe(300_000);
+    expect(lastIpcCall!.params.body.timeoutMs).toBe(300_000);
   });
 
   test("IPC call timeout = request timeout + 10s buffer", async () => {
@@ -723,7 +723,7 @@ describe("ui request — --actions parsing", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.params!.actions).toEqual(actions);
+    expect(lastIpcCall!.params.body.actions).toEqual(actions);
   });
 
   test("actions without variant are accepted", async () => {
@@ -743,7 +743,7 @@ describe("ui request — --actions parsing", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.actions).toEqual([{ id: "ok", label: "OK" }]);
+    expect(lastIpcCall!.params.body.actions).toEqual([{ id: "ok", label: "OK" }]);
   });
 
   test("actions are omitted from IPC params when --actions is not provided", async () => {
@@ -759,7 +759,7 @@ describe("ui request — --actions parsing", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.actions).toBeUndefined();
+    expect(lastIpcCall!.params.body.actions).toBeUndefined();
   });
 
   test("errors when --actions is an empty string", async () => {
@@ -993,7 +993,7 @@ describe("ui request — --actions parsing", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.actions).toEqual(actions);
+    expect(lastIpcCall!.params.body.actions).toEqual(actions);
   });
 
   test("action error references the correct array index", async () => {
@@ -1210,6 +1210,6 @@ describe("ui request — --actions parsing", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.params!.actions).toEqual(actions);
+    expect(lastIpcCall!.params.body.actions).toEqual(actions);
   });
 });

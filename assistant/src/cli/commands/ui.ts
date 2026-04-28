@@ -439,7 +439,7 @@ Examples:
         const ipcTimeoutMs = requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS;
         const result = await cliIpcCall<InteractiveUiResult>(
           "ui_request",
-          ipcParams,
+          { body: ipcParams },
           {
             timeoutMs: ipcTimeoutMs,
           },
@@ -614,7 +614,7 @@ Examples:
         const ipcTimeoutMs = requestTimeoutMs + IPC_TIMEOUT_BUFFER_MS;
         const result = await cliIpcCall<InteractiveUiResult>(
           "ui_request",
-          ipcParams,
+          { body: ipcParams },
           {
             timeoutMs: ipcTimeoutMs,
           },

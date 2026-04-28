@@ -25,7 +25,7 @@ import { Command } from "commander";
 /** The last `cliIpcCall` invocation captured for assertions. */
 let lastIpcCall: {
   method: string;
-  params?: Record<string, unknown>;
+  params?: any;
 } | null = null;
 
 /** The result that cliIpcCall will return. */
@@ -168,10 +168,10 @@ describe("watchers create", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("watcher/create");
-    expect(lastIpcCall!.params!.name).toBe("My Watcher");
-    expect(lastIpcCall!.params!.provider).toBe("linear");
-    expect(lastIpcCall!.params!.action_prompt).toBe("summarize");
+    expect(lastIpcCall!.method).toBe("watcher_create");
+    expect(lastIpcCall!.params.body.name).toBe("My Watcher");
+    expect(lastIpcCall!.params.body.provider).toBe("linear");
+    expect(lastIpcCall!.params.body.action_prompt).toBe("summarize");
   });
 
   test("maps --poll-interval to poll_interval_ms param", async () => {
@@ -193,7 +193,7 @@ describe("watchers create", () => {
       "30000",
     ]);
 
-    expect(lastIpcCall!.params!.poll_interval_ms).toBe(30000);
+    expect(lastIpcCall!.params.body.poll_interval_ms).toBe(30000);
   });
 
   test("passes --config as parsed JSON", async () => {
@@ -215,7 +215,7 @@ describe("watchers create", () => {
       '{"repo":"org/repo"}',
     ]);
 
-    expect(lastIpcCall!.params!.config).toEqual({ repo: "org/repo" });
+    expect(lastIpcCall!.params.body.config).toEqual({ repo: "org/repo" });
   });
 
   test("passes --credential-service", async () => {
@@ -237,7 +237,7 @@ describe("watchers create", () => {
       "my-service",
     ]);
 
-    expect(lastIpcCall!.params!.credential_service).toBe("my-service");
+    expect(lastIpcCall!.params.body.credential_service).toBe("my-service");
   });
 
   test("--json outputs structured JSON on success", async () => {
@@ -359,9 +359,9 @@ describe("watchers list", () => {
     const { exitCode } = await runCommand(["watchers", "list"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("watcher/list");
-    expect(lastIpcCall!.params!.watcher_id).toBeUndefined();
-    expect(lastIpcCall!.params!.enabled_only).toBeUndefined();
+    expect(lastIpcCall!.method).toBe("watcher_list");
+    expect(lastIpcCall!.params.body.watcher_id).toBeUndefined();
+    expect(lastIpcCall!.params.body.enabled_only).toBeUndefined();
   });
 
   test("--id sends watcher_id param", async () => {
@@ -382,7 +382,7 @@ describe("watchers list", () => {
 
     await runCommand(["watchers", "list", "--id", "w-1"]);
 
-    expect(lastIpcCall!.params!.watcher_id).toBe("w-1");
+    expect(lastIpcCall!.params.body.watcher_id).toBe("w-1");
   });
 
   test("--enabled-only sends enabled_only: true", async () => {
@@ -390,7 +390,7 @@ describe("watchers list", () => {
 
     await runCommand(["watchers", "list", "--enabled-only"]);
 
-    expect(lastIpcCall!.params!.enabled_only).toBe(true);
+    expect(lastIpcCall!.params.body.enabled_only).toBe(true);
   });
 
   test("--json outputs structured JSON", async () => {
@@ -447,9 +447,9 @@ describe("watchers update", () => {
 
     await runCommand(["watchers", "update", "w-1", "--name", "Updated"]);
 
-    expect(lastIpcCall!.method).toBe("watcher/update");
-    expect(lastIpcCall!.params!.watcher_id).toBe("w-1");
-    expect(lastIpcCall!.params!.name).toBe("Updated");
+    expect(lastIpcCall!.method).toBe("watcher_update");
+    expect(lastIpcCall!.params.body.watcher_id).toBe("w-1");
+    expect(lastIpcCall!.params.body.name).toBe("Updated");
   });
 
   test("maps --disabled flag to enabled: false", async () => {
@@ -460,7 +460,7 @@ describe("watchers update", () => {
 
     await runCommand(["watchers", "update", "w-1", "--disabled"]);
 
-    expect(lastIpcCall!.params!.enabled).toBe(false);
+    expect(lastIpcCall!.params.body.enabled).toBe(false);
   });
 
   test("maps --enabled flag to enabled: true", async () => {
@@ -471,7 +471,7 @@ describe("watchers update", () => {
 
     await runCommand(["watchers", "update", "w-1", "--enabled"]);
 
-    expect(lastIpcCall!.params!.enabled).toBe(true);
+    expect(lastIpcCall!.params.body.enabled).toBe(true);
   });
 
   test("maps --action-prompt to action_prompt", async () => {
@@ -488,7 +488,7 @@ describe("watchers update", () => {
       "new prompt",
     ]);
 
-    expect(lastIpcCall!.params!.action_prompt).toBe("new prompt");
+    expect(lastIpcCall!.params.body.action_prompt).toBe("new prompt");
   });
 
   test("maps --poll-interval to poll_interval_ms", async () => {
@@ -499,7 +499,7 @@ describe("watchers update", () => {
 
     await runCommand(["watchers", "update", "w-1", "--poll-interval", "60000"]);
 
-    expect(lastIpcCall!.params!.poll_interval_ms).toBe(60000);
+    expect(lastIpcCall!.params.body.poll_interval_ms).toBe(60000);
   });
 
   test("--json outputs structured JSON on success", async () => {
@@ -570,8 +570,8 @@ describe("watchers delete", () => {
     const { exitCode } = await runCommand(["watchers", "delete", "w-1"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("watcher/delete");
-    expect(lastIpcCall!.params).toEqual({ watcher_id: "w-1" });
+    expect(lastIpcCall!.method).toBe("watcher_delete");
+    expect(lastIpcCall!.params.body).toEqual({ watcher_id: "w-1" });
   });
 
   test("--json outputs structured JSON on success", async () => {
@@ -632,11 +632,11 @@ describe("watchers digest", () => {
     const { exitCode } = await runCommand(["watchers", "digest"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("watcher/digest");
+    expect(lastIpcCall!.method).toBe("watcher_digest");
     // When no flags are passed, no hours/limit are sent — the server defaults apply
-    expect(lastIpcCall!.params!.watcher_id).toBeUndefined();
-    expect(lastIpcCall!.params!.hours).toBeUndefined();
-    expect(lastIpcCall!.params!.limit).toBeUndefined();
+    expect(lastIpcCall!.params.body.watcher_id).toBeUndefined();
+    expect(lastIpcCall!.params.body.hours).toBeUndefined();
+    expect(lastIpcCall!.params.body.limit).toBeUndefined();
   });
 
   test("passes --id as watcher_id", async () => {
@@ -647,7 +647,7 @@ describe("watchers digest", () => {
 
     await runCommand(["watchers", "digest", "--id", "w-1"]);
 
-    expect(lastIpcCall!.params!.watcher_id).toBe("w-1");
+    expect(lastIpcCall!.params.body.watcher_id).toBe("w-1");
   });
 
   test("passes --hours and --limit", async () => {
@@ -658,8 +658,8 @@ describe("watchers digest", () => {
 
     await runCommand(["watchers", "digest", "--hours", "48", "--limit", "100"]);
 
-    expect(lastIpcCall!.params!.hours).toBe(48);
-    expect(lastIpcCall!.params!.limit).toBe(100);
+    expect(lastIpcCall!.params.body.hours).toBe(48);
+    expect(lastIpcCall!.params.body.limit).toBe(100);
   });
 
   test("--json outputs structured JSON on success", async () => {

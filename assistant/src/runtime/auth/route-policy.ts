@@ -657,6 +657,44 @@ registerPolicy("tasks/queue/run", {
 });
 
 // Trust rule suggestion: local-only (gateway IPC)
+// UI requests: local-only
+registerPolicy("ui/request", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Watchers: local-only
+registerPolicy("watchers/create", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("watchers/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("watchers/update", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("watchers/delete", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("watchers/digest", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Wipe conversation: local-only
+registerPolicy("conversations/wipe", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 registerPolicy("trust-rules/suggest", {
   requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ["local"],

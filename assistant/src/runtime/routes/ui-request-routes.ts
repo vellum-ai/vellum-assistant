@@ -1,10 +1,5 @@
 /**
- * IPC route for interactive UI requests.
- *
- * Exposes `ui_request` so CLI commands and external processes can present
- * interactive UI surfaces to the user and synchronously await their
- * response. The handler delegates to {@link requestInteractiveUi} which
- * manages the full surface lifecycle via the daemon-registered resolver.
+ * Transport-agnostic route for interactive UI requests.
  */
 
 import { z } from "zod";
@@ -13,7 +8,7 @@ import {
   requestInteractiveUi,
   RESERVED_ACTION_IDS,
 } from "../../runtime/interactive-ui.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param schema ──────────────────────────────────────────────────────
 
@@ -39,12 +34,25 @@ const UiRequestParams = z.object({
   timeoutMs: z.number().int().positive().optional(),
 });
 
+// ── Handler ───────────────────────────────────────────────────────────
+
+async function handleUiRequest({ body = {} }: RouteHandlerArgs) {
+  const validated = UiRequestParams.parse(body);
+  return requestInteractiveUi(validated);
+}
+
 // ── Route definition ──────────────────────────────────────────────────
 
-export const uiRequestRoute: IpcRoute = {
-  method: "ui_request",
-  handler: async (params) => {
-    const validated = UiRequestParams.parse(params);
-    return requestInteractiveUi(validated);
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "ui_request",
+    endpoint: "ui/request",
+    method: "POST",
+    handler: handleUiRequest,
+    summary: "Present an interactive UI surface",
+    description:
+      "Present an interactive UI surface to the user and await their response.",
+    tags: ["ui"],
+    requestBody: UiRequestParams,
   },
-};
+];

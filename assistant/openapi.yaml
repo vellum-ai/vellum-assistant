@@ -3919,6 +3919,48 @@ paths:
                 - hint
                 - source
               additionalProperties: false
+  /v1/conversations/wipe:
+    post:
+      operationId: conversations_wipe_post
+      summary: Wipe a conversation
+      description: Permanently delete a conversation and its associated data including memory vectors.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wiped:
+                    type: boolean
+                  unsupersededItems:
+                    type: number
+                  deletedSummaries:
+                    type: number
+                  cancelledJobs:
+                    type: number
+                required:
+                  - wiped
+                  - unsupersededItems
+                  - deletedSummaries
+                  - cancelledJobs
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/credentials/prompt:
     post:
       operationId: credentials_prompt_post
@@ -10849,6 +10891,68 @@ paths:
               required:
                 - text
               additionalProperties: false
+  /v1/ui/request:
+    post:
+      operationId: ui_request_post
+      summary: Present an interactive UI surface
+      description: Present an interactive UI surface to the user and await their response.
+      tags:
+        - ui
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                surfaceType:
+                  type: string
+                  enum:
+                    - confirmation
+                    - form
+                title:
+                  type: string
+                data:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                actions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        minLength: 1
+                      label:
+                        type: string
+                        minLength: 1
+                      variant:
+                        type: string
+                        enum:
+                          - primary
+                          - danger
+                          - secondary
+                    required:
+                      - id
+                      - label
+                    additionalProperties: false
+                timeoutMs:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - conversationId
+                - surfaceType
+                - data
+              additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get
@@ -10965,6 +11069,196 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+  /v1/watchers/create:
+    post:
+      operationId: watchers_create_post
+      summary: Create a watcher
+      description: Create a new watcher with a provider and action prompt.
+      tags:
+        - watchers
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                provider:
+                  type: string
+                  minLength: 1
+                action_prompt:
+                  type: string
+                  minLength: 1
+                poll_interval_ms:
+                  type: integer
+                  minimum: 15000
+                  maximum: 9007199254740991
+                config:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                credential_service:
+                  type: string
+              required:
+                - name
+                - provider
+                - action_prompt
+              additionalProperties: false
+  /v1/watchers/delete:
+    post:
+      operationId: watchers_delete_post
+      summary: Delete a watcher
+      description: Delete a watcher by ID.
+      tags:
+        - watchers
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                watcher_id:
+                  type: string
+                  minLength: 1
+              required:
+                - watcher_id
+              additionalProperties: false
+  /v1/watchers/digest:
+    post:
+      operationId: watchers_digest_post
+      summary: Get watcher event digest
+      description: Get recent watcher events, optionally filtered by watcher ID.
+      tags:
+        - watchers
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                watcher_id:
+                  type: string
+                hours:
+                  default: 24
+                  type: number
+                  exclusiveMinimum: 0
+                limit:
+                  default: 50
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - hours
+                - limit
+              additionalProperties: false
+  /v1/watchers/list:
+    post:
+      operationId: watchers_list_post
+      summary: List watchers
+      description: List all watchers, or get details for a specific watcher by ID.
+      tags:
+        - watchers
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                watcher_id:
+                  type: string
+                enabled_only:
+                  default: false
+                  type: boolean
+              required:
+                - enabled_only
+              additionalProperties: false
+  /v1/watchers/update:
+    post:
+      operationId: watchers_update_post
+      summary: Update a watcher
+      description: Update an existing watcher's configuration.
+      tags:
+        - watchers
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                watcher_id:
+                  type: string
+                  minLength: 1
+                name:
+                  type: string
+                action_prompt:
+                  type: string
+                poll_interval_ms:
+                  type: integer
+                  minimum: 15000
+                  maximum: 9007199254740991
+                enabled:
+                  type: boolean
+                config:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+              required:
+                - watcher_id
+              additionalProperties: false
   /v1/work-items:
     get:
       operationId: workitems_get
