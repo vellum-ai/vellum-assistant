@@ -131,7 +131,7 @@ extension MainWindowView {
                     handleRequestAppPreview(notification)
                 }
             }
-            group.addTask { @MainActor [self] in
+            group.addTask { @MainActor in
                 for await _ in nc.notifications(named: .refreshAppsCache) {
                     AppDelegate.shared?.refreshAppsCache()
                 }
