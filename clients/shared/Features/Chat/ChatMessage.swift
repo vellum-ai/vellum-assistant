@@ -861,6 +861,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.confirmationLabel == rhs.confirmationLabel
             && lhs.pendingConfirmation == rhs.pendingConfirmation
             && lhs.riskLevel == rhs.riskLevel
+            && lhs.riskReason == rhs.riskReason
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageDataList: [String]? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {

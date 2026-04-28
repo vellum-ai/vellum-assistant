@@ -2192,8 +2192,14 @@ public struct HistoryResponseToolCall: Codable, Sendable {
     public let confirmationDecision: String?
     /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
     public let confirmationLabel: String?
+    /// Risk level at the time of invocation ("low" | "medium" | "high" | "unknown").
+    public let riskLevel: String?
+    /// Human-readable reason for the risk classification.
+    public let riskReason: String?
+    /// Whether the tool was auto-approved (true) or required explicit user input (false).
+    public let autoApproved: Bool?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageDataList: [String]? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, autoApproved: Bool? = nil) {
         self.name = name
         self.input = input
         self.result = result
@@ -2203,6 +2209,9 @@ public struct HistoryResponseToolCall: Codable, Sendable {
         self.completedAt = completedAt
         self.confirmationDecision = confirmationDecision
         self.confirmationLabel = confirmationLabel
+        self.riskLevel = riskLevel
+        self.riskReason = riskReason
+        self.autoApproved = autoApproved
     }
 }
 
