@@ -120,10 +120,13 @@ public class VMenuPanel: NSPanel {
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
 
-        // Force a layout pass so the SwiftUI content is fully measured before
-        // reading fittingSize. Without this, NSHostingView may return a size
-        // that only includes the VMenu chrome (background + padding) without
-        // accounting for the actual menu items.
+        // Force a full layout pass so the SwiftUI content is correctly measured.
+        // invalidateIntrinsicContentSize() marks the cached size as stale;
+        // layoutSubtreeIfNeeded() then forces a synchronous recomputation.
+        // Without both, NSHostingView may occasionally return a fittingSize
+        // that only reflects the VMenu chrome (background + shadow inset)
+        // without accounting for the actual menu items.
+        hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
 
         let fittingSize = hostingView.fittingSize
@@ -233,6 +236,7 @@ public class VMenuPanel: NSPanel {
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
 
+        hostingView.invalidateIntrinsicContentSize()
         hostingView.layoutSubtreeIfNeeded()
 
         let fittingSize = hostingView.fittingSize
@@ -360,6 +364,11 @@ public class VMenuPanel: NSPanel {
         if self === VMenuPanel.activeRootPanel {
             VMenuPanel.activeRootPanel = nil
         }
+
+        // Make the panel fully transparent before any teardown so that
+        // SwiftUI-rendered shadows don't flash during the removeChildWindow
+        // → orderOut compositor transition.
+        alphaValue = 0
 
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
