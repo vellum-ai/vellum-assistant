@@ -28,13 +28,17 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import type { DrizzleDb } from "../db-connection.js";
 import {
   computeOwnActivation,
+  computeSkillActivation,
   selectCandidates,
   selectInjections,
+  selectSkillCandidates,
+  selectSkillInjections,
   spreadActivation,
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import { readEdges } from "./edges.js";
 import { readPage } from "./page-store.js";
+import { getSkillCapability } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -159,6 +163,29 @@ export async function injectMemoryV2Block(
     topK: top_k,
   });
 
+  // (6b) Skill pipeline — a sibling pipeline to the concept-page one above.
+  // Skills are stateless: no decay carry-over, no spread, no `everInjected`
+  // dedup. The top-K relevant skills are re-presented every turn so the
+  // agent can drop and pick them up freely.
+  const skillCandidates = await selectSkillCandidates({
+    userText: userMessage,
+    assistantText: assistantMessage,
+    nowText,
+    config,
+    topK: config.memory.v2.top_k_skills,
+  });
+  const skillActivation = await computeSkillActivation({
+    candidates: skillCandidates,
+    userText: userMessage,
+    assistantText: assistantMessage,
+    nowText,
+    config,
+  });
+  const { topNow: topSkillIds } = selectSkillInjections({
+    A: skillActivation,
+    topK: config.memory.v2.top_k_skills,
+  });
+
   // Build the next persisted state regardless of whether we render anything:
   // even on a "no new injection" turn, prior-state activations decay via the
   // candidate-set carry-forward and need to be rewritten so `epsilon`-trimmed
@@ -171,7 +198,8 @@ export async function injectMemoryV2Block(
   // Append the freshly injected slugs to everInjected (with their turn) so
   // future turns can subtract them. We append rather than reset so that
   // compaction-driven eviction (`evictCompactedTurns`) is the only path that
-  // can re-enable a previously-injected slug.
+  // can re-enable a previously-injected slug. Skills do NOT enter
+  // `everInjected` — they are stateless and re-presented every turn.
   const nextEverInjected: EverInjectedEntry[] = [
     ...priorEverInjected,
     ...toInject.map((slug) => ({ slug, turn: currentTurn })),
@@ -187,15 +215,17 @@ export async function injectMemoryV2Block(
 
   await save(database, conversationId, nextActivationState);
 
-  // (7) Cache-stable empty path: nothing new since the last turn.
-  if (toInject.length === 0) {
+  // (7) Cache-stable empty path: nothing new since the last turn AND no
+  // ranked skills to surface.
+  if (toInject.length === 0 && topSkillIds.length === 0) {
     return { block: null, toInject: [] };
   }
 
   // (8) Render. `toInject` is already activation-descending (selectInjections
   // returns it as a filter of the sorted `topNow`), so it doubles as our
-  // render order. Prior slugs sit unchanged on prior user messages.
-  const block = await renderInjectionBlock(workspaceDir, toInject);
+  // render order. Prior slugs sit unchanged on prior user messages. Skills
+  // are appended after concept-page sections under the same header.
+  const block = await renderInjectionBlock(workspaceDir, toInject, topSkillIds);
 
   return { block, toInject };
 }
@@ -205,14 +235,20 @@ export async function injectMemoryV2Block(
 // ---------------------------------------------------------------------------
 
 /**
- * Render the `<memory __injected>` block for a list of slugs.
+ * Render the `<memory __injected>` block for a list of slugs and a list of
+ * ranked skill ids.
  *
- * Slugs are read in parallel via `readPage`. Pages whose file has gone
- * missing between selection and render (e.g. consolidation deleted them)
- * are silently dropped — the activation state still records them in
+ * Concept pages are read in parallel via `readPage`. Pages whose file has
+ * gone missing between selection and render (e.g. consolidation deleted
+ * them) are silently dropped — the activation state still records them in
  * `everInjected` so we don't keep re-attempting on every turn.
  *
- * The block shape is the §5 layout from the design doc:
+ * Skill ids are looked up via `getSkillCapability`. Ids that the cache no
+ * longer knows (e.g. uninstalled mid-run) are silently dropped, mirroring
+ * the missing-pages behavior.
+ *
+ * The block shape is the §5 layout from the design doc, with an optional
+ * trailing skills subsection:
  *
  *   <memory __injected>
  *   ## What I Remember Right Now
@@ -221,15 +257,24 @@ export async function injectMemoryV2Block(
  *
  *   ### <slug-2>
  *   <body-2>
+ *
+ *   ### Skills You Can Use
+ *   - <skill-1 content>
+ *   - <skill-2 content>
  *   </memory>
  *
- * Returns `null` when every requested slug is missing on disk so the caller
- * can fall through to its empty-block path instead of attaching a header
- * with no contents.
+ * The same `## What I Remember Right Now` header wraps the block whether
+ * the skills section is alone, the concept-page sections are alone, or
+ * both are present — keeping the renderer one shape.
+ *
+ * Returns `null` when both lists collapse to empty after cache misses so
+ * the caller can fall through to its empty-block path instead of attaching
+ * a header with no contents.
  */
 async function renderInjectionBlock(
   workspaceDir: string,
   slugs: string[],
+  skillIds: string[],
 ): Promise<string | null> {
   const pages = await Promise.all(
     slugs.map(async (slug) => {
@@ -243,6 +288,23 @@ async function renderInjectionBlock(
     if (!entry || entry.body.length === 0) continue;
     sections.push(`### ${entry.slug}\n${entry.body}`);
   }
+
+  // Skills subsection — drop ids the cache no longer knows. Append the
+  // `→ use skill_load to activate` suffix when the rendered content matches
+  // the v1 regex (ported verbatim from `memory/graph/injection.ts`).
+  const skillLines: string[] = [];
+  for (const id of skillIds) {
+    const entry = getSkillCapability(id);
+    if (!entry) continue;
+    const suffix = /skill \(/.test(entry.content)
+      ? " → use skill_load to activate"
+      : "";
+    skillLines.push(`- ${entry.content}${suffix}`);
+  }
+  if (skillLines.length > 0) {
+    sections.push(`### Skills You Can Use\n${skillLines.join("\n")}`);
+  }
+
   if (sections.length === 0) return null;
 
   const inner = `## What I Remember Right Now\n\n${sections.join("\n\n")}`;
