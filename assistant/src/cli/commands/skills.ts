@@ -185,7 +185,17 @@ Examples:
               }
             : null,
           installMeta: installMeta ?? null,
-          config: configEntry ?? null,
+          config: configEntry
+            ? {
+                enabled: configEntry.enabled !== false,
+                envKeys: configEntry.env
+                  ? Object.keys(configEntry.env)
+                  : [],
+                configKeys: configEntry.config
+                  ? Object.keys(configEntry.config)
+                  : [],
+              }
+            : null,
         };
 
         if (opts.json) {
