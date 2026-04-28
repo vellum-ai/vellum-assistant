@@ -93,8 +93,16 @@ const { memoryV2SweepJob } = await import("../sweep-job.js");
 // (resolution is purely from the overrides + registry caches), so we hand
 // the handler a minimal stand-in instead of materializing the full default
 // config — which would otherwise pull in heavy schemas this test doesn't
-// exercise.
-const CONFIG = {} as Parameters<typeof memoryV2SweepJob>[1];
+// exercise. The handler reads `config.memory.v2.sweep_enabled`, so the
+// `flag on` cases need the field set; the `flag off` case bails before
+// the check and uses the bare empty stand-in.
+const CONFIG = {
+  memory: { v2: { sweep_enabled: true } },
+} as Parameters<typeof memoryV2SweepJob>[1];
+const CONFIG_FLAG_OFF = {} as Parameters<typeof memoryV2SweepJob>[1];
+const CONFIG_SWEEP_OFF = {
+  memory: { v2: { sweep_enabled: false } },
+} as Parameters<typeof memoryV2SweepJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2SweepJob>[0] {
   return {
@@ -208,7 +216,22 @@ describe("memoryV2SweepJob — flag off", () => {
     _setOverridesForTesting({ "memory-v2-enabled": false });
     providerStub = makeEntriesProvider(["should-not-be-written"]);
 
-    const written = await memoryV2SweepJob(makeJob(), CONFIG);
+    const written = await memoryV2SweepJob(makeJob(), CONFIG_FLAG_OFF);
+
+    expect(written).toBe(0);
+    expect(providerCalls).toHaveLength(0);
+    expect(existsSync(join(tmpWorkspace, "memory", "buffer.md"))).toBe(false);
+  });
+});
+
+describe("memoryV2SweepJob — flag on, sweep_enabled off", () => {
+  test("returns 0 without invoking the provider when sweep_enabled is false", async () => {
+    _setOverridesForTesting({ "memory-v2-enabled": true });
+    // No message seeding required — the sweep_enabled bail short-circuits
+    // before any DB or workspace reads.
+    providerStub = makeEntriesProvider(["should-not-be-written"]);
+
+    const written = await memoryV2SweepJob(makeJob(), CONFIG_SWEEP_OFF);
 
     expect(written).toBe(0);
     expect(providerCalls).toHaveLength(0);

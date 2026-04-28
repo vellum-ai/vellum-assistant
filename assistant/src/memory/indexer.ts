@@ -219,15 +219,18 @@ export async function indexMessageNow(
       }
 
       // Memory v2 sweep mirrors graph_extract's debounce: when the v2
-      // flag + config are on, every extraction trigger also enqueues a
-      // sweep. The sweep itself reads recent messages globally, so the
-      // `conversationId` here is just the dedup key — one pending row
-      // per active conversation. Both gates ensure the job remains a
-      // no-op when v2 is off.
+      // flag + config are on AND `sweep_enabled` is set, every extraction
+      // trigger also enqueues a sweep. The sweep itself reads recent
+      // messages globally, so the `conversationId` here is just the dedup
+      // key — one pending row per active conversation. All three gates
+      // (feature flag, v2 master toggle, sweep_enabled) must be true.
+      // `sweep_enabled` defaults to false because `remember()` is the
+      // primary capture path; the sweep is opt-in.
       if (
         triggerConfig != null &&
         isAssistantFeatureFlagEnabled("memory-v2-enabled", triggerConfig) &&
-        triggerConfig.memory.v2.enabled
+        triggerConfig.memory.v2.enabled &&
+        triggerConfig.memory.v2.sweep_enabled
       ) {
         upsertDebouncedJob(
           "memory_v2_sweep",

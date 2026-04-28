@@ -8,6 +8,7 @@ describe("MemoryV2ConfigSchema", () => {
     const parsed = MemoryV2ConfigSchema.parse({});
     expect(parsed).toEqual({
       enabled: false,
+      sweep_enabled: false,
       d: 0.3,
       c_user: 0.3,
       c_assistant: 0.2,
@@ -150,6 +151,7 @@ describe("MemoryConfigSchema integration with v2 block", () => {
     const parsed = MemoryConfigSchema.parse({});
     expect(parsed.v2).toBeDefined();
     expect(parsed.v2.enabled).toBe(false);
+    expect(parsed.v2.sweep_enabled).toBe(false);
     expect(parsed.v2.d).toBe(0.3);
     expect(parsed.v2.dense_weight).toBe(0.7);
     expect(parsed.v2.sparse_weight).toBe(0.3);
