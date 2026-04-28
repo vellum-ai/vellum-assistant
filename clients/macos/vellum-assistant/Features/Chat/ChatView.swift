@@ -137,15 +137,16 @@ struct ChatView: View {
         // children (808pt fallback) or when rapid drag updates are batched.
         GeometryReader { proxy in
             ZStack {
-                mainContentStack(containerWidth: proxy.size.width)
-                    .background(alignment: .bottom) {
-                        chatBackground
-                    }
-                    .background(VColor.surfaceBase)
-                    .overlay(alignment: .bottom) {
-                        btwOverlay
-                    }
-                    .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
+                ObservationBoundaryView {
+                    mainContentStack(containerWidth: proxy.size.width)
+                        .background(alignment: .bottom) {
+                            chatBackground
+                        }
+                        .background(VColor.surfaceBase)
+                }
+                .overlay(alignment: .bottom) {
+                    BtwOverlayView(viewModel: viewModel)
+                }
 
                 dropTargetOverlay
             }
@@ -563,61 +564,12 @@ struct ChatView: View {
         }
     }
 
-    @Environment(\.colorScheme) private var colorScheme
-
     @ViewBuilder
     private var chatBackground: some View {
         EmptyView()
     }
 
-    @ViewBuilder
-    private var btwOverlay: some View {
-        if let btwText = viewModel.btwResponse {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack {
-                    Text("/btw")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                    Spacer()
-                    Button(action: { viewModel.dismissBtw() }) {
-                        VIconView(.x, size: 12)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss btw response")
-                }
 
-                if viewModel.btwLoading && btwText.isEmpty {
-                    Text("Thinking...")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                } else if !viewModel.btwLoading && btwText.isEmpty {
-                    Text("No response received.")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentTertiary)
-                } else {
-                    Text(btwText)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentDefault)
-                        .textSelection(.enabled)
-                }
-
-                if !viewModel.btwLoading {
-                    Text("Press Escape to dismiss")
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-            }
-            .padding(VSpacing.md)
-            .background(VColor.surfaceBase)
-            .cornerRadius(VRadius.md)
-            .vShadow(VShadow.sm)
-            .padding(.horizontal, VSpacing.lg)
-            .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
-            .layoutHangSignpost("chat.btwOverlay")
-        }
-    }
 
     // MARK: - Internal Drag Detection
 
@@ -741,6 +693,69 @@ struct ChatView: View {
         let matches = searchMatches
         guard !matches.isEmpty, currentMatchIndex < matches.count else { return }
         anchorMessageId = matches[currentMatchIndex]
+    }
+}
+
+// MARK: - BtwOverlayView
+
+/// Standalone View struct for the "/btw" response overlay, extracted from
+/// `ChatView` to create a separate observation scope. With `@Observable`,
+/// each View's `body` gets its own observation tracking context — property
+/// reads inside this struct are tracked here, not in the parent `ChatView.body`.
+/// This prevents `viewModel.btwResponse` / `viewModel.btwLoading` changes
+/// from triggering a full `ChatView.body` re-evaluation.
+///
+/// Ref: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
+private struct BtwOverlayView: View {
+    @Bindable var viewModel: ChatViewModel
+
+    var body: some View {
+        if let btwText = viewModel.btwResponse {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack {
+                    Text("/btw")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Spacer()
+                    Button(action: { viewModel.dismissBtw() }) {
+                        VIconView(.x, size: 12)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss btw response")
+                }
+
+                if viewModel.btwLoading && btwText.isEmpty {
+                    Text("Thinking...")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else if !viewModel.btwLoading && btwText.isEmpty {
+                    Text("No response received.")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else {
+                    Text(btwText)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDefault)
+                        .textSelection(.enabled)
+                }
+
+                if !viewModel.btwLoading {
+                    Text("Press Escape to dismiss")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            }
+            .padding(VSpacing.md)
+            .background(VColor.surfaceBase)
+            .cornerRadius(VRadius.md)
+            .vShadow(VShadow.sm)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
+            .layoutHangSignpost("chat.btwOverlay")
+        }
     }
 }
 
