@@ -151,24 +151,16 @@ struct InferenceServiceCard: View {
             managedContent: {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        if profilesEnabled {
+                        managedProviderPicker
+                        if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                             activeProfilePicker
-                            secondaryActionsRow
-                            if hasChanges {
-                                ServiceCardActions(
-                                    hasChanges: true,
-                                    isSaving: false,
-                                    onSave: { save() }
-                                )
-                            }
-                        } else {
-                            managedProviderPicker
-                            ServiceCardActions(
-                                hasChanges: hasChanges,
-                                isSaving: store.apiKeySaving,
-                                onSave: { save() }
-                            )
+                            manageProfilesButton
                         }
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: store.apiKeySaving,
+                            onSave: { save() }
+                        )
                     }
                 } else {
                     managedLoginPrompt
@@ -176,39 +168,40 @@ struct InferenceServiceCard: View {
             },
             yourOwnContent: {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    if profilesEnabled && hasAnyProviderKey {
-                        apiKeysSection
+                    providerPicker
+
+                    // API Key field
+                    apiKeyField
+
+                    // Active profile picker + Manage Profiles button
+                    if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                         activeProfilePicker
-                        secondaryActionsRow
-                        if hasChanges {
-                            ServiceCardActions(
-                                hasChanges: true,
-                                isSaving: false,
-                                onSave: { save() }
-                            )
-                        }
-                    } else if profilesEnabled {
-                        apiKeysEmptyState
-                    } else {
-                        providerPicker
-                        apiKeyField
-                        ServiceCardActions(
-                            hasChanges: hasChanges,
-                            isSaving: store.apiKeySaving,
-                            onSave: { save() },
-                            savingLabel: "Validating...",
-                            onReset: {
-                                store.clearAPIKeyForProvider(effectiveProvider)
-                                providerHasKey = false
-                                apiKeyText = ""
-                            },
-                            showReset: providerHasKey
-                        )
+                        manageProfilesButton
                     }
+
+                    // Action buttons
+                    ServiceCardActions(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() },
+                        savingLabel: "Validating...",
+                        onReset: {
+                            store.clearAPIKeyForProvider(effectiveProvider)
+                            providerHasKey = false
+                            apiKeyText = ""
+                        },
+                        showReset: providerHasKey
+                    )
                 }
             },
             footer: {
-                EmptyView()
+                // Per-call-site overrides badge — only visible when the user has
+                // at least one override configured. Tapping opens the overrides
+                // sheet.
+                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true,
+                   store.overridesCount > 0 {
+                    overridesBadge
+                }
             }
         )
         .sheet(isPresented: $showOverridesSheet) {
