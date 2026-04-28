@@ -1590,6 +1590,7 @@ export async function handleMigrationJobStatus({
 
 export const ROUTES: RouteDefinition[] = [
   {
+    operationId: "migrations_validate_post",
     endpoint: "migrations/validate",
     method: "POST",
     summary: "Validate a .vbundle archive",
@@ -1604,6 +1605,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMigrationValidate,
   },
   {
+    operationId: "migrations_export_post",
     endpoint: "migrations/export",
     method: "POST",
     summary: "Export a .vbundle archive",
@@ -1616,6 +1618,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMigrationExport,
   },
   {
+    operationId: "migrations_importpreflight_post",
     endpoint: "migrations/import-preflight",
     method: "POST",
     summary: "Dry-run import analysis",
@@ -1632,64 +1635,25 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMigrationImportPreflight,
   },
   {
+    operationId: "migrations_import_post",
     endpoint: "migrations/import",
     method: "POST",
     summary: "Import a .vbundle archive",
     description:
-      "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body carrying a signed URL the daemon fetches and streams through the importer.",
+      "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body with `{ url }` carrying a signed URL the daemon fetches.",
     tags: ["migrations"],
-    requestBodies: [
-      {
-        contentType: "application/octet-stream",
-        schema: {
-          type: "string",
-          format: "binary",
-          description: "Raw .vbundle archive bytes.",
-        },
-      },
-      {
-        contentType: "multipart/form-data",
-        schema: {
-          type: "object",
-          properties: {
-            file: {
-              type: "string",
-              format: "binary",
-              description: "The .vbundle archive uploaded as a file field.",
-            },
-          },
-          required: ["file"],
-        },
-      },
-      {
-        contentType: "application/json",
-        schema: {
-          type: "object",
-          properties: {
-            url: {
-              type: "string",
-              format: "uri",
-              description:
-                "A signed GCS URL pointing to the .vbundle archive. The daemon fetches the URL and streams the body through the importer.",
-            },
-          },
-          required: ["url"],
-        },
-      },
-    ],
+    requestBody: z.object({
+      url: z
+        .string()
+        .url()
+        .describe(
+          "A signed GCS URL pointing to the .vbundle archive (JSON body path only).",
+        ),
+    }),
     additionalResponses: {
       "502": {
         description:
-          "Upstream fetch failed (URL body only). Body shape: { success: false, reason: 'fetch_failed', upstream_status?: number }.",
-        schema: {
-          type: "object",
-          properties: {
-            success: { type: "boolean" },
-            reason: { type: "string", enum: ["fetch_failed"] },
-            upstream_status: { type: "integer" },
-          },
-          required: ["success", "reason"],
-        },
+          "Upstream fetch failed (URL body only).",
       },
     },
     responseBody: z.object({
@@ -1702,6 +1666,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMigrationImport,
   },
   {
+    operationId: "migrations_exporttogcs_post",
     endpoint: "migrations/export-to-gcs",
     method: "POST",
     summary: "Start an async export streamed to a GCS signed URL",
@@ -1727,6 +1692,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMigrationExportToGcs,
   },
   {
+    operationId: "migrations_importfromgcs_post",
     endpoint: "migrations/import-from-gcs",
     method: "POST",
     summary: "Start an async .vbundle import from a signed GCS URL",
@@ -1745,32 +1711,22 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: {
       "409": {
         description:
-          "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress', job_id: string } }.",
-        schema: {
-          type: "object",
-          properties: {
-            error: {
-              type: "object",
-              properties: {
-                code: { type: "string", enum: ["import_in_progress"] },
-                job_id: { type: "string" },
-              },
-              required: ["code", "job_id"],
-            },
-          },
-          required: ["error"],
-        },
+          "Another import job is already pending or running.",
       },
     },
     handler: handleMigrationImportFromGcs,
   },
   {
+    operationId: "migrations_jobs_by_job_id_get",
     endpoint: "migrations/jobs/:job_id",
     method: "GET",
     summary: "Get migration job status",
     description:
-      "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI clients can share a single parser across the platform and the daemon.",
+      "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`).",
     tags: ["migrations"],
+    pathParams: [
+      { name: "job_id", description: "The migration job ID to query." },
+    ],
     responseBody: z.discriminatedUnion("status", [
       z.object({
         job_id: z.string(),
@@ -1794,21 +1750,7 @@ export const ROUTES: RouteDefinition[] = [
     ]),
     additionalResponses: {
       "404": {
-        description:
-          "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }.",
-        schema: {
-          type: "object",
-          properties: {
-            error: {
-              type: "object",
-              properties: {
-                code: { type: "string", enum: ["job_not_found"] },
-              },
-              required: ["code"],
-            },
-          },
-          required: ["error"],
-        },
+        description: "No job matches the given id.",
       },
     },
     handler: handleMigrationJobStatus,

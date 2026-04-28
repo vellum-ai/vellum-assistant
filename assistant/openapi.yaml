@@ -6692,8 +6692,8 @@ paths:
       summary: Import a .vbundle archive
       description:
         Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes
-        (application/octet-stream), multipart/form-data, or a JSON body carrying a signed URL the daemon fetches and
-        streams through the importer.
+        (application/octet-stream), multipart/form-data, or a JSON body with `{ url }` carrying a signed URL the daemon
+        fetches.
       tags:
         - migrations
       responses:
@@ -6728,43 +6728,10 @@ paths:
                   - warnings
                 additionalProperties: false
         "502":
-          description:
-            "Upstream fetch failed (URL body only). Body shape: { success: false, reason: 'fetch_failed',
-            upstream_status?: number }."
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  reason:
-                    type: string
-                    enum:
-                      - fetch_failed
-                  upstream_status:
-                    type: integer
-                required:
-                  - success
-                  - reason
+          description: Upstream fetch failed (URL body only).
       requestBody:
         required: true
         content:
-          application/octet-stream:
-            schema:
-              type: string
-              format: binary
-              description: Raw .vbundle archive bytes.
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-                  description: The .vbundle archive uploaded as a file field.
-              required:
-                - file
           application/json:
             schema:
               type: object
@@ -6772,11 +6739,10 @@ paths:
                 url:
                   type: string
                   format: uri
-                  description:
-                    A signed GCS URL pointing to the .vbundle archive. The daemon fetches the URL and streams the body through
-                    the importer.
+                  description: A signed GCS URL pointing to the .vbundle archive (JSON body path only).
               required:
                 - url
+              additionalProperties: false
   /v1/migrations/import-from-gcs:
     post:
       operationId: migrations_importfromgcs_post
@@ -6809,28 +6775,7 @@ paths:
                   - type
                 additionalProperties: false
         "409":
-          description:
-            "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress',
-            job_id: string } }."
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        enum:
-                          - import_in_progress
-                      job_id:
-                        type: string
-                    required:
-                      - code
-                      - job_id
-                required:
-                  - error
+          description: Another import job is already pending or running.
       requestBody:
         required: true
         content:
@@ -6889,8 +6834,7 @@ paths:
       description:
         "Return the current status of an async migration job (export or import). The response discriminates on
         `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`,
-        `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI
-        clients can share a single parser across the platform and the daemon."
+        `error_code`, optional `upstream_status`)."
       tags:
         - migrations
       responses:
@@ -6964,23 +6908,7 @@ paths:
                       - error_code
                     additionalProperties: false
         "404":
-          description: "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }."
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                        enum:
-                          - job_not_found
-                    required:
-                      - code
-                required:
-                  - error
+          description: No job matches the given id.
       parameters:
         - name: job_id
           in: path
