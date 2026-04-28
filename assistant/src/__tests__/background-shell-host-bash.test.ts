@@ -202,7 +202,9 @@ describe("host_bash background mode — proxy path", () => {
     );
 
     expect(mockRegisterBackgroundTool).toHaveBeenCalledTimes(1);
-    const registered = mockRegisterBackgroundTool.mock.calls[0][0];
+    const registered = (
+      mockRegisterBackgroundTool.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(registered.toolName).toBe("host_bash");
     expect(registered.conversationId).toBe("conv-xyz");
     expect(registered.command).toBe("echo bg-proxy");
@@ -229,7 +231,9 @@ describe("host_bash background mode — proxy path", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    const wakeCall = mockWakeAgentForOpportunity.mock.calls[0][0];
+    const wakeCall = (
+      mockWakeAgentForOpportunity.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
     expect(wakeCall.hint).toBe("proxy success output");
     expect(wakeCall.source).toBe("background-tool");
@@ -254,7 +258,9 @@ describe("host_bash background mode — proxy path", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    const wakeCall = mockWakeAgentForOpportunity.mock.calls[0][0];
+    const wakeCall = (
+      mockWakeAgentForOpportunity.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(wakeCall.hint).toContain("Background host command failed");
     expect(wakeCall.hint).toContain("command not found");
   });
@@ -285,7 +291,9 @@ describe("host_bash background mode — proxy path", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    const wakeCall = mockWakeAgentForOpportunity.mock.calls[0][0];
+    const wakeCall = (
+      mockWakeAgentForOpportunity.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(wakeCall.hint).toContain("Background host command error");
     expect(wakeCall.hint).toContain("proxy transport error");
   });
@@ -344,7 +352,9 @@ describe("host_bash background mode — direct execution path", () => {
     );
 
     expect(mockRegisterBackgroundTool).toHaveBeenCalledTimes(1);
-    const registered = mockRegisterBackgroundTool.mock.calls[0][0];
+    const registered = (
+      mockRegisterBackgroundTool.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(registered.toolName).toBe("host_bash");
     expect(registered.conversationId).toBe("conv-xyz");
     expect(registered.command).toBe("echo bg-local");
@@ -369,7 +379,9 @@ describe("host_bash background mode — direct execution path", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    const wakeCall = mockWakeAgentForOpportunity.mock.calls[0][0];
+    const wakeCall = (
+      mockWakeAgentForOpportunity.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
     expect(wakeCall.source).toBe("background-tool");
     expect(wakeCall.hint).toContain("hello world");
@@ -388,7 +400,9 @@ describe("host_bash background mode — direct execution path", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    const wakeCall = mockWakeAgentForOpportunity.mock.calls[0][0];
+    const wakeCall = (
+      mockWakeAgentForOpportunity.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(wakeCall.hint).toContain("Background host command failed");
   });
 
@@ -407,7 +421,9 @@ describe("host_bash background mode — direct execution path", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
-    const wakeCall = mockWakeAgentForOpportunity.mock.calls[0][0];
+    const wakeCall = (
+      mockWakeAgentForOpportunity.mock.calls as unknown[][]
+    )[0]![0] as Record<string, unknown>;
     expect(wakeCall.hint).toContain("Background host command error");
     expect(wakeCall.hint).toContain("spawn ENOENT");
   });
