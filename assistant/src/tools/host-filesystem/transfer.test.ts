@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { hostFileTransferTool } from "./transfer.js";
 import type { ToolContext } from "../types.js";
+import { hostFileTransferTool } from "./transfer.js";
 
 const testDirs: string[] = [];
 
