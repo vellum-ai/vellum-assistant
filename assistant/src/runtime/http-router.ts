@@ -16,6 +16,7 @@ import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
+import type { RoutePathParam } from "./routes/types.js";
 
 // ---------------------------------------------------------------------------
 // Route definition types
@@ -90,6 +91,11 @@ export interface HTTPRouteDefinition {
 
   /** Stable identifier used as the IPC method name when served over both transports. */
   operationId?: string;
+
+  /** Typed path parameter constraints. When a param has `type: "uuid"`,
+   *  the compiled regex narrows the capture group so it only matches
+   *  UUID-shaped segments, preventing shadowing of literal sub-routes. */
+  pathParams?: RoutePathParam[];
 
   // -- OpenAPI metadata (optional) ------------------------------------------
   /** Short summary shown next to the operation in generated docs. */
@@ -209,6 +215,17 @@ export class HttpRouter {
 // Compilation helpers
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Path-param type → regex fragment
+// ---------------------------------------------------------------------------
+
+const UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+
+/** Map of param type → regex capture group (without the surrounding parens). */
+const PARAM_TYPE_PATTERNS: Record<string, string> = {
+  uuid: UUID_PATTERN,
+};
+
 /**
  * Compile a route definition into a regex + param list + policy key.
  *
@@ -216,10 +233,25 @@ export class HttpRouter {
  *   regex: /^calls\/([^/]+)\/cancel$/
  *   paramNames: ["id"]
  *   resolvedPolicyKey: "calls/cancel" (params stripped)
+ *
+ * When the route declares `pathParams` with a `type` constraint (e.g.
+ * `{ name: "id", type: "uuid" }`), the capture group is narrowed to
+ * only match values of that type. This prevents parameterized routes
+ * from shadowing literal sibling routes regardless of declaration order.
  */
 function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
   const paramNames: string[] = [];
   const policySegments: string[] = [];
+
+  // Build a lookup for typed path params.
+  const paramTypeMap = new Map<string, string>();
+  if (def.pathParams) {
+    for (const pp of def.pathParams) {
+      if (pp.type && pp.type !== "string") {
+        paramTypeMap.set(pp.name, pp.type);
+      }
+    }
+  }
 
   const regexSource = def.endpoint
     .split("/")
@@ -233,7 +265,8 @@ function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
           // the last segment — absorb all remaining path components.
           return "(.+)";
         }
-        return "([^/]+)";
+        const typePattern = PARAM_TYPE_PATTERNS[paramTypeMap.get(name) ?? ""];
+        return typePattern ? `(${typePattern})` : "([^/]+)";
       }
       policySegments.push(segment);
       return escapeRegex(segment);

@@ -37,6 +37,7 @@ export function routeDefinitionsToHTTPRoutes(
     method: r.method,
     policyKey:
       r.policyKey ?? r.endpoint.replace(/\/:[^/]+/g, "").replace(/^:/, ""),
+    pathParams: r.pathParams,
     summary: r.summary,
     description: r.description,
     tags: r.tags,

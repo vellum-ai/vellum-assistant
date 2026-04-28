@@ -13,6 +13,22 @@ export interface RouteQueryParam {
   schema?: Record<string, unknown>;
 }
 
+/**
+ * Type constraint for a path parameter segment (`:paramName`).
+ *
+ * When a type is specified the router compiles a narrower regex for the
+ * segment — e.g. `uuid` emits `[0-9a-fA-F]{8}-…` instead of the default
+ * `[^/]+`. This eliminates ordering ambiguities between parameterized and
+ * literal routes (a `/conversations/:id` with `type: "uuid"` will never
+ * match `/conversations/search`).
+ */
+export interface RoutePathParam {
+  name: string;
+  /** Constrains the matched segment. Defaults to `"string"` (any non-slash chars). */
+  type?: "string" | "uuid";
+  description?: string;
+}
+
 export interface RouteHandlerArgs {
   pathParams?: Record<string, string>;
   queryParams?: Record<string, string>;
@@ -60,6 +76,7 @@ export interface RouteDefinition {
   summary?: string;
   description?: string;
   tags?: string[];
+  pathParams?: RoutePathParam[];
   queryParams?: RouteQueryParam[];
   requestBody?: z.ZodType;
   responseBody?: z.ZodType;
