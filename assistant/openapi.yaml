@@ -1187,6 +1187,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "416":
+          description: Range Not Satisfiable
       parameters:
         - name: id
           in: path

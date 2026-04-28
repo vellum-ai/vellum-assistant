@@ -85,8 +85,12 @@ const RouteEntrySchema = z.object({
   requestBodies: z.array(RouteRequestBodyVariantSchema).optional(),
   /** JSON Schema for the success response body. */
   responseBody: RouteBodySchemaSchema.optional(),
-  /** HTTP status code for the success response. Defaults to "200". */
-  responseStatus: z.string().optional(),
+  /** HTTP status code for the success response. Defaults to "200".
+   * Callable responseStatus values (used at runtime) are ignored here. */
+  responseStatus: z.preprocess(
+    (v) => (typeof v === "string" ? v : undefined),
+    z.string().optional(),
+  ),
   /** Extra response codes documented in the spec. */
   additionalResponses: z
     .record(z.string(), RouteAdditionalResponseSchema)
