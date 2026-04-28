@@ -5,8 +5,7 @@
  * configured port (default: 7821).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+
 
 import type { ServerWebSocket } from "bun";
 
@@ -1466,24 +1465,6 @@ export class RuntimeHttpServer {
     return null;
   }
 
-  private handleGetInterface(interfacePath: string): Response {
-    if (!this.interfacesDir) {
-      return httpError("NOT_FOUND", "Interface not found", 404);
-    }
-    const fullPath = resolve(this.interfacesDir, interfacePath);
-    if (
-      (fullPath !== this.interfacesDir &&
-        !fullPath.startsWith(this.interfacesDir + "/")) ||
-      !existsSync(fullPath)
-    ) {
-      return httpError("NOT_FOUND", "Interface not found", 404);
-    }
-    const source = readFileSync(fullPath, "utf-8");
-    return new Response(source, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
-  }
-
   // ---------------------------------------------------------------------------
   // Declarative route table
   // ---------------------------------------------------------------------------
@@ -1510,13 +1491,6 @@ export class RuntimeHttpServer {
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
       }),
-      {
-        endpoint: "interfaces/:path*",
-        method: "GET",
-        policyKey: "interfaces",
-        handler: ({ params }) => this.handleGetInterface(params.path),
-      },
-
       ...channelRouteDefinitions({
         assistantId,
         processMessage: this.processMessage,
