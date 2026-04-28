@@ -208,6 +208,7 @@ class HostShellTool implements Tool {
 
       if (background) {
         const bgId = generateBackgroundToolId();
+        const abortController = new AbortController();
         const proxyPromise = context.hostBashProxy.request(
           {
             command,
@@ -216,7 +217,7 @@ class HostShellTool implements Tool {
             env: proxyEnv,
           },
           context.conversationId,
-          context.signal,
+          abortController.signal,
         );
 
         proxyPromise
@@ -245,10 +246,7 @@ class HostShellTool implements Tool {
           conversationId: context.conversationId,
           command,
           startedAt: Date.now(),
-          cancel: () => {
-            // The proxy handles its own timeout; cancel is a no-op since we
-            // cannot easily abort a proxy request after it's been sent.
-          },
+          cancel: () => abortController.abort(),
         });
 
         return {
