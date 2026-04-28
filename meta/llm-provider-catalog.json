@@ -14,7 +14,7 @@
         "url": "https://console.anthropic.com/settings/keys",
         "linkLabel": "Open Anthropic Console"
       },
-      "defaultModel": "claude-sonnet-4-6",
+      "defaultModel": "claude-opus-4-7",
       "models": [
         {
           "id": "claude-opus-4-7",
