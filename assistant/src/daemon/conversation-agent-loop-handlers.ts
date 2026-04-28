@@ -290,6 +290,7 @@ function handleTextDelta(
         "first_text_delta",
         "assistant_turn",
         deps.reqId,
+        "Thinking",
       );
     }
     deps.onEvent({
@@ -1096,6 +1097,7 @@ export async function dispatchAgentEvent(
           "tool_result_received",
           "assistant_turn",
           deps.reqId,
+          "Thinking",
         );
 
         // Format web search results into a human-readable string for the client.
