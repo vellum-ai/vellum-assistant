@@ -183,8 +183,6 @@ export interface RuntimeHttpServerOptions {
   guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   /** Daemon-injected generator for guardian follow-up conversation (provider-backed). */
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
-  /** Dependencies for the POST /v1/messages queue-if-busy handler. */
-  sendMessageDeps?: SendMessageDeps;
 }
 
 export interface RuntimeAttachmentMetadata {

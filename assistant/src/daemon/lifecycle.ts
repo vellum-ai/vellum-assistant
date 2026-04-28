@@ -69,7 +69,6 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -944,26 +943,6 @@ export async function runDaemon(): Promise<void> {
       guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
       guardianFollowUpConversationGenerator:
         createGuardianFollowUpConversationGenerator(),
-      sendMessageDeps: {
-        getOrCreateConversation: (conversationId, options) =>
-          server.getConversationForMessages(conversationId, options),
-        assistantEventHub,
-        resolveAttachments: (attachmentIds) => {
-          const resolved = getAttachmentsByIds(attachmentIds, {
-            hydrateFileData: true,
-          });
-          const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-          return resolved.map((a) => ({
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: a.mimeType,
-            data: a.dataBase64,
-            ...(sourcePaths.has(a.id)
-              ? { filePath: sourcePaths.get(a.id) }
-              : {}),
-          }));
-        },
-      },
     });
 
     registerSecretsDeps({
