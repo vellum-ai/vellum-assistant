@@ -80,6 +80,16 @@ export function generateBackgroundToolId(): string {
 }
 
 /**
+ * Returns `true` when the registry is at or over the {@link MAX_BACKGROUND_TOOLS}
+ * limit, meaning no new background tools can be registered. Callers should
+ * check this **before** spawning a process to avoid leaking untracked
+ * processes.
+ */
+export function isBackgroundToolLimitReached(): boolean {
+  return registry.size >= MAX_BACKGROUND_TOOLS;
+}
+
+/**
  * Clears the entire registry. Intended for test cleanup only — production
  * code should use {@link cancelBackgroundTool} or {@link removeBackgroundTool}.
  */

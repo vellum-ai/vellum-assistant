@@ -18,6 +18,8 @@ import {
 } from "../../util/platform.js";
 import {
   generateBackgroundToolId,
+  isBackgroundToolLimitReached,
+  MAX_BACKGROUND_TOOLS,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
@@ -352,6 +354,15 @@ class ShellTool implements Tool {
     // -----------------------------------------------------------------------
     const background = input.background === true;
     if (background) {
+      // Check the registry limit BEFORE spawning so we never leak an
+      // untracked process when the registry is full.
+      if (isBackgroundToolLimitReached()) {
+        return {
+          content: `Error: background tool limit reached (max ${MAX_BACKGROUND_TOOLS}). Cancel an existing background tool before starting a new one.`,
+          isError: true,
+        };
+      }
+
       const bgId = generateBackgroundToolId();
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];

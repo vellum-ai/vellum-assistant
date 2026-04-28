@@ -28,6 +28,8 @@ import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import {
   generateBackgroundToolId,
+  isBackgroundToolLimitReached,
+  MAX_BACKGROUND_TOOLS,
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
@@ -207,6 +209,15 @@ class HostShellTool implements Tool {
       );
 
       if (background) {
+        // Check the registry limit BEFORE starting the proxy request so we
+        // never leak an untracked proxy when the registry is full.
+        if (isBackgroundToolLimitReached()) {
+          return {
+            content: `Error: background tool limit reached (max ${MAX_BACKGROUND_TOOLS}). Cancel an existing background tool before starting a new one.`,
+            isError: true,
+          };
+        }
+
         const bgId = generateBackgroundToolId();
         const proxyPromise = context.hostBashProxy.request(
           {
@@ -302,6 +313,15 @@ class HostShellTool implements Tool {
     hostEnv.__CONVERSATION_ID = context.conversationId;
 
     if (background) {
+      // Check the registry limit BEFORE spawning so we never leak an
+      // untracked process when the registry is full.
+      if (isBackgroundToolLimitReached()) {
+        return {
+          content: `Error: background tool limit reached (max ${MAX_BACKGROUND_TOOLS}). Cancel an existing background tool before starting a new one.`,
+          isError: true,
+        };
+      }
+
       const bgId = generateBackgroundToolId();
 
       const child = spawn("bash", ["-c", "--", command], {
