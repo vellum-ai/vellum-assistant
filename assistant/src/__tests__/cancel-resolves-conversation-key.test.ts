@@ -42,89 +42,58 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+let cancelledId: string | undefined;
+mock.module("../daemon/handlers/conversations.js", () => ({
+  cancelGeneration: (id: string) => {
+    cancelledId = id;
+    return true;
+  },
+  switchConversation: async () => null,
+  clearAllConversations: () => 0,
+  undoLastMessage: async () => null,
+  regenerateResponse: async () => null,
+}));
+
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db-init.js";
-import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
+import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 
 initializeDb();
 
 describe("POST /v1/conversations/:id/cancel", () => {
+  const cancelRoute = ROUTES.find(
+    (r) => r.operationId === "cancelConversationGeneration",
+  )!;
+
   test("resolves conversation key to internal ID before cancelling", () => {
-    // Create a conversation via key — this assigns an internal ID that
-    // differs from the key.
+    cancelledId = undefined;
     const conversationKey = "client-local-uuid-abc123";
     const mapping = getOrCreateConversation(conversationKey);
     const internalId = mapping.conversationId;
 
-    // Sanity: key and internal ID should differ.
     expect(internalId).not.toBe(conversationKey);
 
-    // Track which ID cancelGeneration receives.
-    let cancelledId: string | undefined;
-    const routes = conversationManagementRouteDefinitions({
-      switchConversation: async () => null,
-      renameConversation: () => false,
-      clearAllConversations: () => 0,
-      cancelGeneration: (id) => {
-        cancelledId = id;
-        return true;
-      },
-      destroyConversation: () => {},
-      undoLastMessage: async () => null,
-      regenerateResponse: async () => null,
-    });
-
-    const cancelRoute = routes.find(
-      (r) => r.endpoint === "conversations/:id/cancel",
-    )!;
-
-    // Simulate the HTTP handler with the conversation KEY (what the
-    // macOS client sends — it uses the key, not the internal ID).
     cancelRoute.handler({
-      params: { id: conversationKey },
-      req: new Request("http://localhost/v1/conversations/x/cancel", {
-        method: "POST",
-      }),
-      url: new URL("http://localhost/v1/conversations/x/cancel"),
-      server: undefined as never,
-      authContext: undefined as never,
+      pathParams: { id: conversationKey },
+      body: {},
+      headers: {},
+
     });
 
-    // cancelGeneration must receive the INTERNAL ID, not the raw key.
-    expect(cancelledId).toBe(internalId);
+    expect(cancelledId!).toBe(internalId);
   });
 
   test("falls back to raw ID when key is not in the mapping", () => {
-    let cancelledId: string | undefined;
-    const routes = conversationManagementRouteDefinitions({
-      switchConversation: async () => null,
-      renameConversation: () => false,
-      clearAllConversations: () => 0,
-      cancelGeneration: (id) => {
-        cancelledId = id;
-        return true;
-      },
-      destroyConversation: () => {},
-      undoLastMessage: async () => null,
-      regenerateResponse: async () => null,
-    });
-
-    const cancelRoute = routes.find(
-      (r) => r.endpoint === "conversations/:id/cancel",
-    )!;
-
-    // Use an ID that isn't a known key — should pass through as-is.
+    cancelledId = undefined;
     const directId = "direct-conversation-id";
+
     cancelRoute.handler({
-      params: { id: directId },
-      req: new Request("http://localhost/v1/conversations/x/cancel", {
-        method: "POST",
-      }),
-      url: new URL("http://localhost/v1/conversations/x/cancel"),
-      server: undefined as never,
-      authContext: undefined as never,
+      pathParams: { id: directId },
+      body: {},
+      headers: {},
+
     });
 
-    expect(cancelledId).toBe(directId);
+    expect(cancelledId!).toBe(directId);
   });
 });

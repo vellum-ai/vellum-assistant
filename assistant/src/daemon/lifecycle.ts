@@ -49,7 +49,6 @@ import {
 } from "../memory/attachments-store.js";
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
-import { resolveConversationId } from "../memory/conversation-key-store.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   selectEmbeddingBackend,
@@ -70,23 +69,13 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
-import {
-  registerCancelGeneration,
-  registerClearAllConversations,
-  registerConversationDestroy,
-  registerRegenerateResponse,
-  registerSwitchConversation,
-  registerUndoLastMessage,
-} from "../runtime/routes/conversation-management-routes.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
@@ -127,15 +116,7 @@ import {
   createGuardianFollowUpConversationGenerator,
 } from "./guardian-action-generators.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
-import {
-  cancelGeneration,
-  clearAllConversations,
-  regenerateResponse,
-  switchConversation,
-  undoLastMessage,
-} from "./handlers/conversations.js";
 import { installAssistantSymlink } from "./install-symlink.js";
-import type { ServerMessage } from "./message-protocol.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
@@ -983,50 +964,6 @@ export async function runDaemon(): Promise<void> {
       },
     });
 
-    // Wire route deps now that the server is available.
-    registerSwitchConversation((conversationId) =>
-      switchConversation(conversationId, server.getHandlerContext()),
-    );
-    registerClearAllConversations(() =>
-      clearAllConversations(server.getHandlerContext()),
-    );
-    registerCancelGeneration((conversationId) =>
-      cancelGeneration(conversationId, server.getHandlerContext()),
-    );
-    registerConversationDestroy((conversationId) =>
-      server.destroyConversation(conversationId),
-    );
-    registerUndoLastMessage((conversationId) =>
-      undoLastMessage(conversationId, server.getHandlerContext()),
-    );
-    registerRegenerateResponse((conversationId) => {
-      const resolvedId =
-        resolveConversationId(conversationId) ?? conversationId;
-      let hubChain: Promise<void> = Promise.resolve();
-      const sendEvent = (event: ServerMessage) => {
-        const ae = buildAssistantEvent(
-          DAEMON_INTERNAL_ASSISTANT_ID,
-          event,
-          resolvedId,
-        );
-        hubChain = (async () => {
-          await hubChain;
-          try {
-            await assistantEventHub.publish(ae);
-          } catch (err) {
-            log.warn(
-              { err },
-              "assistant-events hub subscriber threw during regenerate",
-            );
-          }
-        })();
-      };
-      return regenerateResponse(
-        conversationId,
-        server.getHandlerContext(),
-        sendEvent,
-      );
-    });
     registerSecretsDeps({
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>

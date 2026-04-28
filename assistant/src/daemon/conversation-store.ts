@@ -320,3 +320,49 @@ export async function getOrCreateConversation(
   }
   return conversation;
 }
+
+// ---------------------------------------------------------------------------
+// Thin evictor wrappers — so callers don't need the DaemonServer instance
+// ---------------------------------------------------------------------------
+
+export function touchConversation(conversationId: string): void {
+  _evictor?.touch(conversationId);
+}
+
+export function removeFromEvictor(conversationId: string): void {
+  _evictor?.remove(conversationId);
+}
+
+/**
+ * Abort, dispose, and remove a single in-memory conversation.
+ * Use before deleting the DB row so the agent loop can't write to a
+ * deleted conversation and trip FK constraints.
+ */
+export function destroyActiveConversation(conversationId: string): void {
+  const conversation = findConversation(conversationId);
+  if (!conversation) return;
+  removeFromEvictor(conversationId);
+  getSubagentManager().abortAllForParent(conversationId);
+  conversation.dispose();
+  deleteConversation(conversationId);
+  deleteConversationOptions(conversationId);
+}
+
+/**
+ * Dispose all in-memory conversations, clear the store, and remove
+ * from the evictor. Returns the count of conversations that were cleared.
+ */
+export function clearAllActiveConversations(): number {
+  const count = conversationCount();
+  const subagentManager = getSubagentManager();
+  for (const id of conversationIds()) {
+    removeFromEvictor(id);
+    subagentManager.abortAllForParent(id);
+  }
+  for (const conversation of allConversations()) {
+    conversation.dispose();
+  }
+  clearConversations();
+  clearConversationOptions();
+  return count;
+}

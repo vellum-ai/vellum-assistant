@@ -18,8 +18,11 @@ import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import {
+  clearAllActiveConversations,
   conversationEntries,
   findConversation,
+  getOrCreateConversation,
+  touchConversation,
 } from "../conversation-store.js";
 import type {
   ConfirmationResponse,
@@ -205,8 +208,8 @@ export function handleSecretResponse(
 /**
  * Clear all conversations and DB conversations. Returns the number of conversations cleared.
  */
-export function clearAllConversations(ctx: HandlerContext): number {
-  const cleared = ctx.clearAllConversations();
+export function clearAllConversations(): number {
+  const cleared = clearAllActiveConversations();
   // Also clear DB conversations. When a new local connection triggers
   // sendInitialConversation, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
@@ -221,7 +224,6 @@ export function clearAllConversations(ctx: HandlerContext): number {
  */
 export async function switchConversation(
   conversationId: string,
-  ctx: HandlerContext,
 ): Promise<{
   conversationId: string;
   title: string;
@@ -233,17 +235,8 @@ export async function switchConversation(
     return null;
   }
 
-  // If the target conversation is headless-locked (actively executing a task run),
-  // skip rebinding so tool confirmations stay suppressed.
-  const existingConversation = findConversation(conversationId);
-  const isHeadlessLocked = existingConversation?.headlessLock;
-
-  if (isHeadlessLocked) {
-    // Load the conversation without rebinding the client — the conversation stays headless
-    await ctx.getOrCreateConversation(conversationId);
-  } else {
-    await ctx.getOrCreateConversation(conversationId);
-  }
+  // Restore evicted conversations from the database when needed.
+  await getOrCreateConversation(conversationId);
 
   return {
     conversationId: conversation.id,
@@ -272,13 +265,12 @@ export function renameConversation(
  */
 export function cancelGeneration(
   conversationId: string,
-  ctx: HandlerContext,
 ): boolean {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return false;
   }
-  ctx.touchConversation(conversationId);
+  touchConversation(conversationId);
   conversation.abort(
     createAbortReason("user_cancel", "cancelGeneration", conversationId),
   );
@@ -296,15 +288,14 @@ export function cancelGeneration(
  */
 export async function undoLastMessage(
   conversationId: string,
-  ctx: HandlerContext,
 ): Promise<{ removedCount: number } | null> {
   const resolvedId = resolveConversationId(conversationId);
   if (!resolvedId) {
     return null;
   }
   conversationId = resolvedId;
-  const conversation = await ctx.getOrCreateConversation(conversationId);
-  ctx.touchConversation(conversationId);
+  const conversation = await getOrCreateConversation(conversationId);
+  touchConversation(conversationId);
   const removedCount = conversation.undo();
   return { removedCount };
 }
@@ -316,7 +307,6 @@ export async function undoLastMessage(
  */
 export async function regenerateResponse(
   conversationId: string,
-  ctx: HandlerContext,
   sendEvent: (event: ServerMessage) => void,
 ): Promise<{ requestId: string } | null> {
   // The caller may pass a conversation key (e.g. the macOS client's local
@@ -327,8 +317,8 @@ export async function regenerateResponse(
     return null;
   }
   conversationId = resolvedId;
-  const conversation = await ctx.getOrCreateConversation(conversationId);
-  ctx.touchConversation(conversationId);
+  const conversation = await getOrCreateConversation(conversationId);
+  touchConversation(conversationId);
   conversation.updateClient(sendEvent, false);
   const requestId = uuid();
   conversation.traceEmitter.emit("request_received", "Regenerate requested", {

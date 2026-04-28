@@ -20,6 +20,16 @@
 import { z } from "zod";
 
 import { loadConfig } from "../../config/loader.js";
+import { destroyActiveConversation } from "../../daemon/conversation-store.js";
+import {
+  cancelGeneration,
+  clearAllConversations,
+  regenerateResponse,
+  switchConversation,
+  undoLastMessage,
+} from "../../daemon/handlers/conversations.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   archiveConversation,
@@ -50,85 +60,10 @@ import {
   BadRequestError,
   InternalError,
   NotFoundError,
-  ServiceUnavailableError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("conversation-management-routes");
-
-// ---------------------------------------------------------------------------
-// Daemon-owned callbacks — registered at startup via register* functions.
-// Route handlers import these directly; no DI interface needed.
-// ---------------------------------------------------------------------------
-
-let _switchConversation:
-  | ((
-      conversationId: string,
-    ) => Promise<{
-      conversationId: string;
-      title: string;
-      conversationType: string;
-      inferenceProfile?: string;
-    } | null>)
-  | null = null;
-
-let _clearAllConversations: (() => number) | null = null;
-
-let _cancelGeneration:
-  | ((conversationId: string) => boolean)
-  | null = null;
-
-let _destroyConversation:
-  | ((conversationId: string) => void)
-  | null = null;
-
-let _undoLastMessage:
-  | ((conversationId: string) => Promise<{ removedCount: number } | null>)
-  | null = null;
-
-let _regenerateResponse:
-  | ((conversationId: string) => Promise<{ requestId: string } | null>)
-  | null = null;
-
-export function registerSwitchConversation(
-  fn: NonNullable<typeof _switchConversation>,
-): void {
-  _switchConversation = fn;
-}
-
-export function registerClearAllConversations(
-  fn: NonNullable<typeof _clearAllConversations>,
-): void {
-  _clearAllConversations = fn;
-}
-
-export function registerCancelGeneration(
-  fn: NonNullable<typeof _cancelGeneration>,
-): void {
-  _cancelGeneration = fn;
-}
-
-export function registerConversationDestroy(
-  fn: NonNullable<typeof _destroyConversation>,
-): void {
-  _destroyConversation = fn;
-}
-
-export function getConversationDestroy(): typeof _destroyConversation {
-  return _destroyConversation;
-}
-
-export function registerUndoLastMessage(
-  fn: NonNullable<typeof _undoLastMessage>,
-): void {
-  _undoLastMessage = fn;
-}
-
-export function registerRegenerateResponse(
-  fn: NonNullable<typeof _regenerateResponse>,
-): void {
-  _regenerateResponse = fn;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -140,7 +75,7 @@ function resolveOrThrow(rawId: string): string {
   return id;
 }
 
-function publishListInvalidated(reason: string): void {
+function publishListInvalidated(reason: ConversationListInvalidatedReason): void {
   assistantEventHub
     .publish(
       buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
@@ -231,14 +166,11 @@ async function handleForkConversation({ body = {} }: RouteHandlerArgs) {
 }
 
 async function handleSwitchConversation({ body = {} }: RouteHandlerArgs) {
-  if (!_switchConversation) {
-    throw new ServiceUnavailableError("Switch not available yet");
-  }
   const conversationId = body.conversationId as string | undefined;
   if (!conversationId || typeof conversationId !== "string") {
     throw new BadRequestError("Missing conversationId");
   }
-  const result = await _switchConversation(conversationId);
+  const result = await switchConversation(conversationId);
   if (!result) {
     throw new NotFoundError(`Conversation ${conversationId} not found`);
   }
@@ -350,9 +282,6 @@ function handleRenameConversation({
 }
 
 function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
-  if (!_clearAllConversations) {
-    throw new ServiceUnavailableError("Clear not available yet");
-  }
   const confirm = headers["x-confirm-destructive"];
   if (confirm !== "clear-all-conversations") {
     throw new BadRequestError(
@@ -360,19 +289,16 @@ function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
         "To confirm, set header X-Confirm-Destructive: clear-all-conversations",
     );
   }
-  _clearAllConversations();
+  clearAllConversations();
   return undefined;
 }
 
 function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
-  if (!_destroyConversation) {
-    throw new ServiceUnavailableError("Wipe not available yet");
-  }
   const resolvedId = resolveOrThrow(pathParams.id!);
 
   cancelScheduleIfLast(resolvedId);
 
-  _destroyConversation(resolvedId);
+  destroyActiveConversation(resolvedId);
   const result = wipeConversation(resolvedId);
   for (const segId of result.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {
@@ -403,14 +329,11 @@ function handleWipeConversation({ pathParams = {} }: RouteHandlerArgs) {
 }
 
 function handleDeleteConversation({ pathParams = {} }: RouteHandlerArgs) {
-  if (!_destroyConversation) {
-    throw new ServiceUnavailableError("Delete not available yet");
-  }
   const resolvedId = resolveOrThrow(pathParams.id!);
 
   cancelScheduleIfLast(resolvedId);
 
-  _destroyConversation(resolvedId);
+  destroyActiveConversation(resolvedId);
   const deleted = deleteConversation(resolvedId);
   for (const segId of deleted.segmentIds) {
     enqueueMemoryJob("delete_qdrant_vectors", {
@@ -450,19 +373,13 @@ function handleUnarchiveConversation({ pathParams = {} }: RouteHandlerArgs) {
 }
 
 function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
-  if (!_cancelGeneration) {
-    throw new ServiceUnavailableError("Cancel not available yet");
-  }
   const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
-  _cancelGeneration(resolvedId);
+  cancelGeneration(resolvedId);
   return undefined;
 }
 
 async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
-  if (!_undoLastMessage) {
-    throw new ServiceUnavailableError("Undo not available yet");
-  }
-  const result = await _undoLastMessage(pathParams.id!);
+  const result = await undoLastMessage(pathParams.id!);
   if (!result) {
     throw new NotFoundError(
       `No active conversation for ${pathParams.id}`,
@@ -475,11 +392,29 @@ async function handleUndoLastMessage({ pathParams = {} }: RouteHandlerArgs) {
 }
 
 async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
-  if (!_regenerateResponse) {
-    throw new ServiceUnavailableError("Regenerate not available yet");
-  }
+  const conversationId = pathParams.id!;
+  const resolvedId = resolveConversationId(conversationId) ?? conversationId;
+  let hubChain: Promise<void> = Promise.resolve();
+  const sendEvent = (event: ServerMessage) => {
+    const ae = buildAssistantEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      event,
+      resolvedId,
+    );
+    hubChain = (async () => {
+      await hubChain;
+      try {
+        await assistantEventHub.publish(ae);
+      } catch (err) {
+        log.warn(
+          { err },
+          "assistant-events hub subscriber threw during regenerate",
+        );
+      }
+    })();
+  };
   try {
-    const result = await _regenerateResponse(pathParams.id!);
+    const result = await regenerateResponse(conversationId, sendEvent);
     if (!result) {
       throw new NotFoundError(
         `No active conversation for ${pathParams.id}`,

@@ -113,7 +113,6 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import { getConversationDestroy } from "./routes/conversation-management-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
 import {
@@ -145,7 +144,10 @@ export type {
   SendMessageDeps,
 } from "./http-types.js";
 
-import { findConversation } from "../daemon/conversation-store.js";
+import {
+  destroyActiveConversation,
+  findConversation,
+} from "../daemon/conversation-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -1560,9 +1562,7 @@ export class RuntimeHttpServer {
           // then enqueue Qdrant vector cleanup for the returned segment
           // and summary IDs. Without this, seeded-then-deleted playground
           // conversations leak vectors and zombie Conversation objects.
-          if (findConversation(id)) {
-            getConversationDestroy()?.(id);
-          }
+          destroyActiveConversation(id);
           const deleted = deleteConversation(id);
           for (const segId of deleted.segmentIds) {
             enqueueMemoryJob("delete_qdrant_vectors", {

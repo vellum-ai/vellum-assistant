@@ -3,9 +3,9 @@
  *
  * Covers:
  * - Route policy requires `settings.write` scope (not just `chat.write`)
- * - Missing X-Confirm-Destructive header returns 400 with explanatory message
- * - Wrong header value returns 400
- * - Correct scope + header clears data and returns 204
+ * - Missing X-Confirm-Destructive header returns BadRequestError
+ * - Wrong header value returns BadRequestError
+ * - Correct header clears data
  * - lifecycle_events contains `conversations_clear_all` audit entry after clear
  */
 
@@ -25,6 +25,17 @@ mock.module("../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
+mock.module("../daemon/handlers/conversations.js", () => ({
+  cancelGeneration: () => true,
+  clearAllConversations: () => {
+    clearAll();
+    return 0;
+  },
+  switchConversation: async () => null,
+  undoLastMessage: async () => null,
+  regenerateResponse: async () => null,
+}));
+
 import {
   addMessage,
   clearAll,
@@ -35,7 +46,8 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { enforcePolicy, getPolicy } from "../runtime/auth/route-policy.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
-import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
+import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 
 initializeDb();
 
@@ -100,7 +112,6 @@ describe("DELETE /v1/conversations — route policy", () => {
     expect(policy!.requiredScopes).toContain("chat.write");
     expect(policy!.requiredScopes).not.toContain("settings.write");
 
-    // A chat.write token should pass the single-conversation delete policy
     const ctx = buildAuthContext({
       scopes: ["chat.read", "chat.write"],
     });
@@ -114,110 +125,56 @@ describe("DELETE /v1/conversations — route policy", () => {
 // ---------------------------------------------------------------------------
 
 describe("DELETE /v1/conversations — route handler", () => {
-  /** Get the DELETE conversations handler from the route definitions. */
-  function getDeleteHandler() {
-    let clearCalled = false;
-    const routes = conversationManagementRouteDefinitions({
-      switchConversation: async () => null,
-      renameConversation: () => true,
-      clearAllConversations: () => {
-        clearCalled = true;
-        return clearAll().conversations;
-      },
-      cancelGeneration: () => true,
-      destroyConversation: () => {},
-      undoLastMessage: async () => null,
-      regenerateResponse: async () => null,
-    });
+  const clearRoute = ROUTES.find(
+    (r) => r.operationId === "clearAllConversations",
+  )!;
 
-    const deleteRoute = routes.find(
-      (r) => r.endpoint === "conversations" && r.method === "DELETE",
-    );
-    if (!deleteRoute) throw new Error("DELETE conversations route not found");
-    return { handler: deleteRoute.handler, wasClearCalled: () => clearCalled };
-  }
-
-  test("missing X-Confirm-Destructive header returns 400 with explanatory message", async () => {
-    const { handler } = getDeleteHandler();
-    const req = new Request("http://localhost/v1/conversations", {
-      method: "DELETE",
-    });
-    const response = await handler({
-      req,
-      url: new URL(req.url),
-      server: {} as never,
-      authContext: buildAuthContext({ scopes: ["settings.write"] }),
-      params: {},
-    });
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("X-Confirm-Destructive");
-    expect(body.error.message).toContain("clear-all-conversations");
+  test("missing X-Confirm-Destructive header throws BadRequestError", () => {
+    expect(() =>
+      clearRoute.handler({
+        pathParams: {},
+        body: {},
+        headers: {},
+  
+      }),
+    ).toThrow(BadRequestError);
   });
 
-  test("wrong X-Confirm-Destructive header value returns 400", async () => {
-    const { handler } = getDeleteHandler();
-    const req = new Request("http://localhost/v1/conversations", {
-      method: "DELETE",
-      headers: { "X-Confirm-Destructive": "wrong-value" },
-    });
-    const response = await handler({
-      req,
-      url: new URL(req.url),
-      server: {} as never,
-      authContext: buildAuthContext({ scopes: ["settings.write"] }),
-      params: {},
-    });
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
+  test("wrong X-Confirm-Destructive header value throws BadRequestError", () => {
+    expect(() =>
+      clearRoute.handler({
+        pathParams: {},
+        body: {},
+        headers: { "x-confirm-destructive": "wrong-value" },
+  
+      }),
+    ).toThrow(BadRequestError);
   });
 
-  test("correct scope + header clears data and returns 204", async () => {
-    // Seed a conversation so we can verify it gets cleared
+  test("correct header clears data", async () => {
     const conv = createConversation("safety-test-conv");
     await addMessage(conv.id, "user", "hello from safety test");
     expect(getConversation(conv.id)).not.toBeNull();
 
-    const { handler, wasClearCalled } = getDeleteHandler();
-    const req = new Request("http://localhost/v1/conversations", {
-      method: "DELETE",
-      headers: { "X-Confirm-Destructive": "clear-all-conversations" },
-    });
-    const response = await handler({
-      req,
-      url: new URL(req.url),
-      server: {} as never,
-      authContext: buildAuthContext({ scopes: ["settings.write"] }),
-      params: {},
-    });
-    expect(response.status).toBe(204);
-    expect(wasClearCalled()).toBe(true);
+    const result = clearRoute.handler({
+      pathParams: {},
+      body: {},
+      headers: { "x-confirm-destructive": "clear-all-conversations" },
 
-    // Conversation should be gone
+    });
+    expect(result).toBeUndefined();
+
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("lifecycle_events contains conversations_clear_all after successful clear", async () => {
-    const { handler } = getDeleteHandler();
-    const req = new Request("http://localhost/v1/conversations", {
-      method: "DELETE",
-      headers: { "X-Confirm-Destructive": "clear-all-conversations" },
-    });
-    await handler({
-      req,
-      url: new URL(req.url),
-      server: {} as never,
-      authContext: buildAuthContext({ scopes: ["settings.write"] }),
-      params: {},
+  test("lifecycle_events contains conversations_clear_all after successful clear", () => {
+    clearRoute.handler({
+      pathParams: {},
+      body: {},
+      headers: { "x-confirm-destructive": "clear-all-conversations" },
+
     });
 
-    // Query lifecycle_events table directly
     const raw = (
       getDb() as unknown as {
         $client: import("bun:sqlite").Database;

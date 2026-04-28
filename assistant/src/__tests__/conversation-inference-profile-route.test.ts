@@ -29,33 +29,14 @@ import { getDb, resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { conversationManagementRouteDefinitions } from "../runtime/routes/conversation-management-routes.js";
+import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 
 initializeDb();
 
-const routes = conversationManagementRouteDefinitions({
-  switchConversation: async (conversationId) => ({
-    conversationId,
-    title: "Switched",
-    conversationType: "standard",
-  }),
-  renameConversation: () => true,
-  clearAllConversations: () => 0,
-  cancelGeneration: () => true,
-  destroyConversation: () => {},
-  undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
-});
-
-function findRoute(method: string, endpoint: string) {
-  const route = routes.find(
-    (routeDef) => routeDef.method === method && routeDef.endpoint === endpoint,
-  );
-  if (!route) {
-    throw new Error(`Route not found: ${method} ${endpoint}`);
-  }
-  return route;
-}
+const profileRoute = ROUTES.find(
+  (r) => r.operationId === "setConversationInferenceProfile",
+)!;
 
 function clearTables(): void {
   const db = getDb();
@@ -100,28 +81,16 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     );
 
-    const route = findRoute("PUT", "conversations/:id/inference-profile");
-    const response = await route.handler({
-      req: new Request(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: "quality-optimized" }),
-        },
-      ),
-      url: new URL(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: conversation.id },
+    const result = profileRoute.handler({
+      pathParams: { id: conversation.id },
+      body: { profile: "quality-optimized" },
+      headers: {},
+
     });
 
     await Promise.resolve();
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(result).toEqual({
       conversationId: conversation.id,
       profile: "quality-optimized",
     });
@@ -140,53 +109,29 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("rejects unknown profile names with 400", async () => {
+  test("rejects unknown profile names with BadRequestError", () => {
     const conversation = createConversation("inference-profile-unknown");
 
-    const route = findRoute("PUT", "conversations/:id/inference-profile");
-    const response = await route.handler({
-      req: new Request(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: "does-not-exist" }),
-        },
-      ),
-      url: new URL(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: conversation.id },
-    });
-
-    expect(response.status).toBe(400);
+    expect(() =>
+      profileRoute.handler({
+        pathParams: { id: conversation.id },
+        body: { profile: "does-not-exist" },
+        headers: {},
+  
+      }),
+    ).toThrow(BadRequestError);
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
   });
 
   test("clears the override when profile is null", async () => {
     const conversation = createConversation("inference-profile-clear");
 
-    // Seed an override first via the route.
-    const setRoute = findRoute("PUT", "conversations/:id/inference-profile");
-    const setResponse = await setRoute.handler({
-      req: new Request(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: "balanced" }),
-        },
-      ),
-      url: new URL(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: conversation.id },
+    profileRoute.handler({
+      pathParams: { id: conversation.id },
+      body: { profile: "balanced" },
+      headers: {},
+
     });
-    expect(setResponse.status).toBe(200);
     expect(getConversation(conversation.id)?.inferenceProfile).toBe("balanced");
 
     const received: Array<{ profile?: string | null }> = [];
@@ -199,27 +144,16 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     );
 
-    const clearResponse = await setRoute.handler({
-      req: new Request(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: null }),
-        },
-      ),
-      url: new URL(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: conversation.id },
+    const result = profileRoute.handler({
+      pathParams: { id: conversation.id },
+      body: { profile: null },
+      headers: {},
+
     });
 
     await Promise.resolve();
 
-    expect(clearResponse.status).toBe(200);
-    expect(await clearResponse.json()).toEqual({
+    expect(result).toEqual({
       conversationId: conversation.id,
       profile: null,
     });
@@ -232,24 +166,12 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
   test("skips write and event when the profile is unchanged", async () => {
     const conversation = createConversation("inference-profile-noop");
 
-    const route = findRoute("PUT", "conversations/:id/inference-profile");
-    const setResponse = await route.handler({
-      req: new Request(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: "balanced" }),
-        },
-      ),
-      url: new URL(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: conversation.id },
+    profileRoute.handler({
+      pathParams: { id: conversation.id },
+      body: { profile: "balanced" },
+      headers: {},
+
     });
-    expect(setResponse.status).toBe(200);
     const updatedAtAfterSet = getConversation(conversation.id)?.updatedAt;
 
     const received: Array<{ profile?: string | null }> = [];
@@ -262,27 +184,16 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       },
     );
 
-    const repeatResponse = await route.handler({
-      req: new Request(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: "balanced" }),
-        },
-      ),
-      url: new URL(
-        `http://localhost/v1/conversations/${conversation.id}/inference-profile`,
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: conversation.id },
+    const result = profileRoute.handler({
+      pathParams: { id: conversation.id },
+      body: { profile: "balanced" },
+      headers: {},
+
     });
 
     await Promise.resolve();
 
-    expect(repeatResponse.status).toBe(200);
-    expect(await repeatResponse.json()).toEqual({
+    expect(result).toEqual({
       conversationId: conversation.id,
       profile: "balanced",
     });
@@ -292,25 +203,14 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     subscription.dispose();
   });
 
-  test("returns 404 when the conversation does not exist", async () => {
-    const route = findRoute("PUT", "conversations/:id/inference-profile");
-    const response = await route.handler({
-      req: new Request(
-        "http://localhost/v1/conversations/missing/inference-profile",
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profile: "balanced" }),
-        },
-      ),
-      url: new URL(
-        "http://localhost/v1/conversations/missing/inference-profile",
-      ),
-      server: null as never,
-      authContext: {} as never,
-      params: { id: "missing" },
-    });
-
-    expect(response.status).toBe(404);
+  test("throws NotFoundError when the conversation does not exist", () => {
+    expect(() =>
+      profileRoute.handler({
+        pathParams: { id: "missing" },
+        body: { profile: "balanced" },
+        headers: {},
+  
+      }),
+    ).toThrow(NotFoundError);
   });
 });

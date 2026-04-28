@@ -50,14 +50,7 @@ import { initializeDb } from "../memory/db-init.js";
 import { getPolicy } from "../runtime/auth/route-policy.js";
 import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
-import {
-  registerCancelGeneration,
-  registerClearAllConversations,
-  registerConversationDestroy,
-  registerRegenerateResponse,
-  registerSwitchConversation,
-  registerUndoLastMessage,
-} from "../runtime/routes/conversation-management-routes.js";
+
 
 initializeDb();
 
@@ -277,12 +270,6 @@ describe("POST /v1/conversations/fork", () => {
   });
 
   async function startServer(): Promise<void> {
-    registerSwitchConversation(async () => null);
-    registerClearAllConversations(() => 0);
-    registerCancelGeneration(() => false);
-    registerConversationDestroy(() => {});
-    registerUndoLastMessage(async () => null);
-    registerRegenerateResponse(async () => null);
     server = new RuntimeHttpServer({ port: 0 });
     await server.start();
   }

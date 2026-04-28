@@ -64,7 +64,6 @@ import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { registerDestroyConversation } from "../runtime/routes/wipe-conversation-routes.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -95,13 +94,11 @@ import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import {
   allConversations,
-  clearConversationOptions,
+  clearAllActiveConversations,
   clearConversations,
-  conversationCount,
   conversationEntries,
-  conversationIds,
   deleteConversation,
-  deleteConversationOptions,
+  destroyActiveConversation,
   findConversation,
   getConversationMap,
   getOrCreateConversation as getOrCreateActiveConversation,
@@ -661,7 +658,7 @@ export class DaemonServer {
     });
 
     registerConversationUndoCallback((conversationId) =>
-      undoLastMessage(conversationId, this.handlerContext()),
+      undoLastMessage(conversationId),
     );
 
     registerUserMessageCallback(async (params) => {
@@ -867,7 +864,6 @@ export class DaemonServer {
       };
     });
 
-    registerDestroyConversation((id) => this.destroyConversation(id));
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
@@ -984,18 +980,7 @@ export class DaemonServer {
   }
 
   clearAllConversations(): number {
-    const count = conversationCount();
-    const subagentManager = getSubagentManager();
-    for (const id of conversationIds()) {
-      this.evictor.remove(id);
-      subagentManager.abortAllForParent(id);
-    }
-    for (const conversation of allConversations()) {
-      conversation.dispose();
-    }
-    clearConversations();
-    clearConversationOptions();
-    return count;
+    return clearAllActiveConversations();
   }
 
   /**
@@ -1003,13 +988,7 @@ export class DaemonServer {
    * conversation map. No-op if no conversation exists for the given ID.
    */
   destroyConversation(conversationId: string): void {
-    const conversation = findConversation(conversationId);
-    if (!conversation) return;
-    this.evictor.remove(conversationId);
-    getSubagentManager().abortAllForParent(conversationId);
-    conversation.dispose();
-    deleteConversation(conversationId);
-    deleteConversationOptions(conversationId);
+    destroyActiveConversation(conversationId);
   }
 
   private evictConversationsForReload(): void {

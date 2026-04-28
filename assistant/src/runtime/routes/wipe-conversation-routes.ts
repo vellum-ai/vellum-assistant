@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 
+import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   countConversationsByScheduleJobId,
   getConversation,
@@ -11,7 +12,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param schema ──────────────────────────────────────────────────────
@@ -20,25 +21,9 @@ const WipeConversationParams = z.object({
   conversationId: z.string().min(1),
 });
 
-// ── Daemon-owned dependency ───────────────────────────────────────────
-
-let destroyConversation: ((conversationId: string) => void) | null = null;
-
-export function registerDestroyConversation(
-  fn: (conversationId: string) => void,
-): void {
-  destroyConversation = fn;
-}
-
 // ── Handler ───────────────────────────────────────────────────────────
 
 async function handleWipeConversation({ body = {} }: RouteHandlerArgs) {
-  if (!destroyConversation) {
-    throw new BadRequestError(
-      "wipe_conversation: destroyConversation not registered",
-    );
-  }
-
   const { conversationId } = WipeConversationParams.parse(body);
 
   const conv = getConversation(conversationId);
@@ -53,7 +38,7 @@ async function handleWipeConversation({ body = {} }: RouteHandlerArgs) {
     deleteSchedule(conv.scheduleJobId);
   }
 
-  destroyConversation(conversationId);
+  destroyActiveConversation(conversationId);
   const result = wipeConversation(conversationId);
 
   for (const segId of result.segmentIds) {
