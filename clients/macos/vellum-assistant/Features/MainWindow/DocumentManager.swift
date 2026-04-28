@@ -52,6 +52,9 @@ final class DocumentManager {
     }
 
     func createDocument(surfaceId: String, conversationId: String, title: String, initialContent: String) {
+        if hasActiveDocument {
+            closeDocument()
+        }
         self.surfaceId = surfaceId
         self.conversationId = conversationId
         self.title = title
