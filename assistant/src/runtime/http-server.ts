@@ -28,14 +28,12 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { parseChannelId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import { normalizeConversationType } from "../daemon/message-types/shared.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import {
@@ -47,7 +45,6 @@ import {
   parseLiveVoiceClientTextFrame,
 } from "../live-voice/protocol.js";
 import {
-  type AttentionState,
   type Confidence,
   getAttentionStateByConversationIds,
   markConversationUnread,
@@ -70,7 +67,6 @@ import {
   listConversationsByTitlePrefix,
   listPinnedConversations,
 } from "../memory/conversation-queries.js";
-import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import { getBindingsForConversations } from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
@@ -138,7 +134,6 @@ import {
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import { contactHttpOnlyRouteDefinitions } from "./routes/contact-routes.js";
-import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import {
   type ConversationManagementDeps,
   conversationManagementRouteDefinitions,
@@ -158,7 +153,10 @@ import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
-import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
+import {
+  buildConversationDetailResponse,
+  serializeConversationSummary,
+} from "./services/conversation-serializer.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -1533,156 +1531,6 @@ export class RuntimeHttpServer {
     });
   }
 
-  private buildAssistantAttention(attentionState: AttentionState | undefined):
-    | {
-        hasUnseenLatestAssistantMessage: boolean;
-        latestAssistantMessageAt?: number;
-        lastSeenAssistantMessageAt?: number;
-        lastSeenConfidence?: Confidence;
-        lastSeenSignalType?: SignalType;
-      }
-    | undefined {
-    if (!attentionState) return undefined;
-
-    return {
-      hasUnseenLatestAssistantMessage:
-        attentionState.latestAssistantMessageAt != null &&
-        (attentionState.lastSeenAssistantMessageAt == null ||
-          attentionState.lastSeenAssistantMessageAt <
-            attentionState.latestAssistantMessageAt),
-      ...(attentionState.latestAssistantMessageAt != null
-        ? {
-            latestAssistantMessageAt: attentionState.latestAssistantMessageAt,
-          }
-        : {}),
-      ...(attentionState.lastSeenAssistantMessageAt != null
-        ? {
-            lastSeenAssistantMessageAt:
-              attentionState.lastSeenAssistantMessageAt,
-          }
-        : {}),
-      ...(attentionState.lastSeenConfidence != null
-        ? { lastSeenConfidence: attentionState.lastSeenConfidence }
-        : {}),
-      ...(attentionState.lastSeenSignalType != null
-        ? { lastSeenSignalType: attentionState.lastSeenSignalType }
-        : {}),
-    };
-  }
-
-  private buildForkParent(
-    conversation: ConversationRow,
-    parentCache: Map<string, ConversationRow | null>,
-  ): { conversationId: string; messageId: string; title: string } | undefined {
-    const parentConversationId = conversation.forkParentConversationId;
-    const parentMessageId = conversation.forkParentMessageId;
-    if (!parentConversationId || !parentMessageId) return undefined;
-
-    let parentConversation: ConversationRow | null | undefined =
-      parentCache.get(parentConversationId);
-    if (parentConversation === undefined) {
-      parentConversation = getConversation(parentConversationId);
-      parentCache.set(parentConversationId, parentConversation);
-    }
-    if (!parentConversation) {
-      return undefined;
-    }
-
-    return {
-      conversationId: parentConversationId,
-      messageId: parentMessageId,
-      title: parentConversation.title ?? "Untitled",
-    };
-  }
-
-  private serializeConversationSummary(params: {
-    conversation: ConversationRow;
-    binding?: ExternalConversationBinding | null;
-    attentionState?: AttentionState;
-    displayMeta?: {
-      displayOrder: number | null;
-      isPinned: boolean;
-      groupId: string | null;
-    };
-    parentCache: Map<string, ConversationRow | null>;
-  }) {
-    const { conversation, binding, attentionState, displayMeta, parentCache } =
-      params;
-    const originChannel = parseChannelId(conversation.originChannel);
-    const assistantAttention = this.buildAssistantAttention(attentionState);
-    const forkParent = this.buildForkParent(conversation, parentCache);
-
-    return {
-      id: conversation.id,
-      title: conversation.title ?? "Untitled",
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
-      lastMessageAt: conversation.lastMessageAt,
-      conversationType: normalizeConversationType(
-        conversation.conversationType,
-      ),
-      source: conversation.source ?? "user",
-      ...(conversation.scheduleJobId
-        ? { scheduleJobId: conversation.scheduleJobId }
-        : {}),
-      ...(binding
-        ? {
-            channelBinding: {
-              sourceChannel: binding.sourceChannel,
-              externalChatId: binding.externalChatId,
-              externalUserId: binding.externalUserId,
-              displayName: binding.displayName,
-              username: binding.username,
-            },
-          }
-        : {}),
-      ...(originChannel ? { conversationOriginChannel: originChannel } : {}),
-      ...(assistantAttention ? { assistantAttention } : {}),
-      ...(displayMeta?.isPinned
-        ? {
-            isPinned: true as const,
-            displayOrder: displayMeta.displayOrder,
-          }
-        : displayMeta?.displayOrder != null
-          ? {
-              displayOrder: displayMeta.displayOrder,
-            }
-          : {}),
-      groupId: displayMeta?.groupId ?? null,
-      ...(forkParent ? { forkParent } : {}),
-      ...(conversation.archivedAt != null
-        ? { archivedAt: conversation.archivedAt }
-        : {}),
-      ...(conversation.inferenceProfile != null
-        ? { inferenceProfile: conversation.inferenceProfile }
-        : {}),
-    };
-  }
-
-  private buildConversationDetailResponse(conversationId: string) {
-    const conversation = getConversation(conversationId);
-    if (!conversation) {
-      return null;
-    }
-
-    const bindings = getBindingsForConversations([conversation.id]);
-    const attentionStates = getAttentionStateByConversationIds([
-      conversation.id,
-    ]);
-    const displayMeta = getDisplayMetaForConversations([conversation.id]);
-    const parentCache = new Map<string, ConversationRow | null>();
-
-    return {
-      conversation: this.serializeConversationSummary({
-        conversation,
-        binding: bindings.get(conversation.id),
-        attentionState: attentionStates.get(conversation.id),
-        displayMeta: displayMeta.get(conversation.id),
-        parentCache,
-      }),
-    };
-  }
-
   private getConversationManagementRouteDeps(): ConversationManagementDeps | null {
     if (!this.conversationManagementDeps) {
       return null;
@@ -1697,9 +1545,7 @@ export class RuntimeHttpServer {
             conversationId,
             throughMessageId,
           });
-          const detail = this.buildConversationDetailResponse(
-            forkedConversation.id,
-          );
+          const detail = buildConversationDetailResponse(forkedConversation.id);
           if (!detail) {
             throw new Error(
               `Forked conversation ${forkedConversation.id} could not be loaded`,
@@ -1764,7 +1610,7 @@ export class RuntimeHttpServer {
           const nextOffset = offset + limit;
           const response: Record<string, unknown> = {
             conversations: rows.map((conversation) =>
-              this.serializeConversationSummary({
+              serializeConversationSummary({
                 conversation,
                 binding: bindings.get(conversation.id),
                 attentionState: attentionStates.get(conversation.id),
@@ -1791,29 +1637,6 @@ export class RuntimeHttpServer {
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
-
-      ...((): HTTPRouteDefinition[] => {
-        const sendMessageDeps = this.sendMessageDeps;
-        if (!sendMessageDeps) return [];
-        const analysisDeps = {
-          sendMessageDeps,
-          buildConversationDetailResponse: (id: string) =>
-            this.buildConversationDetailResponse(id),
-        };
-        // Also expose via the module singleton so background callers
-        // (e.g. job handlers) can invoke analyzeConversation() without
-        // HTTP-layer wiring. Daemon startup must never block, so failures
-        // to register the singleton are logged and swallowed.
-        try {
-          setAnalysisDeps(analysisDeps);
-        } catch (err) {
-          log.warn(
-            { err },
-            "Failed to register analysis deps singleton; background analysis jobs will be skipped",
-          );
-        }
-        return conversationAnalysisRouteDefinitions(analysisDeps);
-      })(),
 
       {
         endpoint: "conversations/seen",
@@ -1947,7 +1770,7 @@ export class RuntimeHttpServer {
         endpoint: "conversations/:id",
         method: "GET",
         handler: ({ params }) => {
-          const detail = this.buildConversationDetailResponse(params.id);
+          const detail = buildConversationDetailResponse(params.id);
           if (!detail) {
             return httpError(
               "NOT_FOUND",

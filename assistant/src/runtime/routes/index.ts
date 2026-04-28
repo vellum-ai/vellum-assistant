@@ -25,6 +25,7 @@ import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.j
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
+import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
@@ -98,6 +99,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
   ...CONTACT_ROUTES,
+  ...CONVERSATION_ANALYSIS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
   ...DEFER_ROUTES,
