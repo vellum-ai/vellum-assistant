@@ -141,6 +141,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
 
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 const testAuthContext: AuthContext = {
   subject: "actor:self:test-user",
@@ -165,10 +166,19 @@ const testAuthContext: AuthContext = {
   policyEpoch: 1,
 };
 
-function makeRequest(body: Record<string, unknown>): Request {
+function makeRequest(
+  body: Record<string, unknown>,
+  authContext: AuthContext = testAuthContext,
+): Request {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authContext.actorPrincipalId
+        ? { "x-vellum-actor-principal-id": authContext.actorPrincipalId }
+        : {}),
+      "x-vellum-principal-type": authContext.principalType,
+    },
     body: JSON.stringify({
       conversationKey: "test-conversation",
       sourceChannel: "vellum",
@@ -242,10 +252,11 @@ describe("secret ingress — HTTP route", () => {
       content: "Here is my token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234",
     });
 
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeSendMessageDeps()),
       req,
-      makeSendMessageDeps(),
-      testAuthContext,
+      undefined,
+      202,
     );
     expect(res.status).toBe(422);
 
@@ -260,10 +271,11 @@ describe("secret ingress — HTTP route", () => {
       content: "Hello, can you help me with my project?",
     });
 
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeSendMessageDeps()),
       req,
-      makeSendMessageDeps(),
-      testAuthContext,
+      undefined,
+      202,
     );
     expect(res.status).toBe(202);
   });
@@ -274,10 +286,11 @@ describe("secret ingress — HTTP route", () => {
       bypassSecretCheck: true,
     });
 
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeSendMessageDeps()),
       req,
-      makeSendMessageDeps(),
-      testAuthContext,
+      undefined,
+      202,
     );
     expect(res.status).toBe(202);
   });
@@ -288,10 +301,11 @@ describe("secret ingress — HTTP route", () => {
         "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
     });
 
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeSendMessageDeps()),
       req,
-      makeSendMessageDeps(),
-      testAuthContext,
+      undefined,
+      202,
     );
     expect(res.status).toBe(202);
   });
@@ -309,10 +323,11 @@ describe("secret ingress — HTTP route", () => {
       content: "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij1234",
     });
 
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeSendMessageDeps()),
       req,
-      makeSendMessageDeps(),
-      testAuthContext,
+      undefined,
+      202,
     );
     expect(res.status).toBe(202);
   });
@@ -322,10 +337,11 @@ describe("secret ingress — HTTP route", () => {
       content: "AKIAIOSFODNN7EXAMPLE",
     });
 
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeSendMessageDeps()),
       req,
-      makeSendMessageDeps(),
-      testAuthContext,
+      undefined,
+      202,
     );
     expect(res.status).toBe(422);
 

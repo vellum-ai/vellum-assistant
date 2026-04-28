@@ -40,10 +40,8 @@ function resetTables() {
   db.run("DELETE FROM conversations");
 }
 
-function createTestUrl(conversationId: string): URL {
-  return new URL(
-    `http://localhost/v1/messages?conversationId=${conversationId}`,
-  );
+function createTestArgs(conversationId: string) {
+  return { queryParams: { conversationId } };
 }
 
 interface ToolCallPayload {
@@ -93,8 +91,8 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestUrl(conv.id), null);
-    const body = (await response.json()) as { messages: MessagePayload[] };
+    const response = handleListMessages(createTestArgs(conv.id), null);
+    const body = response as { messages: MessagePayload[] };
 
     // Should be 2 messages: user prompt + assistant (tool_result user msg suppressed)
     expect(body.messages).toHaveLength(2);
@@ -139,8 +137,8 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestUrl(conv.id), null);
-    const body = (await response.json()) as { messages: MessagePayload[] };
+    const response = handleListMessages(createTestArgs(conv.id), null);
+    const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
     const toolCalls = body.messages[1].toolCalls!;
@@ -169,8 +167,8 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "how are you?" }]),
     );
 
-    const response = handleListMessages(createTestUrl(conv.id), null);
-    const body = (await response.json()) as { messages: MessagePayload[] };
+    const response = handleListMessages(createTestArgs(conv.id), null);
+    const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(3);
     expect(body.messages[2].role).toBe("user");
@@ -199,8 +197,8 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "response" }]),
     );
 
-    const response = handleListMessages(createTestUrl(conv.id), null);
-    const body = (await response.json()) as { messages: MessagePayload[] };
+    const response = handleListMessages(createTestArgs(conv.id), null);
+    const body = response as { messages: MessagePayload[] };
 
     // Orphan tool_result is preserved (not suppressed) to avoid data loss
     expect(body.messages).toHaveLength(2);
@@ -264,8 +262,8 @@ describe("handleListMessages tool_result merging", () => {
       JSON.stringify([{ type: "text", text: "thanks" }]),
     );
 
-    const response = handleListMessages(createTestUrl(conv.id), null);
-    const body = (await response.json()) as { messages: MessagePayload[] };
+    const response = handleListMessages(createTestArgs(conv.id), null);
+    const body = response as { messages: MessagePayload[] };
 
     // Consecutive assistant messages are merged at query time so the client
     // sees one grouped message (matching the streaming path behavior).
@@ -314,8 +312,8 @@ describe("handleListMessages tool_result merging", () => {
       ]),
     );
 
-    const response = handleListMessages(createTestUrl(conv.id), null);
-    const body = (await response.json()) as { messages: MessagePayload[] };
+    const response = handleListMessages(createTestArgs(conv.id), null);
+    const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
     const tc = body.messages[1].toolCalls![0];
