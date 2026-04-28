@@ -78,7 +78,7 @@ Examples:
 
         const result = await cliIpcCall<{ rules: TrustRule[] }>(
           "trust_rules_list",
-          params,
+          { body: params },
         );
 
         if (!result.ok) {
@@ -206,10 +206,12 @@ Options:
         const result = await cliIpcCall<{ rule: TrustRule }>(
           "trust_rules_create",
           {
-            tool: opts.tool,
-            pattern: opts.pattern,
-            risk: opts.risk,
-            description: opts.description,
+            body: {
+              tool: opts.tool,
+              pattern: opts.pattern,
+              risk: opts.risk,
+              description: opts.description,
+            },
           },
         );
 
@@ -305,7 +307,7 @@ Examples:
         // Prefix resolution: fetch all rules to find the full ID
         const listResult = await cliIpcCall<{ rules: TrustRule[] }>(
           "trust_rules_list",
-          { include_all: true },
+          { body: { include_all: true } },
         );
 
         if (!listResult.ok) {
@@ -366,7 +368,7 @@ Examples:
 
         const result = await cliIpcCall<{ rule: TrustRule }>(
           "trust_rules_update",
-          updateParams,
+          { body: updateParams },
         );
 
         if (!result.ok) {
@@ -415,7 +417,7 @@ Examples:
         // Prefix resolution: fetch all rules to find the full ID
         const listResult = await cliIpcCall<{ rules: TrustRule[] }>(
           "trust_rules_list",
-          { include_all: true },
+          { body: { include_all: true } },
         );
 
         if (!listResult.ok) {
@@ -470,7 +472,7 @@ Examples:
 
         const result = await cliIpcCall<{ success: boolean }>(
           "trust_rules_remove",
-          { id: matches[0].id },
+          { body: { id: matches[0].id } },
         );
 
         if (!result.ok) {

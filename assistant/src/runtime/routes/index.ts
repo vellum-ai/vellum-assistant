@@ -77,6 +77,7 @@ import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
+import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
@@ -158,6 +159,7 @@ export const ROUTES: RouteDefinition[] = [
   ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,
+  ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,
   ...UPGRADE_BROADCAST_ROUTES,

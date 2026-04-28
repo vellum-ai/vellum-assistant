@@ -10659,6 +10659,88 @@ paths:
           required: true
           schema:
             type: string
+  /v1/trust-rules:
+    get:
+      operationId: trustrules_get
+      summary: List trust rules
+      description: List trust rules, optionally filtered by tool, origin, or include_all.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: trustrules_post
+      summary: Create a trust rule
+      description: Create a new trust rule with tool, pattern, risk level, and optional description.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                pattern:
+                  type: string
+                risk:
+                  type: string
+                description:
+                  type: string
+              required:
+                - tool
+                - pattern
+                - risk
+              additionalProperties: false
+  /v1/trust-rules/{id}:
+    delete:
+      operationId: trustrules_by_id_delete
+      summary: Remove a trust rule
+      description: Delete a trust rule by ID.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    patch:
+      operationId: trustrules_by_id_patch
+      summary: Update a trust rule
+      description: Update the risk level or description of an existing trust rule.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                risk:
+                  type: string
+                description:
+                  type: string
+              additionalProperties: false
   /v1/trust-rules/suggest:
     post:
       operationId: trustrules_suggest_post

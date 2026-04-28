@@ -25,7 +25,8 @@ import { Command } from "commander";
 // ---------------------------------------------------------------------------
 
 /** All `cliIpcCall` invocations captured for assertions. */
-let ipcCalls: Array<{ method: string; params?: Record<string, unknown> }> = [];
+ 
+let ipcCalls: Array<{ method: string; params?: any }> = [];
 
 /**
  * Queue of responses for cliIpcCall. Each call pops from the front.
@@ -173,7 +174,7 @@ describe("trust list", () => {
     expect(exitCode).toBe(0);
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0].method).toBe("trust_rules_list");
-    expect(ipcCalls[0].params).toEqual({});
+    expect(ipcCalls[0].params.body).toEqual({});
   });
 
   test("--tool adds tool param", async () => {
@@ -182,7 +183,7 @@ describe("trust list", () => {
     await runCommand(["trust", "list", "--tool", "bash"]);
 
     expect(ipcCalls[0].method).toBe("trust_rules_list");
-    expect(ipcCalls[0].params).toEqual({ tool: "bash" });
+    expect(ipcCalls[0].params.body).toEqual({ tool: "bash" });
   });
 
   test("--all adds include_all: true", async () => {
@@ -191,7 +192,7 @@ describe("trust list", () => {
     await runCommand(["trust", "list", "--all"]);
 
     expect(ipcCalls[0].method).toBe("trust_rules_list");
-    expect(ipcCalls[0].params).toEqual({ include_all: true });
+    expect(ipcCalls[0].params.body).toEqual({ include_all: true });
   });
 
   test("--all and --tool can be combined", async () => {
@@ -199,7 +200,7 @@ describe("trust list", () => {
 
     await runCommand(["trust", "list", "--all", "--tool", "bash"]);
 
-    expect(ipcCalls[0].params).toEqual({ include_all: true, tool: "bash" });
+    expect(ipcCalls[0].params.body).toEqual({ include_all: true, tool: "bash" });
   });
 
   test("--json outputs structured JSON on success", async () => {
@@ -264,10 +265,10 @@ describe("trust add", () => {
     expect(exitCode).toBe(0);
     expect(ipcCalls).toHaveLength(1);
     expect(ipcCalls[0].method).toBe("trust_rules_create");
-    expect(ipcCalls[0].params!.tool).toBe("bash");
-    expect(ipcCalls[0].params!.pattern).toBe("ls .*");
-    expect(ipcCalls[0].params!.risk).toBe("low");
-    expect(ipcCalls[0].params!.description).toBe("Directory listing");
+    expect(ipcCalls[0].params.body.tool).toBe("bash");
+    expect(ipcCalls[0].params.body.pattern).toBe("ls .*");
+    expect(ipcCalls[0].params.body.risk).toBe("low");
+    expect(ipcCalls[0].params.body.description).toBe("Directory listing");
   });
 
   test("invalid --risk exits 1 without making IPC call", async () => {
@@ -399,10 +400,10 @@ describe("trust update", () => {
     expect(exitCode).toBe(0);
     expect(ipcCalls).toHaveLength(2);
     expect(ipcCalls[0].method).toBe("trust_rules_list");
-    expect(ipcCalls[0].params).toEqual({ include_all: true });
+    expect(ipcCalls[0].params.body).toEqual({ include_all: true });
     expect(ipcCalls[1].method).toBe("trust_rules_update");
-    expect(ipcCalls[1].params!.id).toBe(fullId);
-    expect(ipcCalls[1].params!.risk).toBe("medium");
+    expect(ipcCalls[1].params.body.id).toBe(fullId);
+    expect(ipcCalls[1].params.body.risk).toBe("medium");
   });
 
   test("sends description when --description is provided", async () => {
@@ -417,8 +418,8 @@ describe("trust update", () => {
       "new description",
     ]);
 
-    expect(ipcCalls[1].params!.description).toBe("new description");
-    expect(ipcCalls[1].params!.risk).toBeUndefined();
+    expect(ipcCalls[1].params.body.description).toBe("new description");
+    expect(ipcCalls[1].params.body.risk).toBeUndefined();
   });
 
   test("ambiguous prefix exits 1 and does not call update", async () => {
@@ -533,9 +534,9 @@ describe("trust remove", () => {
     expect(exitCode).toBe(0);
     expect(ipcCalls).toHaveLength(2);
     expect(ipcCalls[0].method).toBe("trust_rules_list");
-    expect(ipcCalls[0].params).toEqual({ include_all: true });
+    expect(ipcCalls[0].params.body).toEqual({ include_all: true });
     expect(ipcCalls[1].method).toBe("trust_rules_remove");
-    expect(ipcCalls[1].params).toEqual({ id: fullId });
+    expect(ipcCalls[1].params.body).toEqual({ id: fullId });
   });
 
   test("ambiguous prefix exits 1 and does not call remove", async () => {

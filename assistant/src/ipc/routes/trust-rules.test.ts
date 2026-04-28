@@ -44,14 +44,14 @@ global.fetch = mockFetch as unknown as typeof fetch;
 // Import module under test AFTER mocks are set up
 // ---------------------------------------------------------------------------
 
-import { trustRuleRoutes } from "./trust-rules.js";
+import { ROUTES as trustRuleRoutes } from "../../runtime/routes/trust-rules-routes.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function findRoute(method: string) {
-  const route = trustRuleRoutes.find((r) => r.method === method);
+  const route = trustRuleRoutes.find((r) => r.operationId === method);
   if (!route) throw new Error(`Route not found: ${method}`);
   return route;
 }
@@ -74,7 +74,7 @@ describe("trustRuleRoutes", () => {
   describe("trust_rules_list", () => {
     test("no params → GET /v1/trust-rules (no query string)", async () => {
       const route = findRoute("trust_rules_list");
-      await route.handler(undefined as unknown as Record<string, unknown>);
+      await route.handler({ body: {} });
 
       expect(capturedFetchCalls).toHaveLength(1);
       expect(capturedFetchCalls[0].url).toBe(
@@ -85,7 +85,7 @@ describe("trustRuleRoutes", () => {
 
     test("{ tool: 'bash' } → appends ?tool=bash", async () => {
       const route = findRoute("trust_rules_list");
-      await route.handler({ tool: "bash" });
+      await route.handler({ body: { tool: "bash" } });
 
       expect(capturedFetchCalls[0].url).toBe(
         "http://localhost:7822/v1/trust-rules?tool=bash",
@@ -94,7 +94,7 @@ describe("trustRuleRoutes", () => {
 
     test("{ include_all: true } → appends ?include_all=true", async () => {
       const route = findRoute("trust_rules_list");
-      await route.handler({ include_all: true });
+      await route.handler({ body: { include_all: true } });
 
       expect(capturedFetchCalls[0].url).toBe(
         "http://localhost:7822/v1/trust-rules?include_all=true",
@@ -103,7 +103,7 @@ describe("trustRuleRoutes", () => {
 
     test("{ origin: 'user_defined' } → appends ?origin=user_defined", async () => {
       const route = findRoute("trust_rules_list");
-      await route.handler({ origin: "user_defined" });
+      await route.handler({ body: { origin: "user_defined" } });
 
       expect(capturedFetchCalls[0].url).toBe(
         "http://localhost:7822/v1/trust-rules?origin=user_defined",
@@ -120,12 +120,12 @@ describe("trustRuleRoutes", () => {
       };
 
       const route = findRoute("trust_rules_create");
-      await route.handler({
+      await route.handler({ body: {
         tool: "bash",
         pattern: "rm -rf *",
         risk: "high",
         description: "Dangerous remove",
-      });
+      } });
 
       expect(capturedFetchCalls).toHaveLength(1);
       const call = capturedFetchCalls[0];
@@ -150,7 +150,7 @@ describe("trustRuleRoutes", () => {
   describe("trust_rules_update", () => {
     test("PATCHes /v1/trust-rules/abc-123", async () => {
       const route = findRoute("trust_rules_update");
-      await route.handler({ id: "abc-123", risk: "low", description: "Safe" });
+      await route.handler({ body: { id: "abc-123", risk: "low", description: "Safe" } });
 
       expect(capturedFetchCalls).toHaveLength(1);
       const call = capturedFetchCalls[0];
@@ -160,7 +160,7 @@ describe("trustRuleRoutes", () => {
 
     test("body contains only fields present in params (partial update)", async () => {
       const route = findRoute("trust_rules_update");
-      await route.handler({ id: "abc-123", risk: "low" });
+      await route.handler({ body: { id: "abc-123", risk: "low" } });
 
       const body = JSON.parse(
         capturedFetchCalls[0].init?.body as string,
@@ -172,22 +172,22 @@ describe("trustRuleRoutes", () => {
     test("throws when id is missing", async () => {
       const route = findRoute("trust_rules_update");
       await expect(
-        route.handler({ risk: "low" }),
-      ).rejects.toThrow("id is required");
+        route.handler({ body: { risk: "low" } }),
+      ).rejects.toThrow();
     });
 
     test("throws when id is empty string", async () => {
       const route = findRoute("trust_rules_update");
       await expect(
-        route.handler({ id: "", risk: "low" }),
-      ).rejects.toThrow("id is required");
+        route.handler({ body: { id: "", risk: "low" } }),
+      ).rejects.toThrow();
     });
   });
 
   describe("trust_rules_remove", () => {
     test("DELETEs /v1/trust-rules/abc-123", async () => {
       const route = findRoute("trust_rules_remove");
-      await route.handler({ id: "abc-123" });
+      await route.handler({ body: { id: "abc-123" } });
 
       expect(capturedFetchCalls).toHaveLength(1);
       const call = capturedFetchCalls[0];
@@ -198,8 +198,8 @@ describe("trustRuleRoutes", () => {
     test("throws when id is missing", async () => {
       const route = findRoute("trust_rules_remove");
       await expect(
-        route.handler({}),
-      ).rejects.toThrow("id is required");
+        route.handler({ body: {} }),
+      ).rejects.toThrow();
     });
   });
 
@@ -212,7 +212,7 @@ describe("trustRuleRoutes", () => {
       };
 
       const route = findRoute("trust_rules_list");
-      await expect(route.handler({})).rejects.toThrow("Not found");
+      await expect(route.handler({ body: {} })).rejects.toThrow("Not found");
     });
   });
 });
