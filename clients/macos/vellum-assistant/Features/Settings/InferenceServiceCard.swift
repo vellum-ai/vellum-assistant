@@ -17,7 +17,7 @@ import VellumAssistantShared
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
-    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var authManager: AuthManager
     @Binding var apiKeyText: String
     var showToast: (String, ToastInfo.Style) -> Void
@@ -133,7 +133,7 @@ struct InferenceServiceCard: View {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         managedProviderPicker
-                        if assistantFeatureFlagStore.isEnabled("inference-profiles") {
+                        if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                             activeProfilePicker
                             manageProfilesButton
                         }
@@ -155,7 +155,7 @@ struct InferenceServiceCard: View {
                     apiKeyField
 
                     // Active profile picker + Manage Profiles button
-                    if assistantFeatureFlagStore.isEnabled("inference-profiles") {
+                    if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                         activeProfilePicker
                         manageProfilesButton
                     }
@@ -179,7 +179,7 @@ struct InferenceServiceCard: View {
                 // Per-call-site overrides badge — only visible when the user has
                 // at least one override configured. Tapping opens the overrides
                 // sheet.
-                if assistantFeatureFlagStore.isEnabled("inference-profiles"),
+                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true,
                    store.overridesCount > 0 {
                     overridesBadge
                 }
@@ -521,10 +521,21 @@ struct InferenceServiceCard: View {
                 $0.provider == initialProvider
             }
             if !overridesPinnedToOldProvider.isEmpty {
-                pendingOverrideClears = overridesPinnedToOldProvider
-                pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
-                showOverrideConfirmation = true
-                return
+                let profilesEnabled = assistantFeatureFlagStore?.isEnabled("inference-profiles") == true
+                if profilesEnabled {
+                    // Show the confirmation dialog so the user can choose
+                    // to keep or reset overrides pinned to the old provider.
+                    pendingOverrideClears = overridesPinnedToOldProvider
+                    pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
+                    showOverrideConfirmation = true
+                    return
+                } else {
+                    // When inference-profiles is off the overrides UI is
+                    // hidden, so silently clear stale overrides to prevent
+                    // invisible provider/model mismatches for affected tasks.
+                    performSaveCore(clearingOverrides: overridesPinnedToOldProvider)
+                    return
+                }
             }
         }
 
