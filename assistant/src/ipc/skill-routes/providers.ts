@@ -33,7 +33,7 @@ import type {
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getTtsProvider } from "../../tts/provider-registry.js";
 import { resolveTtsConfig } from "../../tts/tts-config-resolver.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 // -- Param schemas --------------------------------------------------------
 
@@ -122,38 +122,38 @@ async function handleSecureKeysGetProviderKey(
 
 // -- Route definitions ----------------------------------------------------
 
-export const providersLlmCompleteRoute: IpcRoute = {
+export const providersLlmCompleteRoute: SkillIpcRoute = {
   method: "host.providers.llm.complete",
   handler: handleLlmComplete,
 };
 
-export const providersSttListProviderIdsRoute: IpcRoute = {
+export const providersSttListProviderIdsRoute: SkillIpcRoute = {
   method: "host.providers.stt.listProviderIds",
   handler: handleSttListProviderIds,
 };
 
-export const providersSttSupportsBoundaryRoute: IpcRoute = {
+export const providersSttSupportsBoundaryRoute: SkillIpcRoute = {
   method: "host.providers.stt.supportsBoundary",
   handler: handleSttSupportsBoundary,
 };
 
-export const providersTtsResolveConfigRoute: IpcRoute = {
+export const providersTtsResolveConfigRoute: SkillIpcRoute = {
   method: "host.providers.tts.resolveConfig",
   handler: handleTtsResolveConfig,
 };
 
-export const providersTtsGetRoute: IpcRoute = {
+export const providersTtsGetRoute: SkillIpcRoute = {
   method: "host.providers.tts.get",
   handler: handleTtsGet,
 };
 
-export const providersSecureKeysGetProviderKeyRoute: IpcRoute = {
+export const providersSecureKeysGetProviderKeyRoute: SkillIpcRoute = {
   method: "host.providers.secureKeys.getProviderKey",
   handler: handleSecureKeysGetProviderKey,
 };
 
 /** All `host.providers.*` IPC routes. */
-export const providerSkillRoutes: IpcRoute[] = [
+export const providerSkillRoutes: SkillIpcRoute[] = [
   providersLlmCompleteRoute,
   providersSttListProviderIdsRoute,
   providersSttSupportsBoundaryRoute,

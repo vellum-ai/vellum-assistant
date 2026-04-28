@@ -9,30 +9,30 @@
 
 import { getDaemonRuntimeMode } from "../../runtime/runtime-mode.js";
 import { getWorkspaceDir, vellumRoot } from "../../util/platform.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
-export const hostPlatformWorkspaceDirRoute: IpcRoute = {
+export const hostPlatformWorkspaceDirRoute: SkillIpcRoute = {
   method: "host.platform.workspaceDir",
   handler: () => {
     return getWorkspaceDir();
   },
 };
 
-export const hostPlatformVellumRootRoute: IpcRoute = {
+export const hostPlatformVellumRootRoute: SkillIpcRoute = {
   method: "host.platform.vellumRoot",
   handler: () => {
     return vellumRoot();
   },
 };
 
-export const hostPlatformRuntimeModeRoute: IpcRoute = {
+export const hostPlatformRuntimeModeRoute: SkillIpcRoute = {
   method: "host.platform.runtimeMode",
   handler: () => {
     return getDaemonRuntimeMode();
   },
 };
 
-export const platformRoutes: IpcRoute[] = [
+export const platformRoutes: SkillIpcRoute[] = [
   hostPlatformWorkspaceDirRoute,
   hostPlatformVellumRootRoute,
   hostPlatformRuntimeModeRoute,

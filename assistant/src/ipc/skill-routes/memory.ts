@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { addMessage } from "../../memory/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 // -- Param schemas --------------------------------------------------------
 
@@ -59,18 +59,18 @@ async function handleWakeAgentForOpportunity(
 
 // -- Route definitions ----------------------------------------------------
 
-export const memoryAddMessageRoute: IpcRoute = {
+export const memoryAddMessageRoute: SkillIpcRoute = {
   method: "host.memory.addMessage",
   handler: handleAddMessage,
 };
 
-export const memoryWakeAgentForOpportunityRoute: IpcRoute = {
+export const memoryWakeAgentForOpportunityRoute: SkillIpcRoute = {
   method: "host.memory.wakeAgentForOpportunity",
   handler: handleWakeAgentForOpportunity,
 };
 
 /** All `host.memory.*` IPC routes. */
-export const memorySkillRoutes: IpcRoute[] = [
+export const memorySkillRoutes: SkillIpcRoute[] = [
   memoryAddMessageRoute,
   memoryWakeAgentForOpportunityRoute,
 ];

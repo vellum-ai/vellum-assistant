@@ -11,7 +11,7 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 const LogParams = z.object({
   level: z.enum(["debug", "info", "warn", "error"]),
@@ -23,7 +23,7 @@ const LogParams = z.object({
   meta: z.unknown().optional(),
 });
 
-export const hostLogRoute: IpcRoute = {
+export const hostLogRoute: SkillIpcRoute = {
   method: "host.log",
   handler: (params) => {
     const { level, msg, name, meta } = LogParams.parse(params);
@@ -37,4 +37,4 @@ export const hostLogRoute: IpcRoute = {
   },
 };
 
-export const logRoutes: IpcRoute[] = [hostLogRoute];
+export const logRoutes: SkillIpcRoute[] = [hostLogRoute];

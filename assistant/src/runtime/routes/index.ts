@@ -2,7 +2,7 @@
  * Shared route definitions served by BOTH the HTTP server and the IPC server.
  *
  * Routes listed here are registered in the HTTP router (via buildRouteTable)
- * and exposed as IPC methods on the AssistantIpcServer (via cliIpcRoutes).
+ * and exposed as IPC methods on the AssistantIpcServer.
  *
  * Over time, routes will migrate from their HTTP-only or IPC-only homes
  * into this shared array.

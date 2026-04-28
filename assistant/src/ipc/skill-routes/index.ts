@@ -1,4 +1,4 @@
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 import type { SkillIpcStreamingRoute } from "../skill-server.js";
 import { configRoutes } from "./config.js";
 import { eventsRoutes, eventsStreamingRoutes } from "./events.js";
@@ -17,7 +17,7 @@ import { registriesRoutes } from "./registries.js";
  * host.config.*, host.identity.*, host.platform.*, host.memory.*,
  * host.providers.*, host.events.*, host.registries.*).
  */
-export const skillIpcRoutes: IpcRoute[] = [
+export const skillIpcRoutes: SkillIpcRoute[] = [
   ...logRoutes,
   ...configRoutes,
   ...identityRoutes,
