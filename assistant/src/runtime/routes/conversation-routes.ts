@@ -1158,6 +1158,11 @@ function makeHubPublisher(
         conversationId,
         kind: "secret",
       });
+      // When the SecretPrompter already broadcast this requestId to the hub
+      // (non-UI channel path), skip the duplicate hub publish from sendToClient.
+      if (conversation.wasSecretBroadcast(msg.requestId)) {
+        return;
+      }
     } else {
       registerHostProxyPendingInteraction(msg, conversation, conversationId);
     }

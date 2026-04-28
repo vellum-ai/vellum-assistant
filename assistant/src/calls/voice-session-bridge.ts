@@ -563,8 +563,15 @@ export async function startVoiceTurn(
         { turnId, service: msg.service, field: msg.field },
         "Auto-resolving secret request for voice turn (no secret-entry UI)",
       );
+      // Check BEFORE resolving — resolveSecret clears the broadcast tracking.
+      const alreadyBroadcast = conversation.wasSecretBroadcast(msg.requestId);
       conversation.handleSecretResponse(msg.requestId, undefined, "store");
-      publishToHub(msg);
+      // Skip publishToHub when the SecretPrompter already broadcast this
+      // requestId to the hub — avoids duplicate secret_request events that
+      // cause prompt flicker / duplicate notifications on connected clients.
+      if (!alreadyBroadcast) {
+        publishToHub(msg);
+      }
       return;
     }
     publishToHub(msg);

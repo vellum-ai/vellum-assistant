@@ -123,4 +123,47 @@ describe("secret prompter channel fallback", () => {
     prompter.resolveSecret(requestId, "val", "store");
     await promise;
   });
+
+  test("wasBroadcast returns true for broadcast requestIds and false after resolve", async () => {
+    const prompter = new SecretPrompter(
+      (msg) => sentMessages.push(msg),
+      (msg) => broadcastMessages.push(msg),
+    );
+    prompter.setChannelContext({
+      channel: "slack",
+      supportsDynamicUi: false,
+    });
+
+    const promise = prompter.prompt("myservice", "apikey", "API Key");
+    const requestId = (broadcastMessages[0] as SecretRequest).requestId;
+
+    // Should be tracked as broadcast
+    expect(prompter.wasBroadcast(requestId)).toBe(true);
+
+    // After resolving, the tracking should be cleaned up
+    prompter.resolveSecret(requestId, "secret", "store");
+    expect(prompter.wasBroadcast(requestId)).toBe(false);
+
+    await promise;
+  });
+
+  test("wasBroadcast returns false for non-broadcast requestIds (desktop channel)", async () => {
+    const prompter = new SecretPrompter(
+      (msg) => sentMessages.push(msg),
+      (msg) => broadcastMessages.push(msg),
+    );
+    prompter.setChannelContext({
+      channel: "macos",
+      supportsDynamicUi: true,
+    });
+
+    const promise = prompter.prompt("myservice", "apikey", "API Key");
+    const requestId = (sentMessages[0] as SecretRequest).requestId;
+
+    // Desktop channel does not broadcast, so wasBroadcast should be false
+    expect(prompter.wasBroadcast(requestId)).toBe(false);
+
+    prompter.resolveSecret(requestId, "secret", "store");
+    await promise;
+  });
 });

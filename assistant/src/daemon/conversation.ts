@@ -860,6 +860,15 @@ export class Conversation {
     return this.secretPrompter.hasPendingRequest(requestId);
   }
 
+  /**
+   * Returns true if the given secret requestId was already delivered via
+   * broadcastToAllClients. Callers (e.g. voice-session-bridge) can use this
+   * to skip redundant publishToHub calls that would duplicate the prompt.
+   */
+  wasSecretBroadcast(requestId: string): boolean {
+    return this.secretPrompter.wasBroadcast(requestId);
+  }
+
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,

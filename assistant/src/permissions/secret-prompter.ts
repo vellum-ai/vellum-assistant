@@ -36,6 +36,8 @@ export class SecretPrompter {
   private sendToClient: (msg: ServerMessage) => void;
   private broadcastToAllClients?: (msg: ServerMessage) => void;
   private channelContext?: SecretPrompterChannelContext;
+  /** Tracks requestIds that have been broadcast to prevent duplicate delivery when sendToClient also publishes to the same hub. */
+  private broadcastedRequestIds = new Set<string>();
 
   constructor(
     sendToClient: (msg: ServerMessage) => void,
@@ -97,6 +99,7 @@ export class SecretPrompter {
       const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
+        this.broadcastedRequestIds.delete(requestId);
         log.warn({ requestId, service, field }, "Secret prompt timed out");
         resolve({ value: null, delivery: "store" });
       }, timeoutMs);
@@ -120,9 +123,11 @@ export class SecretPrompter {
       };
 
       // When the originating channel cannot render secure prompts, broadcast
-      // to the SSE hub so a connected desktop client can pick it up, AND
-      // send via sendToClient so the voice path can still auto-resolve.
+      // to the SSE hub so a connected desktop client can pick it up.
+      // Track the requestId to prevent duplicate delivery when sendToClient
+      // also publishes to the same hub (e.g. voice path).
       if (!channelSupportsPrompt && this.broadcastToAllClients) {
+        this.broadcastedRequestIds.add(requestId);
         this.broadcastToAllClients(msg);
       }
       this.sendToClient(msg);
@@ -131,6 +136,15 @@ export class SecretPrompter {
 
   hasPendingRequest(requestId: string): boolean {
     return this.pending.has(requestId);
+  }
+
+  /**
+   * Returns true if the given requestId was already delivered via broadcastToAllClients.
+   * Used by event-hub publishing paths to deduplicate — when sendToClient also
+   * publishes to the same hub, callers can skip re-publishing broadcast messages.
+   */
+  wasBroadcast(requestId: string): boolean {
+    return this.broadcastedRequestIds.has(requestId);
   }
 
   /**
@@ -152,6 +166,7 @@ export class SecretPrompter {
     }
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
+    this.broadcastedRequestIds.delete(requestId);
     pending.resolve({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
@@ -163,5 +178,6 @@ export class SecretPrompter {
       );
     }
     this.pending.clear();
+    this.broadcastedRequestIds.clear();
   }
 }
