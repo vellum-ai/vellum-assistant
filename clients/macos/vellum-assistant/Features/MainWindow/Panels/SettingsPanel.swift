@@ -186,16 +186,27 @@ struct SettingsPanel: View {
                 settingsNav
                     .frame(width: 200)
 
-                ScrollView {
-                    selectedTabContent
-                        .padding(.top, VSpacing.lg)
-                        .padding(.trailing, VSpacing.xl)
-                        .padding(.bottom, VSpacing.xl)
-                        .frame(maxWidth: 900, alignment: .top)
-                        .frame(maxWidth: .infinity)
-                        .background { OverlayScrollerStyle() }
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        selectedTabContent
+                            .padding(.top, VSpacing.lg)
+                            .padding(.trailing, VSpacing.xl)
+                            .padding(.bottom, VSpacing.xl)
+                            .frame(maxWidth: 900, alignment: .top)
+                            .frame(maxWidth: .infinity)
+                            .background { OverlayScrollerStyle() }
+                    }
+                    .scrollContentBackground(.hidden)
+                    .onAppear {
+                        scrollToPendingGeneralSection(using: scrollProxy)
+                    }
+                    .onChange(of: selectedTab) { _, _ in
+                        scrollToPendingGeneralSection(using: scrollProxy)
+                    }
+                    .onChange(of: store.pendingSettingsGeneralSection) { _, _ in
+                        scrollToPendingGeneralSection(using: scrollProxy)
+                    }
                 }
-                .scrollContentBackground(.hidden)
             }
             .frame(maxWidth: .infinity)
         }
@@ -342,6 +353,17 @@ struct SettingsPanel: View {
                 )
             }
             .padding(VSpacing.lg)
+        }
+    }
+
+    private func scrollToPendingGeneralSection(using scrollProxy: ScrollViewProxy) {
+        guard selectedTab == .general, let section = store.pendingSettingsGeneralSection else { return }
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(VAnimation.standard) {
+                scrollProxy.scrollTo(section, anchor: .top)
+            }
+            store.pendingSettingsGeneralSection = nil
         }
     }
 
@@ -840,4 +862,3 @@ struct OverlayScrollerStyle: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
-

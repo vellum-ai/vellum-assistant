@@ -241,6 +241,49 @@ struct CreditsExhaustedBanner: View {
     }
 }
 
+// MARK: - Disk Pressure Banner
+
+/// Inline banner shown while the active assistant is reporting high disk usage.
+struct DiskPressureBanner: View {
+    let alert: DiskPressureAlert
+    let onReviewDiskUsage: () -> Void
+
+    var body: some View {
+        HStack(spacing: VSpacing.xl) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Disk space is running low")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentEmphasized)
+                Text(Self.subtitle(for: alert))
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+
+            Spacer(minLength: VSpacing.lg)
+
+            VButton(label: "Review Disk Usage", style: .primary) {
+                onReviewDiskUsage()
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(VColor.surfaceActive)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: VRadius.lg,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: VRadius.lg
+            )
+        )
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.diskPressureBanner")
+    }
+
+    static func subtitle(for alert: DiskPressureAlert) -> String {
+        "Storage is \(alert.displayPercent)% full."
+    }
+}
+
 // MARK: - Compaction Circuit Open Banner
 
 /// Inline banner shown when the assistant has paused automatic context

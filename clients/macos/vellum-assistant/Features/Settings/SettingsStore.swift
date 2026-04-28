@@ -12,6 +12,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Setti
 /// UserDefaults key for tracking explicit key deletions that may not have reached the daemon.
 private let kPendingKeyDeletionTombstones = "pendingKeyDeletionTombstones"
 
+enum SettingsGeneralSection: Hashable {
+    case systemResources
+}
+
 /// Single source of truth for settings state shared between `SettingsPanel`
 /// (main window side panel) and its extracted tab views.
 @MainActor
@@ -21,6 +25,13 @@ public final class SettingsStore: ObservableObject {
     /// Set externally (e.g. via HTTP) to deep-link into a specific settings tab.
     /// SettingsPanel observes this and clears it after applying.
     @Published var pendingSettingsTab: SettingsTab?
+    /// Optional section anchor consumed by the General tab after the tab opens.
+    @Published var pendingSettingsGeneralSection: SettingsGeneralSection?
+
+    func requestGeneralSection(_ section: SettingsGeneralSection) {
+        pendingSettingsTab = .general
+        pendingSettingsGeneralSection = section
+    }
 
     // MARK: - API Key State
 

@@ -1,0 +1,32 @@
+import Testing
+@testable import VellumAssistantLib
+
+@Suite("Settings General disk resources section")
+struct SettingsGeneralDiskSectionTests {
+    @Test
+    func diskMetricsMakeResourceSectionEligible() {
+        let healthz = DaemonHealthz(
+            status: "ok",
+            disk: DaemonHealthz.DiskInfo(
+                path: "/workspace",
+                totalMb: 10_000,
+                usedMb: 9_250,
+                freeMb: 750
+            )
+        )
+
+        #expect(SettingsGeneralTab.hasResourceMetrics(healthz))
+    }
+
+    @Test
+    func assistantsWithoutMetricsAreNotTreatedAsResourceEligible() {
+        #expect(!SettingsGeneralTab.hasResourceMetrics(nil))
+        #expect(!SettingsGeneralTab.hasResourceMetrics(DaemonHealthz(status: "ok")))
+    }
+
+    @Test
+    func megabyteFormatterUsesReadableUnits() {
+        #expect(SettingsGeneralTab.formatMb(512) == "512 MB")
+        #expect(SettingsGeneralTab.formatMb(1_536) == "1.5 GB")
+    }
+}

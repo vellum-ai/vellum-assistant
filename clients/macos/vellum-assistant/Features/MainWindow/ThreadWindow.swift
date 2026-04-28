@@ -219,6 +219,11 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
+                    diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
+                    onReviewDiskUsage: {
+                        settingsStore.requestGeneralSection(.systemResources)
+                        AppDelegate.shared?.showSettingsWindow(nil)
+                    },
                     recoveryMode: settingsStore.managedAssistantRecoveryMode,
                     isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                     onResumeAssistant: {

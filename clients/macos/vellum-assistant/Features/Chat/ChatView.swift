@@ -44,6 +44,8 @@ struct ChatView: View {
     var onSubagentTap: ((String) -> Void)?
     var onAddFunds: (() -> Void)? = nil
     var onOpenModelsAndServices: (() -> Void)? = nil
+    var diskPressureAlert: DiskPressureAlert? = nil
+    var onReviewDiskUsage: (() -> Void)? = nil
     var onBootstrapSendLogs: (() -> Void)?
 
     // MARK: - Recovery Mode (managed assistants only)
@@ -373,6 +375,17 @@ struct ChatView: View {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     CreditsExhaustedBanner(
                         onAddFunds: { onAddFunds?() }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
+            if let diskPressureAlert, let onReviewDiskUsage {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    DiskPressureBanner(
+                        alert: diskPressureAlert,
+                        onReviewDiskUsage: onReviewDiskUsage
                     )
                 }
                 .padding(.bottom, -VSpacing.sm)
