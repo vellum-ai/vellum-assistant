@@ -1378,6 +1378,85 @@ paths:
                 - eyeStyle
                 - color
               additionalProperties: false
+  /v1/background-tools:
+    get:
+      operationId: backgroundtools_get
+      summary: List active background tools
+      description: List all active background tool executions, optionally filtered by conversationId.
+      tags:
+        - background-tools
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        toolName:
+                          type: string
+                        conversationId:
+                          type: string
+                        command:
+                          type: string
+                        startedAt:
+                          type: number
+                      required:
+                        - id
+                        - toolName
+                        - conversationId
+                        - command
+                        - startedAt
+                      additionalProperties: false
+                required:
+                  - tools
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by conversation ID
+  /v1/background-tools/cancel:
+    post:
+      operationId: backgroundtools_cancel_post
+      summary: Cancel a background tool
+      description: Cancel an active background tool execution by ID.
+      tags:
+        - background-tools
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: boolean
+                required:
+                  - cancelled
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+              required:
+                - id
+              additionalProperties: false
   /v1/backups:
     get:
       operationId: backups_get

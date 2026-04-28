@@ -273,10 +273,11 @@ describe("host_bash — regression: no proxied-mode additions", () => {
     expect(schemaProps).not.toHaveProperty("credential_ids");
   });
 
-  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity)", () => {
+  test("schema only contains the expected properties (command, working_dir, timeout_seconds, activity, background)", () => {
     const propertyNames = Object.keys(schemaProps).sort();
     expect(propertyNames).toEqual([
       "activity",
+      "background",
       "command",
       "timeout_seconds",
       "working_dir",

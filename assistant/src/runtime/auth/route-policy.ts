@@ -756,6 +756,17 @@ registerPolicy("browser/execute", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Background tools: local-only (CLI / IPC callers)
+registerPolicy("background-tools", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("background-tools/cancel", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // User-defined routes under /x/*
 registerPolicy("x", {
   requiredScopes: ["settings.read"],
