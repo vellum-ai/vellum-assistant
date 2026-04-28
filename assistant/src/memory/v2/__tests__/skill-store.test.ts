@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 import type { ResolvedSkill } from "../../../config/skill-state.js";
 import type { SkillSummary } from "../../../config/skills.js";
+import type { CatalogSkill } from "../../../skills/catalog-install.js";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
@@ -31,6 +32,8 @@ mock.module("../../../util/logger.js", () => ({
 interface TestState {
   catalog: SkillSummary[];
   resolved: ResolvedSkill[];
+  fullCatalog: CatalogSkill[];
+  fullCatalogThrows: Error | null;
   flagsEnabled: Record<string, boolean>;
   embedThrows: Error | null;
   embedReturn: number[][];
@@ -49,6 +52,8 @@ interface TestState {
 const state: TestState = {
   catalog: [],
   resolved: [],
+  fullCatalog: [],
+  fullCatalogThrows: null,
   flagsEnabled: {},
   embedThrows: null,
   embedReturn: [],
@@ -104,6 +109,13 @@ mock.module("../skill-qdrant.js", () => ({
   },
 }));
 
+mock.module("../../../skills/catalog-cache.js", () => ({
+  getCatalog: async () => {
+    if (state.fullCatalogThrows) throw state.fullCatalogThrows;
+    return state.fullCatalog;
+  },
+}));
+
 // Imported AFTER all mocks are wired so the module under test sees the stubs.
 const { seedV2SkillEntries, getSkillCapability, _resetSkillStoreForTests } =
   await import("../skill-store.js");
@@ -128,6 +140,8 @@ function makeSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
 function resetState(): void {
   state.catalog = [];
   state.resolved = [];
+  state.fullCatalog = [];
+  state.fullCatalogThrows = null;
   state.flagsEnabled = {};
   state.embedThrows = null;
   state.embedReturn = [];
@@ -194,6 +208,63 @@ describe("seedV2SkillEntries", () => {
 
     expect(state.upsertCalls).toHaveLength(1);
     expect(state.upsertCalls[0].id).toBe("example-skill-a");
+  });
+
+  test("does not re-seed an installed-but-disabled skill from the remote catalog", async () => {
+    // Regression for https://github.com/vellum-ai/vellum-assistant/pull/28635
+    // (Codex P1): if `seenIds` is built only from enabled skills, a locally
+    // installed-but-disabled skill falls through to the catalog loop and gets
+    // embedded as if it were a discoverable uninstalled skill — contradicting
+    // the user's explicit disablement.
+    const enabledSkill = makeSummary({ id: "example-skill-a" });
+    const disabledSkill = makeSummary({ id: "example-skill-b" });
+    state.catalog = [enabledSkill, disabledSkill];
+    state.resolved = [
+      { summary: enabledSkill, state: "enabled" },
+      { summary: disabledSkill, state: "disabled" },
+    ];
+    // The remote catalog also contains the disabled skill (same id) — the
+    // seed function must NOT pull it back in via `getCatalog()`.
+    state.fullCatalog = [
+      {
+        id: "example-skill-b",
+        name: "example-skill-b",
+        description: "Disabled skill that also lives in the remote catalog",
+      },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    expect(state.upsertCalls).toHaveLength(1);
+    expect(state.upsertCalls[0].id).toBe("example-skill-a");
+  });
+
+  test("seeds genuinely uninstalled catalog skills alongside enabled installed skills", async () => {
+    const installed = makeSummary({ id: "example-skill-a" });
+    state.catalog = [installed];
+    state.resolved = [{ summary: installed, state: "enabled" }];
+    state.fullCatalog = [
+      {
+        id: "example-skill-a",
+        name: "example-skill-a",
+        description: "Installed (must not duplicate)",
+      },
+      {
+        id: "uninstalled-skill",
+        name: "uninstalled-skill",
+        description: "Discoverable from the catalog",
+      },
+    ];
+    state.embedReturn = [
+      [0.1, 0.2, 0.3],
+      [0.4, 0.5, 0.6],
+    ];
+
+    await seedV2SkillEntries();
+
+    const ids = state.upsertCalls.map((c) => c.id).sort();
+    expect(ids).toEqual(["example-skill-a", "uninstalled-skill"]);
   });
 
   test("skips skills whose declared feature flag is disabled", async () => {
