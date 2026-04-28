@@ -188,7 +188,7 @@ Examples:
               | undefined;
             if (opts.browser !== false) {
               if (getIsContainerized()) {
-                body.redirect_after_connect = "/account/oauth/desktop-complete";
+                body.redirect_after_connect = "/assistant";
               } else {
                 try {
                   redirectServer = await startManagedRedirectServer(provider);
