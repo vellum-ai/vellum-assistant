@@ -135,7 +135,7 @@ export function routeDefinitionsToHTTPRoutes(
         // content with dynamic Content-Type / Content-Range).
         if (result instanceof RouteResponse) {
           return new Response(result.body, {
-            status,
+            status: result.status ?? status,
             headers: { ...responseHeaders, ...result.headers },
           });
         }

@@ -64,6 +64,14 @@ export class RouteResponse {
   constructor(
     public readonly body: BodyInit | null,
     public readonly headers: Record<string, string>,
+    /**
+     * Optional status override. When set, the HTTP adapter uses this
+     * instead of the route-level `responseStatus`. This lets the handler
+     * correct the status when the route-level callable can't fully
+     * determine it (e.g. unparseable Range header → full file at 200,
+     * not 206).
+     */
+    public readonly status?: number,
   ) {}
 }
 
