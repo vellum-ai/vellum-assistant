@@ -234,8 +234,8 @@ class HostShellTool implements Tool {
         proxyPromise
           .then((result) => {
             const hint = result.isError
-              ? `Background host command failed:\n${result.content}`
-              : result.content || "(no output)";
+              ? `Background host command failed (id=${bgId}):\n${result.content}`
+              : `Background host command completed (id=${bgId}):\n${result.content || "(no output)"}`;
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
               hint,
@@ -245,7 +245,7 @@ class HostShellTool implements Tool {
           .catch((err) => {
             void wakeAgentForOpportunity({
               conversationId: context.conversationId,
-              hint: `Background host command error: ${err instanceof Error ? err.message : String(err)}`,
+              hint: `Background host command failed (id=${bgId}): ${err instanceof Error ? err.message : String(err)}`,
               source: "background-tool",
             });
           })
@@ -369,8 +369,8 @@ class HostShellTool implements Tool {
           timeoutSec,
         );
         const hint = result.isError
-          ? `Background host command failed:\n${result.content}`
-          : result.content || "(no output)";
+          ? `Background host command failed (id=${bgId}):\n${result.content}`
+          : `Background host command completed (id=${bgId}):\n${result.content || "(no output)"}`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
           hint,
@@ -383,7 +383,7 @@ class HostShellTool implements Tool {
         clearTimeout(timer);
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
-          hint: `Background host command error: ${err.message}`,
+          hint: `Background host command failed (id=${bgId}): ${err.message}`,
           source: "background-tool",
         });
         removeBackgroundTool(bgId);
