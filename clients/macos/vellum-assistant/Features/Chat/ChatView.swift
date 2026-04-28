@@ -25,6 +25,7 @@ struct ChatView: View {
     /// directly does NOT subscribe parent views to any changes.
     /// See: https://developer.apple.com/documentation/swiftui/migrating-from-the-observable-object-protocol-to-the-observable-macro
     @Bindable var viewModel: ChatViewModel
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
     // MARK: - Settings (from SettingsStore, not viewModel)
 
@@ -500,6 +501,7 @@ struct ChatView: View {
     /// `nil` when no manager is wired (preview/testing) so the pill stays
     /// hidden until a real persistence path exists.
     private var inferenceProfilePicker: ChatProfilePickerConfiguration? {
+        guard assistantFeatureFlagStore.isEnabled("inference-profiles") else { return nil }
         guard let conversationManager else { return nil }
         return ChatProfilePickerConfiguration(
             current: currentConversation?.inferenceProfile ?? viewModel.pendingInferenceProfile,
