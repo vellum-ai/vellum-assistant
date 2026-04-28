@@ -376,6 +376,14 @@
       "label": "Memory v2 (concept-page activation model)",
       "description": "Enables the v2 memory subsystem: prose concept pages with bidirectional edges, activation-based retrieval, and hourly LLM-driven consolidation. v1 graph + PKB stays write-active until cutover.",
       "defaultEnabled": false
+    },
+    {
+      "id": "inference-profiles",
+      "scope": "assistant",
+      "key": "inference-profiles",
+      "label": "Inference Profiles",
+      "description": "Show inference profile picker in chat, active profile dropdown, Manage Profiles button, and per-task overrides link in Settings",
+      "defaultEnabled": false
     }
   ]
 }

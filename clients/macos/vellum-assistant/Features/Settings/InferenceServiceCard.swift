@@ -17,6 +17,7 @@ import VellumAssistantShared
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
     var authManager: AuthManager
     @Binding var apiKeyText: String
     var showToast: (String, ToastInfo.Style) -> Void
@@ -132,8 +133,10 @@ struct InferenceServiceCard: View {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         managedProviderPicker
-                        activeProfilePicker
-                        manageProfilesButton
+                        if assistantFeatureFlagStore.isEnabled("inference-profiles") {
+                            activeProfilePicker
+                            manageProfilesButton
+                        }
                         ServiceCardActions(
                             hasChanges: hasChanges,
                             isSaving: store.apiKeySaving,
@@ -152,8 +155,10 @@ struct InferenceServiceCard: View {
                     apiKeyField
 
                     // Active profile picker + Manage Profiles button
-                    activeProfilePicker
-                    manageProfilesButton
+                    if assistantFeatureFlagStore.isEnabled("inference-profiles") {
+                        activeProfilePicker
+                        manageProfilesButton
+                    }
 
                     // Action buttons
                     ServiceCardActions(
@@ -174,7 +179,8 @@ struct InferenceServiceCard: View {
                 // Per-call-site overrides badge — only visible when the user has
                 // at least one override configured. Tapping opens the overrides
                 // sheet.
-                if store.overridesCount > 0 {
+                if assistantFeatureFlagStore.isEnabled("inference-profiles"),
+                   store.overridesCount > 0 {
                     overridesBadge
                 }
             }
