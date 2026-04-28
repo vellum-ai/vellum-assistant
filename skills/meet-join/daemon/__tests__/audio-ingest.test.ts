@@ -944,7 +944,6 @@ describe("createAudioIngest — default transcriber factory", () => {
       },
       identity: {
         getAssistantName: () => undefined,
-        internalAssistantId: "self",
       },
       platform: {
         workspaceDir: () => "",

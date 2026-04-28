@@ -94,11 +94,6 @@ export interface IdentityFacet {
    * `undefined` when no name has been set.
    */
   getAssistantName(): string | undefined;
-  /**
-   * The daemon's internal assistant id (`DAEMON_INTERNAL_ASSISTANT_ID`).
-   * Skills use this as the `assistantId` field on events they publish and
-   * as the subject of memory writes.
-   */
 }
 
 // ---------------------------------------------------------------------------

@@ -259,7 +259,6 @@ beforeEach(async () => {
   server = new StubServer(socketPath);
   // Standard identity/platform/log stubs every test relies on for
   // `connect()` to succeed.
-  server.register("host.identity.getInternalAssistantId", () => "self");
   server.register(
     "host.identity.getAssistantName",
     () => "Example Assistant",
@@ -298,7 +297,6 @@ async function openClient(
 describe("SkillHostClient: bootstrap + sync accessors", () => {
   test("connect populates identity/platform caches", async () => {
     client = await openClient();
-    expect(client.identity.internalAssistantId).toBe("self");
     expect(client.identity.getAssistantName()).toBe("Example Assistant");
     expect(client.platform.workspaceDir()).toBe("/tmp/workspace");
     expect(client.platform.vellumRoot()).toBe("/tmp/vellum");
@@ -310,7 +308,6 @@ describe("SkillHostClient: bootstrap + sync accessors", () => {
       socketPath,
       skillId: "test-skill",
     });
-    expect(() => client!.identity.internalAssistantId).toThrow(/not connected/);
     expect(() => client!.platform.workspaceDir()).toThrow(/not connected/);
   });
 
@@ -880,11 +877,10 @@ describe("SkillHostClient: connect() retry semantics", () => {
     client = new SkillHostClient({ socketPath, skillId: "test-skill" });
     await expect(client.connect()).rejects.toThrow(/boom/);
     // Sync accessors should still throw — the cache wasn't populated.
-    expect(() => client!.identity.internalAssistantId).toThrow(/not connected/);
+    expect(() => client!.platform.workspaceDir()).toThrow(/not connected/);
     // Second connect() must retry prefetch instead of short-circuiting on
     // the still-alive socket.
     await client.connect();
-    expect(client.identity.internalAssistantId).toBe("self");
     expect(client.identity.getAssistantName()).toBe("Recovered Assistant");
     expect(nameCalls).toBe(2);
   });

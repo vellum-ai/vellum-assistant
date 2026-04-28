@@ -174,9 +174,6 @@ async function startStubServer(socketPath: string): Promise<StubServer> {
         // Bootstrap responses the client awaits during `connect()`.
         let result: unknown;
         switch (frame.method) {
-          case "host.identity.getInternalAssistantId":
-            result = "self";
-            break;
           case "host.identity.getAssistantName":
             result = null;
             break;
