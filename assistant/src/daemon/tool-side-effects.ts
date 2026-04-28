@@ -8,6 +8,7 @@
  */
 
 import { generateAppIcon } from "../media/app-icon-generator.js";
+import { addAppConversationId } from "../memory/app-store.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -89,6 +90,16 @@ registerHook(
         description?: string;
       };
       if (parsed.id) {
+        // Track conversation association (best-effort).
+        try {
+          addAppConversationId(parsed.id, ctx.conversationId);
+        } catch (err) {
+          log.warn(
+            { err, appId: parsed.id },
+            "Failed to track conversation ID on app_create",
+          );
+        }
+
         // The apps directory may have just been created — ensure the
         // filesystem watcher is running so subsequent file edits
         // trigger live reload.
@@ -149,6 +160,17 @@ registerHook(
   (_name, input, _result, { ctx, broadcastToAllClients }) => {
     const appId = input.app_id as string | undefined;
     if (!appId) return;
+
+    // Track conversation association (best-effort).
+    try {
+      addAppConversationId(appId, ctx.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, appId },
+        "Failed to track conversation ID on app_refresh",
+      );
+    }
+
     notifyAppChanged(ctx, appId, broadcastToAllClients, { fileChange: true });
   },
 );

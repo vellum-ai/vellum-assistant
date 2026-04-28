@@ -28,6 +28,7 @@ import {
   restoreAppVersion,
 } from "../../memory/app-git-service.js";
 import {
+  type AppDefinition,
   createApp,
   createAppRecord,
   deleteApp,
@@ -37,6 +38,7 @@ import {
   getAppPreview,
   isMultifileApp,
   listApps,
+  listAppsByConversation,
   queryAppRecords,
   resolveAppDir,
   resolveEffectiveAppHtml,
@@ -69,7 +71,7 @@ function getSharedAppsDir(): string {
 // Extracted business logic
 // ---------------------------------------------------------------------------
 
-function listAppsFiltered(): Array<{
+function listAppsFiltered(apps?: AppDefinition[]): Array<{
   id: string;
   name: string;
   description?: string;
@@ -78,7 +80,7 @@ function listAppsFiltered(): Array<{
   version: string;
   contentId: string;
 }> {
-  return listApps().map((a) => {
+  return (apps ?? listApps()).map((a) => {
     const version = a.version ?? "1.0.0";
     const contentId = computeContentId(a.name);
     return {
@@ -354,7 +356,11 @@ async function openBundle(filePath: string): Promise<Record<string, unknown>> {
 // Route handlers
 // ---------------------------------------------------------------------------
 
-function handleListApps() {
+function handleListApps({ queryParams }: RouteHandlerArgs) {
+  const conversationId = queryParams?.conversationId;
+  if (conversationId) {
+    return { apps: listAppsFiltered(listAppsByConversation(conversationId)) };
+  }
   return { apps: listAppsFiltered() };
 }
 
@@ -511,10 +517,7 @@ function handleUpdatePreview({ pathParams, body }: RouteHandlerArgs) {
   return { success: true, appId };
 }
 
-async function handleGetHistory({
-  pathParams,
-  queryParams,
-}: RouteHandlerArgs) {
+async function handleGetHistory({ pathParams, queryParams }: RouteHandlerArgs) {
   const appId = pathParams?.id as string;
   const limit = queryParams?.limit ? Number(queryParams.limit) : undefined;
   const versions = await getAppHistory(appId, limit);
@@ -578,6 +581,13 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List apps",
     description: "Return all locally installed apps.",
     tags: ["apps"],
+    queryParams: [
+      {
+        name: "conversationId",
+        schema: { type: "string" },
+        description: "Filter apps by conversation ID",
+      },
+    ],
     responseBody: z.object({
       apps: z.array(z.unknown()).describe("Array of app summary objects"),
     }),
@@ -716,8 +726,7 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "apps/open",
     handler: handleOpenApp,
     summary: "Open an app",
-    description:
-      "Compile (if needed) and return the app's HTML for rendering.",
+    description: "Compile (if needed) and return the app's HTML for rendering.",
     tags: ["apps"],
     responseBody: z.object({
       appId: z.string(),

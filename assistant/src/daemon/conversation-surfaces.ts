@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import {
+  addAppConversationId,
   getApp,
   getAppDirPath,
   getAppPreview,
@@ -2016,6 +2017,14 @@ export async function surfaceProxyResolver(
     const openMode = input.open_mode as string | undefined;
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
+
+    // Track conversation association (best-effort — failures must not break open flow).
+    try {
+      addAppConversationId(appId, ctx.conversationId);
+    } catch (err) {
+      log.warn({ err, appId }, "Failed to track conversation ID on app_open");
+    }
+
     // Generate a minimal fallback preview from app metadata so that the
     // surface is always rendered as a clickable preview card (not an
     // un-clickable fallback chip) after conversation restart.
