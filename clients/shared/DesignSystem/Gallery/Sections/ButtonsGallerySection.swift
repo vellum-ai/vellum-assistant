@@ -326,13 +326,13 @@ struct ButtonsGallerySection: View {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Primary").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
-                                    Section("Duration") {
-                                        Button("Allow once") {}
-                                        Button("Allow for this session") {}
+                                    VMenuSection(header: "Duration") {
+                                        VMenuItem(label: "Allow once") {}
+                                        VMenuItem(label: "Allow for this session") {}
                                     }
-                                    Section("Scope") {
-                                        Button("Allow for this project") {}
-                                        Button("Allow always") {}
+                                    VMenuSection(header: "Scope") {
+                                        VMenuItem(label: "Allow for this project") {}
+                                        VMenuItem(label: "Allow always") {}
                                     }
                                 }
                             }
@@ -340,53 +340,53 @@ struct ButtonsGallerySection: View {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Outlined").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Save", style: .outlined, action: {}) {
-                                    Button("Save as draft") {}
-                                    Button("Save and publish") {}
-                                    Button("Save as template") {}
+                                    VMenuItem(label: "Save as draft") {}
+                                    VMenuItem(label: "Save and publish") {}
+                                    VMenuItem(label: "Save as template") {}
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Danger").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Delete", icon: VIcon.trash.rawValue, style: .danger, action: {}) {
-                                    Button("Delete selected") {}
-                                    Button("Delete all") {}
+                                    VMenuItem(label: "Delete selected") {}
+                                    VMenuItem(label: "Delete all", variant: .destructive) {}
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Contrast").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Copy SVG", style: .contrast, action: {}) {
-                                    Button("Copy SVG") {}
-                                    Button("Copy Data URL") {}
-                                    Button("Download SVG") {}
-                                    Button("Download PNG") {}
+                                    VMenuItem(label: "Copy SVG") {}
+                                    VMenuItem(label: "Copy Data URL") {}
+                                    VMenuItem(label: "Download SVG") {}
+                                    VMenuItem(label: "Download PNG") {}
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Chevron Up").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Copy SVG", style: .contrast, chevronDirection: .up, action: {}) {
-                                    Button("Copy SVG") {}
-                                    Button("Copy Data URL") {}
-                                    Button("Download SVG") {}
-                                    Button("Download PNG") {}
+                                    VMenuItem(label: "Copy SVG") {}
+                                    VMenuItem(label: "Copy Data URL") {}
+                                    VMenuItem(label: "Download SVG") {}
+                                    VMenuItem(label: "Download PNG") {}
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Rounded Rect").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, buttonShape: .roundedRectangle, action: {}) {
-                                    Button("Allow once") {}
-                                    Button("Allow always") {}
+                                    VMenuItem(label: "Allow once") {}
+                                    VMenuItem(label: "Allow always") {}
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Long Label").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow for this conversation", icon: VIcon.check.rawValue, style: .primary, action: {}) {
-                                    Button("Allow once") {}
-                                    Button("Allow always") {}
+                                    VMenuItem(label: "Allow once") {}
+                                    VMenuItem(label: "Allow always") {}
                                 }
                             }
                         }

@@ -120,6 +120,12 @@ public class VMenuPanel: NSPanel {
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
 
+        // Force a layout pass so the SwiftUI content is fully measured before
+        // reading fittingSize. Without this, NSHostingView may return a size
+        // that only includes the VMenu chrome (background + padding) without
+        // accounting for the actual menu items.
+        hostingView.layoutSubtreeIfNeeded()
+
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
             width: max(fittingSize.width, 1),
@@ -215,6 +221,8 @@ public class VMenuPanel: NSPanel {
         let hostingView = NSHostingView(rootView: paddedContent)
         hostingView.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hostingView
+
+        hostingView.layoutSubtreeIfNeeded()
 
         let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(

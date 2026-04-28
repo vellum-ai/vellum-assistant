@@ -254,11 +254,6 @@ public struct VSplitButton<MenuContent: View>: View {
             VMenu {
                 menuContent()
             }
-            // Dismiss the panel on any tap so plain Button items (not just
-            // VMenuItem) close the menu after their action fires.
-            .simultaneousGesture(TapGesture().onEnded {
-                activePanel?.close()
-            })
         } onDismiss: {
             isMenuOpen = false
             activePanel = nil

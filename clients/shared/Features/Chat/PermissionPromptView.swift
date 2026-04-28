@@ -217,7 +217,7 @@ public struct PermissionPromptView: View {
                         onAllow()
                     }
                 }) {
-                    Button("Allow & Create Rule") {
+                    VMenuItem(label: "Allow & Create Rule") {
                         onAllowAndSuggestRule?()
                     }
                 }
@@ -236,7 +236,7 @@ public struct PermissionPromptView: View {
                     }
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    Capsule()
                         .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
                         .allowsHitTesting(false)
                 )
@@ -246,7 +246,7 @@ public struct PermissionPromptView: View {
                 onDeny()
             }
             .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
+                Capsule()
                     .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
                     .allowsHitTesting(false)
             )
