@@ -492,8 +492,12 @@ final class ConversationRestorer {
         // formatting, image decoding) to a background thread. The nonisolated
         // static method accesses no @MainActor state, so this is safe.
         // Gate the VM before the detached task so streaming handlers suppress
-        // SSE deltas that arrive during reconstruction.
-        viewModel.isLoadingHistory = true
+        // SSE deltas that arrive during reconstruction. Skip the gate for
+        // pagination loads — the pagination branch returns early without
+        // resetting the flag, which would permanently suppress all deltas.
+        if !isPaginationLoad {
+            viewModel.isLoadingHistory = true
+        }
         let convId = viewModel.conversationId
         let messages = response.messages
         let hasMore = response.hasMore

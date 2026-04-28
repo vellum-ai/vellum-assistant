@@ -1016,8 +1016,12 @@ class IOSConversationStore: ObservableObject {
         // formatting, image decoding) to a background thread. The nonisolated
         // static method accesses no @MainActor state, so this is safe.
         // Gate the VM before the detached task so streaming handlers suppress
-        // SSE deltas that arrive during reconstruction.
-        vm.isLoadingHistory = true
+        // SSE deltas that arrive during reconstruction. Skip the gate for
+        // pagination loads — the pagination branch returns early without
+        // resetting the flag, which would permanently suppress all deltas.
+        if !isPaginationLoad {
+            vm.isLoadingHistory = true
+        }
         let convId = vm.conversationId
         let messages = response.messages
         let hasMore = response.hasMore
