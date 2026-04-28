@@ -64,12 +64,12 @@ import {
   getCdpClient,
   isDesktopAutoCooldownActive,
 } from "./cdp-client/factory.js";
-import { getHostBrowserProxySingleton } from "./host-browser-proxy-singleton.js";
 import type {
   AttemptDiagnostic,
   CdpClient,
   CdpClientKind,
 } from "./cdp-client/types.js";
+import { getHostBrowserProxySingleton } from "./host-browser-proxy-singleton.js";
 import { checkBrowserRuntime } from "./runtime-check.js";
 
 const log = getLogger("headless-browser");
