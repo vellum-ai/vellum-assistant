@@ -390,7 +390,14 @@ class ShellTool implements Tool {
         stderrChunks.push(data);
       });
 
+      // Guard against double-wake: when spawn fails (e.g. invalid cwd),
+      // Node emits both 'error' and 'close' for the same child process.
+      // Only the first handler to fire should wake the agent.
+      let completed = false;
+
       child.on("close", (code) => {
+        if (completed) return;
+        completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
 
@@ -413,6 +420,8 @@ class ShellTool implements Tool {
       });
 
       child.on("error", (err) => {
+        if (completed) return;
+        completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
 

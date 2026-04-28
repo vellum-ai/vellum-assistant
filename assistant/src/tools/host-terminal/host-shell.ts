@@ -357,7 +357,14 @@ class HostShellTool implements Tool {
       child.stdout.on("data", (data: Buffer) => stdoutChunks.push(data));
       child.stderr.on("data", (data: Buffer) => stderrChunks.push(data));
 
+      // Guard against double-wake: when spawn fails (e.g. invalid cwd),
+      // Node emits both 'error' and 'close' for the same child process.
+      // Only the first handler to fire should wake the agent.
+      let completed = false;
+
       child.on("close", (code) => {
+        if (completed) return;
+        completed = true;
         clearTimeout(timer);
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
@@ -380,6 +387,8 @@ class HostShellTool implements Tool {
       });
 
       child.on("error", (err) => {
+        if (completed) return;
+        completed = true;
         clearTimeout(timer);
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
