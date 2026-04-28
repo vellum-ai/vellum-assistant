@@ -270,6 +270,103 @@ describe("createSkillToolsFromManifest", () => {
 });
 
 // ---------------------------------------------------------------------------
+// createSkillTool — unknown parameter validation
+// ---------------------------------------------------------------------------
+
+describe("createSkillTool — unknown parameter validation", () => {
+  test("rejects input with unknown parameters", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({ executor: "echo.ts" }),
+      "my-skill",
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute(
+      { query: "hello", unsubscribe: true },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Unknown parameter "unsubscribe"');
+    expect(result.content).toContain("Supported parameters");
+    expect(result.content).toContain('"query"');
+  });
+
+  test("rejects multiple unknown parameters", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({ executor: "echo.ts" }),
+      "my-skill",
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute(
+      { query: "hello", foo: 1, bar: 2 },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Unknown parameters");
+    expect(result.content).toContain('"foo"');
+    expect(result.content).toContain('"bar"');
+  });
+
+  test("allows input with only known parameters", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({ executor: "echo.ts" }),
+      "my-skill",
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({ query: "hello" }, makeContext());
+
+    expect(result.isError).toBe(false);
+  });
+
+  test("allows empty input when schema has no required fields", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: { query: { type: "string" } },
+        },
+      }),
+      "my-skill",
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({}, makeContext());
+
+    expect(result.isError).toBe(false);
+  });
+
+  test("skips validation when schema has no properties", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: { type: "object" },
+      }),
+      "my-skill",
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({ anything: "goes" }, makeContext());
+
+    expect(result.isError).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createSkillTool — expectedSkillVersionHash plumbing
 // ---------------------------------------------------------------------------
 

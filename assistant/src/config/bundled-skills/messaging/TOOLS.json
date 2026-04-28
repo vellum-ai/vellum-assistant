@@ -21,7 +21,8 @@
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "executor": "tools/messaging-auth-test.ts",
       "execution_target": "host"
@@ -58,7 +59,8 @@
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "executor": "tools/messaging-list-conversations.ts",
       "execution_target": "host"
@@ -96,6 +98,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
+        "additionalProperties": false,
         "required": ["conversation_id"]
       },
       "executor": "tools/messaging-read.ts",
@@ -130,6 +133,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
+        "additionalProperties": false,
         "required": ["query"]
       },
       "executor": "tools/messaging-search.ts",
@@ -187,6 +191,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
+        "additionalProperties": false,
         "required": ["conversation_id", "text", "confidence"]
       },
       "executor": "tools/messaging-send.ts",
@@ -221,6 +226,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
+        "additionalProperties": false,
         "required": ["conversation_id"]
       },
       "executor": "tools/messaging-mark-read.ts",
@@ -254,7 +260,8 @@
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "executor": "tools/messaging-analyze-style.ts",
       "execution_target": "host"
@@ -301,6 +308,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
+        "additionalProperties": false,
         "required": ["action"]
       },
       "executor": "tools/messaging-draft.ts",
@@ -342,7 +350,8 @@
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "executor": "tools/messaging-sender-digest.ts",
       "execution_target": "host"
@@ -380,6 +389,7 @@
             "description": "Set to true ONLY when the user's most recent message contains explicit approval language for this specific action (e.g. 'archive these', 'yes do it', 'go ahead'). Do NOT set this when the user merely described what they want without confirming, or when acting on prior instructions without fresh confirmation in this turn."
           }
         },
+        "additionalProperties": false,
         "required": ["query", "confidence"]
       },
       "executor": "tools/messaging-archive-by-sender.ts",
