@@ -35,6 +35,7 @@ import {
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
+  resolveMainAgentStatusConfig,
   resolveSlash,
   type SlashContext,
 } from "../../daemon/conversation-slash.js";
@@ -2033,14 +2034,14 @@ export async function handleSendMessage(
 
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
-  const config = getConfig();
+  const statusConfig = resolveMainAgentStatusConfig();
   const slashContext: SlashContext = {
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
+    maxInputTokens: statusConfig.maxInputTokens,
+    model: statusConfig.model,
+    provider: statusConfig.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: sourceInterface,
   };

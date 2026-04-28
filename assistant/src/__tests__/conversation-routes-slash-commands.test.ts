@@ -20,6 +20,11 @@ const resolveSlashMock = mock(
 );
 
 mock.module("../daemon/conversation-slash.js", () => ({
+  resolveMainAgentStatusConfig: () => ({
+    maxInputTokens: 200000,
+    model: "claude-opus-4-7",
+    provider: "anthropic",
+  }),
   resolveSlash: resolveSlashMock,
 }));
 
@@ -268,7 +273,11 @@ function makeConversation() {
 function makeRequest(content: string, extras: Record<string, unknown> = {}) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-vellum-actor-principal-id": "test-user",
+      "x-vellum-principal-type": "actor",
+    },
     body: JSON.stringify({
       conversationKey: "slash-test-key",
       content,

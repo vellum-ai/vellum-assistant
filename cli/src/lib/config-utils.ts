@@ -6,6 +6,33 @@ const ANTHROPIC_PROVIDER = "anthropic";
 const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
 const MAIN_AGENT_OPUS_MODEL = "claude-opus-4-7";
 const MAIN_AGENT_OPUS_MAX_TOKENS = 32000;
+const QUALITY_OPTIMIZED_PROFILE = "quality-optimized";
+const BALANCED_PROFILE = "balanced";
+const COST_OPTIMIZED_PROFILE = "cost-optimized";
+
+const ANTHROPIC_PROFILES: Record<string, Record<string, unknown>> = {
+  [QUALITY_OPTIMIZED_PROFILE]: {
+    provider: ANTHROPIC_PROVIDER,
+    model: MAIN_AGENT_OPUS_MODEL,
+    maxTokens: MAIN_AGENT_OPUS_MAX_TOKENS,
+    effort: "max",
+    thinking: { enabled: true, streamThinking: true },
+  },
+  [BALANCED_PROFILE]: {
+    provider: ANTHROPIC_PROVIDER,
+    model: ANTHROPIC_DEFAULT_MODEL,
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+  },
+  [COST_OPTIMIZED_PROFILE]: {
+    provider: ANTHROPIC_PROVIDER,
+    model: "claude-haiku-4-5-20251001",
+    maxTokens: 8192,
+    effort: "low",
+    thinking: { enabled: false, streamThinking: false },
+  },
+};
 
 /**
  * Convert flat dot-notation key=value pairs into a nested config object.
@@ -47,6 +74,7 @@ export function buildInitialConfig(
   configValues: Record<string, string>,
 ): Record<string, unknown> {
   const config = buildNestedConfig(configValues);
+  seedAnthropicInferenceProfiles(config);
   seedAnthropicMainAgentCallSite(config);
   return config;
 }
@@ -77,6 +105,22 @@ export function writeInitialConfig(
   return tempPath;
 }
 
+function seedAnthropicInferenceProfiles(config: Record<string, unknown>): void {
+  const llm = ensureObject(config, "llm");
+  const { provider, model } = resolveInitialMainAgentBaseSelection(llm);
+  if (!isDefaultAnthropicOnboardingSelection(provider, model)) return;
+
+  const profiles = ensureObject(llm, "profiles");
+  for (const [name, profile] of Object.entries(ANTHROPIC_PROFILES)) {
+    if (readObject(profiles[name]) !== null) continue;
+    profiles[name] = cloneObject(profile);
+  }
+
+  if (readString(llm.activeProfile) === undefined) {
+    llm.activeProfile = BALANCED_PROFILE;
+  }
+}
+
 function seedAnthropicMainAgentCallSite(config: Record<string, unknown>): void {
   const llm = ensureObject(config, "llm");
 
@@ -84,22 +128,19 @@ function seedAnthropicMainAgentCallSite(config: Record<string, unknown>): void {
   if (existingCallSites !== null && "mainAgent" in existingCallSites) return;
 
   const { provider, model } = resolveInitialMainAgentBaseSelection(llm);
-  if (provider !== ANTHROPIC_PROVIDER) return;
-
-  if (
-    model !== undefined &&
-    model !== ANTHROPIC_DEFAULT_MODEL &&
-    model !== MAIN_AGENT_OPUS_MODEL
-  ) {
-    return;
-  }
+  if (!isDefaultAnthropicOnboardingSelection(provider, model)) return;
 
   const callSites = ensureObject(llm, "callSites");
+  const qualityProfile = readObject(
+    readObject(llm.profiles)?.[QUALITY_OPTIMIZED_PROFILE],
+  );
 
-  callSites.mainAgent = {
-    model: MAIN_AGENT_OPUS_MODEL,
-    maxTokens: MAIN_AGENT_OPUS_MAX_TOKENS,
-  };
+  callSites.mainAgent = isAnthropicOpusProfile(qualityProfile)
+    ? { profile: QUALITY_OPTIMIZED_PROFILE }
+    : {
+        model: MAIN_AGENT_OPUS_MODEL,
+        maxTokens: MAIN_AGENT_OPUS_MAX_TOKENS,
+      };
 }
 
 function resolveInitialMainAgentBaseSelection(llm: Record<string, unknown>): {
@@ -123,6 +164,35 @@ function resolveInitialMainAgentBaseSelection(llm: Record<string, unknown>): {
   }
 
   return model === undefined ? { provider } : { provider, model };
+}
+
+function isDefaultAnthropicOnboardingSelection(
+  provider: string,
+  model?: string,
+): boolean {
+  return (
+    provider === ANTHROPIC_PROVIDER &&
+    (model === undefined ||
+      model === ANTHROPIC_DEFAULT_MODEL ||
+      model === MAIN_AGENT_OPUS_MODEL)
+  );
+}
+
+function isAnthropicOpusProfile(
+  profile: Record<string, unknown> | null,
+): boolean {
+  if (profile === null) return false;
+
+  const provider = readString(profile.provider);
+  const model = readString(profile.model);
+  return (
+    (provider === undefined || provider === ANTHROPIC_PROVIDER) &&
+    model === MAIN_AGENT_OPUS_MODEL
+  );
+}
+
+function cloneObject(value: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
 }
 
 function ensureObject(

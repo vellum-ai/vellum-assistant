@@ -17,7 +17,6 @@ import {
   parseInterfaceId,
   supportsHostProxy,
 } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import {
   getAttachmentsByIds,
   getSourcePathsForAttachments,
@@ -44,7 +43,11 @@ import type { Conversation } from "./conversation.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./conversation-slash.js";
+import {
+  resolveMainAgentStatusConfig,
+  resolveSlash,
+  type SlashContext,
+} from "./conversation-slash.js";
 import {
   getOrCreateConversation as getOrCreateActiveConversation,
   mergeConversationOptions,
@@ -374,15 +377,15 @@ export async function processMessage(
     sourceInterface,
   );
 
-  const config = getConfig();
   const serverInterfaceCtx = conversation.getTurnInterfaceContext();
+  const statusConfig = resolveMainAgentStatusConfig();
   const slashContext: SlashContext = {
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
+    maxInputTokens: statusConfig.maxInputTokens,
+    model: statusConfig.model,
+    provider: statusConfig.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: serverInterfaceCtx?.userMessageInterface,
   };
