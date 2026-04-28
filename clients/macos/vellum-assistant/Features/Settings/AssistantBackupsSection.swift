@@ -543,7 +543,7 @@ struct AssistantBackupsSection: View {
         defer { isExporting = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 3600)
+            let response = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/migrations/export", timeout: 3600)
 
             guard response.isSuccess else {
                 errorMessage = "Export failed (HTTP \(response.statusCode))"
@@ -693,7 +693,7 @@ struct AssistantBackupsSection: View {
             // overload on `GatewayHTTPClient.get<T>` is convenient but its
             // `configure` closure parameter is not `@Sendable`, which conflicts
             // with strict concurrency when called from @MainActor code.
-            let response = try await GatewayHTTPClient.get(path: "backups", timeout: 15)
+            let response = try await GatewayHTTPClient.get(path: "assistants/{assistantId}/backups", timeout: 15)
             guard response.isSuccess else {
                 errorMessage = "Failed to load backups (HTTP \(response.statusCode))"
                 return

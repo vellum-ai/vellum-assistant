@@ -41,7 +41,7 @@ public struct InteractionClient: InteractionClientProtocol {
             if let selectedPattern { body["selectedPattern"] = selectedPattern }
             if let selectedScope { body["selectedScope"] = selectedScope }
 
-            let path = try Self.approvalPath(endpoint: "confirm")
+            let path = Self.approvalPath(endpoint: "confirm")
             log.info("[confirm-flow] Sending POST /confirm: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
             let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if response.isSuccess {
@@ -72,7 +72,7 @@ public struct InteractionClient: InteractionClientProtocol {
             body["value"] = value ?? ""
             if let delivery { body["delivery"] = delivery }
 
-            let path = try Self.approvalPath(endpoint: "secret")
+            let path = Self.approvalPath(endpoint: "secret")
             let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSecretResponse failed (HTTP \(response.statusCode))")
@@ -87,14 +87,12 @@ public struct InteractionClient: InteractionClientProtocol {
 
     // MARK: - Path Resolution
 
-    /// Returns the appropriate request path for an approval endpoint based on
-    /// the current connection type.
+    /// Returns the assistant-scoped request path for an approval endpoint.
     ///
-    /// Managed connections route through the platform proxy which expects
-    /// `assistants/{assistantId}/<endpoint>`. Non-managed connections (local
-    /// gateway or direct remote runtime) use flat `<endpoint>` paths.
-    private static func approvalPath(endpoint: String) throws -> String {
-        let managed = try GatewayHTTPClient.isConnectionManaged()
-        return managed ? "assistants/{assistantId}/\(endpoint)" : endpoint
+    /// Always uses `assistants/{assistantId}/<endpoint>` — the gateway runtime
+    /// proxy strips the prefix for local connections, and the platform proxy
+    /// expects it for managed connections.
+    private static func approvalPath(endpoint: String) -> String {
+        "assistants/{assistantId}/\(endpoint)"
     }
 }

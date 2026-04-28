@@ -228,7 +228,7 @@ struct AssistantTransferSection: View {
         do {
             // Step 1 — Initiate export
             currentStep = "Requesting cloud export..."
-            let exportResponse = try await GatewayHTTPClient.post(path: "migrations/export")
+            let exportResponse = try await GatewayHTTPClient.post(path: "assistants/{assistantId}/migrations/export")
             guard exportResponse.isSuccess else {
                 throw TransferError.exportFailed(statusCode: exportResponse.statusCode)
             }
