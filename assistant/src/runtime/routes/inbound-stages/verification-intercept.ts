@@ -77,7 +77,7 @@ export interface VerificationInterceptParams {
  */
 export async function handleVerificationIntercept(
   params: VerificationInterceptParams,
-): Promise<Response | null> {
+): Promise<Record<string, unknown> | null> {
   const {
     isDuplicate,
     guardianVerifyCode,
@@ -310,7 +310,7 @@ export async function handleVerificationIntercept(
         }
       }, 3000);
 
-      return Response.json({
+      return ({
         accepted: true,
         duplicate: false,
         eventId,
@@ -320,7 +320,7 @@ export async function handleVerificationIntercept(
     }
   }
 
-  return Response.json({
+  return ({
     accepted: true,
     duplicate: false,
     eventId,

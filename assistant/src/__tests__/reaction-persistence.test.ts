@@ -57,11 +57,11 @@ import {
   _clearApprovalPromptTsTrackerForTesting,
   trackApprovalPromptTs,
 } from "../runtime/routes/approval-prompt-ts-tracker.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import {
   isSlackReactionEvent,
   parseSlackReactionCallbackData,
 } from "../runtime/routes/inbound-message-handler.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 

@@ -158,6 +158,10 @@ mock.module("../memory/graph/capability-seed.js", () => ({
   seedUninstalledCatalogSkillMemories: async () => {},
 }));
 
+mock.module("../memory/v2/skill-store.js", () => ({
+  seedV2SkillEntries: mock(async () => {}),
+}));
+
 mock.module("../daemon/memory-v2-startup.js", () => ({
   maybeSeedMemoryV2Skills: mockMaybeSeedMemoryV2Skills,
 }));

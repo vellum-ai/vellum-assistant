@@ -6,20 +6,9 @@ import {
   getAcpSessionManager,
   setBroadcastToAllClients,
 } from "../acp/index.js";
-import { enrichMessageWithSourcePaths } from "../agent/attachments.js";
 import type { AgentEvent } from "../agent/loop.js";
-import {
-  createAssistantMessage,
-  createUserMessage,
-} from "../agent/message-types.js";
 import { compileApp } from "../bundler/app-compiler.js";
-import {
-  type ChannelId,
-  type InterfaceId,
-  parseChannelId,
-  parseInterfaceId,
-  supportsHostProxy,
-} from "../channels/types.js";
+import { supportsHostProxy } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -30,26 +19,15 @@ import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
   uploadFileBackedAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
 import {
-  createCanonicalGuardianRequest,
-  generateCanonicalRequestCode,
-} from "../memory/canonical-guardian-store.js";
-import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
-  setConversationOriginChannelIfUnset,
-  setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
-import {
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../memory/conversation-disk-view.js";
+import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -61,18 +39,14 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
-import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
-import { redactSecrets } from "../security/secret-scanner.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
-import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -88,12 +62,9 @@ import { getConfigWatcher } from "./config-watcher.js";
 import { Conversation } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { registerLaunchConversationDeps } from "./conversation-launch.js";
-import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
-import { formatCompactResult } from "./conversation-process.js";
-import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
-import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import {
   allConversations,
+  clearAllActiveConversations,
   clearConversations,
   conversationEntries,
   deleteConversation,
@@ -101,7 +72,6 @@ import {
   getConversationMap,
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
-  mergeConversationOptions,
   setCesClientPromise,
 } from "./conversation-store.js";
 import {
@@ -114,16 +84,17 @@ import {
   type ConversationCreateOptions,
   type HandlerContext,
 } from "./handlers/shared.js";
-import { HostBashProxy } from "./host-bash-proxy.js";
-import { HostBrowserProxy } from "./host-browser-proxy.js";
-import { HostCuProxy } from "./host-cu-proxy.js";
-import { HostFileProxy } from "./host-file-proxy.js";
-import { HostTransferProxy } from "./host-transfer-proxy.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
+import {
+  makePendingInteractionRegistrar,
+  prepareConversationForMessage,
+  resolveTurnChannel,
+  resolveTurnInterface,
+} from "./process-message.js";
 
 const log = getLogger("server");
 
@@ -140,173 +111,6 @@ function readPackageVersion(): string | undefined {
 }
 
 const daemonVersion = readPackageVersion();
-
-function resolveTurnChannel(
-  sourceChannel?: string,
-  transportChannelId?: string,
-): ChannelId {
-  if (sourceChannel != null) {
-    const parsed = parseChannelId(sourceChannel);
-    if (!parsed) {
-      throw new Error(`Invalid sourceChannel: ${sourceChannel}`);
-    }
-    return parsed;
-  }
-  if (transportChannelId != null) {
-    const parsed = parseChannelId(transportChannelId);
-    if (!parsed) {
-      throw new Error(`Invalid transport.channelId: ${transportChannelId}`);
-    }
-    return parsed;
-  }
-  return "vellum";
-}
-
-function resolveTurnInterface(sourceInterface?: string): InterfaceId {
-  if (sourceInterface != null) {
-    const parsed = parseInterfaceId(sourceInterface);
-    if (!parsed) {
-      throw new Error(`Invalid sourceInterface: ${sourceInterface}`);
-    }
-    return parsed;
-  }
-  // Interface and channel are orthogonal dimensions; default explicitly
-  // instead of deriving interface from channel.
-  return "web";
-}
-
-function resolveCanonicalRequestSourceType(
-  sourceChannel: string | undefined,
-): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "phone") {
-    return "voice";
-  }
-  if (sourceChannel === "vellum") {
-    return "desktop";
-  }
-  return "channel";
-}
-
-/**
- * Build an onEvent callback that registers pending interactions when the agent
- * loop emits confirmation_request, secret_request, host_bash_request,
- * host_browser_request, host_file_request, or host_cu_request events. This
- * ensures that channel approval interception can look up the conversation by
- * requestId.
- */
-function makePendingInteractionRegistrar(
-  conversation: Conversation,
-  conversationId: string,
-): (msg: ServerMessage) => void {
-  return (msg: ServerMessage) => {
-    if (msg.type === "confirmation_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: msg.toolName,
-          input: msg.input,
-          riskLevel: msg.riskLevel,
-          executionTarget: msg.executionTarget,
-          allowlistOptions: msg.allowlistOptions,
-          scopeOptions: msg.scopeOptions,
-          persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
-        },
-      });
-
-      // Create a canonical guardian request so HTTP handlers can find it
-      // via applyCanonicalGuardianDecision.
-      try {
-        const trustContext = conversation.trustContext;
-        const sourceChannel = trustContext?.sourceChannel ?? "vellum";
-        const inputRecord = msg.input as Record<string, unknown>;
-        const activityRaw =
-          (typeof inputRecord.activity === "string"
-            ? inputRecord.activity
-            : undefined) ??
-          (typeof inputRecord.reason === "string"
-            ? inputRecord.reason
-            : undefined);
-        const canonicalRequest = createCanonicalGuardianRequest({
-          id: msg.requestId,
-          kind: "tool_approval",
-          sourceType: resolveCanonicalRequestSourceType(sourceChannel),
-          sourceChannel,
-          conversationId,
-          requesterExternalUserId: trustContext?.requesterExternalUserId,
-          requesterChatId: trustContext?.requesterChatId,
-          guardianExternalUserId: trustContext?.guardianExternalUserId,
-          guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
-          toolName: msg.toolName,
-          commandPreview:
-            redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
-            undefined,
-          riskLevel: msg.riskLevel,
-          activityText: activityRaw ? redactSecrets(activityRaw) : undefined,
-          executionTarget: msg.executionTarget,
-          status: "pending",
-          requestCode: generateCanonicalRequestCode(),
-          expiresAt: Date.now() + 5 * 60 * 1000,
-        });
-
-        // For trusted-contact sessions, bridge to guardian.question so the
-        // guardian gets notified and can approve via callback/request-code.
-        if (trustContext) {
-          bridgeConfirmationRequestToGuardian({
-            canonicalRequest,
-            trustContext,
-            conversationId,
-            toolName: msg.toolName,
-            assistantId:
-              conversation.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-          });
-        }
-      } catch (err) {
-        log.debug(
-          { err, requestId: msg.requestId, conversationId },
-          "Failed to create canonical request from pending interaction registrar",
-        );
-      }
-    } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
-    } else if (msg.type === "host_bash_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_bash",
-      });
-    } else if (msg.type === "host_browser_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_browser",
-      });
-    } else if (msg.type === "host_file_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_file",
-      });
-    } else if (msg.type === "host_cu_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_cu",
-      });
-    } else if (msg.type === "host_transfer_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "host_transfer",
-      });
-    }
-  };
-}
 
 export class DaemonServer {
   private sharedRequestTimestamps: number[] = [];
@@ -1023,6 +827,7 @@ export class DaemonServer {
       },
       send: (msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
+      clearAllConversations: () => clearAllActiveConversations(),
       getOrCreateConversation: (id, options?) =>
         getOrCreateActiveConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),
@@ -1032,187 +837,6 @@ export class DaemonServer {
 
   // ── HTTP message processing ─────────────────────────────────────────
 
-  private async prepareConversationForMessage(
-    conversationId: string,
-    content: string,
-    attachmentIds: string[] | undefined,
-    options: ConversationCreateOptions | undefined,
-    sourceChannel: string | undefined,
-    sourceInterface: string | undefined,
-  ): Promise<{
-    conversation: Conversation;
-    attachments: {
-      id: string;
-      filename: string;
-      mimeType: string;
-      data: string;
-      filePath?: string;
-    }[];
-  }> {
-    const conversation = await getOrCreateActiveConversation(
-      conversationId,
-      options,
-    );
-
-    if (conversation.isProcessing()) {
-      throw new Error("Conversation is already processing a message");
-    }
-
-    const resolvedChannel = resolveTurnChannel(
-      sourceChannel,
-      options?.transport?.channelId,
-    );
-    const resolvedInterface = resolveTurnInterface(sourceInterface);
-    conversation.setAssistantId(
-      options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-    );
-    conversation.taskRunId = options?.taskRunId;
-    // Only overwrite trust/auth context when explicitly provided. Callers that
-    // don't supply a trust context (e.g. signal-injected messages) should
-    // inherit whatever the conversation already has from a prior session.
-    if (options?.trustContext !== undefined) {
-      conversation.setTrustContext(options.trustContext);
-    }
-    if (options?.authContext !== undefined) {
-      conversation.setAuthContext(options.authContext);
-    }
-    await conversation.ensureActorScopedHistory();
-
-    // Persist the conversation's current trust/auth context so it survives
-    // eviction and recreation. The restore path in getOrCreateConversation
-    // reads from storedOptions.trustContext / storedOptions.authContext.
-    // Always write — including null — so explicit clearing isn't lost.
-    mergeConversationOptions(conversationId, {
-      trustContext: conversation.trustContext,
-      authContext: conversation.authContext,
-    });
-    conversation.setChannelCapabilities(
-      resolveChannelCapabilities(
-        sourceChannel,
-        sourceInterface,
-        options?.transport?.chatType,
-      ),
-    );
-    // Chrome-extension host_browser wiring is intentionally not supported
-    // through this entry point. `prepareConversationForMessage` constructs
-    // host_browser proxies that capture `conversation.getCurrentSender()`
-    // directly, which routes browser frames through the daemon SSE channel.
-    // This is correct for macOS (SSE-based host proxy), but chrome-extension
-    // requires the `ChromeExtensionRegistry` WebSocket transport instead.
-    // Chrome-extension flows reach host_browser exclusively through the
-    // `/v1/messages` flow in `conversation-routes.ts`, which wires a
-    // registry-aware sender and sets `hostBrowserSenderOverride`.
-    //
-    // Fail loudly rather than silently returning a mis-wired proxy so that
-    // any future caller that tries to route chrome-extension through this
-    // path discovers the gap immediately. When the time comes, factor the
-    // wiring in conversation-routes.ts (registry lookup + override) into a
-    // shared helper and call it from both sites.
-    if (resolvedInterface === "chrome-extension") {
-      throw new Error(
-        "prepareConversationForMessage does not yet support chrome-extension transport — " +
-          "use the conversation-routes.ts /v1/messages flow which routes host_browser through " +
-          "the ChromeExtensionRegistry. If you need chrome-extension here, factor out the " +
-          "wiring in conversation-routes.ts into a shared helper.",
-      );
-    }
-    // Only create each host proxy for interfaces that support the matching
-    // capability. macOS supports all four; the chrome-extension interface only
-    // supports host_browser. Non-desktop conversations (CLI, channels, headless)
-    // fall back to local execution.
-    // Guard: don't replace an active proxy during concurrent turn races —
-    // another request may have started processing between the isProcessing()
-    // check above and the await on ensureActorScopedHistory().
-    if (supportsHostProxy(resolvedInterface, "host_bash")) {
-      if (!conversation.isProcessing() || !conversation.hostBashProxy) {
-        conversation.setHostBashProxy(
-          new HostBashProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
-      }
-    } else if (!conversation.isProcessing()) {
-      conversation.setHostBashProxy(undefined);
-    }
-    if (supportsHostProxy(resolvedInterface, "host_browser")) {
-      if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
-        conversation.setHostBrowserProxy(
-          new HostBrowserProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
-      }
-    } else if (!conversation.isProcessing()) {
-      conversation.setHostBrowserProxy(undefined);
-    }
-    if (supportsHostProxy(resolvedInterface, "host_file")) {
-      if (!conversation.isProcessing() || !conversation.hostFileProxy) {
-        conversation.setHostFileProxy(
-          new HostFileProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
-      }
-      if (
-        !conversation.isProcessing() ||
-        !conversation.getHostTransferProxy()
-      ) {
-        conversation.setHostTransferProxy(
-          new HostTransferProxy(
-            conversation.getCurrentSender(),
-            (requestId) => {
-              pendingInteractions.resolve(requestId);
-            },
-          ),
-        );
-      }
-    } else if (!conversation.isProcessing()) {
-      conversation.setHostFileProxy(undefined);
-      conversation.setHostTransferProxy(undefined);
-    }
-    if (supportsHostProxy(resolvedInterface, "host_cu")) {
-      if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-        conversation.setHostCuProxy(
-          new HostCuProxy(conversation.getCurrentSender(), (requestId) => {
-            pendingInteractions.resolve(requestId);
-          }),
-        );
-      }
-      conversation.addPreactivatedSkillId("computer-use");
-    } else if (!conversation.isProcessing()) {
-      conversation.setHostCuProxy(undefined);
-    }
-    conversation.setCommandIntent(options?.commandIntent ?? null);
-    conversation.setTurnChannelContext({
-      userMessageChannel: resolvedChannel,
-      assistantMessageChannel: resolvedChannel,
-    });
-    conversation.setTurnInterfaceContext({
-      userMessageInterface: resolvedInterface,
-      assistantMessageInterface: resolvedInterface,
-    });
-
-    const attachments = attachmentIds
-      ? (() => {
-          const resolved = getAttachmentsByIds(attachmentIds, {
-            hydrateFileData: true,
-          });
-          const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-          return resolved.map((a) => ({
-            id: a.id,
-            filename: a.originalFilename,
-            mimeType: a.mimeType,
-            data: a.dataBase64,
-            ...(sourcePaths.has(a.id)
-              ? { filePath: sourcePaths.get(a.id) }
-              : {}),
-          }));
-        })()
-      : [];
-
-    return { conversation, attachments };
-  }
-
   async persistAndProcessMessage(
     conversationId: string,
     content: string,
@@ -1221,15 +845,14 @@ export class DaemonServer {
     sourceChannel?: string,
     sourceInterface?: string,
   ): Promise<{ messageId: string }> {
-    const { conversation, attachments } =
-      await this.prepareConversationForMessage(
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      );
+    const { conversation, attachments } = await prepareConversationForMessage(
+      conversationId,
+      content,
+      attachmentIds,
+      options,
+      sourceChannel,
+      sourceInterface,
+    );
 
     const requestId = crypto.randomUUID();
     const messageId = await conversation.persistUserMessage(
@@ -1295,259 +918,6 @@ export class DaemonServer {
       .catch((err) => {
         log.error({ err, conversationId }, "Background agent loop failed");
       });
-
-    return { messageId };
-  }
-
-  async processMessage(
-    conversationId: string,
-    content: string,
-    attachmentIds?: string[],
-    options?: ConversationCreateOptions,
-    sourceChannel?: string,
-    sourceInterface?: string,
-  ): Promise<{ messageId: string }> {
-    const { conversation, attachments } =
-      await this.prepareConversationForMessage(
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      );
-
-    const config = getConfig();
-    const serverInterfaceCtx = conversation.getTurnInterfaceContext();
-    const slashContext: SlashContext = {
-      messageCount: conversation.getMessages().length,
-      inputTokens: conversation.usageStats.inputTokens,
-      outputTokens: conversation.usageStats.outputTokens,
-      maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-      model: config.llm.default.model,
-      provider: config.llm.default.provider,
-      estimatedCost: conversation.usageStats.estimatedCost,
-      userMessageInterface: serverInterfaceCtx?.userMessageInterface,
-    };
-    const slashResult = await resolveSlash(content, slashContext);
-
-    // Slack inbound metadata is materialized once here for the slash-command
-    // bypass paths (unknown-slash and /compact), which persist the user row
-    // directly via `addMessage` and would otherwise drop the envelope. The
-    // agent-loop path does not consume this variable — it forwards
-    // `options.slackInbound` through `persistMetadata` and the envelope is
-    // built internally by `buildSlackMetaForPersistence` inside
-    // `persistQueuedMessageBody`.
-    const slackMeta = buildSlackMetaForPersistence({
-      slackInbound: options?.slackInbound,
-      turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,
-    });
-
-    if (slashResult.kind === "unknown") {
-      const serverTurnCtx = conversation.getTurnChannelContext();
-      const serverProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
-      );
-      const imageSourcePaths: Record<string, string> = {};
-      for (let i = 0; i < attachments.length; i++) {
-        const a = attachments[i];
-        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-        }
-      }
-      const serverChannelMeta = {
-        ...serverProvenance,
-        ...(serverTurnCtx
-          ? {
-              userMessageChannel: serverTurnCtx.userMessageChannel,
-              assistantMessageChannel: serverTurnCtx.assistantMessageChannel,
-            }
-          : {}),
-        ...(serverInterfaceCtx
-          ? {
-              userMessageInterface: serverInterfaceCtx.userMessageInterface,
-              assistantMessageInterface:
-                serverInterfaceCtx.assistantMessageInterface,
-            }
-          : {}),
-        ...(Object.keys(imageSourcePaths).length > 0
-          ? { imageSourcePaths }
-          : {}),
-      };
-      // slackMeta encodes the inbound user message's ts/thread — it attaches
-      // to the user row only. The assistant's slash-command response does not
-      // originate from Slack and must not inherit the user's channelTs, which
-      // would break ordering in the chronological renderer.
-      const userMetaWithSlack = slackMeta
-        ? { ...serverChannelMeta, slackMeta }
-        : serverChannelMeta;
-      const cleanMsg = createUserMessage(content, attachments);
-      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
-      const persisted = await addMessage(
-        conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        userMetaWithSlack,
-      );
-      conversation.getMessages().push(llmMsg);
-
-      if (serverTurnCtx) {
-        try {
-          setConversationOriginChannelIfUnset(
-            conversationId,
-            serverTurnCtx.userMessageChannel,
-          );
-        } catch (err) {
-          log.warn(
-            { err, conversationId },
-            "Failed to set origin channel (best-effort)",
-          );
-        }
-      }
-      if (serverInterfaceCtx) {
-        try {
-          setConversationOriginInterfaceIfUnset(
-            conversationId,
-            serverInterfaceCtx.userMessageInterface,
-          );
-        } catch (err) {
-          log.warn(
-            { err, conversationId },
-            "Failed to set origin interface (best-effort)",
-          );
-        }
-      }
-
-      // Rewrite meta.json so the on-disk metadata reflects the origin channel
-      if (serverTurnCtx || serverInterfaceCtx) {
-        try {
-          const convForMeta = getConversation(conversationId);
-          if (convForMeta) {
-            updateMetaFile(convForMeta);
-          }
-        } catch (err) {
-          log.warn(
-            { err, conversationId },
-            "Failed to update disk meta (best-effort)",
-          );
-        }
-      }
-
-      const assistantMsg = createAssistantMessage(slashResult.message);
-      await addMessage(
-        conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
-        serverChannelMeta,
-      );
-      conversation.getMessages().push(assistantMsg);
-      return { messageId: persisted.id };
-    }
-
-    if (slashResult.kind === "compact") {
-      const serverTurnCtx = conversation.getTurnChannelContext();
-      const serverProvenance = provenanceFromTrustContext(
-        conversation.trustContext,
-      );
-      const compactChannelMeta = {
-        ...serverProvenance,
-        ...(serverTurnCtx
-          ? {
-              userMessageChannel: serverTurnCtx.userMessageChannel,
-              assistantMessageChannel: serverTurnCtx.assistantMessageChannel,
-            }
-          : {}),
-        ...(serverInterfaceCtx
-          ? {
-              userMessageInterface: serverInterfaceCtx.userMessageInterface,
-              assistantMessageInterface:
-                serverInterfaceCtx.assistantMessageInterface,
-            }
-          : {}),
-      };
-      const compactUserMeta = slackMeta
-        ? { ...compactChannelMeta, slackMeta }
-        : compactChannelMeta;
-      const cleanMsg = createUserMessage(content, attachments);
-      const persisted = await addMessage(
-        conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        compactUserMeta,
-      );
-      conversation.getMessages().push(cleanMsg);
-
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-      );
-      const result = await conversation.forceCompact();
-      const responseText = formatCompactResult(result);
-      const assistantMsg = createAssistantMessage(responseText);
-      await addMessage(
-        conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
-        compactChannelMeta,
-      );
-      conversation.getMessages().push(assistantMsg);
-      return { messageId: persisted.id };
-    }
-
-    const resolvedContent = slashResult.content;
-
-    const requestId = crypto.randomUUID();
-    // Slack inbound metadata captured at the channel ingress boundary is
-    // forwarded into the persistence call so `persistQueuedMessageBody` can
-    // emit a `slackMeta` envelope on the row's metadata column.
-    const persistMetadata = options?.slackInbound
-      ? { slackInbound: options.slackInbound }
-      : undefined;
-    const messageId = await conversation.persistUserMessage(
-      resolvedContent,
-      attachments,
-      requestId,
-      persistMetadata,
-    );
-
-    // Register pending interactions so channel approval interception can
-    // find the conversation by requestId when confirmation/secret events fire.
-    const registrar = makePendingInteractionRegistrar(
-      conversation,
-      conversationId,
-    );
-    const onEvent = options?.onEvent
-      ? (msg: ServerMessage) => {
-          registrar(msg);
-          try {
-            options.onEvent!(msg);
-          } catch (err) {
-            log.error(
-              { err, conversationId },
-              "onEvent callback failed; continuing agent loop",
-            );
-          }
-        }
-      : registrar;
-    if (options?.isInteractive === true) {
-      conversation.updateClient(onEvent, false);
-    }
-
-    try {
-      await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
-        isInteractive: options?.isInteractive ?? false,
-        isUserMessage: true,
-        ...(options?.callSite ? { callSite: options.callSite } : {}),
-      });
-    } finally {
-      if (
-        options?.isInteractive === true &&
-        conversation.getCurrentSender() === onEvent
-      ) {
-        conversation.updateClient(() => {}, true);
-      }
-    }
 
     return { messageId };
   }

@@ -23,6 +23,7 @@ import { ROUTES as BTW_ROUTES } from "./btw-routes.js";
 import { ROUTES as CACHE_ROUTES } from "./cache-routes.js";
 import { ROUTES as CALL_ROUTES } from "./call-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
+import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
@@ -110,6 +111,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BACKUP_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
+  ...CHANNEL_ROUTES,
   ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_READINESS_ROUTES,
   ...BROWSER_ROUTES,

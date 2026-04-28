@@ -173,6 +173,7 @@ export interface HandlerContext {
   updateConfigFingerprint(): void;
   send(msg: ServerMessage): void;
   broadcast(msg: ServerMessage): void;
+  clearAllConversations(): number;
   getOrCreateConversation(
     conversationId: string,
     options?: ConversationCreateOptions,

@@ -138,8 +138,7 @@ describe("Slack edit propagation", () => {
       content: "new text",
     });
 
-    expect(resp.status).toBe(200);
-    const respJson = (await resp.json()) as Record<string, unknown>;
+    const respJson = resp as Record<string, unknown>;
     expect(respJson.accepted).toBe(true);
     expect(respJson.duplicate).toBe(false);
 
@@ -236,8 +235,7 @@ describe("Slack edit propagation", () => {
       content: "original text",
     });
 
-    expect(resp.status).toBe(200);
-    const respJson = (await resp.json()) as Record<string, unknown>;
+    const respJson = resp as Record<string, unknown>;
     expect(respJson.accepted).toBe(true);
     expect(respJson.duplicate).toBe(false);
     expect(respJson.noop).toBe(true);
@@ -269,8 +267,7 @@ describe("Slack edit propagation", () => {
       content: "new text",
     });
 
-    expect(resp.status).toBe(200);
-    const respJson = (await resp.json()) as Record<string, unknown>;
+    const respJson = resp as Record<string, unknown>;
     expect(respJson.accepted).toBe(true);
     expect(respJson.duplicate).toBe(false);
 

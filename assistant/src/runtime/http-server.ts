@@ -5,6 +5,9 @@
  * configured port (default: 7821).
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -30,6 +33,7 @@ import {
   isHttpAuthDisabled,
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
+import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
 import {
@@ -46,7 +50,6 @@ import {
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
 import { getLogger } from "../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import {
   authenticateHostBrowserResultRequest,
@@ -91,10 +94,9 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
 import {
-  channelRouteDefinitions,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
-} from "./routes/channel-routes.js";
+} from "./routes/channel-guardian-routes.js";
 import { RouteError } from "./routes/errors.js";
 import {
   resolveHostBrowserEvent,
@@ -128,7 +130,6 @@ import type {
   ApprovalCopyGenerator,
   GuardianActionCopyGenerator,
   GuardianFollowUpConversationGenerator,
-  MessageProcessor,
   RuntimeHttpServerOptions,
   SendMessageDeps,
 } from "./http-types.js";
@@ -224,7 +225,7 @@ export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
   private hostname: string;
-  private processMessage?: MessageProcessor;
+
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
@@ -242,7 +243,7 @@ export class RuntimeHttpServer {
   constructor(options: RuntimeHttpServerOptions = {}) {
     this.port = options.port ?? DEFAULT_PORT;
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
-    this.processMessage = options.processMessage;
+
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
@@ -696,12 +697,11 @@ export class RuntimeHttpServer {
    * Extracted from start() to allow future callers to defer sweep startup.
    */
   private startBackgroundSweeps(): void {
-    if (this.processMessage && !this.retrySweepTimer) {
-      const pm = this.processMessage;
+    if (!this.retrySweepTimer) {
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(pm).finally(() => {
+        sweepFailedEvents(processMessage).finally(() => {
           this.sweepInProgress = false;
         });
       }, 30_000);
@@ -1458,6 +1458,24 @@ export class RuntimeHttpServer {
     return null;
   }
 
+  private handleGetInterface(interfacePath: string): Response {
+    if (!this.interfacesDir) {
+      return httpError("NOT_FOUND", "Interface not found", 404);
+    }
+    const fullPath = resolve(this.interfacesDir, interfacePath);
+    if (
+      (fullPath !== this.interfacesDir &&
+        !fullPath.startsWith(this.interfacesDir + "/")) ||
+      !existsSync(fullPath)
+    ) {
+      return httpError("NOT_FOUND", "Interface not found", 404);
+    }
+    const source = readFileSync(fullPath, "utf-8");
+    return new Response(source, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Declarative route table
   // ---------------------------------------------------------------------------
@@ -1472,20 +1490,8 @@ export class RuntimeHttpServer {
    * preserves the original top-to-bottom matching semantics.
    */
   private buildRouteTable(): HTTPRouteDefinition[] {
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
-
-      ...channelRouteDefinitions({
-        assistantId,
-        processMessage: this.processMessage,
-        approvalCopyGenerator: this.approvalCopyGenerator,
-        approvalConversationGenerator: this.approvalConversationGenerator,
-        guardianActionCopyGenerator: this.guardianActionCopyGenerator,
-        guardianFollowUpConversationGenerator:
-          this.guardianFollowUpConversationGenerator,
-      }),
 
       // User-defined routes under /x/* — must be LAST so built-in routes
       // always take priority.

@@ -37,7 +37,7 @@ import {
   externalConversationBindings,
   messages,
 } from "../memory/schema.js";
-import { handleDeleteConversation } from "../runtime/routes/channel-routes.js";
+import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 
@@ -467,11 +467,11 @@ describe("channel-delivery-store", () => {
 
   // ── handleDeleteConversation assistantId parameter ───────────────
 
-  test("handleDeleteConversation with non-self assistant deletes only scoped key", async () => {
-    // Set up a scoped conversation key like the one created by recordInbound
-    // with a specific assistantId.
+  test("handleDeleteConversation deletes scoped key and legacy key for self assistant", async () => {
+    // Set up a scoped conversation key like the one created by recordInbound.
+    // The handler always uses DAEMON_INTERNAL_ASSISTANT_ID ("self").
     const convId = "conv-delete-test";
-    const scopedKey = "asst:my-assistant:telegram:chat-del";
+    const scopedKey = "asst:self:telegram:chat-del";
     const legacyKey = "telegram:chat-del";
 
     // Insert a conversation row so FK constraints are satisfied
@@ -518,16 +518,16 @@ describe("channel-delivery-store", () => {
     const json = (await res.json()) as { ok: boolean };
     expect(json.ok).toBe(true);
 
-    // Non-self delete should only remove the scoped key and preserve legacy.
+    // Self delete removes both scoped key and legacy key.
     expect(getConversationByKey(scopedKey)).toBeNull();
-    expect(getConversationByKey(legacyKey)).not.toBeNull();
-    // Non-self delete should not mutate assistant-agnostic external bindings.
+    expect(getConversationByKey(legacyKey)).toBeNull();
+    // Self delete also removes external bindings.
     const remainingBinding = db
       .select()
       .from(externalConversationBindings)
       .where(eq(externalConversationBindings.conversationId, convId))
       .get();
-    expect(remainingBinding).not.toBeNull();
+    expect(remainingBinding).toBeUndefined();
   });
 
   test('handleDeleteConversation defaults to "self" when no assistantId provided', async () => {

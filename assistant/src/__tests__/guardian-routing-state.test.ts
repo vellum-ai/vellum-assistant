@@ -22,11 +22,14 @@ import { initializeDb } from "../memory/db-init.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import {
   resolveRoutingState,
   resolveRoutingStateFromRuntime,
 } from "../runtime/trust-context-resolver.js";
+import {
+  handleChannelInbound,
+  setAdapterProcessMessage,
+} from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 
@@ -151,6 +154,7 @@ describe("resolveRoutingStateFromRuntime", () => {
 describe("inbound-message-handler trusted-contact interactivity", () => {
   beforeEach(() => {
     resetTables();
+    setAdapterProcessMessage(undefined);
     // Insert a test contact so the contacts-based ACL lookup passes
     upsertContact({
       displayName: "Test User",
@@ -227,11 +231,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
       externalMessageId: `msg-tc-interactive-${Date.now()}`,
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as any,
-      "test-token",
-    );
+    setAdapterProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -274,11 +275,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
       externalMessageId: `msg-tc-noroute-${Date.now()}`,
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as any,
-      "test-token",
-    );
+    setAdapterProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -327,11 +325,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
       externalMessageId: `msg-guardian-${Date.now()}`,
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as any,
-      "test-token",
-    );
+    setAdapterProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 

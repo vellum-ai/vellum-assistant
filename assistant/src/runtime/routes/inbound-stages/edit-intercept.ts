@@ -56,7 +56,7 @@ export interface EditInterceptParams {
  */
 export async function handleEditIntercept(
   params: EditInterceptParams,
-): Promise<Response> {
+): Promise<Record<string, unknown>> {
   const {
     sourceChannel,
     conversationExternalId,
@@ -77,7 +77,7 @@ export async function handleEditIntercept(
   );
 
   if (editResult.duplicate) {
-    return Response.json({
+    return ({
       accepted: true,
       duplicate: true,
       eventId: editResult.eventId,
@@ -137,7 +137,7 @@ export async function handleEditIntercept(
         },
         "Edit text unchanged; skipping update",
       );
-      return Response.json({
+      return ({
         accepted: true,
         duplicate: false,
         noop: true,
@@ -185,7 +185,7 @@ export async function handleEditIntercept(
     }
   }
 
-  return Response.json({
+  return ({
     accepted: true,
     duplicate: false,
     eventId: editResult.eventId,

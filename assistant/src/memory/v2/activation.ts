@@ -452,7 +452,7 @@ export async function computeSkillActivation(
 export interface SelectSkillInjectionsParams {
   /** Final skill activation map. */
   A: ReadonlyMap<string, number>;
-  /** Cap on the per-turn skill slate, e.g. `config.memory.v2.top_k_skills`. */
+  /** Cap on the per-turn skill slate, e.g. `config.memory.v2.skills_top_k`. */
   topK: number;
 }
 

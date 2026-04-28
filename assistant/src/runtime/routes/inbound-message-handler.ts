@@ -12,8 +12,13 @@ import {
   parseInterfaceId,
 } from "../../channels/types.js";
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
+import {
+  createApprovalConversationGenerator,
+  createApprovalCopyGenerator,
+} from "../../daemon/approval-generators.js";
+import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
-import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { getAttachmentsByIds } from "../../memory/attachments-store.js";
 import {
   recordConversationSeenSignal,
@@ -53,16 +58,9 @@ import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
-import { httpError } from "../http-errors.js";
-import type {
-  ApprovalConversationGenerator,
-  ApprovalCopyGenerator,
-  GuardianActionCopyGenerator,
-  GuardianFollowUpConversationGenerator,
-  MessageProcessor,
-} from "../http-types.js";
 import { resolveTrustContext } from "../trust-context-resolver.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
+import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
 import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
@@ -74,6 +72,7 @@ import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-in
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio.js";
 import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
+import type { RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
 
@@ -99,21 +98,19 @@ export function _setDeleteLookupConfigForTests(
   deleteLookupDelayMs = delayMs;
 }
 
-export async function handleChannelInbound(
-  req: Request,
-  processMessage?: MessageProcessor,
-  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
-  approvalCopyGenerator?: ApprovalCopyGenerator,
-  approvalConversationGenerator?: ApprovalConversationGenerator,
-  _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
-  _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
-  heartbeatService?: HeartbeatService,
-): Promise<Response> {
+export async function handleChannelInbound({
+  body: rawBody = {},
+}: RouteHandlerArgs) {
   // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
   // principal type required) before this handler runs. The exchange JWT
   // itself proves gateway origin.
 
-  const body = (await req.json()) as {
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+  const approvalCopyGenerator = createApprovalCopyGenerator();
+  const approvalConversationGenerator = createApprovalConversationGenerator();
+  const heartbeatService = HeartbeatService.getInstance();
+
+  const body = rawBody as {
     sourceChannel?: string;
     interface?: string;
     conversationExternalId?: string;
@@ -140,53 +137,49 @@ export async function handleChannelInbound(
   } = body;
 
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
-    return httpError("BAD_REQUEST", "sourceChannel is required", 400);
+    throw new BadRequestError("sourceChannel is required");
   }
   // Validate and narrow to canonical ChannelId at the boundary — the gateway
   // only sends well-known channel strings, so an unknown value is rejected.
   if (!isChannelId(body.sourceChannel)) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid sourceChannel: ${
         body.sourceChannel
       }. Valid values: ${CHANNEL_IDS.join(", ")}`,
-      400,
     );
   }
 
   const sourceChannel = body.sourceChannel;
 
   if (!body.interface || typeof body.interface !== "string") {
-    return httpError("BAD_REQUEST", "interface is required", 400);
+    throw new BadRequestError("interface is required");
   }
   const sourceInterface = parseInterfaceId(body.interface);
   if (!sourceInterface) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(
         ", ",
       )}`,
-      400,
     );
   }
 
   if (!conversationExternalId || typeof conversationExternalId !== "string") {
-    return httpError("BAD_REQUEST", "conversationExternalId is required", 400);
+    throw new BadRequestError("conversationExternalId is required");
   }
   if (
     !body.actorExternalId ||
     typeof body.actorExternalId !== "string" ||
     !body.actorExternalId.trim()
   ) {
-    return httpError("BAD_REQUEST", "actorExternalId is required", 400);
+    throw new BadRequestError("actorExternalId is required");
   }
   if (!externalMessageId || typeof externalMessageId !== "string") {
-    return httpError("BAD_REQUEST", "externalMessageId is required", 400);
+    throw new BadRequestError("externalMessageId is required");
   }
 
   // Reject non-string content regardless of whether attachments are present.
   if (content != null && typeof content !== "string") {
-    return httpError("BAD_REQUEST", "content must be a string", 400);
+    throw new BadRequestError("content must be a string");
   }
 
   let trimmedContent = typeof content === "string" ? content.trim() : "";
@@ -202,11 +195,7 @@ export async function handleChannelInbound(
     !isEdit &&
     !hasCallbackData
   ) {
-    return httpError(
-      "BAD_REQUEST",
-      "content or attachmentIds is required",
-      400,
-    );
+    throw new BadRequestError("content or attachmentIds is required");
   }
 
   // Canonicalize the assistant ID so all DB-facing operations use the
@@ -297,7 +286,7 @@ export async function handleChannelInbound(
         { conversationExternalId },
         "Slack message_deleted event missing sourceMetadata.messageId; ignoring",
       );
-      return Response.json({ accepted: true, deleted: false });
+      return ({ accepted: true, deleted: false });
     }
 
     // Look up the stored message via the existing channel-event lookup.
@@ -338,7 +327,7 @@ export async function handleChannelInbound(
         { conversationExternalId, deletedMessageTs },
         "No stored message found for Slack delete after retries; ignoring",
       );
-      return Response.json({ accepted: true, deleted: false });
+      return ({ accepted: true, deleted: false });
     }
 
     // Merge deletedAt into the existing slackMeta sub-key. If the row has
@@ -356,7 +345,7 @@ export async function handleChannelInbound(
         },
         "Stored Slack message has no metadata; skipping delete marker",
       );
-      return Response.json({ accepted: true, deleted: false });
+      return ({ accepted: true, deleted: false });
     }
 
     let parentMetadata: Record<string, unknown>;
@@ -376,7 +365,7 @@ export async function handleChannelInbound(
         },
         "Failed to parse stored metadata; skipping delete marker",
       );
-      return Response.json({ accepted: true, deleted: false });
+      return ({ accepted: true, deleted: false });
     }
 
     const existingSlackMeta =
@@ -393,7 +382,7 @@ export async function handleChannelInbound(
         },
         "Stored Slack message has no slackMeta; skipping delete marker",
       );
-      return Response.json({ accepted: true, deleted: false });
+      return ({ accepted: true, deleted: false });
     }
 
     const updatedSlackMeta = mergeSlackMetadata(existingSlackMeta, {
@@ -415,7 +404,7 @@ export async function handleChannelInbound(
       "Marked Slack message as deleted",
     );
 
-    return Response.json({
+    return ({
       accepted: true,
       deleted: true,
       messageId: original.messageId,
@@ -427,10 +416,7 @@ export async function handleChannelInbound(
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      return Response.json(
-        { error: `Attachment IDs not found: ${missing.join(", ")}` },
-        { status: 400 },
-      );
+      throw new BadRequestError(`Attachment IDs not found: ${missing.join(", ")}`);
     }
   }
 
@@ -463,11 +449,7 @@ export async function handleChannelInbound(
       : undefined;
 
   if (isEdit && !sourceMessageId) {
-    return httpError(
-      "BAD_REQUEST",
-      "sourceMetadata.messageId is required for edits",
-      400,
-    );
+    throw new BadRequestError("sourceMetadata.messageId is required for edits");
   }
 
   // ── Edit path: update existing message content, no new agent loop ──
@@ -518,7 +500,7 @@ export async function handleChannelInbound(
           "Retry of pending verification reply failed; will retry on next duplicate",
         );
       }
-      return Response.json({
+      return ({
         accepted: true,
         duplicate: true,
         eventId: result.eventId,
@@ -604,7 +586,7 @@ export async function handleChannelInbound(
       // transcript line. All other interception outcomes (stale_ignored,
       // non-guardian, no pending approval) fall through to persistence.
       if (reactionApprovalResult.type === "guardian_decision_applied") {
-        return Response.json({
+        return ({
           accepted: true,
           duplicate: false,
           eventId: result.eventId,
@@ -622,7 +604,7 @@ export async function handleChannelInbound(
         { conversationId: result.conversationId, eventId: result.eventId },
         "Skipping reaction persistence: missing sourceMetadata.messageId",
       );
-      return Response.json({
+      return ({
         accepted: result.accepted,
         duplicate: result.duplicate,
         eventId: result.eventId,
@@ -652,7 +634,7 @@ export async function handleChannelInbound(
       );
     }
 
-    return Response.json({
+    return ({
       accepted: result.accepted,
       duplicate: result.duplicate,
       eventId: result.eventId,
@@ -880,7 +862,7 @@ export async function handleChannelInbound(
         }
       }
 
-      return Response.json({
+      return ({
         accepted: true,
         duplicate: false,
         eventId: result.eventId,
@@ -940,7 +922,7 @@ export async function handleChannelInbound(
         });
       }
 
-      return Response.json({
+      return ({
         accepted: true,
         duplicate: false,
         eventId: result.eventId,
@@ -951,7 +933,7 @@ export async function handleChannelInbound(
 
   // For new (non-duplicate) messages, run the secret ingress check
   // synchronously, then fire off the agent loop in the background.
-  if (!result.duplicate && processMessage) {
+  if (!result.duplicate) {
     const ingressResult = runSecretIngressCheck({
       eventId: result.eventId,
       sourceChannel,
@@ -1108,7 +1090,7 @@ export async function handleChannelInbound(
     }
   }
 
-  return Response.json({
+  return ({
     accepted: result.accepted,
     duplicate: result.duplicate,
     eventId: result.eventId,

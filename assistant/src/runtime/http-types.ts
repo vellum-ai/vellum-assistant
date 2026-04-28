@@ -19,7 +19,6 @@ import type {
   GuardianActionCopyGenerator,
 } from "./message-composer-types.js";
 
-
 export type {
   ApprovalCopyGenerator,
   ApprovalMessageContext,
@@ -172,7 +171,6 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  processMessage?: MessageProcessor;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
   /** Daemon-injected generator for approval copy (provider-backed). */

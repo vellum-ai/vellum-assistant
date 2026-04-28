@@ -120,7 +120,7 @@ describe("handleGuardianActivationIntercept", () => {
     const result = await handleGuardianActivationIntercept(makeParams());
 
     expect(result).not.toBeNull();
-    const body = await result!.json();
+    const body = result!;
     expect(body).toEqual({ accepted: true, guardianActivation: true });
 
     // Verify createOutboundSession was called with correct params
@@ -228,7 +228,7 @@ describe("handleGuardianActivationIntercept", () => {
     const result = await handleGuardianActivationIntercept(makeParams());
 
     expect(result).not.toBeNull();
-    const body = await result!.json();
+    const body = result!;
     expect(body).toEqual({ accepted: true, guardianActivationPending: true });
 
     // createOutboundSession should NOT be called
@@ -259,7 +259,7 @@ describe("handleGuardianActivationIntercept", () => {
 
     // Should proceed and create a new session (superseding the stale one)
     expect(result).not.toBeNull();
-    const body = await result!.json();
+    const body = result!;
     expect(body).toEqual({ accepted: true, guardianActivation: true });
     expect(createOutboundSessionCalls).toHaveLength(1);
     expect(emitNotificationSignalCalls).toHaveLength(1);
@@ -271,7 +271,7 @@ describe("handleGuardianActivationIntercept", () => {
     // First call should process normally
     const result1 = await handleGuardianActivationIntercept(params);
     expect(result1).not.toBeNull();
-    const body1 = await result1!.json();
+    const body1 = result1!;
     expect(body1).toEqual({ accepted: true, guardianActivation: true });
     expect(createOutboundSessionCalls).toHaveLength(1);
     expect(deliverChannelReplyCalls).toHaveLength(1);
@@ -280,7 +280,7 @@ describe("handleGuardianActivationIntercept", () => {
     // Second call with same externalMessageId should be deduped
     const result2 = await handleGuardianActivationIntercept(params);
     expect(result2).not.toBeNull();
-    const body2 = await result2!.json();
+    const body2 = result2!;
     expect(body2).toEqual({ accepted: true, guardianActivation: true });
 
     // No additional session/reply/signal calls

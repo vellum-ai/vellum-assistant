@@ -69,7 +69,7 @@ import {
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 

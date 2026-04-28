@@ -4,38 +4,31 @@
 import { deleteConversationKey } from "../../memory/conversation-key-store.js";
 import { deleteBindingByChannelChat } from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError } from "../http-errors.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteHandlerArgs } from "./types.js";
 
-export async function handleDeleteConversation(
-  req: Request,
-  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
-): Promise<Response> {
-  const body = (await req.json()) as {
+export function handleDeleteConversation({ body = {} }: RouteHandlerArgs) {
+  const { sourceChannel, conversationExternalId } = body as {
     sourceChannel?: string;
     conversationExternalId?: string;
   };
 
-  const { sourceChannel, conversationExternalId } = body;
-
   if (!sourceChannel || typeof sourceChannel !== "string") {
-    return httpError("BAD_REQUEST", "sourceChannel is required", 400);
+    throw new BadRequestError("sourceChannel is required");
   }
   if (!conversationExternalId || typeof conversationExternalId !== "string") {
-    return httpError("BAD_REQUEST", "conversationExternalId is required", 400);
+    throw new BadRequestError("conversationExternalId is required");
   }
+
+  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
   const scopedKey = `asst:${assistantId}:${sourceChannel}:${conversationExternalId}`;
   deleteConversationKey(scopedKey);
-  // For the canonical self-assistant, also delete the legacy unscopedkey
-  // and the external conversation binding (which is assistant-agnostic).
   if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
     const legacyKey = `${sourceChannel}:${conversationExternalId}`;
     deleteConversationKey(legacyKey);
-    deleteBindingByChannelChat(
-      sourceChannel,
-      conversationExternalId,
-    );
+    deleteBindingByChannelChat(sourceChannel, conversationExternalId);
   }
 
-  return Response.json({ ok: true });
+  return { ok: true };
 }

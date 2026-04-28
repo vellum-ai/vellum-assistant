@@ -2306,7 +2306,7 @@ paths:
       tags:
         - channels
       responses:
-        "200":
+        "204":
           description: Successful response
   /v1/channels/inbound:
     post:

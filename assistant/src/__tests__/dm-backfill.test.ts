@@ -64,7 +64,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 

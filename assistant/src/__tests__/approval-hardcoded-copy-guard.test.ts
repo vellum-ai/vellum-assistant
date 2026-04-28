@@ -13,7 +13,7 @@ import { join } from "path";
 
 const SCANNED_FILES = [
   "runtime/channel-approvals.ts",
-  "runtime/routes/channel-routes.ts",
+  "runtime/routes/channel-route-definitions.ts",
   "runtime/channel-verification-service.ts",
 ];
 

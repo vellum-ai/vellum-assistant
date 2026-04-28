@@ -30,7 +30,7 @@ import * as deliveryChannels from "../memory/delivery-channels.js";
 import { resetTestTables } from "../memory/raw-query.js";
 import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 

@@ -27,6 +27,24 @@ mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
+// Track whether processMessage is called (guards against agent loop invocation).
+// The real processMessage is now a direct import inside inbound-message-handler,
+// so we mock the module to intercept it.
+let _processMessageCalled = false;
+
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: async (..._args: unknown[]) => {
+    _processMessageCalled = true;
+    return { messageId: "mock-msg" };
+  },
+  // Re-export other functions as pass-through stubs; only processMessage
+  // is imported by inbound-message-handler.
+  resolveTurnChannel: () => "telegram",
+  resolveTurnInterface: () => "telegram",
+  makePendingInteractionRegistrar: () => () => {},
+  prepareConversationForMessage: async () => ({}),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -34,6 +52,7 @@ mock.module("../config/env.js", () => ({
 import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
 import { initializeDb } from "../memory/db-init.js";
+import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
@@ -217,8 +236,7 @@ describe("Call session mode metadata", () => {
 describe("Verification control messages are deterministic (guard)", () => {
   test("handleChannelInbound does not call processMessage for verification code replies", async () => {
     const { createHash } = await import("node:crypto");
-    const { handleChannelInbound } =
-      await import("../runtime/routes/inbound-message-handler.js");
+
     const { createInboundSession } =
       await import("../memory/channel-verification-sessions.js");
 
@@ -232,12 +250,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       expiresAt: Date.now() + 600_000,
     });
 
-    // Track whether processMessage was called
-    let processMessageCalled = false;
-    const processMessage = async () => {
-      processMessageCalled = true;
-      return { messageId: "msg-1" };
-    };
+    _processMessageCalled = false;
 
     // Track channel replies
     const deliveredReplies: Array<{ chatId: string; text: string }> = [];
@@ -282,14 +295,14 @@ describe("Verification control messages are deterministic (guard)", () => {
         }),
       });
 
-      const response = await handleChannelInbound(req, processMessage);
-      const body = (await response.json()) as Record<string, unknown>;
+      const response = await handleChannelInbound({ body: JSON.parse(await req.text()) });
+      const body = response as Record<string, unknown>;
 
       // Verification should have been handled
       expect(body.verificationOutcome).toBeDefined();
 
       // processMessage must NOT have been called — this is the guard
-      expect(processMessageCalled).toBe(false);
+      expect(_processMessageCalled).toBe(false);
 
       // A deterministic reply should have been delivered
       expect(deliveredReplies.length).toBeGreaterThan(0);
@@ -300,8 +313,7 @@ describe("Verification control messages are deterministic (guard)", () => {
 
   test("handleChannelInbound does not call processMessage for /start gv_<token> bootstrap commands", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
-    const { handleChannelInbound } =
-      await import("../runtime/routes/inbound-message-handler.js");
+
     const { createOutboundSession } =
       await import("../runtime/channel-verification-service.js");
 
@@ -318,12 +330,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       bootstrapTokenHash,
     });
 
-    // Track whether processMessage was called
-    let processMessageCalled = false;
-    const processMessage = async () => {
-      processMessageCalled = true;
-      return { messageId: "msg-1" };
-    };
+    _processMessageCalled = false;
 
     // Track channel replies (the handler delivers the verification code via fetch)
     const deliveredReplies: Array<{ chatId: string; text: string }> = [];
@@ -371,15 +378,15 @@ describe("Verification control messages are deterministic (guard)", () => {
         }),
       });
 
-      const response = await handleChannelInbound(req, processMessage);
-      const body = (await response.json()) as Record<string, unknown>;
+      const response = await handleChannelInbound({ body: JSON.parse(await req.text()) });
+      const body = response as Record<string, unknown>;
 
       // Bootstrap should have been handled deterministically
       expect(body.verificationOutcome).toBe("bootstrap_bound");
       expect(body.accepted).toBe(true);
 
       // processMessage must NOT have been called — deterministic handling
-      expect(processMessageCalled).toBe(false);
+      expect(_processMessageCalled).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -387,8 +394,7 @@ describe("Verification control messages are deterministic (guard)", () => {
 
   test("handleChannelInbound does not allow blocked members to bootstrap with /start gv_<token>", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
-    const { handleChannelInbound } =
-      await import("../runtime/routes/inbound-message-handler.js");
+
     const { createOutboundSession } =
       await import("../runtime/channel-verification-service.js");
     const { upsertContactChannel } =
@@ -416,11 +422,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       bootstrapTokenHash,
     });
 
-    let processMessageCalled = false;
-    const processMessage = async () => {
-      processMessageCalled = true;
-      return { messageId: "msg-1" };
-    };
+    _processMessageCalled = false;
 
     const req = new Request("http://localhost/channels/inbound", {
       method: "POST",
@@ -439,13 +441,13 @@ describe("Verification control messages are deterministic (guard)", () => {
       }),
     });
 
-    const response = await handleChannelInbound(req, processMessage);
-    const body = (await response.json()) as Record<string, unknown>;
+    const response = await handleChannelInbound({ body: JSON.parse(await req.text()) });
+    const body = response as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.denied).toBe(true);
     expect(body.reason).toBe("member_blocked");
     expect(body.verificationOutcome).toBeUndefined();
-    expect(processMessageCalled).toBe(false);
+    expect(_processMessageCalled).toBe(false);
   });
 });

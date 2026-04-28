@@ -28,6 +28,22 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// The inbound handler imports processMessage directly — stub it so it doesn't
+// attempt to spin up an LLM turn. The background dispatch is fire-and-forget;
+// tests only assert on the synchronous HTTP response.
+mock.module("../daemon/process-message.js", () => ({
+  resolveTurnChannel: () => "whatsapp",
+  resolveTurnInterface: () => "whatsapp",
+  makePendingInteractionRegistrar: () => () => {},
+  prepareConversationForMessage: async () => ({}),
+  processMessage: async () => ({ messageId: `mock-msg-${Date.now()}` }),
+}));
+
+mock.module("../daemon/approval-generators.js", () => ({
+  createApprovalCopyGenerator: () => undefined,
+  createApprovalConversationGenerator: () => undefined,
+}));
+
 import { upsertContact } from "../contacts/contact-store.js";
 import {
   linkAttachmentToMessage,
@@ -283,7 +299,6 @@ describe("WhatsApp channel ingress attachment resolution", () => {
     ingressPort = 18000 + Math.floor(Math.random() * 1000);
     ingressServer = new RuntimeHttpServer({
       port: ingressPort,
-      processMessage: noopProcessMessage,
     });
     await ingressServer.start();
   });
@@ -335,10 +350,14 @@ describe("WhatsApp channel ingress attachment resolution", () => {
         ),
       },
     );
-    const body = (await res.json()) as { error?: string };
+    const body = (await res.json()) as {
+      error?: { code?: string; message?: string } | string;
+    };
 
     expect(res.status).toBe(400);
-    expect(body.error).toContain("nonexistent-whatsapp-att");
+    const errorMsg =
+      typeof body.error === "string" ? body.error : (body.error?.message ?? "");
+    expect(errorMsg).toContain("nonexistent-whatsapp-att");
   });
 
   test("inbound handler accepts attachment-only message with no text content", async () => {

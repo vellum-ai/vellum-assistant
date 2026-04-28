@@ -118,6 +118,7 @@ import {
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import { maybeSeedMemoryV2Skills } from "./memory-v2-startup.js";
+import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
@@ -806,7 +807,7 @@ export async function runDaemon(): Promise<void> {
 
     const scheduler = startScheduler(
       async (conversationId, message, options) => {
-        await server.processMessage(
+        await processMessage(
           conversationId,
           message,
           undefined,
@@ -922,22 +923,6 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
-      processMessage: (
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      ) =>
-        server.processMessage(
-          conversationId,
-          content,
-          attachmentIds,
-          options,
-          sourceChannel,
-          sourceInterface,
-        ),
       interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
       approvalConversationGenerator: createApprovalConversationGenerator(),
@@ -1244,7 +1229,7 @@ export async function runDaemon(): Promise<void> {
     const heartbeatConfig = config.heartbeat;
     const heartbeat = new HeartbeatService({
       processMessage: (conversationId, content, options) =>
-        server.processMessage(conversationId, content, undefined, {
+        processMessage(conversationId, content, undefined, {
           trustContext: {
             sourceChannel: "vellum",
             trustClass: "guardian",
@@ -1271,7 +1256,7 @@ export async function runDaemon(): Promise<void> {
     const filingConfig = config.filing;
     const filing = new FilingService({
       processMessage: (conversationId, content, options) =>
-        server.processMessage(conversationId, content, undefined, {
+        processMessage(conversationId, content, undefined, {
           trustContext: {
             sourceChannel: "vellum",
             trustClass: "guardian",

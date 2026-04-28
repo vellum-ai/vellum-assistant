@@ -30,6 +30,42 @@ mock.module("../daemon/handlers/shared.js", () => ({
   }),
 }));
 
+// The handler imports processMessage directly — provide a controllable mock so
+// background dispatch doesn't attempt a real agent loop (no LLM provider in tests).
+// Tests that need a custom processMessage can override via setTestProcessMessage().
+let _testProcessMessage: ((...args: unknown[]) => unknown) | undefined;
+
+function setTestProcessMessage(fn: (...args: any[]) => any): void {
+  _testProcessMessage = fn;
+}
+
+mock.module("../daemon/process-message.js", () => ({
+  // Only processMessage is imported by inbound-message-handler; stub the rest.
+  resolveTurnChannel: () => "telegram",
+  resolveTurnInterface: () => "telegram",
+  makePendingInteractionRegistrar: () => () => {},
+  prepareConversationForMessage: async () => ({}),
+  processMessage: (...args: unknown[]) => {
+    if (_testProcessMessage) return _testProcessMessage(...args);
+    return Promise.resolve({ messageId: "mock-msg-1" });
+  },
+}));
+
+// Approval generators require a configured LLM provider. Expose module-level
+// overrides so individual tests can inject custom generators (e.g. conversation
+// engine mocks) while defaulting to undefined for the plain-text matching path.
+let _testApprovalCopyGenerator: unknown = undefined;
+let _testApprovalConversationGenerator: unknown = undefined;
+
+function setTestApprovalConversationGenerator(gen: unknown): void {
+  _testApprovalConversationGenerator = gen;
+}
+
+mock.module("../daemon/approval-generators.js", () => ({
+  createApprovalCopyGenerator: () => _testApprovalCopyGenerator,
+  createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
+}));
+
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -53,11 +89,9 @@ import {
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import {
-  _setTestPollMaxWait,
-  handleChannelInbound,
-  sweepExpiredGuardianApprovals,
-} from "../runtime/routes/channel-routes.js";
+import { sweepExpiredGuardianApprovals } from "../runtime/routes/channel-guardian-routes.js";
+import { _setTestPollMaxWait } from "../runtime/routes/channel-route-shared.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -208,6 +242,9 @@ beforeEach(() => {
   resetTables();
   ensureTestContact();
   noopProcessMessage.mockClear();
+  _testProcessMessage = undefined;
+  _testApprovalCopyGenerator = undefined;
+  _testApprovalConversationGenerator = undefined;
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1264,6 +1301,7 @@ describe("ambiguous plain-text decision with multiple pending requests", () => {
       disposition: "keep_pending" as const,
       replyText: "You have 2 pending requests. Which one?",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     // Guardian sends plain-text "yes" — ambiguous because two approvals are pending
     const req = makeInboundRequest({
@@ -1277,7 +1315,6 @@ describe("ambiguous plain-text decision with multiple pending requests", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -1633,6 +1670,7 @@ describe("conversational approval engine — standard path", () => {
       replyText:
         "There is a pending shell command. Would you like to approve or deny it?",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({ content: "what does this command do?" });
     const res = await handleChannelInbound(
@@ -1640,7 +1678,6 @@ describe("conversational approval engine — standard path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -1690,6 +1727,7 @@ describe("conversational approval engine — standard path", () => {
       disposition: "approve_once" as const,
       replyText: "Got it, approving the shell command.",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({ content: "yeah go ahead and run it" });
     const res = await handleChannelInbound(
@@ -1697,7 +1735,6 @@ describe("conversational approval engine — standard path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -1738,6 +1775,7 @@ describe("conversational approval engine — standard path", () => {
       disposition: "reject" as const,
       replyText: "No problem, I've cancelled the shell command.",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({ content: "nevermind, don't run that" });
     const res = await handleChannelInbound(
@@ -1745,7 +1783,6 @@ describe("conversational approval engine — standard path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -1784,6 +1821,7 @@ describe("conversational approval engine — standard path", () => {
       disposition: "keep_pending" as const,
       replyText: "This should not be called",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "",
@@ -1795,7 +1833,6 @@ describe("conversational approval engine — standard path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -1853,6 +1890,7 @@ describe("guardian conversational approval via conversation engine", () => {
       disposition: "keep_pending" as const,
       replyText: "Could you clarify which action you want me to approve?",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "hmm what does this do?",
@@ -1865,7 +1903,6 @@ describe("guardian conversational approval via conversation engine", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -1933,6 +1970,7 @@ describe("guardian conversational approval via conversation engine", () => {
       disposition: "approve_once" as const,
       replyText: "Approved! The shell command will proceed.",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "yes go ahead and run it",
@@ -1945,7 +1983,6 @@ describe("guardian conversational approval via conversation engine", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2081,6 +2118,7 @@ describe("guardian conversational approval via conversation engine", () => {
       disposition: "keep_pending" as const,
       replyText: "You have 2 pending requests: shell and file_edit. Which one?",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "approve it",
@@ -2093,7 +2131,6 @@ describe("guardian conversational approval via conversation engine", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2163,6 +2200,7 @@ describe("keep_pending remains conversational — standard path", () => {
       disposition: "keep_pending" as const,
       replyText: "Before deciding, can you confirm the intent?",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({ content: "approve" });
     const res = await handleChannelInbound(
@@ -2170,7 +2208,6 @@ describe("keep_pending remains conversational — standard path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2226,6 +2263,7 @@ describe("keep_pending remains conversational — guardian path", () => {
       disposition: "keep_pending" as const,
       replyText: "Which run are you approving?",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const guardianReq = makeInboundRequest({
       content: "yes",
@@ -2237,7 +2275,6 @@ describe("keep_pending remains conversational — guardian path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2328,6 +2365,7 @@ describe("requester cancel of guardian-gated pending request", () => {
       disposition: "reject" as const,
       replyText: "Cancelling this request now.",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "deny",
@@ -2339,7 +2377,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2409,6 +2446,7 @@ describe("requester cancel of guardian-gated pending request", () => {
       disposition: "reject" as const,
       replyText: "OK, I have cancelled the pending request.",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "actually never mind, cancel it",
@@ -2420,7 +2458,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2484,6 +2521,7 @@ describe("requester cancel of guardian-gated pending request", () => {
       disposition: "keep_pending" as const,
       replyText: "Still waiting.",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({
       content: "what is happening?",
@@ -2495,7 +2533,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2608,6 +2645,7 @@ describe("engine decision race condition — standard path", () => {
         replyText: "Approved! Running the command now.",
       };
     });
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const req = makeInboundRequest({ content: "go ahead" });
     const res = await handleChannelInbound(
@@ -2615,7 +2653,6 @@ describe("engine decision race condition — standard path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2680,6 +2717,7 @@ describe("engine decision race condition — guardian path", () => {
         replyText: "Approved the request.",
       };
     });
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     const guardianReq = makeInboundRequest({
       content: "approve it",
@@ -2691,7 +2729,6 @@ describe("engine decision race condition — guardian path", () => {
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 
@@ -2875,10 +2912,8 @@ describe("background channel processing approval prompts", () => {
       externalMessageId: "msg-bg-1",
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as unknown as typeof noopProcessMessage,
-    );
+    setTestProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -2943,10 +2978,8 @@ describe("background channel processing approval prompts", () => {
       externalMessageId: "msg-bg-format-1",
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as unknown as typeof noopProcessMessage,
-    );
+    setTestProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -2992,10 +3025,8 @@ describe("background channel processing approval prompts", () => {
       externalMessageId: "msg-ng-1",
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as unknown as typeof noopProcessMessage,
-    );
+    setTestProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -3048,10 +3079,8 @@ describe("background channel processing approval prompts", () => {
       externalMessageId: "msg-bg-unverified-1",
     });
 
-    const res = await handleChannelInbound(
-      req,
-      processMessage as unknown as typeof noopProcessMessage,
-    );
+    setTestProcessMessage(processMessage);
+    const res = await handleChannelInbound(req);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.accepted).toBe(true);
 
@@ -3256,6 +3285,7 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
       disposition: "approve_once" as const,
       replyText: "Approved!",
     }));
+    setTestApprovalConversationGenerator(mockConversationGenerator);
 
     // Trusted contact sends "yes" to try to self-approve
     const req = makeInboundRequest({
@@ -3268,7 +3298,6 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
       noopProcessMessage,
       "self",
       undefined,
-      mockConversationGenerator,
     );
     const body = (await res.json()) as Record<string, unknown>;
 

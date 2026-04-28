@@ -72,7 +72,7 @@ import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 

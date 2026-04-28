@@ -3,7 +3,9 @@
  * and post-decision delivery scheduling.
  */
 import { acknowledgeDelivery, getDeadLetterEvents, replayDeadLetters } from "../../memory/delivery-status.js";
-import { httpError } from "../http-errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteHandlerArgs } from "./types.js";
+
 export {
   type DeliverReplyOptions,
   deliverReplyViaCallback,
@@ -13,46 +15,42 @@ export {
 // Dead letter management
 // ---------------------------------------------------------------------------
 
-export function handleListDeadLetters(): Response {
+export function handleListDeadLetters() {
   const events = getDeadLetterEvents();
-  return Response.json({ events });
+  return { events };
 }
 
-export async function handleReplayDeadLetters(req: Request): Promise<Response> {
-  const body = (await req.json()) as { eventIds?: string[] };
-  const eventIds = body.eventIds;
+export function handleReplayDeadLetters({ body = {} }: RouteHandlerArgs) {
+  const { eventIds } = body as { eventIds?: string[] };
 
   if (!Array.isArray(eventIds) || eventIds.length === 0) {
-    return httpError("BAD_REQUEST", "eventIds array is required", 400);
+    throw new BadRequestError("eventIds array is required");
   }
 
   const replayed = replayDeadLetters(eventIds);
-  return Response.json({ replayed });
+  return { replayed };
 }
 
 // ---------------------------------------------------------------------------
 // Delivery acknowledgement
 // ---------------------------------------------------------------------------
 
-export async function handleChannelDeliveryAck(
-  req: Request,
-): Promise<Response> {
-  const body = (await req.json()) as {
-    sourceChannel?: string;
-    conversationExternalId?: string;
-    externalMessageId?: string;
-  };
-
-  const { sourceChannel, conversationExternalId, externalMessageId } = body;
+export function handleChannelDeliveryAck({ body = {} }: RouteHandlerArgs) {
+  const { sourceChannel, conversationExternalId, externalMessageId } =
+    body as {
+      sourceChannel?: string;
+      conversationExternalId?: string;
+      externalMessageId?: string;
+    };
 
   if (!sourceChannel || typeof sourceChannel !== "string") {
-    return httpError("BAD_REQUEST", "sourceChannel is required", 400);
+    throw new BadRequestError("sourceChannel is required");
   }
   if (!conversationExternalId || typeof conversationExternalId !== "string") {
-    return httpError("BAD_REQUEST", "conversationExternalId is required", 400);
+    throw new BadRequestError("conversationExternalId is required");
   }
   if (!externalMessageId || typeof externalMessageId !== "string") {
-    return httpError("BAD_REQUEST", "externalMessageId is required", 400);
+    throw new BadRequestError("externalMessageId is required");
   }
 
   const acked = acknowledgeDelivery(
@@ -62,10 +60,10 @@ export async function handleChannelDeliveryAck(
   );
 
   if (!acked) {
-    return httpError("NOT_FOUND", "Inbound event not found", 404);
+    throw new NotFoundError("Inbound event not found");
   }
 
-  return new Response(null, { status: 204 });
+  return null;
 }
 
 // ---------------------------------------------------------------------------

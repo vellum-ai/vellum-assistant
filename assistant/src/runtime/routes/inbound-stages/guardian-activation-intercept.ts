@@ -61,7 +61,7 @@ function markProcessed(messageId: string): void {
 
 export async function handleGuardianActivationIntercept(
   params: GuardianActivationInterceptParams,
-): Promise<Response | null> {
+): Promise<Record<string, unknown> | null> {
   const {
     sourceChannel,
     conversationExternalId,
@@ -110,7 +110,7 @@ export async function handleGuardianActivationIntercept(
   // Only checked here; marked as processed after successful session creation
   // so transient failures remain retryable.
   if (isAlreadyProcessed(externalMessageId)) {
-    return Response.json({ accepted: true, guardianActivation: true });
+    return ({ accepted: true, guardianActivation: true });
   }
 
   // ── Idempotency: check for an existing active session from this sender ──
@@ -138,7 +138,7 @@ export async function handleGuardianActivationIntercept(
         });
       }
       markProcessed(externalMessageId);
-      return Response.json({ accepted: true, guardianActivationPending: true });
+      return ({ accepted: true, guardianActivationPending: true });
     }
   }
 
@@ -193,5 +193,5 @@ export async function handleGuardianActivationIntercept(
     dedupeKey: `guardian-activation:${sessionResult.sessionId}`,
   });
 
-  return Response.json({ accepted: true, guardianActivation: true });
+  return ({ accepted: true, guardianActivation: true });
 }

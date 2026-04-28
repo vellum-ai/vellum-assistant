@@ -103,7 +103,7 @@ export type ResolvedMember = {
 export interface AclResult {
   resolvedMember: ResolvedMember | null;
   /** When set, the caller must return this response immediately. */
-  earlyResponse?: Response;
+  earlyResponse?: Record<string, unknown>;
   /**
    * Parsed guardian verification code from the message content, if any.
    * Surfaced here so downstream verification intercept logic can use it
@@ -394,7 +394,7 @@ export async function enforceIngressAcl(
 
             return {
               resolvedMember: null,
-              earlyResponse: Response.json({
+              earlyResponse: ({
                 accepted: true,
                 denied: true,
                 reason: "verification_challenge_sent",
@@ -458,7 +458,7 @@ export async function enforceIngressAcl(
 
         return {
           resolvedMember: null,
-          earlyResponse: Response.json({
+          earlyResponse: ({
             accepted: true,
             denied: true,
             reason: "not_a_member",
@@ -651,7 +651,7 @@ export async function enforceIngressAcl(
 
               return {
                 resolvedMember,
-                earlyResponse: Response.json({
+                earlyResponse: ({
                   accepted: true,
                   denied: true,
                   reason: "verification_challenge_sent",
@@ -724,7 +724,7 @@ export async function enforceIngressAcl(
           }
           return {
             resolvedMember,
-            earlyResponse: Response.json({
+            earlyResponse: ({
               accepted: true,
               denied: true,
               reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
@@ -765,7 +765,7 @@ export async function enforceIngressAcl(
         }
         return {
           resolvedMember,
-          earlyResponse: Response.json({
+          earlyResponse: ({
             accepted: true,
             denied: true,
             reason: "policy_deny",
@@ -809,7 +809,7 @@ async function handleInviteTokenIntercept(params: {
   replyCallbackUrl?: string;
   assistantId?: string;
   canonicalAssistantId: string;
-}): Promise<Response | null> {
+}): Promise<Record<string, unknown> | null> {
   const {
     rawToken,
     sourceChannel,
@@ -836,7 +836,7 @@ async function handleInviteTokenIntercept(params: {
   );
 
   if (dedupResult.duplicate) {
-    return Response.json({
+    return ({
       accepted: true,
       duplicate: true,
       eventId: dedupResult.eventId,
@@ -885,7 +885,7 @@ async function handleInviteTokenIntercept(params: {
       }
     }
     markProcessed(dedupResult.eventId);
-    return Response.json({
+    return ({
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "already_member",
@@ -911,7 +911,7 @@ async function handleInviteTokenIntercept(params: {
 
   if (outcome.ok && outcome.type === "redeemed") {
     markProcessed(dedupResult.eventId);
-    return Response.json({
+    return ({
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "redeemed",
@@ -921,7 +921,7 @@ async function handleInviteTokenIntercept(params: {
 
   // Failed redemption — inform the user and deny
   markProcessed(dedupResult.eventId);
-  return Response.json({
+  return ({
     accepted: true,
     eventId: dedupResult.eventId,
     denied: true,
@@ -952,7 +952,7 @@ async function handleInviteCodeIntercept(params: {
   replyCallbackUrl?: string;
   assistantId?: string;
   canonicalAssistantId: string;
-}): Promise<Response | null> {
+}): Promise<Record<string, unknown> | null> {
   const {
     code,
     sourceChannel,
@@ -992,7 +992,7 @@ async function handleInviteCodeIntercept(params: {
       );
 
       if (dedupResult.duplicate) {
-        return Response.json({
+        return ({
           accepted: true,
           duplicate: true,
           eventId: dedupResult.eventId,
@@ -1015,7 +1015,7 @@ async function handleInviteCodeIntercept(params: {
         }
       }
       markProcessed(dedupResult.eventId);
-      return Response.json({
+      return ({
         accepted: true,
         eventId: dedupResult.eventId,
         denied: true,
@@ -1038,7 +1038,7 @@ async function handleInviteCodeIntercept(params: {
   );
 
   if (dedupResult.duplicate) {
-    return Response.json({
+    return ({
       accepted: true,
       duplicate: true,
       eventId: dedupResult.eventId,
@@ -1096,7 +1096,7 @@ async function handleInviteCodeIntercept(params: {
       }
     }
     markProcessed(dedupResult.eventId);
-    return Response.json({
+    return ({
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "already_member",
@@ -1122,7 +1122,7 @@ async function handleInviteCodeIntercept(params: {
 
   if (outcome.ok && outcome.type === "redeemed") {
     markProcessed(dedupResult.eventId);
-    return Response.json({
+    return ({
       accepted: true,
       eventId: dedupResult.eventId,
       inviteRedemption: "redeemed",
@@ -1132,7 +1132,7 @@ async function handleInviteCodeIntercept(params: {
 
   // Failed redemption (expired, revoked, etc.) — inform and deny
   markProcessed(dedupResult.eventId);
-  return Response.json({
+  return ({
     accepted: true,
     eventId: dedupResult.eventId,
     denied: true,

@@ -84,7 +84,7 @@ import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 

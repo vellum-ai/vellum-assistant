@@ -45,7 +45,7 @@ export interface GuardianReplyInterceptParams {
 
 export interface GuardianReplyInterceptResult {
   /** When true, the message was consumed and the pipeline should short-circuit with the response. */
-  response: Response | null;
+  response: Record<string, unknown> | null;
   /** When true, legacy approval interception should be skipped for this message. */
   skipApprovalInterception: boolean;
 }
@@ -168,7 +168,7 @@ export async function handleGuardianReplyIntercept(
     }
 
     return {
-      response: Response.json({
+      response: ({
         accepted: true,
         duplicate: false,
         eventId,

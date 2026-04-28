@@ -51,7 +51,7 @@ export interface BootstrapInterceptParams {
  */
 export async function handleBootstrapIntercept(
   params: BootstrapInterceptParams,
-): Promise<Response | null> {
+): Promise<Record<string, unknown> | null> {
   const {
     isDuplicate,
     commandIntent,
@@ -118,7 +118,7 @@ export async function handleBootstrapIntercept(
   const now = Date.now();
   updateSessionDelivery(newSession.sessionId, now, 1, now + RESEND_COOLDOWN_MS);
 
-  return Response.json({
+  return ({
     accepted: true,
     duplicate: false,
     eventId,

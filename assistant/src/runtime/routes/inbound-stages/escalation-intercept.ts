@@ -52,7 +52,7 @@ export interface EscalationInterceptParams {
  */
 export function handleEscalationIntercept(
   params: EscalationInterceptParams,
-): Response | null {
+): Record<string, unknown> | null {
   const {
     resolvedMember,
     canonicalAssistantId,
@@ -84,7 +84,7 @@ export function handleEscalationIntercept(
       { sourceChannel, channelId: resolvedMember.channel.id },
       "Ingress ACL: escalate policy but no guardian binding, denying",
     );
-    return Response.json({
+    return ({
       accepted: true,
       denied: true,
       reason: "escalate_no_guardian",
@@ -159,7 +159,7 @@ export function handleEscalationIntercept(
     "Guardian escalation created — notification pipeline handles channel delivery",
   );
 
-  return Response.json({
+  return ({
     accepted: true,
     escalated: true,
     reason: "policy_escalate",

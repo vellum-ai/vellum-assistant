@@ -32,8 +32,8 @@ import {
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
-import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import { _setDeleteLookupConfigForTests } from "../runtime/routes/inbound-message-handler.js";
+import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 
 initializeDb();
 
