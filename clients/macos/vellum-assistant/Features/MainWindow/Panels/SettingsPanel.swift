@@ -491,6 +491,7 @@ struct SettingsPanel: View {
                     .foregroundStyle(VColor.primaryBase)
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
