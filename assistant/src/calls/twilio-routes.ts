@@ -27,6 +27,13 @@ import {
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
+import {
+  BadRequestError,
+  GoneError,
+  NotFoundError,
+} from "../runtime/routes/errors.js";
+import type { RouteHandlerArgs } from "../runtime/routes/types.js";
+import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import { persistCallCompletionMessage } from "./call-conversation-messages.js";
 import { createInboundVoiceSession } from "./call-domain.js";
@@ -246,32 +253,40 @@ function mapTwilioStatus(twilioStatus: string): CallStatus | null {
   }
 }
 
-// ── Route handlers ───────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/** Wrap a TwiML string in an HTTP Response with XML content-type. */
+function twimlResponse(twiml: string): Response {
+  return new Response(twiml, {
+    status: 200,
+    headers: { "Content-Type": "text/xml" },
+  });
+}
+
+const TWIML_HEADERS = { "Content-Type": "text/xml" } as const;
+
+// ── Core voice webhook logic ─────────────────────────────────────────
 
 /**
- * Receives the initial voice webhook when Twilio connects the call.
- * Returns TwiML XML that tells Twilio to open a ConversationRelay WebSocket.
+ * Core voice webhook logic — transport-agnostic.
  *
- * Supports two flows:
- * - **Outbound** (callSessionId present in query): uses the existing session
- * - **Inbound** (callSessionId absent): creates or reuses a session keyed
- *   by the Twilio CallSid. Uses daemon internal scope for assistant identity.
+ * Accepts pre-parsed form params and an optional callSessionId (from URL
+ * query for outbound calls). Returns a TwiML string. Throws RouteError
+ * subclasses on failure.
  */
-export async function handleVoiceWebhook(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const callSessionId = url.searchParams.get("callSessionId");
+function processVoiceWebhook(
+  params: Record<string, string>,
+  callSessionId: string | null,
+): string {
+  const callSid = params.CallSid ?? null;
+  const callerFrom = params.From ?? "";
+  const callerTo = params.To ?? "";
 
-  // Parse the Twilio POST body to capture CallSid and caller metadata.
-  const formBody = new URLSearchParams(await req.text());
-  const callSid = formBody.get("CallSid");
-  const callerFrom = formBody.get("From") ?? "";
-  const callerTo = formBody.get("To") ?? "";
-
-  // ── Inbound mode: no callSessionId in query ─────────────────────
+  // ── Inbound mode: no callSessionId ──────────────────────────────
   if (!callSessionId) {
     if (!callSid) {
       log.warn("Inbound voice webhook called without CallSid");
-      return new Response("Missing CallSid", { status: 400 });
+      throw new BadRequestError("Missing CallSid");
     }
 
     log.info(
@@ -303,7 +318,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   const session = getCallSession(callSessionId);
   if (!session) {
     log.warn({ callSessionId }, "Voice webhook: call session not found");
-    return new Response("Call session not found", { status: 404 });
+    throw new NotFoundError("Call session not found");
   }
 
   if (isTerminalState(session.status)) {
@@ -311,7 +326,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
       { callSessionId, status: session.status },
       "Voice webhook: call session is in terminal state",
     );
-    return new Response("Call session is no longer active", { status: 410 });
+    throw new GoneError("Call session is no longer active");
   }
 
   // Capture CallSid immediately so status callbacks can locate this session
@@ -332,6 +347,27 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     },
     session.verificationSessionId,
   );
+}
+
+// ── Route handlers ───────────────────────────────────────────────────
+
+/**
+ * Receives the initial voice webhook when Twilio connects the call.
+ * Returns TwiML XML that tells Twilio to open a ConversationRelay WebSocket.
+ *
+ * Supports two flows:
+ * - **Outbound** (callSessionId present in query): uses the existing session
+ * - **Inbound** (callSessionId absent): creates or reuses a session keyed
+ *   by the Twilio CallSid. Uses daemon internal scope for assistant identity.
+ */
+export async function handleVoiceWebhook(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const callSessionId = url.searchParams.get("callSessionId");
+
+  const formBody = new URLSearchParams(await req.text());
+  const params = Object.fromEntries(formBody.entries());
+
+  return twimlResponse(processVoiceWebhook(params, callSessionId));
 }
 
 /**
@@ -364,7 +400,7 @@ function buildVoiceWebhookTwiml(
     inviteGuardianName: string | null;
   } | null,
   verificationSessionId?: string | null,
-): Response {
+): string {
   const cfg = loadConfig();
   const profile = resolveVoiceQualityProfile(cfg);
 
@@ -398,7 +434,7 @@ function buildVoiceWebhookTwiml(
     );
     // Graceful degradation: fall back to Deepgram ConversationRelay so
     // calls don't fail entirely on a misconfigured provider.
-    return buildConversationRelayResponse(
+    return buildConversationRelayTwiml(
       callSessionId,
       cfg,
       profile,
@@ -411,7 +447,7 @@ function buildVoiceWebhookTwiml(
   const { strategy } = routingResult;
 
   if (strategy.strategy === "conversation-relay-native") {
-    return buildConversationRelayResponse(
+    return buildConversationRelayTwiml(
       callSessionId,
       cfg,
       profile,
@@ -454,7 +490,7 @@ function buildVoiceWebhookTwiml(
     );
     // Fall back to ConversationRelay so the interactive flow can proceed
     // through the relay server which supports it natively.
-    return buildConversationRelayResponse(
+    return buildConversationRelayTwiml(
       callSessionId,
       cfg,
       profile,
@@ -464,13 +500,13 @@ function buildVoiceWebhookTwiml(
     );
   }
 
-  return buildMediaStreamResponse(callSessionId, cfg, verificationSessionId);
+  return buildMediaStreamTwiml(callSessionId, cfg, verificationSessionId);
 }
 
 /**
- * Build a ConversationRelay TwiML response for Twilio-native STT providers.
+ * Build ConversationRelay TwiML for Twilio-native STT providers.
  */
-function buildConversationRelayResponse(
+function buildConversationRelayTwiml(
   callSessionId: string,
   cfg: ReturnType<typeof loadConfig>,
   profile: ReturnType<typeof resolveVoiceQualityProfile>,
@@ -484,7 +520,7 @@ function buildConversationRelayResponse(
   } | null,
   verificationSessionId: string | null | undefined,
   sttAttrs: { transcriptionProvider: string; speechModel: string | undefined },
-): Response {
+): string {
   const rawHints = resolveCallHints(sessionContext, profile.hints);
 
   const speechConfig: TwilioRelaySpeechConfig = {
@@ -498,9 +534,6 @@ function buildConversationRelayResponse(
   const welcomeGreeting = buildWelcomeGreeting(sessionContext?.task ?? null);
   const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
 
-  // Propagate verificationSessionId as a TwiML <Parameter> for
-  // observability. This is not the sole source of truth; the relay
-  // server reads the persisted call_mode from the call session first.
   const customParameters: Record<string, string> | undefined =
     verificationSessionId ? { verificationSessionId } : undefined;
 
@@ -523,20 +556,17 @@ function buildConversationRelayResponse(
     "Returning ConversationRelay TwiML",
   );
 
-  return new Response(twiml, {
-    status: 200,
-    headers: { "Content-Type": "text/xml" },
-  });
+  return twiml;
 }
 
 /**
- * Build a Stream TwiML response for custom media-stream STT providers.
+ * Build Stream TwiML for custom media-stream STT providers.
  */
-function buildMediaStreamResponse(
+function buildMediaStreamTwiml(
   callSessionId: string,
   cfg: ReturnType<typeof loadConfig>,
   verificationSessionId: string | null | undefined,
-): Response {
+): string {
   const streamUrl = getTwilioMediaStreamUrl(cfg);
   const relayToken = TWILIO_RELAY_TOKEN_PLACEHOLDER;
 
@@ -555,29 +585,26 @@ function buildMediaStreamResponse(
     "Returning Stream TwiML",
   );
 
-  return new Response(twiml, {
-    status: 200,
-    headers: { "Content-Type": "text/xml" },
-  });
+  return twiml;
 }
 
 /**
- * Receives call status updates from Twilio (POST with form-urlencoded body).
- * Updates the call session status and records events.
+ * Core status callback logic — transport-agnostic.
+ *
+ * Accepts pre-parsed form params. Returns void (always 200 to Twilio
+ * regardless of internal state — errors are logged, not surfaced).
  */
-export async function handleStatusCallback(req: Request): Promise<Response> {
-  const formBody = new URLSearchParams(await req.text());
-  const callSid = formBody.get("CallSid");
-  const callStatus = formBody.get("CallStatus");
+function processStatusCallback(params: Record<string, string>): void {
+  const callSid = params.CallSid ?? null;
+  const callStatus = params.CallStatus ?? null;
 
   if (!callSid || !callStatus) {
-    const rawPayload = Object.fromEntries(formBody.entries());
     logDeadLetterEvent(
       "Status callback missing CallSid or CallStatus",
-      rawPayload,
+      params,
       log,
     );
-    return new Response(null, { status: 200 });
+    return;
   }
 
   log.info({ callSid, callStatus }, "Twilio status callback received");
@@ -588,19 +615,18 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       { callSid, callStatus },
       "Status callback: no call session found for CallSid",
     );
-    return new Response(null, { status: 200 });
+    return;
   }
 
   const mappedStatus = mapTwilioStatus(callStatus);
   if (!mappedStatus) {
-    const rawPayload = Object.fromEntries(formBody.entries());
-    logDeadLetterEvent(`Unknown Twilio status: ${callStatus}`, rawPayload, log);
-    return new Response(null, { status: 200 });
+    logDeadLetterEvent(`Unknown Twilio status: ${callStatus}`, params, log);
+    return;
   }
 
   // ── Atomic idempotency claim ────────────────────────────────────
-  const timestamp = formBody.get("Timestamp");
-  const sequenceNumber = formBody.get("SequenceNumber");
+  const timestamp = params.Timestamp ?? null;
+  const sequenceNumber = params.SequenceNumber ?? null;
   const dedupeKey = buildCallbackDedupeKey(
     callSid,
     callStatus,
@@ -614,14 +640,13 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       { callSid, callStatus, dedupeKey },
       "Duplicate status callback — skipping",
     );
-    return new Response(null, { status: 200 });
+    return;
   }
 
   let eventPersisted = false;
   try {
     const wasTerminal = isTerminalState(session.status);
 
-    // Build updates
     const updates: Parameters<typeof updateCallSession>[1] = {
       status: mappedStatus,
     };
@@ -644,10 +669,6 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
         ? "call_connected"
         : "call_started";
 
-    // Record event after DB update but before lease sync: avoids duplicate
-    // events on retry (if update fails we never record), while ensuring the
-    // lease is only released after persistence so vellum sleep doesn't proceed
-    // before the call is fully recorded.
     updateCallSession(session.id, updates, {
       beforeLeaseSync: () => {
         recordCallEvent(session.id, eventType, {
@@ -658,9 +679,6 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       },
     });
 
-    // Post-persistence processing is best-effort — failures must not
-    // propagate to the outer catch block, which would incorrectly treat
-    // them as lease-sync failures and finalize the dedupe claim.
     try {
       if (isTerminal) {
         expirePendingQuestions(session.id);
@@ -689,11 +707,6 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       );
     }
 
-    // Mark the claim as permanently processed so it never expires.
-    // If finalization returns false, another handler reclaimed this key
-    // after our claim expired — our business writes already landed but
-    // the dedupe row now belongs to the other handler, risking duplicate
-    // processing on later retries.
     const finalized = finalizeCallbackClaim(dedupeKey, claimId);
     if (!finalized) {
       log.warn(
@@ -703,9 +716,6 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     }
   } catch (err) {
     if (eventPersisted) {
-      // Event already written — releasing the claim would let Twilio
-      // retries insert a duplicate event. Finalize instead so the
-      // dedupe guard blocks subsequent attempts.
       try {
         finalizeCallbackClaim(dedupeKey, claimId);
         log.warn(
@@ -719,7 +729,6 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
         );
       }
     } else {
-      // Nothing persisted yet — safe to release so retries can reprocess
       try {
         releaseCallbackClaim(dedupeKey, claimId);
       } catch (releaseErr) {
@@ -731,7 +740,16 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     }
     throw err;
   }
+}
 
+/**
+ * Receives call status updates from Twilio (POST with form-urlencoded body).
+ * Updates the call session status and records events.
+ */
+export async function handleStatusCallback(req: Request): Promise<Response> {
+  const formBody = new URLSearchParams(await req.text());
+  const params = Object.fromEntries(formBody.entries());
+  processStatusCallback(params);
   return new Response(null, { status: 200 });
 }
 
@@ -745,4 +763,54 @@ export async function handleConnectAction(_req: Request): Promise<Response> {
     status: 200,
     headers: { "Content-Type": "text/xml" },
   });
+}
+
+// ── Transport-agnostic internal route handlers ───────────────────────
+
+const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+
+/**
+ * Internal voice-webhook handler for gateway→runtime forwarding.
+ * Accepts JSON body `{ params, originalUrl? }` from the gateway.
+ */
+export function handleInternalVoiceWebhook({
+  body = {},
+}: RouteHandlerArgs): RouteResponse {
+  const { params = {}, originalUrl } = body as {
+    params?: Record<string, string>;
+    originalUrl?: string;
+  };
+
+  // Extract callSessionId from the original URL query string
+  let callSessionId: string | null = null;
+  if (originalUrl) {
+    try {
+      callSessionId = new URL(originalUrl).searchParams.get("callSessionId");
+    } catch {
+      // malformed URL — treat as no callSessionId
+    }
+  }
+
+  const twiml = processVoiceWebhook(params, callSessionId);
+  return new RouteResponse(twiml, TWIML_HEADERS);
+}
+
+/**
+ * Internal status-callback handler for gateway→runtime forwarding.
+ * Accepts JSON body `{ params }` from the gateway.
+ */
+export function handleInternalStatusCallback({
+  body = {},
+}: RouteHandlerArgs): RouteResponse {
+  const { params = {} } = body as { params?: Record<string, string> };
+  processStatusCallback(params);
+  return new RouteResponse(null, {});
+}
+
+/**
+ * Internal connect-action handler for gateway→runtime forwarding.
+ */
+export function handleInternalConnectAction(): RouteResponse {
+  log.info("ConversationRelay connect-action callback received");
+  return new RouteResponse(EMPTY_TWIML, TWIML_HEADERS);
 }

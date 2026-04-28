@@ -110,6 +110,13 @@ export class ServiceUnavailableError extends RouteError {
   }
 }
 
+export class GoneError extends RouteError {
+  constructor(message: string) {
+    super(message, "GONE", 410);
+    this.name = "GoneError";
+  }
+}
+
 export class GatewayTimeoutError extends RouteError {
   constructor(message: string) {
     super(message, "GATEWAY_TIMEOUT", 504);

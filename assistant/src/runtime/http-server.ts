@@ -51,9 +51,7 @@ import {
   forkConversation as forkConversationInStore,
   getConversation,
 } from "../memory/conversation-crud.js";
-import {
-  listConversationsByTitlePrefix,
-} from "../memory/conversation-queries.js";
+import { listConversationsByTitlePrefix } from "../memory/conversation-queries.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
@@ -1647,59 +1645,6 @@ export class RuntimeHttpServer {
         guardianFollowUpConversationGenerator:
           this.guardianFollowUpConversationGenerator,
       }),
-      // Internal Twilio forwarding (gateway -> runtime) — kept inline
-      // because these reconstruct fake form-encoded requests from JSON,
-      // a pattern specific to the gateway-to-daemon bridge.
-      {
-        endpoint: "internal/twilio/voice-webhook",
-        method: "POST",
-        handler: async ({ req }) => {
-          const json = (await req.json()) as {
-            params: Record<string, string>;
-            originalUrl?: string;
-          };
-          const formBody = new URLSearchParams(json.params).toString();
-          const reconstructedUrl = json.originalUrl ?? req.url;
-          const fakeReq = new Request(reconstructedUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody,
-          });
-          return handleVoiceWebhook(fakeReq);
-        },
-      },
-      {
-        endpoint: "internal/twilio/status",
-        method: "POST",
-        handler: async ({ req }) => {
-          const json = (await req.json()) as {
-            params: Record<string, string>;
-          };
-          const formBody = new URLSearchParams(json.params).toString();
-          const fakeReq = new Request(req.url, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody,
-          });
-          return handleStatusCallback(fakeReq);
-        },
-      },
-      {
-        endpoint: "internal/twilio/connect-action",
-        method: "POST",
-        handler: async ({ req }) => {
-          const json = (await req.json()) as {
-            params: Record<string, string>;
-          };
-          const formBody = new URLSearchParams(json.params).toString();
-          const fakeReq = new Request(req.url, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: formBody,
-          });
-          return handleConnectAction(fakeReq);
-        },
-      },
 
       ...migrationRouteDefinitions(),
 
