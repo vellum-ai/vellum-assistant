@@ -235,7 +235,9 @@ describe("host_bash background mode — proxy path", () => {
       mockWakeAgentForOpportunity.mock.calls as unknown[][]
     )[0]![0] as Record<string, unknown>;
     expect(wakeCall.conversationId).toBe("conv-xyz");
-    expect(wakeCall.hint).toBe("proxy success output");
+    expect(wakeCall.hint).toBe(
+      "Background host command completed (id=bg-test-0001):\nproxy success output",
+    );
     expect(wakeCall.source).toBe("background-tool");
   });
 
@@ -294,7 +296,7 @@ describe("host_bash background mode — proxy path", () => {
     const wakeCall = (
       mockWakeAgentForOpportunity.mock.calls as unknown[][]
     )[0]![0] as Record<string, unknown>;
-    expect(wakeCall.hint).toContain("Background host command error");
+    expect(wakeCall.hint).toContain("Background host command failed");
     expect(wakeCall.hint).toContain("proxy transport error");
   });
 
@@ -424,7 +426,7 @@ describe("host_bash background mode — direct execution path", () => {
     const wakeCall = (
       mockWakeAgentForOpportunity.mock.calls as unknown[][]
     )[0]![0] as Record<string, unknown>;
-    expect(wakeCall.hint).toContain("Background host command error");
+    expect(wakeCall.hint).toContain("Background host command failed");
     expect(wakeCall.hint).toContain("spawn ENOENT");
   });
 
