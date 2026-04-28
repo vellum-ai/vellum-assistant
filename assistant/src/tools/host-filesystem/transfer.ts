@@ -4,6 +4,7 @@ import { dirname, isAbsolute } from "node:path";
 
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 class HostFileTransferTool implements Tool {
@@ -28,7 +29,7 @@ class HostFileTransferTool implements Tool {
           dest_path: {
             type: "string",
             description:
-              "Absolute path to the destination. For to_host, this is a host path. For to_sandbox, this is a workspace path.",
+              "Destination path. For to_host, must be an absolute host path. For to_sandbox, a workspace path — relative paths resolve against the sandbox working directory; /workspace/... paths are also accepted.",
           },
           direction: {
             type: "string",
@@ -97,6 +98,20 @@ class HostFileTransferTool implements Tool {
       };
     }
 
+    // Normalize sandbox destination — resolves relative paths, remaps /workspace/...,
+    // rejects out-of-bounds (same model as file_write).
+    let resolvedDestPath = destPath;
+    if (direction === "to_sandbox") {
+      const pathCheck = sandboxPolicy(destPath, context.workingDir, { mustExist: false });
+      if (!pathCheck.ok) {
+        return {
+          content: `Invalid destination path: ${pathCheck.error}`,
+          isError: true,
+        };
+      }
+      resolvedDestPath = pathCheck.resolved;
+    }
+
     // Managed mode: delegate to the host transfer proxy when available.
     if (context.hostTransferProxy?.isAvailable()) {
       if (direction === "to_host") {
@@ -113,7 +128,7 @@ class HostFileTransferTool implements Tool {
       return context.hostTransferProxy.requestToSandbox(
         {
           sourcePath,
-          destPath,
+          destPath: resolvedDestPath,
           overwrite,
           conversationId: context.conversationId,
         },
@@ -122,7 +137,7 @@ class HostFileTransferTool implements Tool {
     }
 
     // Local mode: direct filesystem copy.
-    return this.executeLocal(sourcePath, destPath, overwrite);
+    return this.executeLocal(sourcePath, resolvedDestPath, overwrite);
   }
 
   private async executeLocal(
