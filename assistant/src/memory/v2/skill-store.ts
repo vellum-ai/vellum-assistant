@@ -79,10 +79,16 @@ export async function seedV2SkillEntries(): Promise<void> {
     const resolved = resolveSkillStates(catalog, config);
     const enabled = resolved.filter((r) => r.state === "enabled");
 
+    // Track every locally-installed skill id (regardless of enabled/disabled
+    // state) so the catalog-seeding loop below treats them all as "installed"
+    // and never re-seeds a disabled skill from `getCatalog()` as if it were
+    // uninstalled. Mirrors v1's `seedUninstalledCatalogSkillMemories`, which
+    // keys off `loadSkillCatalog()` (the installed set) for the same reason.
+    const installedIds = new Set<string>(catalog.map((s) => s.id));
+
     // Build the input list, applying the mcp-setup description augmentation
     // and the defense-in-depth feature-flag filter.
     const seeds: SkillEntry[] = [];
-    const seenIds = new Set<string>();
     for (const { summary } of enabled) {
       const flagKey = summary.featureFlag;
       if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
@@ -90,7 +96,6 @@ export async function seedV2SkillEntries(): Promise<void> {
       const augmented = augmentMcpSetupDescription(fromSkillSummary(summary));
       const content = buildSkillContent(augmented);
       seeds.push({ id: summary.id, content });
-      seenIds.add(summary.id);
     }
 
     // Seed uninstalled catalog skills so their activation hints are
@@ -98,13 +103,12 @@ export async function seedV2SkillEntries(): Promise<void> {
     try {
       const fullCatalog = await getCatalog();
       for (const entry of fullCatalog) {
-        if (seenIds.has(entry.id)) continue;
+        if (installedIds.has(entry.id)) continue;
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
         if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
           continue;
         const content = buildSkillContent(fromCatalogSkill(entry));
         seeds.push({ id: entry.id, content });
-        seenIds.add(entry.id);
       }
     } catch (err) {
       log.warn(
