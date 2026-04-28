@@ -1,6 +1,11 @@
 import type { Command } from "commander";
 
-import { getConfig } from "../../../config/loader.js";
+import { getIsPlatform } from "../../../config/env-registry.js";
+import {
+  getConfig,
+  getNestedValue,
+  loadRawConfig,
+} from "../../../config/loader.js";
 import {
   getServiceMode,
   type Services,
@@ -40,6 +45,13 @@ export function getManagedServiceConfigKey(provider: string): string | null {
 
 /**
  * Determine whether a provider is running in platform-managed mode.
+ *
+ * When `IS_PLATFORM=true` and the provider supports managed mode, this
+ * defaults to `true` unless the user has explicitly set the service mode
+ * to `"your-own"` in the raw config file. This lets platform instances
+ * use platform-managed OAuth credentials out of the box without requiring
+ * a manual `assistant oauth mode <provider> --set managed` step.
+ *
  * Returns false if config is unavailable (e.g. in test environments).
  */
 export function isManagedMode(provider: string): boolean {
@@ -47,7 +59,22 @@ export function isManagedMode(provider: string): boolean {
   if (!managedKey) return false;
   try {
     const services: Services = getConfig().services;
-    return getServiceMode(services, managedKey as keyof Services) === "managed";
+    const mode = getServiceMode(services, managedKey as keyof Services);
+    if (mode === "managed") return true;
+
+    // On platform instances, default to managed mode for providers that
+    // support it — unless the user explicitly opted into "your-own".
+    if (getIsPlatform()) {
+      const rawMode = getNestedValue(
+        loadRawConfig(),
+        `services.${managedKey}.mode`,
+      );
+      // If the raw config doesn't have an explicit mode entry, the "your-own"
+      // value came from the schema default — override it to managed on platform.
+      if (rawMode === undefined) return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
