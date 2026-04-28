@@ -42,8 +42,12 @@ export const MEMORY_V2_SKILLS_COLLECTION = "memory_v2_skills";
  */
 export const SKILL_NAMESPACE = "f1903e7f-1b9d-4c15-ac46-3540b8b0a9f6";
 
-/** Per-channel score for a single skill hit returned by hybrid query. */
-export interface SkillQueryResult {
+/**
+ * Per-channel score for a single skill hit returned by hybrid query.
+ * Module-private — `sim.ts` consumes the fields by duck-typing rather than
+ * naming the type, so there is no benefit to exporting it.
+ */
+interface SkillQueryResult {
   id: string;
   /**
    * Dense cosine similarity, when the id appeared in the dense top-`limit`.
@@ -155,7 +159,6 @@ export async function ensureSkillCollection(): Promise<void> {
  */
 export async function upsertSkillEmbedding(params: {
   id: string;
-  displayName: string;
   content: string;
   dense: number[];
   sparse: SparseEmbedding;
@@ -163,7 +166,7 @@ export async function upsertSkillEmbedding(params: {
 }): Promise<void> {
   await ensureSkillCollection();
 
-  const { id, displayName, content, dense, sparse, updatedAt } = params;
+  const { id, content, dense, sparse, updatedAt } = params;
   const client = getClient();
   const pointId = pointIdForId(id);
 
@@ -176,7 +179,6 @@ export async function upsertSkillEmbedding(params: {
           vector: { dense, sparse },
           payload: {
             id,
-            displayName,
             content,
             updated_at: updatedAt,
           },
@@ -191,30 +193,6 @@ export async function upsertSkillEmbedding(params: {
       _collectionReady = false;
       await ensureSkillCollection();
       await upsertOnce();
-      return;
-    }
-    throw err;
-  }
-}
-
-/** Remove the embedding for a skill id. Idempotent: no-op when the id is absent. */
-export async function deleteSkillEmbedding(id: string): Promise<void> {
-  await ensureSkillCollection();
-
-  const client = getClient();
-  const doDelete = () =>
-    client.delete(MEMORY_V2_SKILLS_COLLECTION, {
-      wait: true,
-      points: [pointIdForId(id)],
-    });
-
-  try {
-    await doDelete();
-  } catch (err) {
-    if (isCollectionMissing(err)) {
-      _collectionReady = false;
-      await ensureSkillCollection();
-      await doDelete();
       return;
     }
     throw err;

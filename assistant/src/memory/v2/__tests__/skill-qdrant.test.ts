@@ -30,7 +30,6 @@ type MockPoint = {
   vector: { dense: number[]; sparse: { indices: number[]; values: number[] } };
   payload: {
     id: string;
-    displayName: string;
     content: string;
     updated_at: number;
   };
@@ -150,7 +149,6 @@ mock.module("@qdrant/js-client-rest", () => ({
 const {
   ensureSkillCollection,
   upsertSkillEmbedding,
-  deleteSkillEmbedding,
   pruneSkillsExcept,
   hybridQuerySkills,
   MEMORY_V2_SKILLS_COLLECTION,
@@ -271,7 +269,6 @@ describe("memory v2 skill qdrant — upsert", () => {
 
     await upsertSkillEmbedding({
       id: "example-skill-1",
-      displayName: "Example Skill 1",
       content: "The Example Skill 1 (example-skill-1) is available. ...",
       dense: [0.1, 0.2, 0.3],
       sparse: { indices: [1, 2], values: [0.5, 0.5] },
@@ -285,7 +282,6 @@ describe("memory v2 skill qdrant — upsert", () => {
     const [point] = call.points;
     expect(point.payload).toEqual({
       id: "example-skill-1",
-      displayName: "Example Skill 1",
       content: "The Example Skill 1 (example-skill-1) is available. ...",
       updated_at: 1714000000000,
     });
@@ -305,7 +301,6 @@ describe("memory v2 skill qdrant — upsert", () => {
 
     await upsertSkillEmbedding({
       id: "example-skill-1",
-      displayName: "Example Skill 1",
       content: "first",
       dense: [0.1],
       sparse: { indices: [1], values: [1] },
@@ -313,7 +308,6 @@ describe("memory v2 skill qdrant — upsert", () => {
     });
     await upsertSkillEmbedding({
       id: "example-skill-1",
-      displayName: "Example Skill 1",
       content: "second",
       dense: [0.9],
       sparse: { indices: [9], values: [0.5] },
@@ -331,7 +325,6 @@ describe("memory v2 skill qdrant — upsert", () => {
 
     await upsertSkillEmbedding({
       id: "example-skill-1",
-      displayName: "Example Skill 1",
       content: "a",
       dense: [0.1],
       sparse: { indices: [1], values: [1] },
@@ -339,7 +332,6 @@ describe("memory v2 skill qdrant — upsert", () => {
     });
     await upsertSkillEmbedding({
       id: "example-skill-2",
-      displayName: "Example Skill 2",
       content: "b",
       dense: [0.1],
       sparse: { indices: [1], values: [1] },
@@ -348,52 +340,6 @@ describe("memory v2 skill qdrant — upsert", () => {
 
     expect(state.upsertCalls[0].points[0].id).not.toBe(
       state.upsertCalls[1].points[0].id,
-    );
-  });
-});
-
-describe("memory v2 skill qdrant — delete", () => {
-  beforeEach(resetState);
-  afterEach(resetState);
-
-  test("deletes a skill by its deterministic point id", async () => {
-    state.collectionExistsBeforeCreate = true;
-
-    await deleteSkillEmbedding("example-skill-1");
-
-    expect(state.deleteCalls).toHaveLength(1);
-    const call = state.deleteCalls[0];
-    expect(call.wait).toBe(true);
-    expect(call.points).toHaveLength(1);
-    expect(call.points[0]).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
-  });
-
-  test("delete is idempotent across repeated calls (no exception)", async () => {
-    state.collectionExistsBeforeCreate = true;
-
-    await deleteSkillEmbedding("example-skill-1");
-    await deleteSkillEmbedding("example-skill-1");
-
-    expect(state.deleteCalls).toHaveLength(2);
-  });
-
-  test("deletes use the same point id as upserts for the same skill id", async () => {
-    state.collectionExistsBeforeCreate = true;
-
-    await upsertSkillEmbedding({
-      id: "example-skill-1",
-      displayName: "Example Skill 1",
-      content: "x",
-      dense: [0.1],
-      sparse: { indices: [1], values: [1] },
-      updatedAt: 1,
-    });
-    await deleteSkillEmbedding("example-skill-1");
-
-    expect(state.upsertCalls[0].points[0].id).toBe(
-      String(state.deleteCalls[0].points[0]),
     );
   });
 });

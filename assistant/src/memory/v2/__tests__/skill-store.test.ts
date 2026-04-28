@@ -37,7 +37,6 @@ interface TestState {
   sparseReturn: { indices: number[]; values: number[] };
   upsertCalls: Array<{
     id: string;
-    displayName: string;
     content: string;
     dense: number[];
     sparse: { indices: number[]; values: number[] };
@@ -174,7 +173,6 @@ describe("seedV2SkillEntries", () => {
 
     // Each upsert carries the per-skill dense + sparse + content payload.
     const callA = state.upsertCalls.find((c) => c.id === "example-skill-a")!;
-    expect(callA.displayName).toBe("Skill A");
     expect(callA.dense).toEqual([0.1, 0.2, 0.3]);
     expect(callA.sparse).toEqual(state.sparseReturn);
     expect(callA.content).toContain("Skill A");
@@ -287,12 +285,11 @@ describe("seedV2SkillEntries", () => {
     const entryB = getSkillCapability("example-skill-b");
     expect(entryA).not.toBeNull();
     expect(entryA?.id).toBe("example-skill-a");
-    expect(entryA?.displayName).toBe("Skill A");
     expect(entryA?.content).toContain("Skill A");
 
     expect(entryB).not.toBeNull();
     expect(entryB?.id).toBe("example-skill-b");
-    expect(entryB?.displayName).toBe("Skill B");
+    expect(entryB?.content).toContain("Skill B");
 
     // Unknown ids return null even when the cache is populated.
     expect(getSkillCapability("unknown-skill")).toBeNull();

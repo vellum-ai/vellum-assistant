@@ -79,7 +79,7 @@ export async function seedV2SkillEntries(): Promise<void> {
 
       const augmented = augmentMcpSetupDescription(fromSkillSummary(summary));
       const content = buildSkillContent(augmented);
-      seeds.push({ id: summary.id, displayName: summary.displayName, content });
+      seeds.push({ id: summary.id, content });
     }
 
     // Embed all content strings in one batched call. Sparse vectors are

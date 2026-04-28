@@ -2,10 +2,11 @@
 // Memory v2 — Shared types
 // ---------------------------------------------------------------------------
 //
-// Zod schemas (and inferred TypeScript types) shared across the v2 memory
-// subsystem. Each value here crosses a serialization boundary — YAML
-// frontmatter, on-disk JSON, or a SQLite JSON column — so runtime validation
-// is needed wherever it is read.
+// Types shared across the v2 memory subsystem. Most values here cross a
+// serialization boundary — YAML frontmatter, on-disk JSON, or a SQLite JSON
+// column — so they ship as Zod schemas with inferred TypeScript types so
+// runtime validation runs wherever they are read. The skill-autoinjection
+// entry stays a plain `interface` because it is purely in-process.
 //
 // This file must not import from any other `memory/v2/*` module — it is the
 // leaf of the v2 dependency graph.
@@ -98,28 +99,18 @@ export type ActivationState = z.infer<typeof ActivationStateSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Per-skill capability snapshot held in-process and embedded into
- * the `memory_v2_skills` Qdrant collection. `content` is the rendered
- * `buildSkillContent` string — already capped at 500 chars upstream — and
- * is what we embed and what we render in `### Skills You Can Use`.
+ * Per-skill capability snapshot held in-process and embedded into the
+ * `memory_v2_skills` Qdrant collection. `content` is the rendered
+ * `buildSkillContent` string — already capped at 500 chars upstream and
+ * already containing the skill's display name — and is what we embed and
+ * what we render verbatim in `### Skills You Can Use`.
+ *
+ * Plain interface (no Zod) because skill data does not cross a
+ * serialization boundary: it is built in-process by `seedV2SkillEntries`
+ * and read in-process by `renderInjectionBlock`. The Qdrant payload is
+ * not parsed back through this type.
  */
-export const SkillEntrySchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-  content: z.string(),
-});
-
-export type SkillEntry = z.infer<typeof SkillEntrySchema>;
-
-/**
- * Payload carried alongside each `memory_v2_skills` Qdrant point. Mirrors
- * the `ConceptPagePayload` shape but keyed on `id` instead of `slug`.
- */
-export const SkillEmbeddingPayloadSchema = z.object({
-  id: z.string(),
-  displayName: z.string(),
-  content: z.string(),
-  updated_at: z.number().int().nonnegative(),
-});
-
-export type SkillEmbeddingPayload = z.infer<typeof SkillEmbeddingPayloadSchema>;
+export interface SkillEntry {
+  id: string;
+  content: string;
+}
