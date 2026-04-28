@@ -251,6 +251,11 @@ final class ConversationRestorer {
             defer { self?.reconnectHistoryDrainTask = nil }
             while let self, !Task.isCancelled, !self.reconnectHistoryQueue.isEmpty {
                 let conversationId = self.reconnectHistoryQueue.removeFirst()
+                // Restart the VM's latch timeout now that the fetch is actually
+                // beginning (may have waited in the queue behind other conversations).
+                if let localId = self.pendingHistoryByConversationId[conversationId] {
+                    self.delegate?.existingChatViewModel(for: localId)?.restartReconnectLatchTimeout()
+                }
                 let response = await self.conversationHistoryClient.fetchHistory(
                     conversationId: conversationId,
                     limit: 50,
@@ -486,6 +491,9 @@ final class ConversationRestorer {
         // Offload the heavy reconstruction work (JSON size estimation, tool input
         // formatting, image decoding) to a background thread. The nonisolated
         // static method accesses no @MainActor state, so this is safe.
+        // Gate the VM before the detached task so streaming handlers suppress
+        // SSE deltas that arrive during reconstruction.
+        viewModel.isLoadingHistory = true
         let convId = viewModel.conversationId
         let messages = response.messages
         let hasMore = response.hasMore

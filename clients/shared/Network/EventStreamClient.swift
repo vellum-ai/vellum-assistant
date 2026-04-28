@@ -216,8 +216,8 @@ public final class EventStreamClient {
     func teardown() {
         shouldReconnect = false
         stopSSE()
-        for continuation in subscribers.values {
-            continuation.finish()
+        for subscriber in subscribers.values {
+            subscriber.continuation.finish()
         }
         subscribers.removeAll()
     }

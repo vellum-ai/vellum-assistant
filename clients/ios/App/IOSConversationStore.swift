@@ -1015,6 +1015,9 @@ class IOSConversationStore: ObservableObject {
         // Offload the heavy reconstruction work (JSON size estimation, tool input
         // formatting, image decoding) to a background thread. The nonisolated
         // static method accesses no @MainActor state, so this is safe.
+        // Gate the VM before the detached task so streaming handlers suppress
+        // SSE deltas that arrive during reconstruction.
+        vm.isLoadingHistory = true
         let convId = vm.conversationId
         let messages = response.messages
         let hasMore = response.hasMore

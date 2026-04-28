@@ -888,11 +888,18 @@ public struct ToolCallData: Identifiable, Equatable {
     }
 
     /// Decode base64 image data into a platform image. Returns nil if data is absent or invalid.
+    ///
+    /// On macOS, uses `CGImageSource` for thread-safe decoding so this method
+    /// can be called from any isolation context (including `Task.detached`).
+    /// `NSImage(data:)` is NOT thread-safe.
+    /// Ref: https://developer.apple.com/documentation/imageio/cgimagesource
     #if os(macOS)
     public static func decodeImage(from base64String: String?) -> NSImage? {
         guard let base64String, let data = Data(base64Encoded: base64String) else { return nil }
         let start = CFAbsoluteTimeGetCurrent()
-        let image = NSImage(data: data)
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         if elapsed > 0.05 {
             Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolCallData")

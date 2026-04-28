@@ -909,9 +909,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false
 
-    /// True while `populateFromHistory` is actively inserting messages.
-    /// Observers can check this to avoid treating the history hydration as new activity.
-    public internal(set) var isLoadingHistory: Bool = false
+    /// True while history reconstruction or insertion is in progress.
+    /// Streaming handlers check this to suppress SSE deltas that would
+    /// conflict with the authoritative history snapshot being applied.
+    public var isLoadingHistory: Bool = false
 
     // MARK: - Message Pagination (forwarded from ChatPaginationState)
 
@@ -2374,6 +2375,22 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             flushOfflineQueue()
         } else {
             needsOfflineFlush = true
+        }
+    }
+
+    /// Restart the reconnect history latch timeout. Called by serialized
+    /// reconnect queues when the actual fetch begins (which may be delayed
+    /// relative to when the latch was first armed).
+    public func restartReconnectLatchTimeout() {
+        guard isReconnectHistoryLoading else { return }
+        reconnectLatchTimeoutTask?.cancel()
+        reconnectLatchTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+            guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
+            log.warning("Reconnect history latch timed out after 10s — resetting")
+            self.isReconnectHistoryLoading = false
+            self.needsReconnectCatchUp = false
+            self.reconnectPendingSnapshot = []
         }
     }
 
