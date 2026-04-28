@@ -205,27 +205,22 @@ public struct VSelectableTextView: NSViewRepresentable {
         // layout independently for their own scroll-attachment perf fix.
         textStorage.addLayoutManager(layoutManager)
 
-        // The container is the text wrapping surface. Its width determines
-        // where lines break; its configured size is what the layout manager
-        // lays glyphs into. Whether the container follows the NSTextView's
-        // frame depends on `widthTracksTextView` / `heightTracksTextView`.
+        // Two container sizing modes:
         //
-        // Two sizing paths:
-        // 1. `useExternalSizing: true` — the caller precomputes size via
-        //    `measureSize` and applies an explicit `.frame(width:height:)`.
-        //    We must decouple the container from the frame so that when
-        //    SwiftUI calls `setFrameSize` on the NSTextView (e.g. during a
-        //    window resize), AppKit does not interpret it as a container-
-        //    width change and invoke `_fillLayoutHoleForCharacterRange` to
-        //    re-lay out every glyph on the main thread — an O(n) cascade
-        //    that produces multi-second hangs on large messages. Size the
-        //    container explicitly from `maxWidth`; propagate changes in
-        //    `updateNSView`. Peer components `VCodeView` and
-        //    `HighlightedTextView` follow the same pattern.
-        // 2. `useExternalSizing: false` — our `sizeThatFits` drives layout
-        //    and the container tracks the view frame as NSTextView's
-        //    default behavior intends. Used by the Gallery preview, where
-        //    there is only a single instance and no resize storm.
+        // - `useExternalSizing: true` — the caller precomputes size via
+        //   `measureSize` and applies `.frame(width:height:)`. The container
+        //   is decoupled from the view frame so that `setFrameSize` cannot
+        //   forward a width change onto the layout manager and trigger
+        //   `_fillLayoutHoleForCharacterRange`, an O(glyph-count) main-thread
+        //   relayout. Container width is sized explicitly from `maxWidth`
+        //   here, and propagated in `updateNSView` when `maxWidth` changes.
+        //
+        // - `useExternalSizing: false` — `sizeThatFits` drives layout and
+        //   the container tracks the view frame, matching NSTextView's
+        //   default. Used by the design system gallery only.
+        //
+        // Reference: NSTextContainer.widthTracksTextView
+        // https://developer.apple.com/documentation/uikit/nstextcontainer/widthtrackstextview
         let initialContainerWidth = useExternalSizing ? (maxWidth ?? CGFloat.greatestFiniteMagnitude) : 0
         let textContainer = NSTextContainer(size: NSSize(
             width: initialContainerWidth,
