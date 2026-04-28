@@ -394,23 +394,3 @@ private extension View {
     }
 }
 
-// MARK: - AnyInsettableShape
-
-/// Type-erased `InsettableShape` so VSplitButton can switch between
-/// `Capsule` and `RoundedRectangle` at runtime while still using
-/// `strokeBorder` (which requires `InsettableShape`).
-private struct AnyInsettableShape: InsettableShape {
-    private let _path: (CGRect) -> Path
-    private let _sizeThatFits: (ProposedViewSize) -> CGSize
-    private let _inset: (CGFloat) -> AnyInsettableShape
-
-    init<S: InsettableShape>(_ shape: S) {
-        _path = shape.path
-        _sizeThatFits = shape.sizeThatFits
-        _inset = { AnyInsettableShape(shape.inset(by: $0)) }
-    }
-
-    func path(in rect: CGRect) -> Path { _path(rect) }
-    func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize { _sizeThatFits(proposal) }
-    func inset(by amount: CGFloat) -> AnyInsettableShape { _inset(amount) }
-}
