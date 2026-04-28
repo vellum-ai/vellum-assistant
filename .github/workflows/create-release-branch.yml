@@ -178,6 +178,12 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
+      - name: Install package dependencies
+        run: |
+          for pkg in packages/*/; do
+            (cd "$pkg" && bun install --frozen-lockfile)
+          done
+
       - name: Install assistant dependencies
         working-directory: assistant
         run: bun install --frozen-lockfile
