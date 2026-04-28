@@ -47,7 +47,7 @@ struct ContactDetailView: View {
                 .padding(VSpacing.lg)
 
                 if let errorMessage {
-                    VInlineMessage(errorMessage)
+                    VNotification(errorMessage, tone: .negative)
                 }
             }
         }

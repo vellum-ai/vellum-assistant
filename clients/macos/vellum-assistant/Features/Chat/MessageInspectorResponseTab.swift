@@ -122,9 +122,9 @@ struct MessageInspectorResponseTab: View {
                         .foregroundStyle(VColor.contentSecondary)
                 }
 
-                VInlineMessage(
+                VNotification(
                     "Need the full provider payload? Open the Raw tab for request and response JSON.",
-                    tone: .info
+                    tone: .neutral
                 )
             }
         }
