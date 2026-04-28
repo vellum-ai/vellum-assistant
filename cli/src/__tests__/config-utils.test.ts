@@ -101,6 +101,46 @@ describe("config-utils", () => {
     });
   });
 
+  test("buildInitialConfig respects active profile provider overrides", () => {
+    expect(
+      buildInitialConfig({
+        "llm.activeProfile": "fast",
+        "llm.profiles.fast.provider": "openai",
+        "llm.profiles.fast.model": "gpt-5.5",
+      }),
+    ).toEqual({
+      llm: {
+        activeProfile: "fast",
+        profiles: {
+          fast: {
+            provider: "openai",
+            model: "gpt-5.5",
+          },
+        },
+      },
+    });
+  });
+
+  test("buildInitialConfig uses active profile model when deciding to seed", () => {
+    expect(
+      buildInitialConfig({
+        "llm.activeProfile": "fast",
+        "llm.profiles.fast.provider": "anthropic",
+        "llm.profiles.fast.model": "claude-haiku-4-5-20251001",
+      }),
+    ).toEqual({
+      llm: {
+        activeProfile: "fast",
+        profiles: {
+          fast: {
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001",
+          },
+        },
+      },
+    });
+  });
+
   test("buildInitialConfig does not seed Opus for non-Anthropic providers", () => {
     expect(
       buildInitialConfig({

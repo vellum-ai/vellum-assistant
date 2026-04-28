@@ -80,11 +80,12 @@ export function writeInitialConfig(
 function seedAnthropicMainAgentCallSite(config: Record<string, unknown>): void {
   const llm = ensureObject(config, "llm");
 
-  const defaultBlock = readObject(llm.default);
-  const provider = readString(defaultBlock?.provider) ?? ANTHROPIC_PROVIDER;
+  const existingCallSites = readObject(llm.callSites);
+  if (existingCallSites !== null && "mainAgent" in existingCallSites) return;
+
+  const { provider, model } = resolveInitialMainAgentBaseSelection(llm);
   if (provider !== ANTHROPIC_PROVIDER) return;
 
-  const model = readString(defaultBlock?.model);
   if (
     model !== undefined &&
     model !== ANTHROPIC_DEFAULT_MODEL &&
@@ -94,12 +95,34 @@ function seedAnthropicMainAgentCallSite(config: Record<string, unknown>): void {
   }
 
   const callSites = ensureObject(llm, "callSites");
-  if ("mainAgent" in callSites) return;
 
   callSites.mainAgent = {
     model: MAIN_AGENT_OPUS_MODEL,
     maxTokens: MAIN_AGENT_OPUS_MAX_TOKENS,
   };
+}
+
+function resolveInitialMainAgentBaseSelection(llm: Record<string, unknown>): {
+  provider: string;
+  model?: string;
+} {
+  const defaultBlock = readObject(llm.default);
+  let provider = readString(defaultBlock?.provider) ?? ANTHROPIC_PROVIDER;
+  let model = readString(defaultBlock?.model);
+
+  const profiles = readObject(llm.profiles);
+  const activeProfileName = readString(llm.activeProfile);
+  const activeProfile =
+    profiles !== null && activeProfileName !== undefined
+      ? readObject(profiles[activeProfileName])
+      : null;
+
+  if (activeProfile !== null) {
+    provider = readString(activeProfile.provider) ?? provider;
+    model = readString(activeProfile.model) ?? model;
+  }
+
+  return model === undefined ? { provider } : { provider, model };
 }
 
 function ensureObject(
