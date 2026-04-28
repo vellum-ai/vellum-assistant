@@ -1,9 +1,8 @@
 /**
  * Route handlers for contact and invite management endpoints.
  *
- * Shared ROUTES are served by both the HTTP server and the IPC server.
- * Routes requiring raw Request, AuthContext, or special response status
- * codes remain HTTP-only via contactHttpOnlyRouteDefinitions().
+ * All routes are served by both the HTTP server and the IPC server
+ * via the shared ROUTES array.
  *
  * IMPORTANT: contacts/:id routes are placed LAST in the ROUTES array so
  * they don't shadow more-specific sub-paths like contacts/invites.
@@ -13,7 +12,6 @@ import { z } from "zod";
 
 import {
   deleteContact,
-  findGuardianContact,
   getAssistantContactMetadata,
   getChannelById,
   getContact,
@@ -33,10 +31,6 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
-import { isServiceGatewayPrincipal } from "../auth/context.js";
-import type { AuthContext } from "../auth/types.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -47,6 +41,7 @@ import {
 } from "../invite-service.js";
 import {
   BadRequestError,
+  ConflictError,
   ForbiddenError,
   NotFoundError,
 } from "./errors.js";
@@ -464,8 +459,7 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "contacts/search",
     method: "POST",
     summary: "Search contacts",
-    description:
-      "Search contacts by query, channel address, or channel type.",
+    description: "Search contacts by query, channel address, or channel type.",
     tags: ["contacts"],
     requestBody: z.object({
       query: z.string().optional(),
@@ -484,76 +478,6 @@ export const ROUTES: RouteDefinition[] = [
         })
         .parse(body);
       return searchContacts(parsed);
-    },
-  },
-
-  // ── contacts/upsert ─────────────────────────────────────────────────
-  {
-    operationId: "upsert_contact",
-    endpoint: "contacts/upsert",
-    method: "POST",
-    summary: "Create or update a contact",
-    description:
-      "Create a new contact or update an existing one by ID.",
-    tags: ["contacts"],
-    requestBody: z.object({
-      id: z.string().optional(),
-      displayName: z.string().min(1),
-      notes: z.string().optional(),
-      channels: z
-        .array(
-          z.object({
-            type: z.string(),
-            address: z.string(),
-            isPrimary: z.boolean().optional(),
-          }),
-        )
-        .optional(),
-    }),
-    responseBody: z.object({}).passthrough(),
-    handler: ({ body = {} }: RouteHandlerArgs) => {
-      const parsed = z
-        .object({
-          id: z.string().optional(),
-          displayName: z.string().min(1),
-          notes: z.string().optional(),
-          channels: z
-            .array(
-              z.object({
-                type: z.string(),
-                address: z.string(),
-                isPrimary: z.boolean().optional(),
-              }),
-            )
-            .optional(),
-        })
-        .parse(body);
-      return upsertContact(parsed);
-    },
-  },
-
-  // ── contacts/merge-by-id ────────────────────────────────────────────
-  {
-    operationId: "merge_contacts",
-    endpoint: "contacts/merge-by-id",
-    method: "POST",
-    summary: "Merge two contacts",
-    description:
-      "Merge two contacts by ID, keeping one and absorbing the other.",
-    tags: ["contacts"],
-    requestBody: z.object({
-      keepId: z.string().min(1),
-      mergeId: z.string().min(1),
-    }),
-    responseBody: z.object({}).passthrough(),
-    handler: ({ body = {} }: RouteHandlerArgs) => {
-      const { keepId, mergeId } = z
-        .object({
-          keepId: z.string().min(1),
-          mergeId: z.string().min(1),
-        })
-        .parse(body);
-      return mergeContacts(keepId, mergeId);
     },
   },
 
@@ -590,34 +514,101 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleDeleteContact(pathParams!.id),
   },
+  {
+    operationId: "upsert_contact",
+    endpoint: "contacts",
+    method: "POST",
+    summary: "Create or update a contact",
+    description:
+      "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      contactId: z.string().describe("Existing contact ID (for update)"),
+      displayName: z.string().describe("Display name"),
+      channels: z
+        .array(z.unknown())
+        .describe("Channel objects with channelId, handle, displayName"),
+      assistantMetadata: z
+        .object({})
+        .passthrough()
+        .describe("Assistant-side metadata"),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      contact: z
+        .object({})
+        .passthrough()
+        .describe("Created or updated contact"),
+    }),
+    handler: (args: RouteHandlerArgs) => handleUpsertContactRoute(args),
+  },
+  {
+    operationId: "merge_contacts",
+    endpoint: "contacts/merge",
+    method: "POST",
+    summary: "Merge two contacts",
+    description: "Merge two contacts, keeping one and absorbing the other.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      keepId: z.string().describe("ID of the contact to keep"),
+      mergeId: z
+        .string()
+        .describe("ID of the contact to merge into the kept one"),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      contact: z.object({}).passthrough().describe("Merged contact"),
+    }),
+    handler: (args: RouteHandlerArgs) => handleMergeContactsRoute(args),
+  },
+  {
+    operationId: "updateContactChannel",
+    endpoint: "contact-channels/:contactChannelId",
+    method: "PATCH",
+    policyKey: "contact-channels",
+    summary: "Update a contact channel",
+    description: "Update status, policy, or reason on a contact's channel.",
+    tags: ["contacts"],
+    requestBody: z.object({
+      status: z.string().describe("Channel status"),
+      policy: z.string().describe("Channel policy"),
+      reason: z.string().describe("Reason for the change"),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      contact: z
+        .object({})
+        .passthrough()
+        .describe("Updated contact (if applicable)"),
+    }),
+    handler: (args: RouteHandlerArgs) => handleUpdateContactChannelRoute(args),
+  },
 ];
 
 // ---------------------------------------------------------------------------
-// HTTP-only route definitions (require raw Request, AuthContext, or
-// conditional response status codes)
+// Transport-agnostic handlers (moved from HTTP-only)
 // ---------------------------------------------------------------------------
 
-export async function handleMergeContacts(req: Request): Promise<Response> {
-  const body = (await req.json()) as { keepId?: string; mergeId?: string };
+function handleMergeContactsRoute(args: RouteHandlerArgs) {
+  const { body } = args;
+  const keepId = body?.keepId as string | undefined;
+  const mergeId = body?.mergeId as string | undefined;
 
-  if (!body.keepId || !body.mergeId) {
-    return httpError("BAD_REQUEST", "keepId and mergeId are required", 400);
+  if (!keepId || !mergeId) {
+    throw new BadRequestError("keepId and mergeId are required");
   }
 
   try {
-    const contact = mergeContacts(body.keepId, body.mergeId);
-    return Response.json({
-      ok: true,
-      contact: withGuardianNameOverride(contact),
-    });
+    const contact = mergeContacts(keepId, mergeId);
+    return { ok: true, contact: withGuardianNameOverride(contact) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return httpError("BAD_REQUEST", message, 400);
+    throw new BadRequestError(message);
   }
 }
 
-export async function handleUpsertContact(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
+function handleUpsertContactRoute(args: RouteHandlerArgs) {
+  const body = (args.body ?? {}) as {
     id?: string;
     displayName?: string;
     notes?: string;
@@ -643,34 +634,26 @@ export async function handleUpsertContact(req: Request): Promise<Response> {
     typeof body.displayName !== "string" ||
     body.displayName.trim().length === 0
   ) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "displayName is required and must be a non-empty string",
-      400,
     );
   }
 
   if (body.contactType !== undefined && !isContactType(body.contactType)) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid contactType "${body.contactType}". Must be one of: ${VALID_CONTACT_TYPES.join(", ")}`,
-      400,
     );
   }
 
   if (body.contactType === "assistant") {
     if (!body.assistantMetadata) {
-      return httpError(
-        "BAD_REQUEST",
+      throw new BadRequestError(
         'assistantMetadata is required when contactType is "assistant"',
-        400,
       );
     }
     if (!isAssistantSpecies(body.assistantMetadata.species)) {
-      return httpError(
-        "BAD_REQUEST",
+      throw new BadRequestError(
         `Invalid species "${body.assistantMetadata.species}". Must be one of: ${VALID_ASSISTANT_SPECIES.join(", ")}`,
-        400,
       );
     }
     try {
@@ -679,47 +662,37 @@ export async function handleUpsertContact(req: Request): Promise<Response> {
         body.assistantMetadata.metadata ?? null,
       );
     } catch (err) {
-      return httpError(
-        "BAD_REQUEST",
+      throw new BadRequestError(
         err instanceof Error ? err.message : String(err),
-        400,
       );
     }
   }
 
   if (body.contactType === "human" && body.assistantMetadata) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       'assistantMetadata must not be provided when contactType is "human"',
-      400,
     );
   }
 
   if (body.assistantMetadata && !body.contactType) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       'contactType must be "assistant" when assistantMetadata is provided',
-      400,
     );
   }
 
   if (body.channels) {
     if (!Array.isArray(body.channels)) {
-      return httpError("BAD_REQUEST", "channels must be an array", 400);
+      throw new BadRequestError("channels must be an array");
     }
     for (const ch of body.channels) {
       if (ch.status !== undefined && !isChannelStatus(ch.status)) {
-        return httpError(
-          "BAD_REQUEST",
+        throw new BadRequestError(
           `Invalid channel status "${ch.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-          400,
         );
       }
       if (ch.policy !== undefined && !isChannelPolicy(ch.policy)) {
-        return httpError(
-          "BAD_REQUEST",
+        throw new BadRequestError(
           `Invalid channel policy "${ch.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-          400,
         );
       }
     }
@@ -747,56 +720,41 @@ export async function handleUpsertContact(req: Request): Promise<Response> {
       });
     }
 
-    return Response.json(
-      { ok: true, contact: withGuardianNameOverride(contact) },
-      { status: contact.created ? 201 : 200 },
-    );
+    return { ok: true, contact: withGuardianNameOverride(contact) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return httpError("BAD_REQUEST", message, 400);
+    throw new BadRequestError(message);
   }
 }
 
-async function handleUpdateContactChannel(
-  req: Request,
-  channelId: string,
-): Promise<Response> {
-  const body = (await req.json()) as {
+function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
+  const channelId = args.pathParams!.contactChannelId;
+  const body = (args.body ?? {}) as {
     status?: string;
     policy?: string;
     reason?: string;
   };
 
   if (body.status !== undefined && !isChannelStatus(body.status)) {
-    return httpError(
-      "BAD_REQUEST",
-      `Invalid status "${
-        body.status
-      }". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-      400,
+    throw new BadRequestError(
+      `Invalid status "${body.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
     );
   }
 
   if (body.policy !== undefined && !isChannelPolicy(body.policy)) {
-    return httpError(
-      "BAD_REQUEST",
-      `Invalid policy "${
-        body.policy
-      }". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-      400,
+    throw new BadRequestError(
+      `Invalid policy "${body.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
     );
   }
 
   if (body.status === "revoked") {
     const existing = getChannelById(channelId);
     if (!existing) {
-      return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
+      throw new NotFoundError(`Channel "${channelId}" not found`);
     }
     if (existing.status === "blocked") {
-      return httpError(
-        "CONFLICT",
+      throw new ConflictError(
         "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
-        409,
       );
     }
   }
@@ -819,195 +777,16 @@ async function handleUpdateContactChannel(
   });
 
   if (!updated) {
-    return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
+    throw new NotFoundError(`Channel "${channelId}" not found`);
   }
 
   const parentContact = getContact(updated.contactId);
-  return Response.json({
+  return {
     ok: true,
     contact: parentContact
       ? withGuardianNameOverride(parentContact)
       : undefined,
-  });
-}
-
-export async function handleAddGuardianChannel(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  if (!isServiceGatewayPrincipal(authContext)) {
-    return httpError(
-      "FORBIDDEN",
-      "This endpoint is restricted to platform service calls",
-      403,
-    );
-  }
-
-  const body = (await req.json()) as {
-    type: string;
-    address: string;
-    externalUserId?: string;
-    externalChatId?: string;
-    status?: string;
-    policy?: string;
   };
-
-  if (!body.type || !body.address) {
-    return httpError("BAD_REQUEST", "type and address are required", 400);
-  }
-
-  if (!body.externalUserId) {
-    return httpError(
-      "BAD_REQUEST",
-      "externalUserId is required for trust resolution",
-      400,
-    );
-  }
-
-  if (body.status !== undefined && !isChannelStatus(body.status)) {
-    return httpError(
-      "BAD_REQUEST",
-      `Invalid channel status "${body.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-      400,
-    );
-  }
-
-  if (body.policy !== undefined && !isChannelPolicy(body.policy)) {
-    return httpError(
-      "BAD_REQUEST",
-      `Invalid channel policy "${body.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-      400,
-    );
-  }
-
-  const guardian = findGuardianContact();
-  if (!guardian) {
-    return httpError(
-      "NOT_FOUND",
-      "No guardian contact exists. The guardian must be verified on at least one channel first.",
-      404,
-    );
-  }
-
-  const updated = upsertContact({
-    id: guardian.id,
-    displayName: guardian.displayName,
-    role: "guardian",
-    channels: [
-      {
-        ...body,
-        status: (body.status as ChannelStatus) ?? "active",
-        policy: body.policy as ChannelPolicy | undefined,
-        verifiedAt: Date.now(),
-        verifiedVia: "guardian_channel_endpoint",
-      },
-    ],
-  });
-
-  return Response.json(
-    { ok: true, contact: withGuardianNameOverride(updated) },
-    { status: 200 },
-  );
 }
 
-export function contactHttpOnlyRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "contacts",
-      method: "POST",
-      summary: "Create or update a contact",
-      description:
-        "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
-      tags: ["contacts"],
-      requestBody: z.object({
-        contactId: z.string().describe("Existing contact ID (for update)"),
-        displayName: z.string().describe("Display name"),
-        channels: z
-          .array(z.unknown())
-          .describe("Channel objects with channelId, handle, displayName"),
-        assistantMetadata: z
-          .object({})
-          .passthrough()
-          .describe("Assistant-side metadata"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        contact: z
-          .object({})
-          .passthrough()
-          .describe("Created or updated contact"),
-      }),
-      handler: async ({ req }) => handleUpsertContact(req),
-    },
-    {
-      endpoint: "contacts/merge",
-      method: "POST",
-      summary: "Merge two contacts",
-      description: "Merge two contacts, keeping one and absorbing the other.",
-      tags: ["contacts"],
-      requestBody: z.object({
-        keepId: z.string().describe("ID of the contact to keep"),
-        mergeId: z
-          .string()
-          .describe("ID of the contact to merge into the kept one"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        contact: z.object({}).passthrough().describe("Merged contact"),
-      }),
-      handler: async ({ req }) => handleMergeContacts(req),
-    },
-    {
-      endpoint: "contacts/guardian/channel",
-      method: "POST",
-      policyKey: "contacts",
-      summary: "Add a channel to the guardian contact",
-      description: "Used by the guardian to auto-verify their own channel.",
-      tags: ["contacts"],
-      requestBody: z.object({
-        type: z.string().describe("Channel type, e.g. 'email'"),
-        address: z
-          .string()
-          .describe("Channel address, e.g. 'user@example.com'"),
-        externalUserId: z
-          .string()
-          .describe("External user ID for trust resolution"),
-        status: z
-          .string()
-          .optional()
-          .describe("Channel status (default: active)"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        contact: z
-          .object({})
-          .passthrough()
-          .describe("Updated guardian contact"),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleAddGuardianChannel(req, authContext),
-    },
-    {
-      endpoint: "contact-channels/:contactChannelId",
-      method: "PATCH",
-      policyKey: "contact-channels",
-      summary: "Update a contact channel",
-      description: "Update status, policy, or reason on a contact's channel.",
-      tags: ["contacts"],
-      requestBody: z.object({
-        status: z.string().describe("Channel status"),
-        policy: z.string().describe("Channel policy"),
-        reason: z.string().describe("Reason for the change"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        contact: z
-          .object({})
-          .passthrough()
-          .describe("Updated contact (if applicable)"),
-      }),
-      handler: async ({ req, params }) =>
-        handleUpdateContactChannel(req, params.contactChannelId),
-    },
-  ];
-}
+

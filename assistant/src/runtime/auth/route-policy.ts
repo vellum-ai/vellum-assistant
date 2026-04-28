@@ -197,8 +197,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "contacts:DELETE", scopes: ["settings.write"] },
   { endpoint: "contacts/merge", scopes: ["settings.write"] },
   { endpoint: "contacts/search", scopes: ["settings.read"] },
-  { endpoint: "contacts/upsert", scopes: ["settings.write"] },
-  { endpoint: "contacts/merge-by-id", scopes: ["settings.write"] },
+
   { endpoint: "contacts:GET", scopes: ["settings.read"] },
   { endpoint: "contact-channels", scopes: ["settings.write"] },
   { endpoint: "contacts/invites", scopes: ["settings.read"] },

@@ -132,7 +132,6 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import { contactHttpOnlyRouteDefinitions } from "./routes/contact-routes.js";
 import {
   type ConversationManagementDeps,
   conversationManagementRouteDefinitions,
@@ -1856,8 +1855,6 @@ export class RuntimeHttpServer {
           return { id: persisted.id };
         },
       }),
-      ...contactHttpOnlyRouteDefinitions(),
-
       {
         endpoint: "interfaces/:path*",
         method: "GET",

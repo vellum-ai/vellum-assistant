@@ -56,7 +56,10 @@ export async function executeContactUpsert(
     isPrimary: ch.is_primary,
   }));
 
-  const res = await cliIpcCall<ContactWithChannels & { created: boolean }>(
+  const res = await cliIpcCall<{
+    ok: boolean;
+    contact: ContactWithChannels & { created: boolean };
+  }>(
     "upsert_contact",
     {
       body: {
@@ -72,7 +75,7 @@ export async function executeContactUpsert(
     return { content: `Error: ${res.error}`, isError: true };
   }
 
-  const contact = res.result!;
+  const contact = res.result!.contact;
   const verb = contact.created ? "Created" : "Updated";
 
   return {

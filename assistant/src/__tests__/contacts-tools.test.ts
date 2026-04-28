@@ -45,7 +45,8 @@ mock.module("../ipc/cli-client.js", () => ({
       return { ok: true, result: store.searchContacts(body) };
     }
     if (method === "upsert_contact") {
-      return { ok: true, result: store.upsertContact(body as never) };
+      const contact = store.upsertContact(body as never);
+      return { ok: true, result: { ok: true, contact } };
     }
     if (method === "getContact") {
       const id = pathParams.id ?? (body as { id?: string }).id;
@@ -55,7 +56,8 @@ mock.module("../ipc/cli-client.js", () => ({
     }
     if (method === "merge_contacts") {
       const { keepId, mergeId } = body as { keepId: string; mergeId: string };
-      return { ok: true, result: store.mergeContacts(keepId, mergeId) };
+      const contact = store.mergeContacts(keepId, mergeId);
+      return { ok: true, result: { ok: true, contact } };
     }
     return { ok: false, error: `Unknown IPC method: ${method}` };
   },
@@ -68,11 +70,8 @@ import { executeContactSearch } from "../config/bundled-skills/contacts/tools/co
 import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
 import { getDb, resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  handleMergeContacts,
-  handleUpsertContact,
-  ROUTES,
-} from "../runtime/routes/contact-routes.js";
+import { ROUTES } from "../runtime/routes/contact-routes.js";
+import { RouteError } from "../runtime/routes/errors.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();
@@ -88,26 +87,46 @@ beforeAll(() => {
       const url = new URL(req.url);
       const path = url.pathname;
 
-      if (path === "/v1/contacts/merge" && req.method === "POST") {
-        return handleMergeContacts(req);
-      }
-      if (path === "/v1/contacts" && req.method === "GET") {
-        const listRoute = ROUTES.find(
-          (r) => r.operationId === "listContacts",
-        )!;
-        const qp: Record<string, string> = {};
-        url.searchParams.forEach((v, k) => { qp[k] = v; });
-        const result = listRoute.handler({ queryParams: qp });
-        return Response.json(result);
-      }
-      if (path === "/v1/contacts" && req.method === "POST") {
-        return handleUpsertContact(req);
+      try {
+        if (path === "/v1/contacts/merge" && req.method === "POST") {
+          const mergeRoute = ROUTES.find(
+            (r) => r.operationId === "merge_contacts",
+          )!;
+          const body = (await req.json()) as Record<string, unknown>;
+          const result = mergeRoute.handler({ body });
+          return Response.json(result);
+        }
+        if (path === "/v1/contacts" && req.method === "GET") {
+          const listRoute = ROUTES.find(
+            (r) => r.operationId === "listContacts",
+          )!;
+          const qp: Record<string, string> = {};
+          url.searchParams.forEach((v, k) => {
+            qp[k] = v;
+          });
+          const result = listRoute.handler({ queryParams: qp });
+          return Response.json(result);
+        }
+        if (path === "/v1/contacts" && req.method === "POST") {
+          const upsertRoute = ROUTES.find(
+            (r) => r.operationId === "upsert_contact",
+          )!;
+          const body = (await req.json()) as Record<string, unknown>;
+          const result = upsertRoute.handler({ body });
+          return Response.json(result);
+        }
+      } catch (err) {
+        if (err instanceof RouteError) {
+          return Response.json(
+            { error: err.message },
+            { status: err.statusCode },
+          );
+        }
+        throw err;
       }
       const idMatch = path.match(/^\/v1\/contacts\/([^/]+)$/);
       if (idMatch && req.method === "GET") {
-        const getRoute = ROUTES.find(
-          (r) => r.operationId === "getContact",
-        )!;
+        const getRoute = ROUTES.find((r) => r.operationId === "getContact")!;
         const result = getRoute.handler({ pathParams: { id: idMatch[1] } });
         return Response.json(result);
       }
