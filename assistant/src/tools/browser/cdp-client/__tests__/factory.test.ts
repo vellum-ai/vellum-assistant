@@ -645,6 +645,7 @@ describe("buildCandidateList", () => {
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    mockSingletonProxy = null;
   });
 
   test("includes extension candidate when proxy is present and available", () => {
@@ -1104,25 +1105,21 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[0].kind).toBe("local");
   });
 
-  test("macOS turn with SSE-backed proxy unavailable still includes desktop-auto cdp-inspect", () => {
+  test("macOS turn with singleton proxy unavailable suppresses desktop-auto cdp-inspect", () => {
     const fakeProxy = makeUnavailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
-      conversationId: "macos-sse-proxy-unavailable-inspect-allowed",
-      hostBrowserProxy: fakeProxy,
+      conversationId: "macos-proxy-unavailable-inspect-suppressed",
       transportInterface: "macos",
-      // hostBrowserRegistryRouted is NOT set -- SSE-backed proxy
     });
 
     const candidates = buildCandidateList(ctx);
 
-    // SSE-backed proxy that is unavailable (non-interactive turn) should NOT
-    // suppress cdp-inspect -- the SSE proxy was never expected to service
-    // browser requests, so cdp-inspect remains available as a fallback.
-    expect(candidates.length).toBe(2);
-    expect(candidates[0].kind).toBe("cdp-inspect");
-    expect(candidates[0].reason).toContain("desktopAuto");
-    expect(candidates[1].kind).toBe("local");
+    // When the singleton proxy exists but is temporarily unavailable,
+    // cdp-inspect is suppressed — the extension transport was expected
+    // and the disconnection is transient.
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].kind).toBe("local");
   });
 
   test("macOS turn with no proxy still includes desktop-auto cdp-inspect", () => {
@@ -1319,27 +1316,26 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     client.dispose();
   });
 
-  test("macOS turn with SSE-backed proxy unavailable falls through to cdp-inspect", async () => {
+  test("macOS turn with singleton proxy unavailable falls through to local (cdp-inspect suppressed)", async () => {
     const fakeProxy = makeUnavailableProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
-      conversationId: "macos-sse-proxy-unavail-inspect",
-      hostBrowserProxy: fakeProxy,
+      conversationId: "macos-proxy-unavail-local",
       transportInterface: "macos",
-      // hostBrowserRegistryRouted is NOT set -- SSE-backed proxy
     });
 
     const client = getCdpClient(ctx);
 
-    // SSE-backed proxy unavailable (non-interactive turn) should NOT
-    // suppress cdp-inspect -- it falls through to desktop-auto cdp-inspect.
-    expect(client.kind).toBe("cdp-inspect");
+    // Singleton proxy unavailable suppresses cdp-inspect (extension was
+    // expected), so the factory falls through directly to local.
+    expect(client.kind).toBe("local");
     const result = await client.send<{ ok: boolean; via: string }>(
       "Page.navigate",
     );
-    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
+    expect(result).toEqual({ ok: true, via: "local" });
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
-    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
+    expect(createCdpInspectClientMock).not.toHaveBeenCalled();
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
     client.dispose();
   });
 
@@ -1450,7 +1446,7 @@ describe("pinned-mode selection", () => {
       const cdpErr = err as CdpError;
       expect(cdpErr.code).toBe("transport_error");
       expect(cdpErr.message).toContain('Pinned mode "extension" unavailable');
-      expect(cdpErr.message).toContain("no host browser proxy provisioned");
+      expect(cdpErr.message).toContain("no active extension connection");
       expect(cdpErr.attemptDiagnostics).toBeDefined();
       expect(cdpErr.attemptDiagnostics).toHaveLength(1);
       expect(cdpErr.attemptDiagnostics![0].candidateKind).toBe("extension");
