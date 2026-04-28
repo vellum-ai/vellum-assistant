@@ -176,6 +176,7 @@ struct SettingsGeneralTab: View {
             healthz = DaemonHealthz()
         }
         healthzLoaded = true
+        systemResourcesDeepLinkRequested = false
     }
 
     // MARK: - System Resources
@@ -185,7 +186,7 @@ struct SettingsGeneralTab: View {
             topology: topology,
             healthz: healthz,
             pendingSection: store.pendingSettingsGeneralSection,
-            deepLinkRequested: systemResourcesDeepLinkRequested
+            deepLinkRequestPending: systemResourcesDeepLinkRequested && !healthzLoaded
         )
     }
 
@@ -193,9 +194,9 @@ struct SettingsGeneralTab: View {
         topology: AssistantTopology,
         healthz: DaemonHealthz?,
         pendingSection: SettingsGeneralSection?,
-        deepLinkRequested: Bool = false
+        deepLinkRequestPending: Bool = false
     ) -> Bool {
-        topology == .managed || hasResourceMetrics(healthz) || pendingSection == .systemResources || deepLinkRequested
+        topology == .managed || hasResourceMetrics(healthz) || pendingSection == .systemResources || deepLinkRequestPending
     }
 
     nonisolated static func hasResourceMetrics(_ healthz: DaemonHealthz?) -> Bool {

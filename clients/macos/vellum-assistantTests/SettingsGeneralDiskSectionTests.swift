@@ -48,7 +48,17 @@ struct SettingsGeneralDiskSectionTests {
             topology: .local,
             healthz: nil,
             pendingSection: nil,
-            deepLinkRequested: true
+            deepLinkRequestPending: true
+        ))
+    }
+
+    @Test
+    func completedDeepLinkDoesNotKeepResourcesVisibleWithoutMetrics() {
+        #expect(!SettingsGeneralTab.shouldShowSystemResourcesSection(
+            topology: .local,
+            healthz: nil,
+            pendingSection: nil,
+            deepLinkRequestPending: false
         ))
     }
 
