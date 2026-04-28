@@ -92,3 +92,34 @@ export const ActivationStateSchema = z.object({
 });
 
 export type ActivationState = z.infer<typeof ActivationStateSchema>;
+
+// ---------------------------------------------------------------------------
+// Skill autoinjection (synthetic in-memory entries, not on-disk pages)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-skill capability snapshot held in-process and embedded into
+ * the `memory_v2_skills` Qdrant collection. `content` is the rendered
+ * `buildSkillContent` string — already capped at 500 chars upstream — and
+ * is what we embed and what we render in `### Skills You Can Use`.
+ */
+export const SkillEntrySchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  content: z.string(),
+});
+
+export type SkillEntry = z.infer<typeof SkillEntrySchema>;
+
+/**
+ * Payload carried alongside each `memory_v2_skills` Qdrant point. Mirrors
+ * the `ConceptPagePayload` shape but keyed on `id` instead of `slug`.
+ */
+export const SkillEmbeddingPayloadSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  content: z.string(),
+  updated_at: z.number().int().nonnegative(),
+});
+
+export type SkillEmbeddingPayload = z.infer<typeof SkillEmbeddingPayloadSchema>;
