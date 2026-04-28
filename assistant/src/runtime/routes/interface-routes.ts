@@ -11,7 +11,6 @@ import { resolve } from "node:path";
 import { getInterfacesDir } from "../../util/platform.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
-import { RouteResponse } from "./types.js";
 
 export const ROUTES: RouteDefinition[] = [
   {
@@ -21,6 +20,7 @@ export const ROUTES: RouteDefinition[] = [
     policyKey: "interfaces",
     summary: "Serve an interface definition file",
     tags: ["interfaces"],
+    responseHeaders: { "Content-Type": "text/plain; charset=utf-8" },
     handler: ({ pathParams }) => {
       const interfacePath = pathParams?.path;
       if (!interfacePath) {
@@ -37,10 +37,7 @@ export const ROUTES: RouteDefinition[] = [
         throw new NotFoundError("Interface not found");
       }
 
-      const source = readFileSync(fullPath, "utf-8");
-      return new RouteResponse(source, {
-        "Content-Type": "text/plain; charset=utf-8",
-      });
+      return readFileSync(fullPath, "utf-8");
     },
   },
 ];

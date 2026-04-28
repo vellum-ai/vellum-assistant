@@ -420,6 +420,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory-items:PATCH", scopes: ["settings.write"] },
   { endpoint: "memory-items:DELETE", scopes: ["settings.write"] },
   { endpoint: "memory/v2/backfill:POST", scopes: ["settings.write"] },
+  { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
   { endpoint: "memory/v2/validate:POST", scopes: ["settings.read"] },
 
   // Trust rule CRUD management

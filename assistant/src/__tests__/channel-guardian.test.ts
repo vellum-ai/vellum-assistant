@@ -1280,7 +1280,6 @@ function createMockCtx(): {
       captured = msg as ChannelVerificationSessionResponse;
     },
     broadcast: () => {},
-    clearAllConversations: () => 0,
     getOrCreateConversation: () => Promise.resolve({} as never),
     touchConversation: () => {},
   } as unknown as HandlerContext;
