@@ -1,18 +1,25 @@
 /**
  * Tests for `assistant/src/memory/v2/injection.ts`.
  *
- * Coverage matrix from PR 19 acceptance criteria:
+ * Coverage matrix:
  *   - Empty state seeds the first injection (initial conversation turn).
  *   - Second turn whose `topNow` overlaps prior `everInjected` returns
  *     `toInject = []` and `block = null` (cache-stable empty path).
  *   - A new topic appearing on a later turn injects only the new slug.
  *   - `evictCompactedTurns` re-enables a previously-injected slug —
  *     after eviction the same slug appears again in `toInject`.
+ *   - Skill pipeline: skill-only block, mixed concept-page+skill block,
+ *     both-empty → null, no skill dedup across turns, `top_k_skills: 0`
+ *     short-circuit.
  *
  * Hermetic by design: the embedding backend, qdrant client, and `getConfig`
  * are mocked at the module level so the suite never reaches a real backend.
- * The activation-store uses an in-memory SQLite database so writes are real
- * but contained.
+ * The skill activation pipeline (`selectSkillCandidates`,
+ * `computeSkillActivation`, `selectSkillInjections`) and the skill-store
+ * lookup (`getSkillCapability`) are also mocked at the module level so each
+ * test can stage its skill slate without touching the dedicated skills
+ * Qdrant collection. The activation-store uses an in-memory SQLite database
+ * so writes are real but contained.
  *
  * Tests use a temp workspace (mkdtemp) and never touch `~/.vellum/`. Sample
  * page content uses generic placeholders (Alice, Bob, etc.) per the cross-
@@ -117,6 +124,43 @@ mock.module("@qdrant/js-client-rest", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Skill pipeline mocks
+// ---------------------------------------------------------------------------
+//
+// The skill side of the per-turn pipeline (`selectSkillCandidates`,
+// `computeSkillActivation`, `selectSkillInjections`) has its own dedicated
+// Qdrant collection and embedding round-trips. Rather than threading staged
+// hits through that whole pipeline for every test, we mock the three skill
+// helpers and the synchronous `getSkillCapability` lookup at the module level
+// and let each test stage a `topNow` ordering and the matching `SkillEntry`
+// content directly.
+
+const skillState = {
+  /** Ordered ids `selectSkillInjections.topNow` returns this turn. */
+  topSkillIds: [] as string[],
+  /** id → SkillEntry used by `getSkillCapability`. */
+  entries: new Map<string, SkillEntry>(),
+};
+
+const realActivation = await import("../activation.js");
+mock.module("../activation.js", () => ({
+  ...realActivation,
+  // The injection wiring only consumes `topNow` — the candidate set and
+  // activation map are inputs to `selectSkillInjections`, not anything the
+  // injection logic introspects. Stub them to empty so the test stays focused
+  // on the wiring, not the pipeline internals (covered in activation.test.ts).
+  selectSkillCandidates: async () => new Set<string>(),
+  computeSkillActivation: async () => new Map<string, number>(),
+  selectSkillInjections: ({ topK }: { topK: number }) => ({
+    topNow: skillState.topSkillIds.slice(0, topK),
+  }),
+}));
+
+mock.module("../skill-store.js", () => ({
+  getSkillCapability: (id: string) => skillState.entries.get(id) ?? null,
+}));
+
+// ---------------------------------------------------------------------------
 // Workspace + DB setup
 // ---------------------------------------------------------------------------
 
@@ -177,6 +221,7 @@ afterAll(() => {
 // Static `import type` is fine — types erase, so they don't run module-init
 // code that would race the mocks above.
 import type { DrizzleDb } from "../../db-connection.js";
+import type { SkillEntry } from "../types.js";
 
 const { getSqliteFrom } = await import("../../db-connection.js");
 const { migrateActivationState } =
@@ -214,6 +259,7 @@ function makeConfig(
     k: number;
     hops: number;
     top_k: number;
+    top_k_skills: number;
     epsilon: number;
     dense_weight: number;
     sparse_weight: number;
@@ -229,6 +275,7 @@ function makeConfig(
         k: 0.5,
         hops: 2,
         top_k: 20,
+        top_k_skills: 5,
         epsilon: 0.01,
         dense_weight: 1.0,
         sparse_weight: 0.0,
@@ -270,10 +317,21 @@ function resetState(): void {
   state.sparseReturn = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
+  skillState.topSkillIds.length = 0;
+  skillState.entries.clear();
   // The qdrant module caches its client; the cached client may be a
   // MockQdrantClient instance from a sibling test file. Reset to force a
   // fresh `new QdrantClient()` against this file's mock.
   _resetMemoryV2QdrantForTests();
+}
+
+/** Stage the next turn's skill slate and the entries the renderer will look up. */
+function stageSkills(ids: string[], entries: SkillEntry[] = []): void {
+  skillState.topSkillIds.length = 0;
+  skillState.topSkillIds.push(...ids);
+  for (const entry of entries) {
+    skillState.entries.set(entry.id, entry);
+  }
 }
 
 let db: DrizzleDb;
@@ -530,5 +588,211 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([
       { slug: "phantom-slug", turn: 1 },
     ]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Skill subsection rendering
+  // ---------------------------------------------------------------------------
+
+  test("renders a skill-only block under the same `What I Remember Right Now` header", async () => {
+    // No concept-page candidates this turn — the candidate query and the three
+    // simBatch queries all return empty. The skill pipeline is mocked to
+    // surface a single skill.
+    stageTurn([]);
+    stageSkills(
+      ["example-skill-a"],
+      [
+        {
+          id: "example-skill-a",
+          displayName: "Example Skill A",
+          content:
+            'The "Example Skill A" skill (example-skill-a) is available. Helps with examples.',
+        },
+      ],
+    );
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Help me with examples",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual([]);
+    expect(result.block).not.toBeNull();
+    // Same outer wrapping as concept-page-only blocks.
+    expect(result.block).toContain("<memory __injected>");
+    expect(result.block).toContain("## What I Remember Right Now");
+    expect(result.block).toContain("</memory>");
+    // No concept-page sections; skills subsection present with the right
+    // bullet shape and the v1 `→ use skill_load to activate` suffix (the
+    // content matches the `/skill \(/` regex).
+    expect(result.block).not.toContain("### alice-vscode");
+    expect(result.block).toContain("### Skills You Can Use");
+    expect(result.block).toContain(
+      '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
+    );
+  });
+
+  test("renders concept-page sections before the skills subsection in mixed blocks", async () => {
+    // Concept page hits AND a skill — concept-page sections come first, then
+    // the skills subsection.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    stageSkills(
+      ["example-skill-a"],
+      [
+        {
+          id: "example-skill-a",
+          displayName: "Example Skill A",
+          // Content without the `skill (` regex match — no suffix expected.
+          content: "Plain capability description for example-skill-a.",
+        },
+      ],
+    );
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual(["alice-vscode"]);
+    expect(result.block).not.toBeNull();
+
+    const aliceIdx = result.block!.indexOf("### alice-vscode");
+    const skillsIdx = result.block!.indexOf("### Skills You Can Use");
+    expect(aliceIdx).toBeGreaterThan(-1);
+    expect(skillsIdx).toBeGreaterThan(-1);
+    expect(aliceIdx).toBeLessThan(skillsIdx);
+
+    // Skill content does not match `/skill \(/`, so no activation suffix.
+    expect(result.block).toContain(
+      "- Plain capability description for example-skill-a.",
+    );
+    expect(result.block).not.toContain("→ use skill_load to activate");
+  });
+
+  test("returns null when both concept pages and skills are empty", async () => {
+    // Empty concept-page candidate set (all simBatch + ANN responses empty)
+    // AND no skill ids.
+    stageTurn([]);
+    stageSkills([]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "anything",
+      assistantMessage: "",
+      nowText: "",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.toInject).toEqual([]);
+    expect(result.block).toBeNull();
+  });
+
+  test("re-renders the same top-ranked skill on consecutive turns (no dedup)", async () => {
+    // Skills are stateless: the same id can appear on back-to-back turns.
+    // Stage no concept-page candidates so the block content is purely the
+    // skills subsection.
+    const skillEntry = {
+      id: "example-skill-a",
+      displayName: "Example Skill A",
+      content:
+        'The "Example Skill A" skill (example-skill-a) is available. Helps with examples.',
+    };
+
+    // Turn 1 — only the skill.
+    stageTurn([]);
+    stageSkills(["example-skill-a"], [skillEntry]);
+    const result1 = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "examples",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+    expect(result1.block).not.toBeNull();
+    expect(result1.block).toContain("### Skills You Can Use");
+    expect(result1.block).toContain("example-skill-a");
+
+    // Turn 2 — same skill ranks top again. Persisted state has advanced (the
+    // first call wrote a fresh activation_state row), and `everInjected` was
+    // not touched by the skill pipeline. The skill must still appear.
+    stageTurn([]);
+    stageSkills(["example-skill-a"], [skillEntry]);
+    const result2 = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "more examples",
+      assistantMessage: "ok",
+      nowText: "Now",
+      messageId: "msg-2",
+      config: makeConfig(),
+    });
+    expect(result2.block).not.toBeNull();
+    expect(result2.block).toContain("### Skills You Can Use");
+    expect(result2.block).toContain("example-skill-a");
+
+    // The skill content line is identical across the two turns — the renderer
+    // is deterministic in `id → entry` lookup and the entry is unchanged.
+    const skillLine =
+      '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate';
+    expect(result1.block).toContain(skillLine);
+    expect(result2.block).toContain(skillLine);
+
+    // `everInjected` is untouched by the skill pipeline — both turns left it
+    // empty (no concept pages were injected).
+    const persisted = await hydrate(db, "conv-1");
+    expect(persisted!.everInjected).toEqual([]);
+  });
+
+  test("`top_k_skills: 0` short-circuits to no skills subsection", async () => {
+    // Even when the underlying mock would surface skills, the cap at 0 must
+    // drop them via `selectSkillInjections.topK = 0` → empty `topNow`.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    stageSkills(
+      ["example-skill-a"],
+      [
+        {
+          id: "example-skill-a",
+          displayName: "Example Skill A",
+          content:
+            'The "Example Skill A" skill (example-skill-a) is available.',
+        },
+      ],
+    );
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig({ top_k_skills: 0 }),
+    });
+
+    expect(result.toInject).toEqual(["alice-vscode"]);
+    expect(result.block).not.toBeNull();
+    expect(result.block).toContain("### alice-vscode");
+    expect(result.block).not.toContain("### Skills You Can Use");
+    expect(result.block).not.toContain("example-skill-a");
   });
 });
