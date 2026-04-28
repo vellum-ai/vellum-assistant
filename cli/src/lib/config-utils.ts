@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 const ANTHROPIC_PROVIDER = "anthropic";
-const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
+const ANTHROPIC_DEFAULT_MODEL = "claude-opus-4-7";
 const MAIN_AGENT_OPUS_MODEL = "claude-opus-4-7";
 const MAIN_AGENT_OPUS_MAX_TOKENS = 32000;
 

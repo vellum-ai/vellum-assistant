@@ -72,7 +72,7 @@ describe("LLMSchema", () => {
     const parsed = LLMSchema.parse({});
     expect(parsed.default).toEqual({
       provider: "anthropic",
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-4-7",
       maxTokens: 64000,
       effort: "max",
       speed: "standard",
