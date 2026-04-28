@@ -137,7 +137,6 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import { contactHttpOnlyRouteDefinitions } from "./routes/contact-routes.js";
 import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
 import {
   type ConversationManagementDeps,
@@ -2034,8 +2033,6 @@ export class RuntimeHttpServer {
           return { id: persisted.id };
         },
       }),
-      ...contactHttpOnlyRouteDefinitions(),
-
       ...attachmentRouteDefinitions(),
 
       {

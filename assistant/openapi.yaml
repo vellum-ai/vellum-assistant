@@ -2733,56 +2733,6 @@ paths:
           required: true
           schema:
             type: string
-  /v1/contacts/guardian/channel:
-    post:
-      operationId: contacts_guardian_channel_post
-      summary: Add a channel to the guardian contact
-      description: Used by the guardian to auto-verify their own channel.
-      tags:
-        - contacts
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                  contact:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Updated guardian contact
-                required:
-                  - ok
-                  - contact
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                type:
-                  type: string
-                  description: Channel type, e.g. 'email'
-                address:
-                  type: string
-                  description: Channel address, e.g. 'user@example.com'
-                externalUserId:
-                  type: string
-                  description: External user ID for trust resolution
-                status:
-                  description: "Channel status (default: active)"
-                  type: string
-              required:
-                - type
-                - address
-                - externalUserId
-              additionalProperties: false
   /v1/contacts/invites:
     get:
       operationId: contacts_invites_get
@@ -3051,39 +3001,6 @@ paths:
                 - keepId
                 - mergeId
               additionalProperties: false
-  /v1/contacts/merge-by-id:
-    post:
-      operationId: contacts_mergebyid_post
-      summary: Merge two contacts
-      description: Merge two contacts by ID, keeping one and absorbing the other.
-      tags:
-        - contacts
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties: {}
-                additionalProperties: {}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                keepId:
-                  type: string
-                  minLength: 1
-                mergeId:
-                  type: string
-                  minLength: 1
-              required:
-                - keepId
-                - mergeId
-              additionalProperties: false
   /v1/contacts/search:
     post:
       operationId: contacts_search_post
@@ -3117,54 +3034,6 @@ paths:
                   type: string
                 limit:
                   type: number
-              additionalProperties: false
-  /v1/contacts/upsert:
-    post:
-      operationId: contacts_upsert_post
-      summary: Create or update a contact
-      description: Create a new contact or update an existing one by ID.
-      tags:
-        - contacts
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties: {}
-                additionalProperties: {}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id:
-                  type: string
-                displayName:
-                  type: string
-                  minLength: 1
-                notes:
-                  type: string
-                channels:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      type:
-                        type: string
-                      address:
-                        type: string
-                      isPrimary:
-                        type: boolean
-                    required:
-                      - type
-                      - address
-                    additionalProperties: false
-              required:
-                - displayName
               additionalProperties: false
   /v1/conversation-starters:
     get:

@@ -40,7 +40,10 @@ export async function executeContactMerge(
   const keepContact = keepRes.result!.contact;
   const mergeContact = mergeRes.result!.contact;
 
-  const mergeResult = await cliIpcCall<ContactWithChannels>("merge_contacts", {
+  const mergeResult = await cliIpcCall<{
+    ok: boolean;
+    contact: ContactWithChannels;
+  }>("merge_contacts", {
     body: { keepId, mergeId },
   });
 
@@ -48,7 +51,7 @@ export async function executeContactMerge(
     return { content: `Error: ${mergeResult.error}`, isError: true };
   }
 
-  const merged = mergeResult.result!;
+  const merged = mergeResult.result!.contact;
   const displayName =
     merged.role === "guardian"
       ? resolveGuardianName(merged.displayName)
