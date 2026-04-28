@@ -36,7 +36,9 @@ import {
 
 import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
+import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
+import { rawAll } from "./raw-query.js";
 
 export interface AppDefinition {
   id: string;
@@ -945,6 +947,88 @@ export function listAppsByConversation(
   return listApps().filter((app) =>
     app.conversationIds?.includes(conversationId),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Backfill: scan message history for ui_surface blocks referencing apps
+// ---------------------------------------------------------------------------
+
+/**
+ * Single-pass scan over the messages table to populate `conversationIds` on
+ * existing app definitions. Finds messages containing `ui_surface` blocks
+ * with a `data.appId`, then calls `addAppConversationId` for each pair.
+ *
+ * Idempotent — `addAppConversationId` deduplicates, so running on every
+ * startup is safe. Wrapped in try/catch so failures never block daemon start.
+ */
+export function backfillAppConversationIds(): void {
+  const log = getLogger("app-store");
+  try {
+    const rows = rawAll<{ conversation_id: string; content: string }>(
+      `SELECT conversation_id, content FROM messages WHERE content LIKE '%"type":"ui_surface"%'`,
+    );
+
+    // Build appId → Set<conversationId> map in a single pass
+    const appConvMap = new Map<string, Set<string>>();
+
+    for (const row of rows) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.content);
+      } catch {
+        // Skip rows that fail to parse
+        continue;
+      }
+
+      if (!Array.isArray(parsed)) continue;
+
+      for (const block of parsed) {
+        if (
+          block &&
+          typeof block === "object" &&
+          (block as Record<string, unknown>).type === "ui_surface"
+        ) {
+          const data = (block as Record<string, unknown>).data;
+          if (data && typeof data === "object") {
+            const appId = (data as Record<string, unknown>).appId;
+            if (typeof appId === "string" && appId.length > 0) {
+              let convIds = appConvMap.get(appId);
+              if (!convIds) {
+                convIds = new Set<string>();
+                appConvMap.set(appId, convIds);
+              }
+              convIds.add(row.conversation_id);
+            }
+          }
+        }
+      }
+    }
+
+    // Apply associations
+    let appsUpdated = 0;
+    let associationsAdded = 0;
+
+    for (const [appId, conversationIds] of appConvMap) {
+      let appHadNewAssociation = false;
+      for (const conversationId of conversationIds) {
+        const added = addAppConversationId(appId, conversationId);
+        if (added) {
+          associationsAdded++;
+          appHadNewAssociation = true;
+        }
+      }
+      if (appHadNewAssociation) {
+        appsUpdated++;
+      }
+    }
+
+    log.info(
+      { appsUpdated, associationsAdded },
+      `Backfilled app conversationIds: ${appsUpdated} apps, ${associationsAdded} associations`,
+    );
+  } catch (err) {
+    log.error({ err }, "Failed to backfill app conversationIds");
+  }
 }
 
 export type { EditEngineResult };
