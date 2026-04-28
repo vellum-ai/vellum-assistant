@@ -1855,8 +1855,6 @@ export class RuntimeHttpServer {
           return { id: persisted.id };
         },
       }),
-      ...attachmentRouteDefinitions(),
-
       {
         endpoint: "interfaces/:path*",
         method: "GET",
