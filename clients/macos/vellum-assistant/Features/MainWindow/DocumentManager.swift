@@ -192,6 +192,7 @@ final class DocumentManager {
         if success {
             lastSaveError = nil
             log.info("Document saved successfully")
+            NotificationCenter.default.post(name: .documentDidSave, object: nil)
         } else {
             lastSaveError = error ?? "Unknown error"
             log.error("Document save failed: \(error ?? "unknown")")

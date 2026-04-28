@@ -45,6 +45,8 @@ struct ChatView: View {
     var onAddFunds: (() -> Void)? = nil
     var onOpenModelsAndServices: (() -> Void)? = nil
     var onBootstrapSendLogs: (() -> Void)?
+    var onOpenConversationApp: ((ConversationArtifact) -> Void)? = nil
+    var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
 
     // MARK: - Recovery Mode (managed assistants only)
 
@@ -172,20 +174,29 @@ struct ChatView: View {
             return .handled
         }
         .overlay(alignment: .topTrailing) {
-            if isSearchActive {
-                ChatSearchBar(
-                    searchText: $searchText,
-                    matchCount: searchMatches.count,
-                    currentMatchIndex: currentMatchIndex,
-                    onPrevious: { navigateMatch(delta: -1) },
-                    onNext: { navigateMatch(delta: 1) },
-                    onDismiss: { dismissSearch() }
-                )
-                .padding(.trailing, VSpacing.xl)
-                .padding(.top, VSpacing.sm)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-                .layoutHangSignpost("chat.searchBar")
+            VStack(alignment: .trailing, spacing: VSpacing.sm) {
+                if isSearchActive {
+                    ChatSearchBar(
+                        searchText: $searchText,
+                        matchCount: searchMatches.count,
+                        currentMatchIndex: currentMatchIndex,
+                        onPrevious: { navigateMatch(delta: -1) },
+                        onNext: { navigateMatch(delta: 1) },
+                        onDismiss: { dismissSearch() }
+                    )
+                    .layoutHangSignpost("chat.searchBar")
+                }
+                if !isEmptyState && !shouldShowSkeleton && !isBootstrapping {
+                    ConversationArtifactsButton(
+                        artifacts: viewModel.conversationArtifacts,
+                        onOpenApp: { onOpenConversationApp?($0) },
+                        onOpenDocument: { onOpenConversationDocument?($0) }
+                    )
+                }
             }
+            .padding(.trailing, VSpacing.xl)
+            .padding(.top, VSpacing.sm)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .animation(VAnimation.fast, value: isSearchActive)
         .onChange(of: searchText) {

@@ -255,6 +255,10 @@ final class ChatActionHandler {
 
         case .uiSurfaceShow(let msg):
             vm.handleSurfaceShow(msg)
+            // Refresh artifacts when a new dynamic_page or document_preview surface appears.
+            if msg.surfaceType == "dynamic_page" || msg.surfaceType == "document_preview" {
+                vm.fetchConversationArtifacts()
+            }
 
         case .uiSurfaceUndoResult(let msg):
             vm.handleSurfaceUndoResult(msg)
@@ -377,6 +381,9 @@ final class ChatActionHandler {
             guard vm.compactionCircuitOpenUntil != nil else { return }
             vm.compactionCircuitOpenUntil = nil
             log.info("Auto-compaction resumed (circuit breaker closed)")
+
+        case .appFilesChanged:
+            vm.fetchConversationArtifacts()
 
         default:
             break
