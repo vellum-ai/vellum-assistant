@@ -110,12 +110,14 @@ export async function simBatch(
  *
  * Differences from `simBatch`:
  *   - Keys are skill `id` values (not concept-page slugs).
- *   - The underlying Qdrant query is **not** restricted to the candidate set.
- *     Skills always query the full collection — there is no equivalent of
- *     `restrictToSlugs`. We then keep only hits whose id is in `ids`.
+ *   - Restricts the query to the caller's candidate ids server-side via
+ *     `hybridQuerySkills`'s `restrictToIds` parameter. Without this, when the
+ *     skills collection has more skills than `ids.length`, Qdrant would
+ *     return its global top-K and candidate ids absent from that top-K would
+ *     silently score 0 — corrupting the activation calculation.
  *
  * Returns a `Map<id, score>` of fused scores in [0, 1]. Ids that did not hit
- * either channel — or that hit but are not in `ids` — are absent from the map.
+ * either channel are absent from the map.
  *
  * Edge cases:
  *   - Empty `ids` → returns an empty map without touching Qdrant or the
@@ -136,15 +138,21 @@ export async function simSkillBatch(
   const denseVector = denseResult.vectors[0];
   const sparseVector = generateSparseEmbedding(text);
 
-  const hits = await hybridQuerySkills(denseVector, sparseVector, ids.length);
+  const hits = await hybridQuerySkills(
+    denseVector,
+    sparseVector,
+    ids.length,
+    ids,
+  );
 
   if (hits.length === 0) {
     return new Map();
   }
 
-  // `hybridQuerySkills` queries the full collection unrestricted; pre-filter
-  // to the caller's candidate set so out-of-set hits don't perturb the
-  // per-batch sparse normalization.
+  // Defensive post-filter — `hybridQuerySkills` restricts server-side, so
+  // every hit should already be in `ids`, but keep this guard so a buggy
+  // payload (e.g. a missing/typoed id index) can't silently inject
+  // out-of-set ids into the score map.
   const idSet = new Set(ids);
   const filtered = hits.filter((h) => idSet.has(h.id));
   if (filtered.length === 0) {
