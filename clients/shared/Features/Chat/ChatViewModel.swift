@@ -1354,6 +1354,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         greetingState.fetchConversationStarters()
     }
 
+    public func cancelConversationStarterPoll() {
+        greetingState.cancelConversationStarterPoll()
+    }
+
     public func removeConversationStarter(_ starter: ConversationStarter) {
         greetingState.removeConversationStarter(starter)
     }

@@ -40,6 +40,9 @@ const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
 const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** Minimum interval between re-enqueue attempts triggered by invalid items. */
+const REFRESH_COOLDOWN_MS = 60_000;
+
 function checkpointKey(base: string, scopeId: string): string {
   return `${base}:${scopeId}`;
 }
@@ -216,10 +219,12 @@ function handleListConversationStarters({
       Date.now() - lastGenAt >= CONVERSATION_STARTERS_STALE_TTL_MS;
     const checkpointAhead = lastCount != null && totalActive < lastCount;
     let hasActiveJob = hasActiveConversationStarterJob(db, scopeId);
+    const withinCooldown =
+      lastGenAt != null && Date.now() - lastGenAt < REFRESH_COOLDOWN_MS;
     const shouldRefresh =
       staleByAge ||
       checkpointAhead ||
-      (invalidItemCount > 0 && totalActive > 0);
+      (invalidItemCount > 0 && totalActive > 0 && !withinCooldown);
 
     if (shouldRefresh && !hasActiveJob) {
       enqueueMemoryJob("generate_conversation_starters", { scopeId });

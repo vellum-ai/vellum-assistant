@@ -282,6 +282,7 @@ struct ChatView: View {
                     onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                     onRemoveStarter: { starter in viewModel.removeConversationStarter(starter) },
                     onFetchConversationStarters: { viewModel.fetchConversationStarters() },
+                    onCancelConversationStarterPoll: { viewModel.cancelConversationStarterPoll() },
                     showThresholdPicker: showThresholdPicker,
                     inferenceProfilePicker: inferenceProfilePicker
                 )

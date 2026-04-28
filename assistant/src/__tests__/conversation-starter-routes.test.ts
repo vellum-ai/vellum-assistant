@@ -281,7 +281,10 @@ describe("GET /v1/conversation-starters", () => {
       category: "productivity",
       createdAt: now - 1,
     });
-    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint(
+      "conversation_starters:last_gen_at:default",
+      String(now - 90_000),
+    );
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();
 
@@ -313,7 +316,10 @@ describe("GET /v1/conversation-starters", () => {
       category: "communication",
       createdAt: now - 1,
     });
-    setCheckpoint("conversation_starters:last_gen_at:default", String(now));
+    setCheckpoint(
+      "conversation_starters:last_gen_at:default",
+      String(now - 90_000),
+    );
     setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
     insertMemoryItem();
 
@@ -328,6 +334,77 @@ describe("GET /v1/conversation-starters", () => {
     expect(result.starters.map((starter) => starter.label)).toEqual([
       "Catch me up",
     ]);
+    expect(countStarterJobs()).toBe(1);
+  });
+
+  test("does not re-enqueue for invalid items when within cooldown period", async () => {
+    const now = Date.now();
+    // Generation happened 30 seconds ago (within the 60s cooldown)
+    const recentGenAt = now - 30_000;
+    insertStarter({
+      label: "Let me check calendar",
+      prompt: "Let me check what Alice has today.",
+      category: "productivity",
+      createdAt: now,
+    });
+    insertStarter({
+      label: "Plan my morning",
+      prompt: "Can you help me plan my morning?",
+      category: "productivity",
+      createdAt: now - 1,
+    });
+    setCheckpoint(
+      "conversation_starters:last_gen_at:default",
+      String(recentGenAt),
+    );
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+
+    const result = (await dispatch("conversation-starters")) as {
+      starters: unknown[];
+      total: number;
+      status: string;
+    };
+
+    // The invalid "assistant-voice" starter triggers invalidItemCount > 0,
+    // but the cooldown prevents re-enqueueing — status should be "ready".
+    expect(result.status).toBe("ready");
+    expect(result.total).toBe(1);
+    expect(countStarterJobs()).toBe(0);
+  });
+
+  test("re-enqueues for invalid items after cooldown expires", async () => {
+    const now = Date.now();
+    // Generation happened 90 seconds ago (past the 60s cooldown)
+    const oldGenAt = now - 90_000;
+    insertStarter({
+      label: "Let me check calendar",
+      prompt: "Let me check what Alice has today.",
+      category: "productivity",
+      createdAt: now,
+    });
+    insertStarter({
+      label: "Plan my morning",
+      prompt: "Can you help me plan my morning?",
+      category: "productivity",
+      createdAt: now - 1,
+    });
+    setCheckpoint(
+      "conversation_starters:last_gen_at:default",
+      String(oldGenAt),
+    );
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "1");
+    insertMemoryItem();
+
+    const result = (await dispatch("conversation-starters")) as {
+      starters: unknown[];
+      total: number;
+      status: string;
+    };
+
+    // Past the cooldown — should re-enqueue and return refreshing.
+    expect(result.status).toBe("refreshing");
+    expect(result.total).toBe(1);
     expect(countStarterJobs()).toBe(1);
   });
 

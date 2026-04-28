@@ -404,6 +404,22 @@ export async function generateConversationStartersJob(
   const starters = await generateStarters(scopeId);
   if (starters.length === 0) {
     log.info({ scopeId }, "No conversation starters generated");
+
+    // Update CK_LAST_GEN_AT so `staleByAge` clears and the GET handler
+    // stops re-enqueueing generation jobs on every client poll.
+    const db = getDb();
+    const now = Date.now();
+    db.insert(memoryCheckpoints)
+      .values({
+        key: checkpointKey(CK_LAST_GEN_AT, scopeId),
+        value: String(now),
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: memoryCheckpoints.key,
+        set: { value: String(now), updatedAt: now },
+      })
+      .run();
     return;
   }
 
