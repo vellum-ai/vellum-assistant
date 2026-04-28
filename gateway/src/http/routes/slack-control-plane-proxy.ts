@@ -19,10 +19,9 @@ export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
     req: Request,
     upstreamPath: string,
     upstreamSearch: string,
-    options?: { timeoutMs?: number },
   ): Promise<Response> {
     const start = performance.now();
-    const timeoutMs = options?.timeoutMs ?? config.runtimeTimeoutMs;
+    const timeoutMs = config.runtimeTimeoutMs;
     const response = await proxyForwardToResponse(req, {
       baseUrl: config.assistantRuntimeBaseUrl,
       path: upstreamPath,
