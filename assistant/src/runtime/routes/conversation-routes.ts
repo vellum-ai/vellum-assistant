@@ -411,6 +411,7 @@ export function handleListMessages(
 
   const beforeTimestampRaw = url.searchParams.get("beforeTimestamp");
   const limitRaw = url.searchParams.get("limit");
+  const pageRaw = url.searchParams.get("page");
 
   // Validate: reject NaN values with 400
   if (beforeTimestampRaw !== null && isNaN(Number(beforeTimestampRaw))) {
@@ -423,6 +424,14 @@ export function handleListMessages(
   if (limitRaw !== null && isNaN(Number(limitRaw))) {
     return httpError("BAD_REQUEST", "limit must be a valid number", 400);
   }
+  if (pageRaw !== null && pageRaw !== "latest") {
+    return httpError(
+      "BAD_REQUEST",
+      "page must be 'latest' when provided",
+      400,
+    );
+  }
+  const isLatestPage = pageRaw === "latest";
 
   const beforeTimestamp = beforeTimestampRaw
     ? Number(beforeTimestampRaw)
@@ -432,10 +441,12 @@ export function handleListMessages(
     ? Math.min(Math.max(Math.floor(Number(limitRaw)), 1), 500)
     : undefined;
 
-  // Option A: only paginate when beforeTimestamp is present.
-  // Initial load and reconnect send limit but no beforeTimestamp — those must continue
-  // returning all messages for zero regression risk.
-  const isPaginated = beforeTimestamp != null;
+  // Paginate when either `beforeTimestamp` (older-page request) or
+  // `page=latest` (initial newest-N request) is set. When both are sent,
+  // `beforeTimestamp` wins because the caller is explicitly asking for an
+  // older page; `getMessagesPaginated` ignores `beforeTimestamp === undefined`
+  // and returns the newest `limit` messages in chronological order.
+  const isPaginated = beforeTimestamp != null || isLatestPage;
 
   let rawMessages: MessageRow[];
   let hasMore = false;
@@ -681,6 +692,20 @@ export function handleListMessages(
       rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
     const oldestMessageId =
       rawMessages.length > 0 ? rawMessages[0].id : undefined;
+
+    // `page=latest` always emits both metadata fields so the web client has
+    // a stable contract; emit `null` when the conversation is empty.
+    // The existing `beforeTimestamp` branch keeps its conditional shape to
+    // avoid disturbing current callers.
+    if (isLatestPage && beforeTimestamp == null) {
+      return Response.json({
+        messages,
+        hasMore,
+        oldestTimestamp: oldestTimestamp ?? null,
+        oldestMessageId: oldestMessageId ?? null,
+      });
+    }
+
     return Response.json({
       messages,
       hasMore,
@@ -2724,12 +2749,14 @@ export function conversationRouteDefinitions(deps: {
           .describe("Whether older messages exist beyond this page"),
         oldestTimestamp: z
           .number()
+          .nullable()
           .optional()
           .describe(
-            "Timestamp of the oldest message in this page (ms since epoch)",
+            "Timestamp of the oldest message in this page (ms since epoch). Null when page=latest is used on an empty conversation.",
           ),
         oldestMessageId: z
           .string()
+          .nullable()
           .optional()
           .describe("ID of the oldest message in this page"),
       }),
