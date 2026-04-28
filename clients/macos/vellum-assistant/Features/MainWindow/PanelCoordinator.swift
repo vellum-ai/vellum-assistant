@@ -712,6 +712,24 @@ extension MainWindowView {
                 onVoiceModeToggle: isVoiceModeEnabled ? {
                     toggleVoiceMode()
                 } : nil,
+                onOpenConversationApp: { [connectionManager, eventStreamClient] artifact in
+                    guard let appId = artifact.appId else { return }
+                    Task {
+                        await AppsClient.openAppAndDispatchSurface(
+                            id: appId,
+                            connectionManager: connectionManager,
+                            eventStreamClient: eventStreamClient
+                        )
+                    }
+                },
+                onOpenConversationDocument: { artifact in
+                    guard let surfaceId = artifact.surfaceId else { return }
+                    NotificationCenter.default.post(
+                        name: .openDocumentEditor,
+                        object: nil,
+                        userInfo: ["documentSurfaceId": surfaceId]
+                    )
+                },
                 conversationId: conversationManager.activeConversationId ?? conversationManager.draftLocalId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
@@ -919,6 +937,8 @@ struct ActiveChatViewWrapper: View {
     var onEndVoiceMode: (() -> Void)? = nil
     var onDictateToggle: (() -> Void)? = nil
     var onVoiceModeToggle: (() -> Void)? = nil
+    var onOpenConversationApp: ((ConversationArtifact) -> Void)? = nil
+    var onOpenConversationDocument: ((ConversationArtifact) -> Void)? = nil
     var conversationId: UUID?
     @Binding var anchorMessageId: UUID?
     @Binding var highlightedMessageId: UUID?
@@ -962,6 +982,8 @@ struct ActiveChatViewWrapper: View {
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 },
+                onOpenConversationApp: onOpenConversationApp,
+                onOpenConversationDocument: onOpenConversationDocument,
                 recoveryMode: settingsStore.managedAssistantRecoveryMode,
                 isRecoveryModeExiting: settingsStore.recoveryModeExiting,
                 onResumeAssistant: {

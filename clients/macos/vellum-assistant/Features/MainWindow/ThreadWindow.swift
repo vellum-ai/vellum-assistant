@@ -228,6 +228,24 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .developer
                         AppDelegate.shared?.showSettingsWindow(nil)
                     },
+                    onOpenConversationApp: { [viewModel] artifact in
+                        guard let appId = artifact.appId else { return }
+                        Task {
+                            await AppsClient.openAppAndDispatchSurface(
+                                id: appId,
+                                connectionManager: viewModel.connectionManager,
+                                eventStreamClient: viewModel.eventStreamClient
+                            )
+                        }
+                    },
+                    onOpenConversationDocument: { artifact in
+                        guard let surfaceId = artifact.surfaceId else { return }
+                        NotificationCenter.default.post(
+                            name: .openDocumentEditor,
+                            object: nil,
+                            userInfo: ["documentSurfaceId": surfaceId]
+                        )
+                    },
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,
                     isInteractionEnabled: true,
