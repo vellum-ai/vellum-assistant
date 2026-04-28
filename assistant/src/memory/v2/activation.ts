@@ -34,7 +34,8 @@ import {
 } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
-import { simBatch } from "./sim.js";
+import { simBatch, simSkillBatch } from "./sim.js";
+import { hybridQuerySkills } from "./skill-qdrant.js";
 import type {
   ActivationState,
   EdgesIndex,
@@ -342,4 +343,148 @@ export function selectInjections(
   const toInject = topNow.filter((slug) => !everSet.has(slug));
 
   return { topNow, toInject };
+}
+
+// ---------------------------------------------------------------------------
+// Skill autoinjection — candidate / activation / injection selection
+// ---------------------------------------------------------------------------
+//
+// Skills are stateless: there is no decay carry-over (`d · prev`), no
+// spreading activation, and no `everInjected` dedup. The agent re-presents
+// the top-K active skills every turn so it can drop or pick them up freely.
+// The pipeline therefore reduces to:
+//   1. ANN candidate selection against the dedicated skills collection.
+//   2. Pure similarity-only activation: A_skill = c_user·sim_u +
+//      c_assistant·sim_a + c_now·sim_n, clamped to [0, 1].
+//   3. Top-K by activation, lexicographic tie-break, no injection delta.
+//
+// The activation coefficients are reused from `config.memory.v2.{c_user,
+// c_assistant, c_now}` — the design doc (§9) deliberately shares them with
+// concept-page activation rather than introducing parallel knobs.
+
+export interface SelectSkillCandidatesParams {
+  userText: string;
+  assistantText: string;
+  nowText: string;
+  config: AssistantConfig;
+  /** Top-K size for the ANN query against `memory_v2_skills`. */
+  topK: number;
+}
+
+/**
+ * ANN top-K against the skills collection using the concatenated turn text.
+ * Runs a single embedding pass over `concat(user, assistant, now)` and a
+ * single hybrid Qdrant query — there is no prior-state carry-forward (skills
+ * are stateless).
+ *
+ * Returns a `Set<string>` of skill ids that hit either channel. Empty when
+ * the joined text is empty or `topK <= 0`.
+ */
+export async function selectSkillCandidates(
+  params: SelectSkillCandidatesParams,
+): Promise<Set<string>> {
+  const { userText, assistantText, nowText, config, topK } = params;
+
+  const candidates = new Set<string>();
+  if (topK <= 0) return candidates;
+
+  const annQueryText = [userText, assistantText, nowText]
+    .filter((s) => s.length > 0)
+    .join("\n");
+  if (annQueryText.length === 0) return candidates;
+
+  const denseResult = await embedWithBackend(config, [annQueryText]);
+  const dense = denseResult.vectors[0];
+  const sparse = generateSparseEmbedding(annQueryText);
+  const hits = await hybridQuerySkills(dense, sparse, topK);
+  for (const hit of hits) candidates.add(hit.id);
+
+  return candidates;
+}
+
+export interface ComputeSkillActivationParams {
+  candidates: ReadonlySet<string>;
+  userText: string;
+  assistantText: string;
+  nowText: string;
+  config: AssistantConfig;
+}
+
+/**
+ * Apply the skill-side activation formula (no decay carry-over, no spread):
+ *   A_skill(s) = clamp01(c_user · sim_u + c_assistant · sim_a + c_now · sim_n)
+ *
+ * Reuses the activation coefficients from `config.memory.v2`. The three
+ * `simSkillBatch` calls run concurrently — they hit independent named
+ * vectors and embed independent query texts.
+ *
+ * Empty candidates short-circuits to an empty map without touching the
+ * embedding backend or Qdrant.
+ */
+export async function computeSkillActivation(
+  params: ComputeSkillActivationParams,
+): Promise<Map<string, number>> {
+  const { candidates, userText, assistantText, nowText, config } = params;
+
+  const result = new Map<string, number>();
+  if (candidates.size === 0) return result;
+
+  const { c_user, c_assistant, c_now } = config.memory.v2;
+  const idList = [...candidates];
+
+  const [simUser, simAssistant, simNow] = await Promise.all([
+    simSkillBatch(userText, idList, config),
+    simSkillBatch(assistantText, idList, config),
+    simSkillBatch(nowText, idList, config),
+  ]);
+
+  for (const id of idList) {
+    const value =
+      c_user * (simUser.get(id) ?? 0) +
+      c_assistant * (simAssistant.get(id) ?? 0) +
+      c_now * (simNow.get(id) ?? 0);
+    result.set(id, clampUnitInterval(value));
+  }
+
+  return result;
+}
+
+export interface SelectSkillInjectionsParams {
+  /** Final skill activation map. */
+  A: ReadonlyMap<string, number>;
+  /** Cap on the per-turn skill slate, e.g. `config.memory.v2.skills_top_k`. */
+  topK: number;
+}
+
+export interface SelectSkillInjectionsResult {
+  /**
+   * Top-K skill ids by activation (descending), tie-broken lexicographically.
+   * Skills are re-presented every turn — no `toInject` delta — so the caller
+   * uses this list verbatim to render the skill slate.
+   */
+  topNow: string[];
+}
+
+/**
+ * Pick the top-K skill ids by activation (descending; stable on ties via id
+ * lexicographic order). Skills are stateless — there is no `everInjected`
+ * dedup, so the same id can appear on consecutive turns.
+ *
+ * Returns `{ topNow: [] }` for an empty activation map or `topK <= 0`.
+ */
+export function selectSkillInjections(
+  params: SelectSkillInjectionsParams,
+): SelectSkillInjectionsResult {
+  const { A, topK } = params;
+  if (A.size === 0 || topK <= 0) {
+    return { topNow: [] };
+  }
+
+  const ranked = [...A.entries()].sort(([idA, valA], [idB, valB]) => {
+    if (valB !== valA) return valB - valA; // higher activation first
+    return idA < idB ? -1 : idA > idB ? 1 : 0; // stable tie-break
+  });
+
+  const topNow = ranked.slice(0, topK).map(([id]) => id);
+  return { topNow };
 }

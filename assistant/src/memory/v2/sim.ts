@@ -32,6 +32,7 @@ import {
 } from "../embedding-backend.js";
 import { clampUnitInterval } from "../validation.js";
 import { hybridQueryConceptPages } from "./qdrant.js";
+import { hybridQuerySkills } from "./skill-qdrant.js";
 
 /**
  * Clamp a value into the closed unit interval [0, 1]. Re-exported under the
@@ -91,30 +92,107 @@ export async function simBatch(
     return new Map();
   }
 
-  // Per-batch sparse normalization: divide by the max sparse score so the
-  // top hit is 1.0 and the rest scale down proportionally.
-  let maxSparse = 0;
-  for (const hit of hits) {
-    if (hit.sparseScore !== undefined && hit.sparseScore > maxSparse) {
-      maxSparse = hit.sparseScore;
-    }
-  }
-
+  const maxSparse = computeMaxSparse(hits);
   const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
     config.memory.v2;
 
   const scores = new Map<string, number>();
   for (const hit of hits) {
-    const dense = hit.denseScore ?? 0;
-    const sparseNormalized =
-      hit.sparseScore !== undefined && maxSparse > 0
-        ? hit.sparseScore / maxSparse
-        : 0;
-    const fused = clamp01(
-      denseWeight * dense + sparseWeight * sparseNormalized,
-    );
-    scores.set(hit.slug, fused);
+    scores.set(hit.slug, fuseHit(hit, maxSparse, denseWeight, sparseWeight));
+  }
+  return scores;
+}
+
+/**
+ * Compute hybrid (dense + sparse) similarity scores between a query text and
+ * a fixed set of candidate skill ids. Mirrors `simBatch` but targets the
+ * dedicated `memory_v2_skills` Qdrant collection via `hybridQuerySkills`.
+ *
+ * Differences from `simBatch`:
+ *   - Keys are skill `id` values (not concept-page slugs).
+ *   - The underlying Qdrant query is **not** restricted to the candidate set.
+ *     Skills always query the full collection — there is no equivalent of
+ *     `restrictToSlugs`. We then keep only hits whose id is in `ids`.
+ *
+ * Returns a `Map<id, score>` of fused scores in [0, 1]. Ids that did not hit
+ * either channel — or that hit but are not in `ids` — are absent from the map.
+ *
+ * Edge cases:
+ *   - Empty `ids` → returns an empty map without touching Qdrant or the
+ *     embedding backend.
+ *   - Empty query text → still queries (dense may still hit), and the sparse
+ *     contribution is zero.
+ */
+export async function simSkillBatch(
+  text: string,
+  ids: readonly string[],
+  config: AssistantConfig,
+): Promise<Map<string, number>> {
+  if (ids.length === 0) {
+    return new Map();
   }
 
+  const denseResult = await embedWithBackend(config, [text]);
+  const denseVector = denseResult.vectors[0];
+  const sparseVector = generateSparseEmbedding(text);
+
+  const hits = await hybridQuerySkills(denseVector, sparseVector, ids.length);
+
+  if (hits.length === 0) {
+    return new Map();
+  }
+
+  // `hybridQuerySkills` queries the full collection unrestricted; pre-filter
+  // to the caller's candidate set so out-of-set hits don't perturb the
+  // per-batch sparse normalization.
+  const idSet = new Set(ids);
+  const filtered = hits.filter((h) => idSet.has(h.id));
+  if (filtered.length === 0) {
+    return new Map();
+  }
+
+  const maxSparse = computeMaxSparse(filtered);
+  const { dense_weight: denseWeight, sparse_weight: sparseWeight } =
+    config.memory.v2;
+
+  const scores = new Map<string, number>();
+  for (const hit of filtered) {
+    scores.set(hit.id, fuseHit(hit, maxSparse, denseWeight, sparseWeight));
+  }
   return scores;
+}
+
+/**
+ * Per-batch sparse-score maximum used for normalization. Hits missing from
+ * the sparse channel contribute 0 (handled by the `undefined` guard).
+ */
+function computeMaxSparse(
+  hits: ReadonlyArray<{ sparseScore?: number }>,
+): number {
+  let max = 0;
+  for (const hit of hits) {
+    if (hit.sparseScore !== undefined && hit.sparseScore > max) {
+      max = hit.sparseScore;
+    }
+  }
+  return max;
+}
+
+/**
+ * Fuse a single hit's dense + sparse scores into a normalized [0, 1] score
+ * via `clamp01(dense_weight · dense + sparse_weight · sparse/maxSparse)`.
+ * Missing-channel scores contribute 0.
+ */
+function fuseHit(
+  hit: { denseScore?: number; sparseScore?: number },
+  maxSparse: number,
+  denseWeight: number,
+  sparseWeight: number,
+): number {
+  const dense = hit.denseScore ?? 0;
+  const sparseNormalized =
+    hit.sparseScore !== undefined && maxSparse > 0
+      ? hit.sparseScore / maxSparse
+      : 0;
+  return clamp01(denseWeight * dense + sparseWeight * sparseNormalized);
 }

@@ -67,7 +67,19 @@ const state = {
       points: Array<{ score?: number; payload: Record<string, unknown> }>;
     }>,
   },
+  // Separate response queue for the dedicated `memory_v2_skills` collection
+  // so a test asserting on skill activation does not have to interleave
+  // responses with concept-page queries.
+  skillQueryResponses: {
+    dense: [] as Array<{
+      points: Array<{ score?: number; payload: Record<string, unknown> }>;
+    }>,
+    sparse: [] as Array<{
+      points: Array<{ score?: number; payload: Record<string, unknown> }>;
+    }>,
+  },
   queryCalls: [] as Array<{
+    collection: string;
     using: string;
     limit: number;
     filter: unknown;
@@ -103,15 +115,20 @@ class MockQdrantClient {
     return {};
   }
   async query(
-    _name: string,
+    name: string,
     params: { using: string; limit: number; filter?: unknown },
   ) {
     state.queryCalls.push({
+      collection: name,
       using: params.using,
       limit: params.limit,
       filter: params.filter,
     });
-    const queue = state.queryResponses[params.using as "dense" | "sparse"];
+    const channel = params.using as "dense" | "sparse";
+    const queue =
+      name === "memory_v2_skills"
+        ? state.skillQueryResponses[channel]
+        : state.queryResponses[channel];
     return queue.shift() ?? { points: [] };
   }
 }
@@ -126,11 +143,16 @@ import type { ActivationState, EdgesIndex } from "../types.js";
 
 const {
   computeOwnActivation,
+  computeSkillActivation,
   selectCandidates,
   selectInjections,
+  selectSkillCandidates,
+  selectSkillInjections,
   spreadActivation,
 } = await import("../activation.js");
 const { _resetMemoryV2QdrantForTests } = await import("../qdrant.js");
+const { _resetMemoryV2SkillQdrantForTests } =
+  await import("../skill-qdrant.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -143,13 +165,16 @@ function resetState(): void {
   state.sparseReturn = { indices: [1, 2, 3], values: [0.5, 0.5, 0.5] };
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
+  state.skillQueryResponses.dense.length = 0;
+  state.skillQueryResponses.sparse.length = 0;
   state.queryCalls.length = 0;
   // Bun's `mock.module` persists across files in the same process, so the
-  // qdrant module's `_client` singleton can be a MockQdrantClient instance
-  // installed by a sibling test file (e.g. sim.test.ts). Resetting both the
+  // qdrant modules' `_client` singletons may already hold a MockQdrantClient
+  // instance from a sibling test file (e.g. sim.test.ts). Resetting both the
   // cache AND any latched readiness forces a fresh `new QdrantClient()` —
   // which under our mock above resolves to *this* file's MockQdrantClient.
   _resetMemoryV2QdrantForTests();
+  _resetMemoryV2SkillQdrantForTests();
 }
 
 /**
@@ -625,5 +650,307 @@ describe("selectInjections", () => {
       topK: 5,
     });
     expect(out.topNow).toEqual(["alice", "mike", "zeta"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectSkillCandidates
+// ---------------------------------------------------------------------------
+
+/** Stage a single hybrid response on the skills queues (payload key = `id`). */
+function stageSkillHybridResponse(
+  hits: Array<{ id: string; denseScore?: number; sparseScore?: number }>,
+): void {
+  state.skillQueryResponses.dense.push({
+    points: hits
+      .filter((h) => h.denseScore !== undefined)
+      .map((h) => ({ score: h.denseScore, payload: { id: h.id } })),
+  });
+  state.skillQueryResponses.sparse.push({
+    points: hits
+      .filter((h) => h.sparseScore !== undefined)
+      .map((h) => ({ score: h.sparseScore, payload: { id: h.id } })),
+  });
+}
+
+describe("selectSkillCandidates", () => {
+  test("returns hit ids from the skills collection", async () => {
+    stageSkillHybridResponse([
+      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
+      { id: "example-skill-b", denseScore: 0.3, sparseScore: 1 },
+    ]);
+    const out = await selectSkillCandidates({
+      userText: "user said hello",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig(),
+      topK: 10,
+    });
+    expect(out).toEqual(new Set(["example-skill-a", "example-skill-b"]));
+  });
+
+  test("empty turn text short-circuits without backend calls", async () => {
+    const out = await selectSkillCandidates({
+      userText: "",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig(),
+      topK: 10,
+    });
+    expect(out.size).toBe(0);
+    expect(state.embedCalls).toHaveLength(0);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("topK=0 short-circuits without backend calls", async () => {
+    const out = await selectSkillCandidates({
+      userText: "anything",
+      assistantText: "anything",
+      nowText: "anything",
+      config: makeConfig(),
+      topK: 0,
+    });
+    expect(out.size).toBe(0);
+    expect(state.embedCalls).toHaveLength(0);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("forwards topK and queries the skills collection unrestricted", async () => {
+    stageSkillHybridResponse([
+      { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
+    ]);
+    await selectSkillCandidates({
+      userText: "hello",
+      assistantText: "",
+      nowText: "",
+      config: makeConfig(),
+      topK: 7,
+    });
+    // Both channels (dense + sparse) ran with limit=7 and no slug/id filter,
+    // against the dedicated skills collection.
+    expect(state.queryCalls).toHaveLength(2);
+    for (const call of state.queryCalls) {
+      expect(call.collection).toBe("memory_v2_skills");
+      expect(call.limit).toBe(7);
+      expect(call.filter).toBeUndefined();
+    }
+  });
+
+  test("embeds concatenated turn text exactly once", async () => {
+    stageSkillHybridResponse([]);
+    await selectSkillCandidates({
+      userText: "user line",
+      assistantText: "assistant line",
+      nowText: "now line",
+      config: makeConfig(),
+      topK: 5,
+    });
+    expect(state.embedCalls).toHaveLength(1);
+    expect(state.embedCalls[0].inputs).toEqual([
+      "user line\nassistant line\nnow line",
+    ]);
+    expect(state.sparseCalls).toEqual(["user line\nassistant line\nnow line"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeSkillActivation
+// ---------------------------------------------------------------------------
+
+describe("computeSkillActivation", () => {
+  test("empty candidates short-circuits without backend calls", async () => {
+    const out = await computeSkillActivation({
+      candidates: new Set(),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig(),
+    });
+    expect(out.size).toBe(0);
+    expect(state.embedCalls).toHaveLength(0);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("applies similarity-only formula with no decay term", async () => {
+    // Stage three skill responses — one per `simSkillBatch` call.
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]); // simU
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.4 }]); // simA
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.2 }]); // simN
+
+    const out = await computeSkillActivation({
+      candidates: new Set(["example-skill-a"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({
+        d: 0.3,
+        c_user: 0.3,
+        c_assistant: 0.2,
+        c_now: 0.2,
+      }),
+    });
+    // No `d · prev` term: 0.3*0.5 + 0.2*0.4 + 0.2*0.2 = 0.15 + 0.08 + 0.04 = 0.27
+    expect(out.get("example-skill-a")).toBeCloseTo(0.27, 6);
+  });
+
+  test("output excludes any decay term — d coefficient is unused", async () => {
+    // The skill activation formula is `c_user·simU + c_assistant·simA +
+    // c_now·simN`. Run with d=0.9 and d=0.0 — if the implementation
+    // accidentally included a `d · prev` term, the two would diverge. The
+    // function has no priorState parameter, so prev=0; both runs must equal
+    // the d-free formula exactly. Stage three sim responses per run.
+    const stage = () => {
+      stageSkillHybridResponse([{ id: "alpha", denseScore: 0.4 }]);
+      stageSkillHybridResponse([{ id: "alpha", denseScore: 0.4 }]);
+      stageSkillHybridResponse([{ id: "alpha", denseScore: 0.4 }]);
+    };
+    const baseConfig = { c_user: 0.3, c_assistant: 0.2, c_now: 0.2 };
+
+    stage();
+    const withHighD = await computeSkillActivation({
+      candidates: new Set(["alpha"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({ ...baseConfig, d: 0.9 }),
+    });
+    stage();
+    const withZeroD = await computeSkillActivation({
+      candidates: new Set(["alpha"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({ ...baseConfig, d: 0.0 }),
+    });
+
+    // Both equal `0.3*0.4 + 0.2*0.4 + 0.2*0.4 = 0.28` — d is ignored.
+    expect(withHighD.get("alpha")).toBeCloseTo(0.28, 6);
+    expect(withZeroD.get("alpha")).toBeCloseTo(0.28, 6);
+  });
+
+  test("clamps over-1.0 results down to [0, 1]", async () => {
+    stageSkillHybridResponse([{ id: "loud-skill", denseScore: 1.0 }]); // simU
+    stageSkillHybridResponse([{ id: "loud-skill", denseScore: 1.0 }]); // simA
+    stageSkillHybridResponse([{ id: "loud-skill", denseScore: 1.0 }]); // simN
+
+    // Coefficients intentionally sum to > 1 so the unclamped result
+    // overshoots — the implementation must still produce <= 1.0.
+    const out = await computeSkillActivation({
+      candidates: new Set(["loud-skill"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig({
+        c_user: 0.5,
+        c_assistant: 0.5,
+        c_now: 0.5,
+      }),
+    });
+    expect(out.get("loud-skill")).toBe(1);
+  });
+
+  test("candidate with no sim hits resolves to 0", async () => {
+    stageSkillHybridResponse([]);
+    stageSkillHybridResponse([]);
+    stageSkillHybridResponse([]);
+
+    const out = await computeSkillActivation({
+      candidates: new Set(["ghost-skill"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig(),
+    });
+    expect(out.get("ghost-skill")).toBe(0);
+  });
+
+  test("uses the dedicated skills collection and never queries concept pages", async () => {
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]);
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]);
+    stageSkillHybridResponse([{ id: "example-skill-a", denseScore: 0.5 }]);
+
+    await computeSkillActivation({
+      candidates: new Set(["example-skill-a"]),
+      userText: "u",
+      assistantText: "a",
+      nowText: "n",
+      config: makeConfig(),
+    });
+
+    // Three simSkillBatch calls × 2 channels = 6 total queries, all against
+    // the skills collection. No spread → no extra calls beyond these.
+    expect(state.queryCalls).toHaveLength(6);
+    for (const call of state.queryCalls) {
+      expect(call.collection).toBe("memory_v2_skills");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectSkillInjections
+// ---------------------------------------------------------------------------
+
+describe("selectSkillInjections", () => {
+  test("returns empty when activation is empty", () => {
+    const out = selectSkillInjections({ A: new Map(), topK: 5 });
+    expect(out).toEqual({ topNow: [] });
+  });
+
+  test("returns empty when topK is 0", () => {
+    const out = selectSkillInjections({
+      A: new Map([
+        ["example-skill-a", 0.5],
+        ["example-skill-b", 0.4],
+      ]),
+      topK: 0,
+    });
+    expect(out).toEqual({ topNow: [] });
+  });
+
+  test("ranks by activation descending and trims to topK", () => {
+    const out = selectSkillInjections({
+      A: new Map([
+        ["example-skill-a", 0.1],
+        ["example-skill-b", 0.9],
+        ["example-skill-c", 0.5],
+        ["example-skill-d", 0.3],
+      ]),
+      topK: 2,
+    });
+    expect(out.topNow).toEqual(["example-skill-b", "example-skill-c"]);
+  });
+
+  test("skills are stateless: the same id may be returned on consecutive turns", () => {
+    // No `everInjected` parameter exists — selectSkillInjections takes only
+    // the activation map and topK. So calling it twice with the same A map
+    // returns the same result; there is no dedup against prior turns.
+    const A = new Map([
+      ["example-skill-a", 0.9],
+      ["example-skill-b", 0.5],
+    ]);
+    const turn1 = selectSkillInjections({ A, topK: 5 });
+    const turn2 = selectSkillInjections({ A, topK: 5 });
+    expect(turn1.topNow).toEqual(["example-skill-a", "example-skill-b"]);
+    expect(turn2.topNow).toEqual(turn1.topNow);
+  });
+
+  test("breaks ties by id ascending for deterministic output", () => {
+    const out = selectSkillInjections({
+      A: new Map([
+        ["zeta-skill", 0.5],
+        ["example-skill-a", 0.5],
+        ["mike-skill", 0.5],
+      ]),
+      topK: 5,
+    });
+    expect(out.topNow).toEqual(["example-skill-a", "mike-skill", "zeta-skill"]);
+  });
+
+  test("topK clamps to the available activation entries", () => {
+    const out = selectSkillInjections({
+      A: new Map([["only-skill", 0.7]]),
+      topK: 100,
+    });
+    expect(out.topNow).toEqual(["only-skill"]);
   });
 });
