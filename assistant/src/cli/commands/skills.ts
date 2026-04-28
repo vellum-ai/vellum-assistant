@@ -32,6 +32,22 @@ import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Command registration
 // ---------------------------------------------------------------------------
 
@@ -335,11 +351,9 @@ Examples:
             catalog = [];
           }
         }
-        // Exclude catalog entries that match a bundled/installed skill
         const localIds = new Set(localCatalog.map((s) => s.id));
-        const filteredCatalog = catalog.filter((s) => !localIds.has(s.id));
 
-        const catalogMatches = filterByQuery(filteredCatalog, query, [
+        const catalogMatches = filterByQuery(catalog, query, [
           (s) => s.id,
           (s) => s.name,
           (s) => s.description,
@@ -466,22 +480,31 @@ Examples:
         const skillsDir = getWorkspaceSkillsDir();
         const isInstalled = (id: string) =>
           existsSync(join(skillsDir, id, "SKILL.md"));
+        const getInstalledDate = (id: string): string | undefined => {
+          const meta = readInstallMeta(join(skillsDir, id));
+          return meta?.installedAt;
+        };
 
-        // ── Display bundled/installed results ─────────────────────────
+        // ── Display installed results ─────────────────────────────────
         if (bundledMatches.length > 0) {
-          log.info(`Bundled & installed skills (${bundledMatches.length}):\n`);
+          log.info(`Installed skills (${bundledMatches.length}):\n`);
           for (const s of bundledMatches) {
             const emoji = s.emoji ? `${s.emoji} ` : "";
             const tag =
               s.source === "bundled" || s.source === "plugin"
                 ? " [bundled]"
-                : " [installed]";
+                : "";
             log.info(`  ${emoji}${s.displayName}${tag}`);
             if (s.displayName !== s.id) {
               log.info(`    ID: ${s.id}`);
             }
             log.info(`    ${s.description}`);
-            log.info(`    Load: skill_load skill=${s.id}`);
+            if (s.source !== "bundled" && s.source !== "plugin") {
+              const meta = readInstallMeta(s.directoryPath);
+              if (meta?.installedAt) {
+                log.info(`    Installed: ${formatDate(meta.installedAt)}`);
+              }
+            }
             log.info("");
           }
         }
@@ -497,8 +520,18 @@ Examples:
             if (s.name !== s.id) {
               log.info(`    ID: ${s.id}`);
             }
-            log.info(`    Description: ${s.description}`);
-            log.info(`    Install: assistant skills install ${s.id}`);
+            log.info(`    ${s.description}`);
+            if (s.updatedAt) {
+              log.info(`    Updated: ${formatDate(s.updatedAt)}`);
+            }
+            if (installed) {
+              const installedDate = getInstalledDate(s.id);
+              if (installedDate) {
+                log.info(`    Installed: ${formatDate(installedDate)}`);
+              }
+            } else {
+              log.info(`    Install: assistant skills install ${s.id}`);
+            }
             if (conflictIds.has(s.id)) {
               log.info(`    NOTE: Also found in community registry`);
             }
@@ -508,10 +541,15 @@ Examples:
 
         // ── Display community results ────────────────────────────────
         if (registryResults.length > 0) {
-          log.info(`Community registry (${registryResults.length}):\n`);
+          log.info(`Community — skills.sh (${registryResults.length}):\n`);
           for (const r of registryResults) {
             const installed = isInstalled(r.skillId);
-            const badge = installed ? " [installed]" : "";
+            const installedFromVellum = localIds.has(r.skillId);
+            const badge = installedFromVellum
+              ? " [installed from catalog]"
+              : installed
+                ? " [installed]"
+                : "";
             log.info(`  ${r.name}${badge}`);
             if (r.name !== r.skillId) {
               log.info(`    ID: ${r.skillId}`);
@@ -524,9 +562,11 @@ Examples:
             } else {
               log.info("    Security: no audit data");
             }
-            log.info(
-              `    Install: assistant skills add ${r.source}@${r.skillId}`,
-            );
+            if (!installed) {
+              log.info(
+                `    Install: assistant skills add ${r.source}@${r.skillId}`,
+              );
+            }
             if (conflictIds.has(r.skillId)) {
               log.info(`    NOTE: Conflicts with Vellum catalog skill`);
             }
@@ -538,10 +578,15 @@ Examples:
 
         // ── Display clawhub results ─────────────────────────────────
         if (clawhubResults.length > 0) {
-          log.info(`Clawhub registry (${clawhubResults.length}):\n`);
+          log.info(`Community — Clawhub (${clawhubResults.length}):\n`);
           for (const r of clawhubResults) {
             const installed = isInstalled(r.slug);
-            const badge = installed ? " [installed]" : "";
+            const installedFromVellum = localIds.has(r.slug);
+            const badge = installedFromVellum
+              ? " [installed from catalog]"
+              : installed
+                ? " [installed]"
+                : "";
             log.info(`  ${r.name}${badge}`);
             if (r.name !== r.slug) {
               log.info(`    ID: ${r.slug}`);
@@ -550,7 +595,12 @@ Examples:
               log.info(`    Author: ${r.author}`);
             }
             if (r.description) {
-              log.info(`    Description: ${r.description}`);
+              log.info(`    ${r.description}`);
+            }
+            if (r.createdAt > 0) {
+              log.info(
+                `    Updated: ${formatDate(new Date(r.createdAt).toISOString())}`,
+              );
             }
             if (r.stars > 0) {
               log.info(`    Stars: ${r.stars}`);
@@ -558,7 +608,9 @@ Examples:
             if (r.installs > 0) {
               log.info(`    Installs: ${r.installs}`);
             }
-            log.info(`    Install: npx clawhub install ${r.slug}`);
+            if (!installed) {
+              log.info(`    Install: npx clawhub install ${r.slug}`);
+            }
             if (conflictIds.has(r.slug)) {
               log.info(`    NOTE: Conflicts with Vellum catalog skill`);
             }
