@@ -378,11 +378,17 @@ public class VMenuPanel: NSPanel {
             VMenuPanel.activeRootPanel = nil
         }
 
-        // Make the panel fully transparent and remove its SwiftUI
-        // content immediately so no shadow/background artifacts
-        // persist during the removeChildWindow → orderOut transition.
+        // Make the panel fully transparent immediately so no
+        // shadow/background artifacts persist during teardown.
         alphaValue = 0
-        contentView = nil
+
+        // Capture the coordinator before releasing contentView,
+        // because the NSHostingView (contentView) holds the only
+        // strong reference to the coordinator via the SwiftUI
+        // environment. The panel's `coordinator` property is weak,
+        // so releasing contentView would deallocate the coordinator
+        // before panelWasClosed() can fire.
+        let coord = coordinator
 
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
@@ -399,10 +405,15 @@ public class VMenuPanel: NSPanel {
         super.close()
 
         if managedByCoordinator && !isClosingFromCoordinator {
-            coordinator?.panelWasClosed(self)
+            coord?.panelWasClosed(self)
         } else if !managedByCoordinator {
             handler?()
         }
+
+        // Remove the SwiftUI content after all callbacks have fired,
+        // so the coordinator (held alive by `coord`) can complete its
+        // cleanup before the NSHostingView is released.
+        contentView = nil
     }
 
     public override func cancelOperation(_ sender: Any?) {
