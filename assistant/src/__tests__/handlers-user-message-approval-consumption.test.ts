@@ -192,7 +192,6 @@ function createContext(conversationObj: TestConversation): {
       sent.push(msg);
     },
     broadcast: () => {},
-    clearAllConversations: () => 0,
     getOrCreateConversation: async () => conversationObj as any,
     touchConversation: () => {},
   };

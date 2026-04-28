@@ -19,7 +19,7 @@ import { Command } from "commander";
 // ---------------------------------------------------------------------------
 
 /** The last `cliIpcCall` invocation captured for assertions. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let lastIpcCall: {
   method: string;
   params?: any;

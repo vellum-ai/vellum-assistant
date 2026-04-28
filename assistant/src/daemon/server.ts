@@ -94,7 +94,6 @@ import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import {
   allConversations,
-  clearAllActiveConversations,
   clearConversations,
   conversationEntries,
   deleteConversation,
@@ -1024,7 +1023,6 @@ export class DaemonServer {
       },
       send: (msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
-      clearAllConversations: () => clearAllActiveConversations(),
       getOrCreateConversation: (id, options?) =>
         getOrCreateActiveConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),
