@@ -132,7 +132,6 @@ function setupLaunchDeps(): DepsHarness {
       });
     },
     publishAssistantEvent: () => {},
-    getAssistantId: () => "assistant-test-id",
   });
 
   return {

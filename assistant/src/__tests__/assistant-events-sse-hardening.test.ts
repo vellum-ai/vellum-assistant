@@ -54,14 +54,14 @@ describe("AssistantEventHub — subscriber cap", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
     const evicted: string[] = [];
 
-    const sub1 = hub.subscribe({ assistantId: "ast_1" }, () => {}, {
+    const sub1 = hub.subscribe({}, () => {}, {
       onEvict: () => evicted.push("sub1"),
     });
     expect(hub.subscriberCount()).toBe(1);
     expect(sub1.active).toBe(true);
 
     // Adding sub2 evicts sub1 to make room.
-    const sub2 = hub.subscribe({ assistantId: "ast_1" }, () => {}, {
+    const sub2 = hub.subscribe({}, () => {}, {
       onEvict: () => evicted.push("sub2"),
     });
 
@@ -77,15 +77,15 @@ describe("AssistantEventHub — subscriber cap", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 2 });
     const evicted: number[] = [];
 
-    const sub1 = hub.subscribe({ assistantId: "ast_1" }, () => {}, {
+    const sub1 = hub.subscribe({}, () => {}, {
       onEvict: () => evicted.push(1),
     });
-    const sub2 = hub.subscribe({ assistantId: "ast_1" }, () => {}, {
+    const sub2 = hub.subscribe({}, () => {}, {
       onEvict: () => evicted.push(2),
     });
 
     // 3rd subscriber evicts oldest (sub1)
-    const sub3 = hub.subscribe({ assistantId: "ast_1" }, () => {}, {
+    const sub3 = hub.subscribe({}, () => {}, {
       onEvict: () => evicted.push(3),
     });
     expect(evicted).toEqual([1]);
@@ -93,7 +93,7 @@ describe("AssistantEventHub — subscriber cap", () => {
     expect(sub2.active).toBe(true);
 
     // 4th subscriber evicts next oldest (sub2)
-    const sub4 = hub.subscribe({ assistantId: "ast_1" }, () => {}, {
+    const sub4 = hub.subscribe({}, () => {}, {
       onEvict: () => evicted.push(4),
     });
     expect(evicted).toEqual([1, 2]);
@@ -107,19 +107,19 @@ describe("AssistantEventHub — subscriber cap", () => {
 
   test("maxSubscribers: 0 throws RangeError (nothing to evict)", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 0 });
-    expect(() => hub.subscribe({ assistantId: "ast_1" }, () => {})).toThrow(
+    expect(() => hub.subscribe({}, () => {})).toThrow(
       RangeError,
     );
   });
 
   test("subscribe succeeds after disposal frees a slot", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
-    const sub = hub.subscribe({ assistantId: "ast_1" }, () => {});
+    const sub = hub.subscribe({}, () => {});
     sub.dispose();
 
     // Should not throw now that the slot is free.
     expect(() =>
-      hub.subscribe({ assistantId: "ast_1" }, () => {}),
+      hub.subscribe({}, () => {}),
     ).not.toThrow();
   });
 
@@ -127,7 +127,7 @@ describe("AssistantEventHub — subscriber cap", () => {
     const hub = new AssistantEventHub();
     const N = 50;
     const subs = Array.from({ length: N }, () =>
-      hub.subscribe({ assistantId: "ast_1" }, () => {}),
+      hub.subscribe({}, () => {}),
     );
     expect(hub.subscriberCount()).toBe(N);
     subs.forEach((s) => s.dispose());

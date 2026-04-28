@@ -67,7 +67,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       profile?: string | null;
     }> = [];
     const subscription = assistantEventHub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      {},
       (event) => {
         received.push({
           assistantId: event.assistantId,
@@ -136,7 +136,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
     const received: Array<{ profile?: string | null }> = [];
     const subscription = assistantEventHub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      {},
       (event) => {
         if (event.message.type === "conversation_inference_profile_updated") {
           received.push({ profile: event.message.profile });
@@ -176,7 +176,7 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
 
     const received: Array<{ profile?: string | null }> = [];
     const subscription = assistantEventHub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      {},
       (event) => {
         if (event.message.type === "conversation_inference_profile_updated") {
           received.push({ profile: event.message.profile });

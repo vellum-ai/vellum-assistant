@@ -113,11 +113,6 @@ export class DaemonServer {
   private cesClientGeneration = 0;
 
   /**
-   * Logical assistant identifier used when publishing to the assistant-events hub.
-   */
-  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID;
-
-  /**
    * Inject the CES client and process manager from the caller (lifecycle.ts).
    * Must be called before start().
    */
@@ -282,8 +277,7 @@ export class DaemonServer {
     msg: ServerMessage,
     conversationId?: string,
   ): void {
-    const id = this.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const event = buildAssistantEvent(id, msg, conversationId);
+    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, conversationId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
       .catch((err: unknown) => {
@@ -583,7 +577,6 @@ export class DaemonServer {
         ),
       publishAssistantEvent: (msg, conversationId) =>
         this.publishAssistantEvent(msg, conversationId),
-      getAssistantId: () => this.assistantId,
     });
 
     this.configWatcher.start(

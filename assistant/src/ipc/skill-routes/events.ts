@@ -60,7 +60,6 @@ const PublishParams = z.object({
 });
 
 const FilterSchema = z.object({
-  assistantId: z.string().min(1),
   conversationId: z.string().optional(),
 });
 

@@ -42,7 +42,6 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { getClientRegistry } from "../client-registry.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -116,9 +115,7 @@ export function handleSubscribeAssistantEvents(
   const heartbeatIntervalMs =
     options?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
 
-  const filter: AssistantEventFilter = {
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-  };
+  const filter: AssistantEventFilter = {};
   if (conversationKey) {
     // Eagerly resolve (and if necessary create) the conversation so the
     // subscriber's filter matches the id under which first-turn scoped

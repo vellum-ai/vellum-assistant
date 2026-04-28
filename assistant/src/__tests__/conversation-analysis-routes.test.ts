@@ -37,7 +37,7 @@ mock.module("../runtime/services/conversation-serializer.js", () => ({
 }));
 
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+
 import { ROUTES } from "../runtime/routes/conversation-analysis-routes.js";
 
 const analyzeRoute = ROUTES.find(
@@ -121,7 +121,7 @@ describe("POST /v1/conversations/:id/analyze", () => {
 
   test("keeps analysis non-interactive even when a matching subscriber is connected", async () => {
     const sub = testHub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      {},
       () => {},
     );
 

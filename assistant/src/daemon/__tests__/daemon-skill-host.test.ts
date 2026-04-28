@@ -247,7 +247,7 @@ describe("createDaemonSkillHost", () => {
     expect(evt.conversationId).toBe("c1");
     await host.events.publish(evt);
     expect(publishSpy).toHaveBeenCalled();
-    const sub = host.events.subscribe({ assistantId: "self" }, () => undefined);
+    const sub = host.events.subscribe({}, () => undefined);
     expect(sub.active).toBe(true);
     expect(subscribeSpy).toHaveBeenCalled();
   });
