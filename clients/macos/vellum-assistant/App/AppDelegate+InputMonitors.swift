@@ -568,8 +568,8 @@ extension AppDelegate {
         // adds the flag. For non-arrow keys, keep .function so that explicit
         // fn+key bindings (e.g. fn+cmd+k) are not triggered without Fn held.
         let arrowKeyScalars: Set<UInt32> = [
-            NSUpArrowFunctionKey, NSDownArrowFunctionKey,
-            NSLeftArrowFunctionKey, NSRightArrowFunctionKey
+            UInt32(NSUpArrowFunctionKey), UInt32(NSDownArrowFunctionKey),
+            UInt32(NSLeftArrowFunctionKey), UInt32(NSRightArrowFunctionKey)
         ]
         func isArrowKey(_ key: String) -> Bool {
             guard let scalar = key.unicodeScalars.first, key.unicodeScalars.count == 1 else { return false }
