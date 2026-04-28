@@ -28,7 +28,6 @@ import {
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
@@ -44,14 +43,6 @@ import {
   parseLiveVoiceBinaryAudioFrame,
   parseLiveVoiceClientTextFrame,
 } from "../live-voice/protocol.js";
-import {
-  addMessage,
-  createConversation,
-  deleteConversation,
-  getConversation,
-} from "../memory/conversation-crud.js";
-import { listConversationsByTitlePrefix } from "../memory/conversation-queries.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   consumeCallback,
@@ -121,7 +112,6 @@ import {
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
-import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
@@ -141,10 +131,6 @@ export type {
   SendMessageDeps,
 } from "./http-types.js";
 
-import {
-  destroyActiveConversation,
-  findConversation,
-} from "../daemon/conversation-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -1523,72 +1509,6 @@ export class RuntimeHttpServer {
         approvalConversationGenerator: this.approvalConversationGenerator,
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
-      }),
-      ...playgroundRouteDefinitions({
-        getConversationById: async (id) => {
-          // Gate on DB existence first so genuinely-missing IDs return
-          // `undefined` (preserving the route handlers' 404 path) rather
-          // than triggering `getOrCreateConversation`'s create branch and
-          // masking the not-found case. For existing-but-not-loaded rows
-          // (e.g. freshly seeded by `POST /playground/seed-conversation`),
-          // hydrate the in-memory `Conversation` on demand so conv-scoped
-          // playground routes work without first opening the conversation
-          // in the main window.
-          if (!getConversation(id)) return undefined;
-          const sendDeps = this.sendMessageDeps;
-          if (!sendDeps) {
-            // Fall back to the in-memory active map when the daemon hasn't
-            // wired the hydration-capable accessor (e.g. unit tests).
-            return findConversation(id);
-          }
-          return sendDeps.getOrCreateConversation(id);
-        },
-        isPlaygroundEnabled: () =>
-          isAssistantFeatureFlagEnabled("compaction-playground", getConfig()),
-        listConversationsByTitlePrefix: (prefix) =>
-          listConversationsByTitlePrefix(prefix),
-        deleteConversationById: (id) => {
-          // Existence check first so we can report `false` for missing rows
-          // — `deleteConversation` always returns a result object even when
-          // no row matched.
-          if (!getConversation(id)) return false;
-          // Mirror the canonical DELETE /v1/conversations/:id handler in
-          // conversation-management-routes.ts: tear down the in-memory
-          // Conversation first (so a running agent loop can't write to a
-          // deleted row and trip FK constraints), then drop the DB row,
-          // then enqueue Qdrant vector cleanup for the returned segment
-          // and summary IDs. Without this, seeded-then-deleted playground
-          // conversations leak vectors and zombie Conversation objects.
-          destroyActiveConversation(id);
-          const deleted = deleteConversation(id);
-          for (const segId of deleted.segmentIds) {
-            enqueueMemoryJob("delete_qdrant_vectors", {
-              targetType: "segment",
-              targetId: segId,
-            });
-          }
-          for (const summaryId of deleted.deletedSummaryIds) {
-            enqueueMemoryJob("delete_qdrant_vectors", {
-              targetType: "summary",
-              targetId: summaryId,
-            });
-          }
-          return true;
-        },
-        createConversation: async (title) => {
-          const row = createConversation({ title });
-          return { id: row.id };
-        },
-        addMessage: async (conversationId, role, contentJson, options) => {
-          const persisted = await addMessage(
-            conversationId,
-            role,
-            contentJson,
-            undefined,
-            options,
-          );
-          return { id: persisted.id };
-        },
       }),
       {
         endpoint: "interfaces/:path*",

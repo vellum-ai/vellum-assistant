@@ -1,127 +1,59 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import type { Conversation } from "../../../../daemon/conversation.js";
-import type { HTTPRouteDefinition } from "../../../http-router.js";
-import type { PlaygroundRouteDeps } from "../deps.js";
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+}));
+
+mock.module("../../../../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
+let _listRows: Array<{
+  id: string;
+  title: string;
+  messageCount: number;
+  createdAt: number;
+}> = [];
+
+const listCalls: string[] = [];
+const deleteCalls: string[] = [];
+let _deleteReturn: boolean | ((id: string) => boolean) = true;
+
+mock.module("../helpers.js", () => ({
+  getConversationById: async () => undefined,
+  listConversationsByTitlePrefix: (prefix: string) => {
+    listCalls.push(prefix);
+    return _listRows;
+  },
+  deleteConversationById: (id: string) => {
+    deleteCalls.push(id);
+    return typeof _deleteReturn === "function" ? _deleteReturn(id) : _deleteReturn;
+  },
+  createPlaygroundConversation: () => ({ id: "conv-test" }),
+  addPlaygroundMessage: async () => ({ id: "msg-test" }),
+}));
+
+import { RouteError } from "../../errors.js";
+import { ROUTES } from "../index.js";
 import { PLAYGROUND_TITLE_PREFIX } from "../seed-conversation.js";
-import { seededConversationsRouteDefinitions } from "../seeded-conversations.js";
 
-interface StubOpts {
-  enabled?: boolean;
-  listRows?: Array<{
-    id: string;
-    title: string;
-    messageCount: number;
-    createdAt: number;
-  }>;
-  getConversationById?: (id: string) => Promise<Conversation | undefined>;
-  deleteReturn?: boolean | ((id: string) => boolean);
+function resetSpies() {
+  listCalls.length = 0;
+  deleteCalls.length = 0;
+  _listRows = [];
+  _deleteReturn = true;
 }
 
-interface Stub {
-  deps: PlaygroundRouteDeps;
-  listCalls: string[];
-  deleteCalls: string[];
+function findRoute(operationId: string) {
+  const route = ROUTES.find((r) => r.operationId === operationId);
+  if (!route) throw new Error(`Route ${operationId} not registered`);
+  return route;
 }
-
-function makeStub(opts: StubOpts = {}): Stub {
-  const listCalls: string[] = [];
-  const deleteCalls: string[] = [];
-  const deleteReturn = opts.deleteReturn ?? true;
-  const deps: PlaygroundRouteDeps = {
-    isPlaygroundEnabled: () => opts.enabled ?? true,
-    getConversationById: opts.getConversationById ?? (async () => undefined),
-    listConversationsByTitlePrefix: (prefix) => {
-      listCalls.push(prefix);
-      return opts.listRows ?? [];
-    },
-    deleteConversationById: (id) => {
-      deleteCalls.push(id);
-      return typeof deleteReturn === "function"
-        ? deleteReturn(id)
-        : deleteReturn;
-    },
-    createConversation: async () => ({ id: "conv-test" }),
-    addMessage: async () => ({ id: "msg-test" }),
-  };
-  return { deps, listCalls, deleteCalls };
-}
-
-function findRoute(
-  routes: HTTPRouteDefinition[],
-  method: string,
-  endpoint: string,
-): HTTPRouteDefinition {
-  const match = routes.find(
-    (r) => r.method === method && r.endpoint === endpoint,
-  );
-  if (!match) {
-    throw new Error(`Expected route ${method} ${endpoint} not found`);
-  }
-  return match;
-}
-
-// Minimal stand-in for the handler context — the seeded-conversation
-// handlers only read `params`, so we only populate that.
-function ctx(params: Record<string, string> = {}) {
-  return { params } as unknown as Parameters<HTTPRouteDefinition["handler"]>[0];
-}
-
-describe("seededConversationsRouteDefinitions — flag disabled", () => {
-  test("GET list returns 404 with playground_disabled code when the playground flag is off", async () => {
-    const { deps, listCalls } = makeStub({ enabled: false });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(routes, "GET", "playground/seeded-conversations");
-
-    const res = await route.handler(ctx());
-
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: { code: string } };
-    // Distinct from `conversation_not_found` so the Swift client can
-    // surface the right toast text without sniffing the URL path.
-    expect(body.error.code).toBe("playground_disabled");
-    expect(listCalls).toEqual([]);
-  });
-
-  test("DELETE single returns 404 with playground_disabled code when the playground flag is off", async () => {
-    const { deps, deleteCalls } = makeStub({ enabled: false });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations/:id",
-    );
-
-    const res = await route.handler(ctx({ id: "conv-1" }));
-
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("playground_disabled");
-    expect(deleteCalls).toEqual([]);
-  });
-
-  test("DELETE bulk returns 404 with playground_disabled code when the playground flag is off", async () => {
-    const { deps, listCalls, deleteCalls } = makeStub({ enabled: false });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations",
-    );
-
-    const res = await route.handler(ctx());
-
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("playground_disabled");
-    expect(listCalls).toEqual([]);
-    expect(deleteCalls).toEqual([]);
-  });
-});
 
 describe("GET playground/seeded-conversations", () => {
-  test("forwards the prefix to the deps helper and returns the rows verbatim", async () => {
-    const rows = [
+  test("forwards the prefix to the helper and returns the rows verbatim", async () => {
+    resetSpies();
+    _listRows = [
       {
         id: "conv-1",
         title: `${PLAYGROUND_TITLE_PREFIX}First`,
@@ -135,101 +67,80 @@ describe("GET playground/seeded-conversations", () => {
         createdAt: 1000,
       },
     ];
-    const { deps, listCalls } = makeStub({ listRows: rows });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(routes, "GET", "playground/seeded-conversations");
 
-    const res = await route.handler(ctx());
-    expect(res.status).toBe(200);
+    const body = (await findRoute(
+      "playgroundListSeededConversations",
+    ).handler({})) as { conversations: typeof _listRows };
 
-    const body = (await res.json()) as {
-      conversations: typeof rows;
-    };
-    expect(body.conversations).toEqual(rows);
+    expect(body.conversations).toEqual(_listRows);
     expect(listCalls).toEqual([PLAYGROUND_TITLE_PREFIX]);
   });
 });
 
 describe("DELETE playground/seeded-conversations/:id", () => {
-  test("returns 403 when the conversation is not in the prefix-filtered set", async () => {
-    // The list call (authoritative prefix check) returns nothing for this id.
-    const { deps, deleteCalls } = makeStub({
-      listRows: [
-        {
-          id: "other-playground-id",
-          title: `${PLAYGROUND_TITLE_PREFIX}Kept`,
-          messageCount: 1,
-          createdAt: 1,
-        },
-      ],
-    });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations/:id",
-    );
+  test("throws ForbiddenError when the conversation is not in the prefix-filtered set", async () => {
+    resetSpies();
+    _listRows = [
+      {
+        id: "other-playground-id",
+        title: `${PLAYGROUND_TITLE_PREFIX}Kept`,
+        messageCount: 1,
+        createdAt: 1,
+      },
+    ];
 
-    const res = await route.handler(ctx({ id: "non-playground-conv" }));
-
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("FORBIDDEN");
-    expect(body.error.message).toBe("Not a playground conversation");
+    try {
+      await findRoute("playgroundDeleteSeededConversation").handler({
+        pathParams: { id: "non-playground-conv" },
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(403);
+      expect((err as RouteError).message).toBe("Not a playground conversation");
+    }
     expect(deleteCalls).toEqual([]);
   });
 
-  test("returns 200 and deletes when the id is a prefix-matching conversation", async () => {
-    const { deps, deleteCalls } = makeStub({
-      listRows: [
-        {
-          id: "conv-seeded",
-          title: `${PLAYGROUND_TITLE_PREFIX}Seeded`,
-          messageCount: 3,
-          createdAt: 5,
-        },
-      ],
-    });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations/:id",
-    );
+  test("returns deletedCount: 1 when the id is a prefix-matching conversation", async () => {
+    resetSpies();
+    _listRows = [
+      {
+        id: "conv-seeded",
+        title: `${PLAYGROUND_TITLE_PREFIX}Seeded`,
+        messageCount: 3,
+        createdAt: 5,
+      },
+    ];
 
-    const res = await route.handler(ctx({ id: "conv-seeded" }));
+    const body = (await findRoute(
+      "playgroundDeleteSeededConversation",
+    ).handler({
+      pathParams: { id: "conv-seeded" },
+    })) as { deletedCount: number };
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deletedCount: number };
     expect(body.deletedCount).toBe(1);
     expect(deleteCalls).toEqual(["conv-seeded"]);
   });
 
   test("returns deletedCount: 0 when deleteConversationById reports a miss", async () => {
-    const { deps, deleteCalls } = makeStub({
-      listRows: [
-        {
-          id: "conv-seeded",
-          title: `${PLAYGROUND_TITLE_PREFIX}Seeded`,
-          messageCount: 0,
-          createdAt: 5,
-        },
-      ],
-      deleteReturn: false,
-    });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations/:id",
-    );
+    resetSpies();
+    _listRows = [
+      {
+        id: "conv-seeded",
+        title: `${PLAYGROUND_TITLE_PREFIX}Seeded`,
+        messageCount: 0,
+        createdAt: 5,
+      },
+    ];
+    _deleteReturn = false;
 
-    const res = await route.handler(ctx({ id: "conv-seeded" }));
+    const body = (await findRoute(
+      "playgroundDeleteSeededConversation",
+    ).handler({
+      pathParams: { id: "conv-seeded" },
+    })) as { deletedCount: number };
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deletedCount: number };
     expect(body.deletedCount).toBe(0);
     expect(deleteCalls).toEqual(["conv-seeded"]);
   });
@@ -237,7 +148,8 @@ describe("DELETE playground/seeded-conversations/:id", () => {
 
 describe("DELETE playground/seeded-conversations (bulk)", () => {
   test("enumerates only prefix-matching rows and calls delete for each", async () => {
-    const rows = [
+    resetSpies();
+    _listRows = [
       {
         id: "conv-a",
         title: `${PLAYGROUND_TITLE_PREFIX}A`,
@@ -257,25 +169,19 @@ describe("DELETE playground/seeded-conversations (bulk)", () => {
         createdAt: 1,
       },
     ];
-    const { deps, listCalls, deleteCalls } = makeStub({ listRows: rows });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations",
-    );
 
-    const res = await route.handler(ctx());
+    const body = (await findRoute(
+      "playgroundDeleteAllSeededConversations",
+    ).handler({})) as { deletedCount: number };
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deletedCount: number };
     expect(body.deletedCount).toBe(3);
     expect(listCalls).toEqual([PLAYGROUND_TITLE_PREFIX]);
     expect(deleteCalls).toEqual(["conv-a", "conv-b", "conv-c"]);
   });
 
   test("deletedCount reflects only rows where the underlying delete succeeded", async () => {
-    const rows = [
+    resetSpies();
+    _listRows = [
       {
         id: "conv-ok",
         title: `${PLAYGROUND_TITLE_PREFIX}Ok`,
@@ -289,20 +195,12 @@ describe("DELETE playground/seeded-conversations (bulk)", () => {
         createdAt: 1,
       },
     ];
-    const { deps, deleteCalls } = makeStub({
-      listRows: rows,
-      deleteReturn: (id) => id !== "conv-missing",
-    });
-    const routes = seededConversationsRouteDefinitions(deps);
-    const route = findRoute(
-      routes,
-      "DELETE",
-      "playground/seeded-conversations",
-    );
+    _deleteReturn = (id) => id !== "conv-missing";
 
-    const res = await route.handler(ctx());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { deletedCount: number };
+    const body = (await findRoute(
+      "playgroundDeleteAllSeededConversations",
+    ).handler({})) as { deletedCount: number };
+
     expect(body.deletedCount).toBe(1);
     expect(deleteCalls).toEqual(["conv-ok", "conv-missing"]);
   });

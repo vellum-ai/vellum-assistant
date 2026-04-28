@@ -13,9 +13,10 @@ import { z } from "zod";
 
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Message } from "../../../providers/types.js";
-import { httpError } from "../../http-errors.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
-import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
+import { BadRequestError } from "../errors.js";
+import type { RouteDefinition } from "../types.js";
+import { assertPlaygroundEnabled } from "./guard.js";
+import { addPlaygroundMessage, createPlaygroundConversation } from "./helpers.js";
 
 /**
  * Title prefix applied to every seeded-playground conversation. Exported so
@@ -39,101 +40,74 @@ const SeedBodySchema = z.object({
 const LOREM_BASE =
   "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. ";
 
-export function seedConversationRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "playground/seed-conversation",
-      method: "POST",
-      policyKey: "playground/seed-conversation",
-      summary: "Create a synthetic seeded conversation for compaction testing",
-      tags: ["playground"],
-      requestBody: SeedBodySchema,
-      handler: async ({ req }) => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "playgroundSeedConversation",
+    endpoint: "playground/seed-conversation",
+    method: "POST",
+    policyKey: "playground/seed-conversation",
+    summary: "Create a synthetic seeded conversation for compaction testing",
+    tags: ["playground"],
+    requestBody: SeedBodySchema,
+    handler: async ({ body }) => {
+      assertPlaygroundEnabled();
 
-        let rawBody: unknown;
-        try {
-          rawBody = await req.json();
-        } catch {
-          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-        }
+      const parsed = SeedBodySchema.safeParse(body);
+      if (!parsed.success) {
+        throw new BadRequestError(parsed.error.message);
+      }
+      const { turns, avgTokensPerTurn, title } = parsed.data;
 
-        const parsed = SeedBodySchema.safeParse(rawBody);
-        if (!parsed.success) {
-          return httpError("BAD_REQUEST", parsed.error.message, 400);
-        }
-        const { turns, avgTokensPerTurn, title } = parsed.data;
+      const userSuppliedTitle =
+        title && title.length > 0
+          ? title
+          : new Date().toISOString().slice(0, 19);
+      const withoutPrefix = userSuppliedTitle.startsWith(
+        PLAYGROUND_TITLE_PREFIX,
+      )
+        ? userSuppliedTitle.slice(PLAYGROUND_TITLE_PREFIX.length)
+        : userSuppliedTitle;
+      const effectiveTitle = PLAYGROUND_TITLE_PREFIX + withoutPrefix;
 
-        // Derive effective title: strip an accidental prefix first so a
-        // caller passing "[Playground] foo" doesn't end up with
-        // "[Playground] [Playground] foo".
-        const userSuppliedTitle =
-          title && title.length > 0
-            ? title
-            : new Date().toISOString().slice(0, 19);
-        const withoutPrefix = userSuppliedTitle.startsWith(
-          PLAYGROUND_TITLE_PREFIX,
-        )
-          ? userSuppliedTitle.slice(PLAYGROUND_TITLE_PREFIX.length)
-          : userSuppliedTitle;
-        const effectiveTitle = PLAYGROUND_TITLE_PREFIX + withoutPrefix;
+      const { id: conversationId } =
+        createPlaygroundConversation(effectiveTitle);
 
-        const { id: conversationId } =
-          await deps.createConversation(effectiveTitle);
+      const charsPerMessage = avgTokensPerTurn * 4;
 
-        // Generate lorem-ipsum-style text. ~4 chars/token is the rough
-        // approximation the rest of the daemon uses. Paragraph is repeated
-        // and sliced to the target byte count, and a "Turn N" prefix keeps
-        // each message unique so downstream search/compaction doesn't
-        // collapse them.
-        const charsPerMessage = avgTokensPerTurn * 4;
+      const messages: Array<{ role: "user" | "assistant"; text: string }> = [];
+      for (let i = 0; i < turns; i++) {
+        const userBase = `Turn ${i + 1} user message: ` + LOREM_BASE;
+        const userText = userBase
+          .repeat(Math.ceil(charsPerMessage / userBase.length))
+          .slice(0, charsPerMessage);
+        const asstBase = `Turn ${i + 1} assistant response: ` + LOREM_BASE;
+        const asstText = asstBase
+          .repeat(Math.ceil(charsPerMessage / asstBase.length))
+          .slice(0, charsPerMessage);
+        messages.push({ role: "user", text: userText });
+        messages.push({ role: "assistant", text: asstText });
+      }
 
-        const messages: Array<{ role: "user" | "assistant"; text: string }> =
-          [];
-        for (let i = 0; i < turns; i++) {
-          const userBase = `Turn ${i + 1} user message: ` + LOREM_BASE;
-          const userText = userBase
-            .repeat(Math.ceil(charsPerMessage / userBase.length))
-            .slice(0, charsPerMessage);
-          const asstBase = `Turn ${i + 1} assistant response: ` + LOREM_BASE;
-          const asstText = asstBase
-            .repeat(Math.ceil(charsPerMessage / asstBase.length))
-            .slice(0, charsPerMessage);
-          messages.push({ role: "user", text: userText });
-          messages.push({ role: "assistant", text: asstText });
-        }
-
-        for (const msg of messages) {
-          const contentJson = JSON.stringify([
-            { type: "text", text: msg.text },
-          ]);
-          // Skip memory/vector indexing for seeded synthetic messages — the
-          // lorem-ipsum content has no semantic value and would otherwise
-          // spam the embedding pipeline (2 embeddings per turn × up to 500
-          // turns) and pollute the vector store.
-          await deps.addMessage(conversationId, msg.role, contentJson, {
-            skipIndexing: true,
-          });
-        }
-
-        // Reconstruct the in-memory Message[] shape estimatePromptTokens
-        // expects so the returned estimate matches what compaction will
-        // see once the conversation is loaded.
-        const estimatorMessages: Message[] = messages.map((m) => ({
-          role: m.role,
-          content: [{ type: "text", text: m.text }],
-        }));
-        const estimatedTokens = estimatePromptTokens(estimatorMessages);
-
-        return Response.json({
-          conversationId,
-          messagesInserted: messages.length,
-          estimatedTokens,
+      for (const msg of messages) {
+        const contentJson = JSON.stringify([
+          { type: "text", text: msg.text },
+        ]);
+        await addPlaygroundMessage(conversationId, msg.role, contentJson, {
+          skipIndexing: true,
         });
-      },
+      }
+
+      const estimatorMessages: Message[] = messages.map((m) => ({
+        role: m.role,
+        content: [{ type: "text", text: m.text }],
+      }));
+      const estimatedTokens = estimatePromptTokens(estimatorMessages);
+
+      return {
+        conversationId,
+        messagesInserted: messages.length,
+        estimatedTokens,
+      };
     },
-  ];
-}
+  },
+];

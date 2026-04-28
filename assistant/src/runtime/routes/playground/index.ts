@@ -1,28 +1,18 @@
-import type { HTTPRouteDefinition } from "../../http-router.js";
-import type { PlaygroundRouteDeps } from "./deps.js";
-import { forceCompactRouteDefinitions } from "./force-compact.js";
-import { injectFailuresRouteDefinitions } from "./inject-failures.js";
-import { resetCircuitRouteDefinitions } from "./reset-circuit.js";
-import { seedConversationRouteDefinitions } from "./seed-conversation.js";
-import { seededConversationsRouteDefinitions } from "./seeded-conversations.js";
-import { stateRouteDefinitions } from "./state.js";
+import type { RouteDefinition } from "../types.js";
+import { ROUTES as FORCE_COMPACT_ROUTES } from "./force-compact.js";
+import { ROUTES as INJECT_FAILURES_ROUTES } from "./inject-failures.js";
+import { ROUTES as RESET_CIRCUIT_ROUTES } from "./reset-circuit.js";
+import { ROUTES as SEED_CONVERSATION_ROUTES } from "./seed-conversation.js";
+import { ROUTES as SEEDED_CONVERSATIONS_ROUTES } from "./seeded-conversations.js";
+import { ROUTES as STATE_ROUTES } from "./state.js";
 
-export type { PlaygroundRouteDeps };
 export { assertPlaygroundEnabled } from "./guard.js";
 
-export function playgroundRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  // Each playground route file exports its own `*RouteDefinitions(deps)`
-  // factory; this aggregator spreads the arrays together. Later PRs in the
-  // plan append more imports here — keeping it purely additive minimizes
-  // conflicts across concurrent playground PRs.
-  return [
-    ...forceCompactRouteDefinitions(deps),
-    ...injectFailuresRouteDefinitions(deps),
-    ...resetCircuitRouteDefinitions(deps),
-    ...seedConversationRouteDefinitions(deps),
-    ...seededConversationsRouteDefinitions(deps),
-    ...stateRouteDefinitions(deps),
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  ...FORCE_COMPACT_ROUTES,
+  ...INJECT_FAILURES_ROUTES,
+  ...RESET_CIRCUIT_ROUTES,
+  ...SEED_CONVERSATION_ROUTES,
+  ...SEEDED_CONVERSATIONS_ROUTES,
+  ...STATE_ROUTES,
+];

@@ -98,7 +98,6 @@ import {
   clearConversations,
   conversationEntries,
   deleteConversation,
-  destroyActiveConversation,
   findConversation,
   getConversationMap,
   getOrCreateConversation as getOrCreateActiveConversation,
@@ -974,18 +973,6 @@ export class DaemonServer {
     });
   }
 
-  clearAllConversations(): number {
-    return clearAllActiveConversations();
-  }
-
-  /**
-   * Abort and dispose a single in-memory conversation, removing it from the
-   * conversation map. No-op if no conversation exists for the given ID.
-   */
-  destroyConversation(conversationId: string): void {
-    destroyActiveConversation(conversationId);
-  }
-
   private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
     for (const [id, conversation] of conversationEntries()) {
@@ -1037,7 +1024,7 @@ export class DaemonServer {
       },
       send: (msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
-      clearAllConversations: () => this.clearAllConversations(),
+      clearAllConversations: () => clearAllActiveConversations(),
       getOrCreateConversation: (id, options?) =>
         getOrCreateActiveConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),

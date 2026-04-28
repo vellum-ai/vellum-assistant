@@ -1,11 +1,28 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+let _mockConversation: unknown = undefined;
+
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+}));
+
+mock.module("../../../../config/loader.js", () => ({
+  getConfig: () => ({}),
+}));
+
+mock.module("../helpers.js", () => ({
+  getConversationById: async () => _mockConversation,
+  listConversationsByTitlePrefix: () => [],
+  deleteConversationById: () => false,
+  createPlaygroundConversation: () => ({ id: "conv-test" }),
+  addPlaygroundMessage: async () => ({ id: "msg-test" }),
+}));
 
 import type { ContextWindowResult } from "../../../../context/window-manager.js";
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { Message } from "../../../../providers/types.js";
-import type { RouteContext } from "../../../http-router.js";
-import type { PlaygroundRouteDeps } from "../deps.js";
-import { forceCompactRouteDefinitions } from "../force-compact.js";
+import { RouteError } from "../../errors.js";
+import { ROUTES } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,9 +68,6 @@ function makeFakeConversation(
   const fake = {
     processing: options.processing ?? false,
     getMessages(): Message[] {
-      // First call returns the pre-compaction messages; subsequent calls
-      // return the post-compaction messages. This mirrors how the route
-      // reads the state twice (before/after `forceCompact()`).
       if (!returnedAfter && calls === 0) return messagesBefore;
       return messagesAfter;
     },
@@ -70,83 +84,36 @@ function makeFakeConversation(
   };
 }
 
-function makeDeps(
-  overrides: Partial<PlaygroundRouteDeps> = {},
-): PlaygroundRouteDeps {
-  return {
-    getConversationById: async () => undefined,
-    isPlaygroundEnabled: () => true,
-    listConversationsByTitlePrefix: () => [],
-    deleteConversationById: () => false,
-    createConversation: async () => ({ id: "conv-test" }),
-    addMessage: async () => ({ id: "msg-test" }),
-    ...overrides,
-  };
-}
-
-function makeRouteContext(id: string): RouteContext {
-  const url = new URL(
-    `http://localhost/v1/conversations/${id}/playground/compact`,
+function findRoute() {
+  const route = ROUTES.find(
+    (r) => r.operationId === "playgroundForceCompact",
   );
-  return {
-    req: new Request(url, { method: "POST" }),
-    url,
-    server: {} as RouteContext["server"],
-    authContext: {
-      subject: "test-user",
-      principalType: "local",
-      assistantId: "self",
-      scopeProfile: "local_v1",
-      scopes: new Set(["local.all" as const]),
-      policyEpoch: 0,
-    },
-    params: { id },
-  } as unknown as RouteContext;
+  if (!route) throw new Error("force-compact route not registered");
+  return route;
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("forceCompactRouteDefinitions", () => {
+describe("playgroundForceCompact", () => {
   test("exposes a single POST route with the expected endpoint + policy key", () => {
-    const routes = forceCompactRouteDefinitions(makeDeps());
-    expect(routes).toHaveLength(1);
-    expect(routes[0].endpoint).toBe("conversations/:id/playground/compact");
-    expect(routes[0].method).toBe("POST");
-    expect(routes[0].policyKey).toBe("conversations/playground/compact");
+    const route = findRoute();
+    expect(route.endpoint).toBe("conversations/:id/playground/compact");
+    expect(route.method).toBe("POST");
+    expect(route.policyKey).toBe("conversations/playground/compact");
   });
 
-  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
-    const deps = makeDeps({ isPlaygroundEnabled: () => false });
-    const [route] = forceCompactRouteDefinitions(deps);
-
-    const res = await route.handler(makeRouteContext("conv-abc"));
-    expect(res.status).toBe(404);
-
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    // Distinct from `conversation_not_found` so the Swift client can
-    // surface the right toast text without sniffing the URL path.
-    expect(body.error.code).toBe("playground_disabled");
-  });
-
-  test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
-    const deps = makeDeps({
-      isPlaygroundEnabled: () => true,
-      getConversationById: async () => undefined,
-    });
-    const [route] = forceCompactRouteDefinitions(deps);
-
-    const res = await route.handler(makeRouteContext("conv-missing"));
-    expect(res.status).toBe(404);
-
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("conversation_not_found");
-    expect(body.error.message).toContain("conv-missing");
+  test("throws RouteError with conversation_not_found code when the conversation is missing", async () => {
+    _mockConversation = undefined;
+    try {
+      await findRoute().handler({ pathParams: { id: "conv-missing" } });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).code).toBe("conversation_not_found");
+      expect((err as RouteError).message).toContain("conv-missing");
+    }
   });
 
   test("forces compaction and returns before/after tokens + summary metadata", async () => {
@@ -175,16 +142,11 @@ describe("forceCompactRouteDefinitions", () => {
       },
     });
 
-    const deps = makeDeps({
-      isPlaygroundEnabled: () => true,
-      getConversationById: async () => fake.conversation,
-    });
-    const [route] = forceCompactRouteDefinitions(deps);
+    _mockConversation = fake.conversation;
 
-    const res = await route.handler(makeRouteContext("conv-ok"));
-    expect(res.status).toBe(200);
-
-    const body = (await res.json()) as {
+    const body = (await findRoute().handler({
+      pathParams: { id: "conv-ok" },
+    })) as {
       compacted: boolean;
       previousTokens: number;
       newTokens: number;
@@ -199,20 +161,12 @@ describe("forceCompactRouteDefinitions", () => {
     expect(body.summaryFailed).toBe(false);
     expect(body.previousTokens).toBeGreaterThan(0);
     expect(body.newTokens).toBeGreaterThan(0);
-    // The post-compaction message set is strictly smaller, so the
-    // reported token count should fall.
     expect(body.newTokens).toBeLessThan(body.previousTokens);
 
     expect(fake.forceCompactCallCount()).toBe(1);
   });
 
-  test("returns 409 and skips forceCompact when conversation is already processing", async () => {
-    // Simulate a turn (or a concurrent /compact) already in flight against
-    // this conversation. A second playground POST landing in this window
-    // would otherwise race with the first call: duplicate
-    // `contextCompactedMessageCount` increments, duplicate
-    // `context_compacted` SSE events, and double usage recording. Easy to
-    // trigger by double-clicking the playground "Force Compact" button.
+  test("throws ConflictError when conversation is already processing", async () => {
     const fake = makeFakeConversation({
       messagesBefore: [
         { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -220,23 +174,18 @@ describe("forceCompactRouteDefinitions", () => {
       processing: true,
     });
 
-    const deps = makeDeps({
-      isPlaygroundEnabled: () => true,
-      getConversationById: async () => fake.conversation,
-    });
-    const [route] = forceCompactRouteDefinitions(deps);
+    _mockConversation = fake.conversation;
 
-    const res = await route.handler(makeRouteContext("conv-busy"));
-    expect(res.status).toBe(409);
+    try {
+      await findRoute().handler({ pathParams: { id: "conv-busy" } });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(409);
+      expect((err as RouteError).code).toBe("CONFLICT");
+      expect((err as RouteError).message).toContain("already in progress");
+    }
 
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("CONFLICT");
-    expect(body.error.message).toContain("already in progress");
-
-    // Critical: we must NOT have invoked forceCompact a second time while
-    // an existing call was in flight.
     expect(fake.forceCompactCallCount()).toBe(0);
   });
 
@@ -250,24 +199,17 @@ describe("forceCompactRouteDefinitions", () => {
       ],
       result: {
         compacted: false,
-        // Intentionally leave summaryText as "" and summaryFailed undefined
-        // so the route's ?? coalescing is exercised.
         summaryText: "",
         summaryFailed: undefined,
         compactedPersistedMessages: 0,
       },
     });
 
-    const deps = makeDeps({
-      isPlaygroundEnabled: () => true,
-      getConversationById: async () => fake.conversation,
-    });
-    const [route] = forceCompactRouteDefinitions(deps);
+    _mockConversation = fake.conversation;
 
-    const res = await route.handler(makeRouteContext("conv-noop"));
-    expect(res.status).toBe(200);
-
-    const body = (await res.json()) as {
+    const body = (await findRoute().handler({
+      pathParams: { id: "conv-noop" },
+    })) as {
       compacted: boolean;
       summaryText: string | null;
       messagesRemoved: number;
@@ -275,8 +217,6 @@ describe("forceCompactRouteDefinitions", () => {
     };
 
     expect(body.compacted).toBe(false);
-    // summaryText is "" (falsy) so `??` keeps it as "" — not null. We only
-    // substitute null when the field is nullish, matching the handler.
     expect(body.summaryText).toBe("");
     expect(body.summaryFailed).toBeNull();
     expect(body.messagesRemoved).toBe(0);

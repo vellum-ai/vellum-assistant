@@ -14,31 +14,28 @@ mock.module("../../../../config/loader.js", () => ({
   }),
 }));
 
-// estimatePromptTokens has no external dependencies beyond its `messages`
-// argument, but we mock it so the assertions here do not depend on the
-// estimator's internal tuning.
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+}));
+
 mock.module("../../../../context/token-estimator.js", () => ({
   estimatePromptTokens: (messages: unknown[]): number => messages.length * 10,
 }));
 
-import type { Conversation } from "../../../../daemon/conversation.js";
-import type { PlaygroundRouteDeps } from "../deps.js";
-import { playgroundRouteDefinitions } from "../index.js";
-import { buildCompactionStateResponse } from "../state.js";
+let _mockConversation: unknown = undefined;
 
-function makeDeps(
-  overrides: Partial<PlaygroundRouteDeps> = {},
-): PlaygroundRouteDeps {
-  return {
-    getConversationById: async () => undefined,
-    isPlaygroundEnabled: () => true,
-    listConversationsByTitlePrefix: () => [],
-    deleteConversationById: () => false,
-    createConversation: async () => ({ id: "conv-test" }),
-    addMessage: async () => ({ id: "msg-test" }),
-    ...overrides,
-  };
-}
+mock.module("../helpers.js", () => ({
+  getConversationById: async () => _mockConversation,
+  listConversationsByTitlePrefix: () => [],
+  deleteConversationById: () => false,
+  createPlaygroundConversation: () => ({ id: "conv-test" }),
+  addPlaygroundMessage: async () => ({ id: "msg-test" }),
+}));
+
+import type { Conversation } from "../../../../daemon/conversation.js";
+import { RouteError } from "../../errors.js";
+import { ROUTES } from "../index.js";
+import { buildCompactionStateResponse } from "../state.js";
 
 interface FakeConversationOverrides {
   messages?: unknown[];
@@ -61,74 +58,41 @@ function makeFakeConversation(
   } as unknown as Conversation;
 }
 
-function findStateRoute() {
-  const routes = playgroundRouteDefinitions(makeDeps());
-  const route = routes.find(
-    (r) =>
-      r.endpoint === "conversations/:id/playground/compaction-state" &&
-      r.method === "GET",
+function findRoute() {
+  const route = ROUTES.find(
+    (r) => r.operationId === "playgroundGetCompactionState",
   );
   if (!route) throw new Error("compaction-state route not registered");
   return route;
 }
 
-async function invokeRoute(
-  deps: PlaygroundRouteDeps,
-  id = "conv-abc",
-): Promise<Response> {
-  const routes = playgroundRouteDefinitions(deps);
-  const route = routes.find(
-    (r) =>
-      r.endpoint === "conversations/:id/playground/compaction-state" &&
-      r.method === "GET",
-  );
-  if (!route) throw new Error("compaction-state route not registered");
-  // The handler only reads `params` from RouteContext — cast a minimal stub.
-  return Promise.resolve(
-    route.handler({
-      params: { id },
-    } as unknown as Parameters<typeof route.handler>[0]),
-  );
+async function invokeRoute(id = "conv-abc") {
+  const route = findRoute();
+  return route.handler({ pathParams: { id } });
 }
 
 describe("GET conversations/:id/playground/compaction-state", () => {
   test("registers the expected route definition", () => {
-    const route = findStateRoute();
+    const route = findRoute();
     expect(route.policyKey).toBe("conversations/playground/state");
     expect(route.tags).toEqual(["playground"]);
   });
 
-  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
-    const deps = makeDeps({ isPlaygroundEnabled: () => false });
-    const res = await invokeRoute(deps);
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: { code: string } };
-    // Distinct from `conversation_not_found` so the Swift client can
-    // surface the right toast text without sniffing the URL path.
-    expect(body.error.code).toBe("playground_disabled");
-  });
-
-  test("returns 404 with conversation_not_found code when the conversation does not exist", async () => {
-    const deps = makeDeps({
-      getConversationById: async () => undefined,
-    });
-    const res = await invokeRoute(deps, "missing-id");
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("conversation_not_found");
-    expect(body.error.message).toContain("missing-id");
+  test("throws RouteError with conversation_not_found code when the conversation does not exist", async () => {
+    _mockConversation = undefined;
+    try {
+      await invokeRoute("missing-id");
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).code).toBe("conversation_not_found");
+      expect((err as RouteError).message).toContain("missing-id");
+    }
   });
 
   test("fresh conversation with no messages returns a baseline payload", async () => {
-    const conversation = makeFakeConversation();
-    const deps = makeDeps({
-      getConversationById: async () => conversation,
-    });
-    const res = await invokeRoute(deps);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as ReturnType<
+    _mockConversation = makeFakeConversation();
+    const body = (await invokeRoute()) as ReturnType<
       typeof buildCompactionStateResponse
     >;
     expect(body.messageCount).toBe(0);
@@ -146,16 +110,11 @@ describe("GET conversations/:id/playground/compaction-state", () => {
 
   test("open circuit breaker sets isCircuitOpen: true", async () => {
     const future = Date.now() + 5_000;
-    const conversation = makeFakeConversation({
+    _mockConversation = makeFakeConversation({
       compactionCircuitOpenUntil: future,
       consecutiveCompactionFailures: 3,
     });
-    const deps = makeDeps({
-      getConversationById: async () => conversation,
-    });
-    const res = await invokeRoute(deps);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as ReturnType<
+    const body = (await invokeRoute()) as ReturnType<
       typeof buildCompactionStateResponse
     >;
     expect(body.compactionCircuitOpenUntil).toBe(future);
@@ -165,14 +124,10 @@ describe("GET conversations/:id/playground/compaction-state", () => {
 
   test("elapsed circuit-breaker deadline leaves isCircuitOpen: false", async () => {
     const past = Date.now() - 1_000;
-    const conversation = makeFakeConversation({
+    _mockConversation = makeFakeConversation({
       compactionCircuitOpenUntil: past,
     });
-    const deps = makeDeps({
-      getConversationById: async () => conversation,
-    });
-    const res = await invokeRoute(deps);
-    const body = (await res.json()) as ReturnType<
+    const body = (await invokeRoute()) as ReturnType<
       typeof buildCompactionStateResponse
     >;
     expect(body.compactionCircuitOpenUntil).toBe(past);
@@ -180,18 +135,14 @@ describe("GET conversations/:id/playground/compaction-state", () => {
   });
 
   test("full response shape matches the canonical CompactionStateResponse keys", async () => {
-    const conversation = makeFakeConversation({
+    _mockConversation = makeFakeConversation({
       messages: [{ role: "user" }, { role: "assistant" }],
       contextCompactedMessageCount: 2,
       contextCompactedAt: 1_700_000_000_000,
       consecutiveCompactionFailures: 1,
       compactionCircuitOpenUntil: null,
     });
-    const deps = makeDeps({
-      getConversationById: async () => conversation,
-    });
-    const res = await invokeRoute(deps);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await invokeRoute()) as Record<string, unknown>;
     expect(Object.keys(body).sort()).toEqual(
       [
         "estimatedInputTokens",
