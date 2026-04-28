@@ -364,11 +364,19 @@ export async function nonInteractiveExec(
         }
       }
 
-      // Check for end sentinel in accumulated output
+      // Check for completion: require the end sentinel before looking for the
+      // exit code sentinel. The exit code string also appears in the command
+      // echo (the shell printing what was typed), so matching it alone would
+      // trigger a premature abort before the command even starts running.
       if (commandSent) {
         const accumulated = Buffer.concat(output).toString("utf-8");
-        if (accumulated.includes(exitCodeSentinel)) {
-          dbg(`exit code sentinel detected — waiting 500ms for final output`);
+        // Normalize CR so CRLF line endings from the PTY don't prevent matching
+        const normalized = accumulated.replace(/\r/g, "");
+        if (
+          normalized.includes(endSentinel + "\n") &&
+          normalized.includes(exitCodeSentinel)
+        ) {
+          dbg(`end + exit code sentinels detected — waiting 500ms for final output`);
           // Give a moment for final output to arrive
           setTimeout(() => abortController.abort(), 500);
         }
@@ -387,7 +395,6 @@ export async function nonInteractiveExec(
     ).catch(() => {});
   }
 
-  // Parse output between sentinels
   const raw = Buffer.concat(output).toString("utf-8");
 
   if (verbose) {
@@ -396,12 +403,7 @@ export async function nonInteractiveExec(
     dbg(`--- end raw output ---`);
   }
 
-  // Strip ANSI escapes
-  const clean = raw.replace(
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: needed for ANSI stripping
-    /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][^\n]|\r/g,
-    "",
-  );
+  const clean = stripAnsi(raw);
 
   if (verbose) {
     dbg(`--- cleaned output (${clean.length} chars) ---`);
@@ -409,29 +411,13 @@ export async function nonInteractiveExec(
     dbg(`--- end cleaned output ---`);
   }
 
-  const lines = clean.split("\n");
+  const { output: result, exitCode } = parseSentinelOutput(
+    clean,
+    startSentinel,
+    endSentinel,
+  );
 
-  // Find output between sentinels. Search backwards because each sentinel
-  // string appears twice: once in the shell command echo and once in the
-  // actual output. We want the last occurrence (the output line).
-  let startIdx = -1;
-  let endIdx = -1;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    if (endIdx < 0 && lines[i].includes(endSentinel)) {
-      endIdx = i;
-    }
-    if (startIdx < 0 && lines[i].includes(startSentinel)) {
-      startIdx = i;
-    }
-  }
-
-  dbg(`sentinel indices: startLine=${startIdx} endLine=${endIdx} (of ${lines.length} lines)`);
-
-  const start = startIdx >= 0 ? startIdx + 1 : 0;
-  const end = endIdx >= 0 ? endIdx : lines.length;
-  const result = lines.slice(start, end).join("\n").trim();
-
-  dbg(`extracted result: ${result.length} chars`);
+  dbg(`extracted result: ${result.length} chars, exit code: ${exitCode}`);
 
   if (result) {
     process.stdout.write(result + "\n");
@@ -439,10 +425,74 @@ export async function nonInteractiveExec(
     dbg(`no output extracted between sentinels`);
   }
 
-  // Extract exit code from sentinel (also search backwards)
+  process.exit(exitCode);
+}
+
+// ---------------------------------------------------------------------------
+// Exported helpers — pure functions extracted for testability
+// ---------------------------------------------------------------------------
+
+const EXIT_CODE_SENTINEL = "__VELLUM_EXIT_";
+
+/**
+ * Strip ANSI escape sequences and carriage returns from raw PTY output.
+ */
+export function stripAnsi(raw: string): string {
+  return raw.replace(
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: needed for ANSI stripping
+    /\x1b\[[?]?[0-9;]*[a-zA-Z-~]|\x1b\][^\x07]*\x07|\x1b[()][^\n]|\r/g,
+    "",
+  );
+}
+
+export interface ParsedSentinelOutput {
+  output: string;
+  exitCode: number;
+}
+
+/**
+ * Extract command output and exit code from cleaned (ANSI-stripped) terminal
+ * output using sentinel markers.
+ *
+ * Each sentinel appears twice: once in the command echo (the shell printing
+ * what was typed) and once in the actual output. We find the last start
+ * sentinel then search forward for the first end sentinel after it.
+ */
+export function parseSentinelOutput(
+  cleaned: string,
+  startSentinel: string,
+  endSentinel: string,
+): ParsedSentinelOutput {
+  const lines = cleaned.split("\n");
+
+  // Find the last start sentinel (the real output one, not the echo)
+  let startIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes(startSentinel)) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  // Find the first end sentinel after the start sentinel
+  let endIdx = -1;
+  if (startIdx >= 0) {
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      if (lines[i].includes(endSentinel)) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+
+  const start = startIdx >= 0 ? startIdx + 1 : 0;
+  const end = endIdx >= 0 ? endIdx : lines.length;
+  const output = lines.slice(start, end).join("\n").trim();
+
+  // Extract exit code — search backwards from the end
   let exitCode = 0;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (lines[i].includes(exitCodeSentinel)) {
+    if (lines[i].includes(EXIT_CODE_SENTINEL)) {
       const match = lines[i].match(/__VELLUM_EXIT_(\d+)/);
       if (match) {
         exitCode = parseInt(match[1], 10);
@@ -451,7 +501,5 @@ export async function nonInteractiveExec(
     }
   }
 
-  dbg(`exit code: ${exitCode}`);
-
-  process.exit(exitCode);
+  return { output, exitCode };
 }
