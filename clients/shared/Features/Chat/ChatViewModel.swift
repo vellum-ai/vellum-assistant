@@ -657,6 +657,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored private var pendingGuardianActions: [String: String] = [:]
     public var conversationId: String? {
         didSet {
+            broadcastFilter.conversationId = conversationId
             // If the daemon reconnected before this VM had a conversation ID, a deferred
             // flush was requested. Now that we have a conversation, run it.
             if conversationId != nil && needsOfflineFlush {
@@ -790,6 +791,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Monotonically increasing ID used to distinguish successive message-loop
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
     @ObservationIgnored private var messageLoopGeneration: UInt64 = 0
+    /// Mutable filter shared with EventStreamClient so conversation-scoped SSE
+    /// messages are only delivered to the matching subscriber.
+    @ObservationIgnored private let broadcastFilter = EventStreamClient.ConversationFilter()
     @ObservationIgnored var currentAssistantMessageId: UUID?
     /// The trimmed user text that initiated the current assistant turn.
     /// Used to tag the assistant message (e.g. modelList for "/models") without
@@ -1369,7 +1373,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public func startMessageLoop() {
         messageLoopTask?.cancel()
-        let messageStream = eventStreamClient.subscribe()
+        let messageStream = eventStreamClient.subscribe(filter: broadcastFilter)
 
         messageLoopGeneration &+= 1
         let generation = messageLoopGeneration
@@ -2061,33 +2065,33 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     }
 
     /// Populate messages from history data returned by the daemon.
-    /// If the user hasn't sent any messages yet, replaces messages entirely.
-    /// If the user already sent messages (late history_response), prepends
-    /// history before the existing messages so the user sees full context.
-    ///
-    /// - Parameters:
-    ///   - historyMessages: The message items from the daemon's history response.
-    ///   - hasMore: Whether the daemon has older pages available.
-    ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
-    ///     Used as the cursor for the next pagination request.
-    ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
-    ///     (older page fetched on demand). When `false`, the standard initial-load
-    ///     or reconnect-catch-up logic applies.
+    /// Reconstructs messages synchronously on the calling actor — suitable for
+    /// tests and simple call sites. Production callers that handle large history
+    /// payloads should use `applyReconstructedHistory(_:hasMore:oldestTimestamp:isPaginationLoad:)`
+    /// after offloading the reconstruction to a background task.
     public func populateFromHistory(
         _ historyMessages: [HistoryResponseMessage],
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
     ) {
-        let spid = OSSignpostID(log: Self.poiLog)
-        os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
-
-        // Reconstruct messages using a nonisolated static method.
-        // The heavy work (JSON size estimation, tool input formatting, surface
-        // mapping, image decoding) is isolated in a pure function that accesses
-        // no @MainActor state, enabling future background execution.
         let convId = self.conversationId
         let result = HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
+        applyReconstructedHistory(result, hasMore: hasMore, oldestTimestamp: oldestTimestamp, isPaginationLoad: isPaginationLoad)
+    }
+
+    /// Apply pre-reconstructed history results to the view model.
+    /// The heavy `HistoryReconstructionService.reconstructMessages` work should
+    /// be performed off the main actor before calling this method.
+    public func applyReconstructedHistory(
+        _ result: HistoryReconstructionService.Result,
+        hasMore: Bool,
+        oldestTimestamp: Double? = nil,
+        isPaginationLoad: Bool = false
+    ) {
+        let spid = OSSignpostID(log: Self.poiLog)
+        os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", result.messages.count, isPaginationLoad ? 1 : 0)
+
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 

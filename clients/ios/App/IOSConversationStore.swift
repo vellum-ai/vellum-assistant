@@ -1005,18 +1005,31 @@ class IOSConversationStore: ObservableObject {
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
 
-        vm.populateFromHistory(
-            response.messages,
-            hasMore: response.hasMore,
-            oldestTimestamp: response.oldestTimestamp,
-            isPaginationLoad: isPaginationLoad
-        )
-
-        // Wire up the onLoadMoreHistory callback if not already set.
+        // Wire up the onLoadMoreHistory callback eagerly (independent of reconstruction).
         if vm.onLoadMoreHistory == nil {
             vm.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
                 self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
             }
+        }
+
+        // Offload the heavy reconstruction work (JSON size estimation, tool input
+        // formatting, image decoding) to a background thread. The nonisolated
+        // static method accesses no @MainActor state, so this is safe.
+        let convId = vm.conversationId
+        let messages = response.messages
+        let hasMore = response.hasMore
+        let oldestTimestamp = response.oldestTimestamp
+        Task { @MainActor [weak vm] in
+            let result = await Task.detached(priority: .userInitiated) {
+                HistoryReconstructionService.reconstructMessages(from: messages, conversationId: convId)
+            }.value
+            guard let vm else { return }
+            vm.applyReconstructedHistory(
+                result,
+                hasMore: hasMore,
+                oldestTimestamp: oldestTimestamp,
+                isPaginationLoad: isPaginationLoad
+            )
         }
     }
 

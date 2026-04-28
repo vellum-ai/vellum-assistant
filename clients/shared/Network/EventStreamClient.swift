@@ -88,15 +88,31 @@ public final class EventStreamClient {
 
     // MARK: - Broadcast Subscribers
 
-    private var subscribers: [UUID: AsyncStream<ServerMessage>.Continuation] = [:]
+    /// Mutable filter that a subscriber can update as its conversation changes.
+    /// Passed by reference so callers can set `conversationId` after subscribing
+    /// (e.g. when `conversationInfo` arrives and assigns the conversation ID).
+    public final class ConversationFilter: @unchecked Sendable {
+        public var conversationId: String?
+        public init(conversationId: String? = nil) { self.conversationId = conversationId }
+    }
 
-    /// Creates a new message stream for the caller. Each subscriber receives all messages
-    /// independently, enabling multiple consumers to filter for messages relevant to them
-    /// without competing for elements.
-    public func subscribe() -> AsyncStream<ServerMessage> {
+    private struct Subscription {
+        let continuation: AsyncStream<ServerMessage>.Continuation
+        let filter: ConversationFilter?
+    }
+
+    private var subscribers: [UUID: Subscription] = [:]
+
+    /// Creates a new message stream for the caller.
+    ///
+    /// - Parameter filter: Optional conversation filter. When provided,
+    ///   messages whose `conversationId` doesn't match are not delivered,
+    ///   reducing unnecessary subscriber wakeups. Messages with no
+    ///   `conversationId` (system-level) are always delivered.
+    public func subscribe(filter: ConversationFilter? = nil) -> AsyncStream<ServerMessage> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
-        subscribers[id] = continuation
+        subscribers[id] = Subscription(continuation: continuation, filter: filter)
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.subscribers.removeValue(forKey: id)
@@ -496,6 +512,8 @@ public final class EventStreamClient {
         // that local ID — the server likely assigned a new ID that we haven't
         // mapped yet.  Pre-register the mapping so subsequent events in the same
         // window are handled by the fast path above.
+        // Track the final (remapped) conversation ID for broadcast filtering.
+        var broadcastConversationId: String?
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId") {
             let localId: String?
             if let mapped = serverToLocalConversationMap[conversationId] {
@@ -510,6 +528,7 @@ public final class EventStreamClient {
             } else {
                 localId = nil
             }
+            broadcastConversationId = localId ?? conversationId
             if let localId {
                 jsonString = jsonString.replacingOccurrences(
                     of: "\"conversationId\":\"\(conversationId)\"",
@@ -582,7 +601,7 @@ public final class EventStreamClient {
 
         guard let message else { return }
         if shouldIgnoreHostToolRequest(message) { return }
-        handleParsedMessage(message)
+        handleParsedMessage(message, conversationId: broadcastConversationId)
     }
 
     private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
@@ -616,7 +635,7 @@ public final class EventStreamClient {
     /// 1. Intercept token_rotated (update credentials, reconnect SSE)
     /// 2. Call pre-processor (DaemonStatus state updates)
     /// 3. Broadcast to all subscribers
-    private func handleParsedMessage(_ message: ServerMessage) {
+    private func handleParsedMessage(_ message: ServerMessage, conversationId: String? = nil) {
         // Intercept token rotation — don't broadcast to subscribers
         if case .tokenRotated(let msg) = message {
             log.info("Received token_rotated event — reconnecting SSE")
@@ -639,13 +658,19 @@ public final class EventStreamClient {
         }
 
         messagePreProcessor?(message)
-        broadcastMessage(message)
+        broadcastMessage(message, conversationId: conversationId)
     }
 
-    /// Broadcast a message to all subscribers.
-    public func broadcastMessage(_ message: ServerMessage) {
-        for continuation in subscribers.values {
-            continuation.yield(message)
+    /// Broadcast a message to subscribers. When `conversationId` is provided,
+    /// subscribers with a non-matching conversation filter are skipped.
+    public func broadcastMessage(_ message: ServerMessage, conversationId: String? = nil) {
+        for subscriber in subscribers.values {
+            if let filterConvId = subscriber.filter?.conversationId,
+               let messageConvId = conversationId,
+               filterConvId != messageConvId {
+                continue
+            }
+            subscriber.continuation.yield(message)
         }
     }
 
@@ -684,9 +709,8 @@ public final class EventStreamClient {
         tokenRotationTask?.cancel()
         sseReconnectTask?.cancel()
         sseTask?.cancel()
-        let continuations = subscribers.values
-        for continuation in continuations {
-            continuation.finish()
+        for subscriber in subscribers.values {
+            subscriber.continuation.finish()
         }
     }
 }

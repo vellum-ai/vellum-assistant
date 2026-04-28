@@ -57,6 +57,11 @@ final class ConversationRestorer {
     private var fetchConversationListTask: Task<Void, Never>?
     /// Debounce task for `conversation_list_invalidated` refetch.
     private var invalidationRefetchTask: Task<Void, Never>?
+    /// Serial queue of conversation IDs awaiting reconnect history reload.
+    /// Processed one at a time by `reconnectHistoryDrainTask` to prevent N
+    /// simultaneous history reconstructions from saturating the main actor.
+    private var reconnectHistoryQueue: [String] = []
+    private var reconnectHistoryDrainTask: Task<Void, Never>?
     /// NotificationCenter observer token for `.daemonDidReconnect`. One-shot —
     /// removed after the first post fires the initial conversation list fetch.
     private var daemonReconnectObserver: NSObjectProtocol?
@@ -76,6 +81,7 @@ final class ConversationRestorer {
         disconnectObservationTask?.cancel()
         fetchConversationListTask?.cancel()
         invalidationRefetchTask?.cancel()
+        reconnectHistoryDrainTask?.cancel()
         if let daemonReconnectObserver {
             NotificationCenter.default.removeObserver(daemonReconnectObserver)
         }
@@ -225,20 +231,40 @@ final class ConversationRestorer {
         }
     }
 
-    /// Request history re-fetch for a reconnect catch-up. Registers the conversationId
-    /// so the response is properly routed back via handleHistoryResponse.
+    /// Queue a reconnect history re-fetch. Requests are processed serially by
+    /// `drainReconnectHistoryQueue` to prevent N simultaneous history
+    /// reconstructions from saturating the main actor after a reconnect.
     func requestReconnectHistory(conversationId: String) {
         guard let delegate else { return }
-        // Find the conversation that owns this conversationId.
         guard let conversation = delegate.conversations.first(where: { $0.conversationId == conversationId }) else { return }
         pendingHistoryByConversationId[conversationId] = conversation.id
-        Task { [weak self] in
-            guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
-            if let response {
-                self.handleHistoryResponse(response)
-            } else {
-                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+        guard !reconnectHistoryQueue.contains(conversationId) else { return }
+        reconnectHistoryQueue.append(conversationId)
+        drainReconnectHistoryQueue()
+    }
+
+    /// Process queued reconnect history requests one at a time. Yields between
+    /// each request so user-input events can interleave with heavy history loads.
+    private func drainReconnectHistoryQueue() {
+        guard reconnectHistoryDrainTask == nil else { return }
+        reconnectHistoryDrainTask = Task { [weak self] in
+            defer { self?.reconnectHistoryDrainTask = nil }
+            while let self, !Task.isCancelled, !self.reconnectHistoryQueue.isEmpty {
+                let conversationId = self.reconnectHistoryQueue.removeFirst()
+                let response = await self.conversationHistoryClient.fetchHistory(
+                    conversationId: conversationId,
+                    limit: 50,
+                    beforeTimestamp: nil,
+                    mode: "light",
+                    maxTextChars: nil,
+                    maxToolResultChars: 1000
+                )
+                if let response {
+                    self.handleHistoryResponse(response)
+                } else {
+                    self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                }
+                await Task.yield()
             }
         }
     }
@@ -450,22 +476,34 @@ final class ConversationRestorer {
         // isLoadingMoreMessages is true, the response is for a "Load more" request.
         let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
 
-        viewModel.populateFromHistory(
-            response.messages,
-            hasMore: response.hasMore,
-            oldestTimestamp: response.oldestTimestamp,
-            isPaginationLoad: isPaginationLoad
-        )
-
-        // Wire up the onLoadMoreHistory callback if not already set (e.g. for
-        // reconnect-restored conversations that didn't go through loadHistoryIfNeeded).
+        // Wire up the onLoadMoreHistory callback eagerly (independent of reconstruction).
         if viewModel.onLoadMoreHistory == nil {
             viewModel.onLoadMoreHistory = { [weak self] conversationId, beforeTimestamp in
                 self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
             }
         }
 
-        log.info("Loaded \(response.messages.count) history messages for conversation \(localId) (hasMore: \(response.hasMore), isPagination: \(isPaginationLoad))")
+        // Offload the heavy reconstruction work (JSON size estimation, tool input
+        // formatting, image decoding) to a background thread. The nonisolated
+        // static method accesses no @MainActor state, so this is safe.
+        let convId = viewModel.conversationId
+        let messages = response.messages
+        let hasMore = response.hasMore
+        let oldestTimestamp = response.oldestTimestamp
+        Task { @MainActor [weak viewModel] in
+            let result = await Task.detached(priority: .userInitiated) {
+                HistoryReconstructionService.reconstructMessages(from: messages, conversationId: convId)
+            }.value
+            guard let viewModel else { return }
+            viewModel.applyReconstructedHistory(
+                result,
+                hasMore: hasMore,
+                oldestTimestamp: oldestTimestamp,
+                isPaginationLoad: isPaginationLoad
+            )
+        }
+
+        log.info("Loaded \(response.messages.count) history messages for conversation \(localId) (hasMore: \(hasMore), isPagination: \(isPaginationLoad))")
     }
 
     func handleConversationTitleUpdated(_ response: ConversationTitleUpdatedMessage) {
