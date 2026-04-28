@@ -45,10 +45,9 @@ mock.module("../../runtime/assistant-event.js", () => ({
   // Pass-through so `focus` / `conversationId` can be asserted directly
   // on the captured event's `message` payload.
   buildAssistantEvent: (
-    assistantId: string,
     message: unknown,
     conversationId?: string,
-  ) => ({ assistantId, message, conversationId }),
+  ) => ({ message, conversationId }),
 }));
 
 // Stub DB helpers so the real `launchConversation` can run without a DB.
@@ -215,7 +214,6 @@ function registerCardSurface(
 // Helper: filter captured publish calls down to `open_conversation`
 // events. Typed so assertions can reach the inner `message` payload.
 function openConversationEvents(): Array<{
-  assistantId: string;
   conversationId?: string;
   message: {
     type: "open_conversation";
@@ -233,7 +231,6 @@ function openConversationEvents(): Array<{
     .map(
       (e) =>
         e as unknown as {
-          assistantId: string;
           conversationId?: string;
           message: {
             type: "open_conversation";
