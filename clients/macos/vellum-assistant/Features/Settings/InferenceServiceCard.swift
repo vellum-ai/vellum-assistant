@@ -17,7 +17,7 @@ import VellumAssistantShared
 @MainActor
 struct InferenceServiceCard: View {
     @ObservedObject var store: SettingsStore
-    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore: AssistantFeatureFlagStore?
     var authManager: AuthManager
     @Binding var apiKeyText: String
     var showToast: (String, ToastInfo.Style) -> Void
@@ -133,7 +133,7 @@ struct InferenceServiceCard: View {
                 if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         managedProviderPicker
-                        if assistantFeatureFlagStore.isEnabled("inference-profiles") {
+                        if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                             activeProfilePicker
                             manageProfilesButton
                         }
@@ -155,7 +155,7 @@ struct InferenceServiceCard: View {
                     apiKeyField
 
                     // Active profile picker + Manage Profiles button
-                    if assistantFeatureFlagStore.isEnabled("inference-profiles") {
+                    if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
                         activeProfilePicker
                         manageProfilesButton
                     }
@@ -179,7 +179,7 @@ struct InferenceServiceCard: View {
                 // Per-call-site overrides badge — only visible when the user has
                 // at least one override configured. Tapping opens the overrides
                 // sheet.
-                if assistantFeatureFlagStore.isEnabled("inference-profiles"),
+                if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true,
                    store.overridesCount > 0 {
                     overridesBadge
                 }
@@ -515,8 +515,13 @@ struct InferenceServiceCard: View {
         // managed) where both old and new resolve to the same provider
         // (e.g. both "anthropic") should not prompt because there is no
         // provider switch for overrides to reconcile against.
+        //
+        // Skip the confirmation when inference-profiles is off — the
+        // overrides UI is hidden so showing the dialog would confuse users
+        // who have no way to inspect or manage their overrides.
+        let profilesEnabled = assistantFeatureFlagStore?.isEnabled("inference-profiles") == true
         let providerIdChanged = persistProvider != initialProvider
-        if providerIdChanged {
+        if profilesEnabled && providerIdChanged {
             let overridesPinnedToOldProvider = store.callSiteOverrides.filter {
                 $0.provider == initialProvider
             }
