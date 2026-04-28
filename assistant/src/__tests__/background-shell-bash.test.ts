@@ -91,6 +91,27 @@ const baseContext = {
   onOutput: () => {},
 };
 
+/** Poll until `mockFn` has been called at least once (10 s timeout). */
+function waitForWake(
+  mockFn: ReturnType<typeof mock>,
+  timeoutMs = 10_000,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("timed out waiting for wakeAgentForOpportunity")),
+      timeoutMs,
+    );
+    const check = () => {
+      if (mockFn.mock.calls.length > 0) {
+        clearTimeout(timer);
+        return resolve();
+      }
+      setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
 describe("bash tool background mode", () => {
   let shellTool: Tool;
 
@@ -120,6 +141,9 @@ describe("bash tool background mode", () => {
     const parsed = JSON.parse(result.content);
     expect(parsed.backgrounded).toBe(true);
     expect(parsed.id).toBe("bg-test1234");
+
+    // Wait for background process to settle so it doesn't leak into later tests.
+    await waitForWake(mockWakeAgentForOpportunity);
   });
 
   test("background process registers in the background tool registry", async () => {
@@ -136,6 +160,9 @@ describe("bash tool background mode", () => {
     expect(registered.conversationId).toBe("conv-bg-test");
     expect(registered.command).toBe("echo hello");
     expect(typeof registered.cancel).toBe("function");
+
+    // Wait for background process to settle so it doesn't leak into later tests.
+    await waitForWake(mockWakeAgentForOpportunity);
   });
 
   test("background process completion triggers wakeAgentForOpportunity with stdout", async () => {
@@ -145,8 +172,7 @@ describe("bash tool background mode", () => {
     );
 
     // Wait for the background process to complete and fire the wake.
-    // The process is fast (echo), so a short wait suffices.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await waitForWake(mockWakeAgentForOpportunity);
 
     expect(mockRemoveBackgroundTool).toHaveBeenCalledWith("bg-test1234");
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
@@ -166,7 +192,7 @@ describe("bash tool background mode", () => {
     );
 
     // Wait for the background process to complete.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await waitForWake(mockWakeAgentForOpportunity);
 
     expect(mockRemoveBackgroundTool).toHaveBeenCalledWith("bg-test1234");
     expect(mockWakeAgentForOpportunity).toHaveBeenCalledTimes(1);
