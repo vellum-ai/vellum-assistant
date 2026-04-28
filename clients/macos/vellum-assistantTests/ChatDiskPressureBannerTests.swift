@@ -8,9 +8,7 @@ struct ChatDiskPressureBannerTests {
         let alert = DiskPressureAlert(
             id: "disk-pressure:assistant-123:1",
             assistantId: "assistant-123",
-            displayPercent: 93,
-            usedMb: 930,
-            totalMb: 1_000
+            displayPercent: 93
         )
 
         #expect(DiskPressureBanner.subtitle(for: alert) == "Storage is 93% full.")

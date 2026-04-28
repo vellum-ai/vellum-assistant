@@ -27,6 +27,7 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
+    @State private var systemResourcesDeepLinkRequested = false
 
 
     private var currentAssistant: LockfileAssistant? {
@@ -92,6 +93,10 @@ struct SettingsGeneralTab: View {
                 lockfileAssistants = assistants
                 await fetchHealthz()
             }
+            recordSystemResourcesDeepLinkIfNeeded(store.pendingSettingsGeneralSection)
+        }
+        .onChange(of: store.pendingSettingsGeneralSection) { _, section in
+            recordSystemResourcesDeepLinkIfNeeded(section)
         }
         .onChange(of: connectionManager?.isUpdateInProgress) { _, inProgress in
             isServiceGroupUpdateInProgress = inProgress ?? false
@@ -171,20 +176,38 @@ struct SettingsGeneralTab: View {
             healthz = DaemonHealthz()
         }
         healthzLoaded = true
+        systemResourcesDeepLinkRequested = false
     }
 
     // MARK: - System Resources
 
     private var shouldShowSystemResourcesSection: Bool {
-        topology == .managed
-            || Self.hasResourceMetrics(healthz)
-            || store.pendingSettingsGeneralSection == .systemResources
-            || (!healthzLoaded && !selectedAssistantId.isEmpty)
+        Self.shouldShowSystemResourcesSection(
+            topology: topology,
+            healthz: healthz,
+            pendingSection: store.pendingSettingsGeneralSection,
+            deepLinkRequestPending: systemResourcesDeepLinkRequested && !healthzLoaded
+        )
+    }
+
+    nonisolated static func shouldShowSystemResourcesSection(
+        topology: AssistantTopology,
+        healthz: DaemonHealthz?,
+        pendingSection: SettingsGeneralSection?,
+        deepLinkRequestPending: Bool = false
+    ) -> Bool {
+        topology == .managed || hasResourceMetrics(healthz) || pendingSection == .systemResources || deepLinkRequestPending
     }
 
     nonisolated static func hasResourceMetrics(_ healthz: DaemonHealthz?) -> Bool {
         guard let healthz else { return false }
         return healthz.disk != nil || healthz.memory != nil || healthz.cpu != nil
+    }
+
+    private func recordSystemResourcesDeepLinkIfNeeded(_ section: SettingsGeneralSection?) {
+        if section == .systemResources {
+            systemResourcesDeepLinkRequested = true
+        }
     }
 
     /// Resource usage card shown for any assistant that reports metrics. Mirrors

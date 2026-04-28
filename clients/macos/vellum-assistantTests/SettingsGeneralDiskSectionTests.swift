@@ -25,6 +25,44 @@ struct SettingsGeneralDiskSectionTests {
     }
 
     @Test
+    func localAssistantsDoNotShowResourcesBeforeMetricsLoad() {
+        #expect(!SettingsGeneralTab.shouldShowSystemResourcesSection(
+            topology: .local,
+            healthz: nil,
+            pendingSection: nil
+        ))
+    }
+
+    @Test
+    func explicitDeepLinkShowsResourcesWhileLoading() {
+        #expect(SettingsGeneralTab.shouldShowSystemResourcesSection(
+            topology: .local,
+            healthz: nil,
+            pendingSection: .systemResources
+        ))
+    }
+
+    @Test
+    func rememberedDeepLinkKeepsResourcesVisibleAfterPendingSectionClears() {
+        #expect(SettingsGeneralTab.shouldShowSystemResourcesSection(
+            topology: .local,
+            healthz: nil,
+            pendingSection: nil,
+            deepLinkRequestPending: true
+        ))
+    }
+
+    @Test
+    func completedDeepLinkDoesNotKeepResourcesVisibleWithoutMetrics() {
+        #expect(!SettingsGeneralTab.shouldShowSystemResourcesSection(
+            topology: .local,
+            healthz: nil,
+            pendingSection: nil,
+            deepLinkRequestPending: false
+        ))
+    }
+
+    @Test
     func megabyteFormatterUsesReadableUnits() {
         #expect(SettingsGeneralTab.formatMb(512) == "512 MB")
         #expect(SettingsGeneralTab.formatMb(1_536) == "1.5 GB")

@@ -10,8 +10,6 @@ struct DiskPressureAlert: Equatable, Sendable {
     let id: String
     let assistantId: String
     let displayPercent: Int
-    let usedMb: Double
-    let totalMb: Double
 }
 
 @MainActor
@@ -39,10 +37,6 @@ final class DiskPressureMonitor {
     @ObservationIgnored private var cadenceTask: Task<Void, Never>?
     @ObservationIgnored private var appActivationObserver: NSObjectProtocol?
     @ObservationIgnored private var activeAssistantObserver: NSObjectProtocol?
-
-    var isPressureActive: Bool {
-        alert != nil
-    }
 
     init(
         fetchHealthz: @escaping HealthzFetcher = {
@@ -208,9 +202,7 @@ final class DiskPressureMonitor {
         let nextAlert = DiskPressureAlert(
             id: Self.alertId(assistantId: assistantId, cycle: alertCycle),
             assistantId: assistantId,
-            displayPercent: Self.displayPercent(forUsageFraction: usageFraction),
-            usedMb: disk.usedMb,
-            totalMb: disk.totalMb
+            displayPercent: Self.displayPercent(forUsageFraction: usageFraction)
         )
         if alert != nextAlert {
             alert = nextAlert
