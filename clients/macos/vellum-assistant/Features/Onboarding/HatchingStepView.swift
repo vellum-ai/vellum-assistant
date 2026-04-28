@@ -154,6 +154,15 @@ struct HatchingStepView: View {
                     progressAtCompletion = progressValue(at: Date())
                     completionTime = Date()
                 }
+                // Push the locally-stored API key to the newly-booted daemon.
+                // During onboarding the fire-and-forget gateway HTTP call in
+                // saveAndHatch() races the hatch and silently fails when the
+                // daemon isn't running yet. Re-send once we know it's up.
+                if !state.skippedAPIKeyEntry,
+                   let key = APIKeyManager.getKey(for: state.selectedProvider) {
+                    let provider = state.selectedProvider
+                    Task { await APIKeyManager.setKey(key, for: provider) }
+                }
             }
         }
         .onChange(of: state.hatchFailed) { _, failed in
