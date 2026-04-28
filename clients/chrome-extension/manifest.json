@@ -1,27 +1,30 @@
 {
   "manifest_version": 3,
   "name": "Vellum Assistant",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "minimum_chrome_version": "116",
   "description": "Bridges the Vellum assistant to your live browser session via Chrome DevTools Protocol (CDP) through chrome.debugger.",
   "homepage_url": "https://www.vellum.ai",
-
-  "permissions": ["cookies", "debugger", "identity", "storage", "tabs"],
-  "host_permissions": ["<all_urls>"],
-
+  "permissions": [
+    "debugger",
+    "identity",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background/worker.js",
     "type": "module"
   },
-
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Vellum Assistant"
   },
-
   "icons": {
-    "16": "icons/production/icon16.png",
-    "48": "icons/production/icon48.png",
-    "128": "icons/production/icon128.png"
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }
