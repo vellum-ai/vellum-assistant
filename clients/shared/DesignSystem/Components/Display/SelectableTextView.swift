@@ -32,6 +32,12 @@ private final class SelectableNSTextView: NSTextView {
 /// view during the layout pass. This avoids an O(N) layout measurement
 /// cascade through nested `StackLayout.sizeThatFits` calls.
 ///
+/// **Contract for `useExternalSizing: true`:** `maxWidth` MUST be non-nil
+/// and equal to the value passed to `measureSize`. The live text container
+/// is sized from `maxWidth`; if it diverges from the measurement width the
+/// rendered wrap geometry will not match the precomputed frame, producing
+/// horizontal clipping or stale heights.
+///
 /// For low-instance-count scenarios (e.g., a single thinking block),
 /// leave `useExternalSizing` at its default (`false`) and let
 /// `sizeThatFits` compute the size normally.
