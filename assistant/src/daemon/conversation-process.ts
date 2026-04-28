@@ -46,7 +46,6 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
-
 import type {
   ServerMessage,
   UsageStats,

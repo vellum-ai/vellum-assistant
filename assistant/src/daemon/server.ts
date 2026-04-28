@@ -7,7 +7,6 @@ import {
   setBroadcastToAllClients,
 } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
-import { supportsHostProxy } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";

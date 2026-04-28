@@ -2100,43 +2100,6 @@ function extensionSetupActions(): string[] {
   ];
 }
 
-function macOSHostBrowserSetupActions(): string[] {
-  return [
-    "Ensure the Vellum desktop app is running and connected to the assistant.",
-    "Open Google Chrome on the desktop machine so the host browser proxy can attach.",
-    "If the desktop client is not running, launch it and wait for the SSE connection to establish.",
-  ];
-}
-
-function macOSHostBrowserReconnectActions(): string[] {
-  return [
-    "Verify the Vellum desktop app is still running and has an active network connection.",
-    "If the desktop client was recently restarted, send a new message to re-establish the SSE bridge.",
-    "Ensure Chrome is open on the desktop machine for the host browser proxy to target.",
-  ];
-}
-
-function macOSHostBrowserProbeFailureActions(error: CdpError): string[] {
-  const actions: string[] = [
-    "Ensure Google Chrome is running on the desktop machine.",
-  ];
-  const message = error.message.toLowerCase();
-  if (message.includes("timeout") || message.includes("timed out")) {
-    actions.push(
-      "The desktop client may be unresponsive — try restarting the Vellum desktop app.",
-    );
-  }
-  if (message.includes("transport") || message.includes("disconnected")) {
-    actions.push(
-      "The SSE bridge between the assistant and the desktop client appears broken. Send a new message to re-establish the connection.",
-    );
-  }
-  actions.push(
-    "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
-  );
-  return dedupeStrings(actions);
-}
-
 function cdpInspectSetupActions(): string[] {
   return [
     "Update Chrome to the latest version by going to chrome://settings/help",
