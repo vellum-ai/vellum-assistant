@@ -483,12 +483,16 @@ function handleGetAttachmentContentRoute({
       } else {
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (!match) {
-          // Unparseable range — return full file
-          return new RouteResponse(file, {
-            "Content-Type": attachment.mimeType,
-            "Content-Length": String(fileSize),
-            "Accept-Ranges": "bytes",
-          });
+          // Unparseable range — return full file at 200 (not 206)
+          return new RouteResponse(
+            file,
+            {
+              "Content-Type": attachment.mimeType,
+              "Content-Length": String(fileSize),
+              "Accept-Ranges": "bytes",
+            },
+            200,
+          );
         }
         start = parseInt(match[1]);
         end = match[2] ? parseInt(match[2]) : fileSize - 1;

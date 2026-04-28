@@ -131,7 +131,6 @@ import { ROUTES } from "./routes/index.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { buildConversationDetailResponse } from "./services/conversation-serializer.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
@@ -1552,7 +1551,6 @@ export class RuntimeHttpServer {
 
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
-      ...workspaceHttpOnlyRouteDefinitions(),
 
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)

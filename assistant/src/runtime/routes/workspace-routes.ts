@@ -18,10 +18,14 @@ import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition, RouteContext } from "../http-router.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  RangeNotSatisfiableError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
@@ -146,44 +150,41 @@ function handleWorkspaceFile({ queryParams }: RouteHandlerArgs) {
 
 // ---------------------------------------------------------------------------
 // GET /v1/workspace/file/content — raw file bytes with range support
-//
-// This route stays HTTP-only because range requests (206 Partial Content,
-// Content-Range headers, 416 status) are inherently HTTP transport semantics.
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceFileContent(ctx: RouteContext): Response {
-  const path = ctx.url.searchParams.get("path");
+function handleWorkspaceFileContent({
+  queryParams = {},
+  headers = {},
+}: RouteHandlerArgs): RouteResponse {
+  const path = queryParams.path;
   if (!path) {
-    return httpError(
-      "BAD_REQUEST",
-      "Missing required query parameter: path",
-      400,
-    );
+    throw new BadRequestError("Missing required query parameter: path");
   }
 
-  const showHidden = ctx.url.searchParams.get("showHidden") === "true";
+  const showHidden = queryParams.showHidden === "true";
   const resolved = resolveWorkspacePath(path, { allowHidden: showHidden });
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   if (!existsSync(resolved)) {
-    return httpError("NOT_FOUND", "File not found", 404);
+    throw new NotFoundError("File not found");
   }
 
   try {
     if (!statSync(resolved).isFile()) {
-      return httpError("BAD_REQUEST", "Path is not a file", 400);
+      throw new BadRequestError("Path is not a file");
     }
-  } catch {
-    return httpError("NOT_FOUND", "File not found", 404);
+  } catch (err) {
+    if (err instanceof BadRequestError) throw err;
+    throw new NotFoundError("File not found");
   }
 
   const file = Bun.file(resolved);
   const fileSize = file.size;
   const mimeType = file.type;
 
-  const rangeHeader = ctx.req.headers.get("Range");
+  const rangeHeader = headers["range"];
 
   if (rangeHeader) {
     let start: number;
@@ -197,13 +198,16 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
     } else {
       const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
       if (!match) {
-        return new Response(file, {
-          headers: {
+        // Unparseable range — return full file at 200 (not 206)
+        return new RouteResponse(
+          file,
+          {
             "Content-Type": mimeType,
             "Content-Length": String(fileSize),
             "Accept-Ranges": "bytes",
           },
-        });
+          200,
+        );
       }
       start = parseInt(match[1]);
       end = match[2] ? parseInt(match[2]) : fileSize - 1;
@@ -212,30 +216,22 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
     end = Math.min(end, fileSize - 1);
 
     if (start > end || start >= fileSize) {
-      return new Response(null, {
-        status: 416,
-        headers: { "Content-Range": `bytes */${fileSize}` },
-      });
+      throw new RangeNotSatisfiableError(`bytes */${fileSize}`);
     }
 
     const slice = file.slice(start, end + 1);
-    return new Response(slice, {
-      status: 206,
-      headers: {
-        "Content-Type": mimeType,
-        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-        "Accept-Ranges": "bytes",
-        "Content-Length": String(end - start + 1),
-      },
+    return new RouteResponse(slice, {
+      "Content-Type": mimeType,
+      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": String(end - start + 1),
     });
   }
 
-  return new Response(file, {
-    headers: {
-      "Content-Type": mimeType,
-      "Content-Length": String(fileSize),
-      "Accept-Ranges": "bytes",
-    },
+  return new RouteResponse(file, {
+    "Content-Type": mimeType,
+    "Content-Length": String(fileSize),
+    "Accept-Ranges": "bytes",
   });
 }
 
@@ -493,36 +489,30 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: handleWorkspaceDelete,
   },
-];
-
-// ---------------------------------------------------------------------------
-// HTTP-only route definitions
-//
-// workspace/file/content uses HTTP range requests (206, Content-Range, 416)
-// which are inherently transport-specific.
-// ---------------------------------------------------------------------------
-
-export function workspaceHttpOnlyRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "workspace/file/content",
-      method: "GET",
-      summary: "Get workspace file content",
-      description: "Return raw file bytes with HTTP range support.",
-      tags: ["workspace"],
-      queryParams: [
-        {
-          name: "path",
-          schema: { type: "string" },
-          description: "Relative file path (required)",
-        },
-        {
-          name: "showHidden",
-          schema: { type: "string" },
-          description: "Allow hidden files (true/false)",
-        },
-      ],
-      handler: (ctx) => handleWorkspaceFileContent(ctx),
+  {
+    operationId: "workspace_file_content",
+    endpoint: "workspace/file/content",
+    method: "GET",
+    summary: "Get workspace file content",
+    description: "Return raw file bytes with HTTP range support.",
+    tags: ["workspace"],
+    queryParams: [
+      {
+        name: "path",
+        type: "string",
+        required: true,
+        description: "Relative file path",
+      },
+      {
+        name: "showHidden",
+        type: "string",
+        description: "Allow hidden files (true/false)",
+      },
+    ],
+    responseStatus: ({ headers }) => (headers?.["range"] ? "206" : "200"),
+    additionalResponses: {
+      "416": { description: "Range Not Satisfiable" },
     },
-  ];
-}
+    handler: handleWorkspaceFileContent,
+  },
+];
