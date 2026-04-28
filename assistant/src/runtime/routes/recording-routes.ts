@@ -24,7 +24,7 @@ import {
   handleRecordingStop,
   isRecordingIdle,
 } from "../../daemon/handlers/recording.js";
-import type { HandlerContext } from "../../daemon/handlers/shared.js";
+import type { BroadcastContext } from "../../daemon/handlers/shared.js";
 import type {
   RecordingOptions,
   RecordingStatus,
@@ -44,11 +44,11 @@ const log = getLogger("recording-routes");
 // Broadcast shim — recording handlers only use ctx.broadcast()
 // ---------------------------------------------------------------------------
 
-function getBroadcastCtx(): HandlerContext {
+function getBroadcastCtx(): BroadcastContext {
   if (!broadcastToAllClients) {
     throw new InternalError("Broadcast not initialized");
   }
-  return { broadcast: broadcastToAllClients } as HandlerContext;
+  return { broadcast: broadcastToAllClients };
 }
 
 // ---------------------------------------------------------------------------

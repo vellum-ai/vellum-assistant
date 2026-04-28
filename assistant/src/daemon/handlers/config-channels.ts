@@ -49,7 +49,7 @@ import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
 } from "../message-protocol.js";
-import { type HandlerContext, log } from "./shared.js";
+import { log, type SendContext } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the `type` discriminant) --
 
@@ -522,7 +522,7 @@ export async function verifyTrustedContact(
 
 export async function handleChannelVerificationSession(
   msg: ChannelVerificationSessionRequest,
-  ctx: HandlerContext,
+  ctx: SendContext,
 ): Promise<void> {
   const channel = msg.channel ?? "telegram";
 

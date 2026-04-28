@@ -57,7 +57,7 @@ import { eq } from "drizzle-orm";
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
-import type { HandlerContext } from "../daemon/handlers/shared.js";
+import type { SendContext } from "../daemon/handlers/shared.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
@@ -1259,31 +1259,18 @@ describe("assistant-scoped approval request lookups", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Creates a minimal mock HandlerContext that captures the response sent via ctx.send().
+ * Creates a minimal mock SendContext that captures the response sent via ctx.send().
  */
 function createMockCtx(): {
-  ctx: HandlerContext;
+  ctx: SendContext;
   lastResponse: () => ChannelVerificationSessionResponse | null;
 } {
   let captured: ChannelVerificationSessionResponse | null = null;
-  const ctx = {
-    sessions: new Map(),
-    sharedRequestTimestamps: [],
-    debounceTimers: {
-      schedule: () => {},
-      cancel: () => {},
-    } as unknown as HandlerContext["debounceTimers"],
-    suppressConfigReload: false,
-    setSuppressConfigReload: () => {},
-    updateConfigFingerprint: () => {},
+  const ctx: SendContext = {
     send: (msg: unknown) => {
       captured = msg as ChannelVerificationSessionResponse;
     },
-    broadcast: () => {},
-    clearAllConversations: () => 0,
-    getOrCreateConversation: () => Promise.resolve({} as never),
-    touchConversation: () => {},
-  } as unknown as HandlerContext;
+  };
   return { ctx, lastResponse: () => captured };
 }
 

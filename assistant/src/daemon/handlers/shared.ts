@@ -9,7 +9,6 @@ import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
-import { Conversation } from "../conversation.js";
 import type {
   ConversationTransportMetadata,
   ServerMessage,
@@ -160,25 +159,33 @@ export interface ConversationCreateOptions {
   slackInbound?: SlackInboundMessageMetadata;
 }
 
-/**
- * Shared context that handlers need from the DaemonServer.
- * Keeps handlers decoupled from the server class itself.
- */
-export interface HandlerContext {
-  sharedRequestTimestamps: number[];
+// ── Narrow handler context types ─────────────────────────────────────
+//
+// Each handler declares only the server capabilities it actually uses.
+// This replaces the former monolithic HandlerContext interface.
+
+/** Handlers that only need to broadcast to all connected clients. */
+export interface BroadcastContext {
+  broadcast(msg: ServerMessage): void;
+}
+
+/** Handlers that need to send a message to the originating client. */
+export interface SendContext {
+  send(msg: ServerMessage): void;
+}
+
+/** Conversation handlers that send messages and touch eviction timers. */
+export interface ConversationHandlerContext {
+  send(msg: ServerMessage): void;
+  touchConversation(conversationId: string): void;
+}
+
+/** Config-ingress handlers that manage debounce and reload suppression. */
+export interface IngressConfigContext {
+  send(msg: ServerMessage): void;
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
-  updateConfigFingerprint(): void;
-  send(msg: ServerMessage): void;
-  broadcast(msg: ServerMessage): void;
-  clearAllConversations(): number;
-  getOrCreateConversation(
-    conversationId: string,
-    options?: ConversationCreateOptions,
-  ): Promise<Conversation>;
-  /** Refresh the eviction timestamp for a conversation that was accessed directly. */
-  touchConversation(conversationId: string): void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -578,7 +585,7 @@ const SIGNING_TIMEOUT_MS = 30_000;
  * over HTTP and waits for the `sign_bundle_payload_response`.
  */
 export function createSigningCallback(
-  ctx: HandlerContext,
+  ctx: SendContext,
 ): (
   payload: string,
 ) => Promise<{ signature: string; keyId: string; publicKey: string }> {

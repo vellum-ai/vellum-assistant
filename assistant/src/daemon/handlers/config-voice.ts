@@ -1,5 +1,5 @@
 import type { VoiceConfigUpdateRequest } from "../message-types/settings.js";
-import { type HandlerContext, log } from "./shared.js";
+import { type BroadcastContext, log } from "./shared.js";
 
 /**
  * Send a client_settings_update message to all connected clients.
@@ -9,7 +9,7 @@ import { type HandlerContext, log } from "./shared.js";
 function broadcastClientSettingsUpdate(
   key: string,
   value: string,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): void {
   ctx.broadcast({
     type: "client_settings_update",
@@ -199,7 +199,7 @@ export function normalizeActivationKey(
  */
 export function handleVoiceConfigUpdate(
   msg: VoiceConfigUpdateRequest,
-  ctx: HandlerContext,
+  ctx: BroadcastContext,
 ): void {
   const result = normalizeActivationKey(msg.activationKey);
   if (!result.ok) {
