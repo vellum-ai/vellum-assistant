@@ -176,10 +176,19 @@ struct SettingsGeneralTab: View {
     // MARK: - System Resources
 
     private var shouldShowSystemResourcesSection: Bool {
-        topology == .managed
-            || Self.hasResourceMetrics(healthz)
-            || store.pendingSettingsGeneralSection == .systemResources
-            || (!healthzLoaded && !selectedAssistantId.isEmpty)
+        Self.shouldShowSystemResourcesSection(
+            topology: topology,
+            healthz: healthz,
+            pendingSection: store.pendingSettingsGeneralSection
+        )
+    }
+
+    nonisolated static func shouldShowSystemResourcesSection(
+        topology: AssistantTopology,
+        healthz: DaemonHealthz?,
+        pendingSection: SettingsGeneralSection?
+    ) -> Bool {
+        topology == .managed || hasResourceMetrics(healthz) || pendingSection == .systemResources
     }
 
     nonisolated static func hasResourceMetrics(_ healthz: DaemonHealthz?) -> Bool {
