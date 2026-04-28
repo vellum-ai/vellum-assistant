@@ -1,8 +1,9 @@
 /**
  * Tests for the `browser_execute` route.
  *
- * Mocks executeBrowserOperation at the module boundary so the route
- * handler can be exercised without spinning up real browser state.
+ * Mocks executeBrowserOperation and findConversation at the module boundary
+ * so the route handler can be exercised without spinning up real browser
+ * state or the daemon conversation store.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -25,16 +26,16 @@ let mockOperationCalls: Array<{
   hostBrowserProxy?: unknown;
   transportInterface?: string;
 }> = [];
-let mockResolvedContext: {
-  conversationId: string;
-  trustClass: string;
+
+/** When set, findConversation returns a fake conversation object. */
+let mockConversation: {
+  trustContext?: { trustClass: string };
   hostBrowserProxy?: unknown;
   transportInterface?: string;
+  hostBrowserSenderOverride?: unknown;
 } | null = null;
-let mockResolverCalls: Array<{
-  requestedConversationId?: string;
-  fallbackConversationId: string;
-}> = [];
+
+let mockFindConversationCalls: string[] = [];
 
 mock.module("../../browser/operations.js", () => ({
   executeBrowserOperation: async (
@@ -59,18 +60,10 @@ mock.module("../../browser/operations.js", () => ({
   },
 }));
 
-mock.module("../routes/browser-context.js", () => ({
-  resolveBrowserIpcContext: (params: {
-    requestedConversationId?: string;
-    fallbackConversationId: string;
-  }) => {
-    mockResolverCalls.push(params);
-    return (
-      mockResolvedContext ?? {
-        conversationId: params.fallbackConversationId,
-        trustClass: "unknown",
-      }
-    );
+mock.module("../../daemon/conversation-store.js", () => ({
+  findConversation: (conversationId: string) => {
+    mockFindConversationCalls.push(conversationId);
+    return mockConversation ?? undefined;
   },
 }));
 
@@ -95,8 +88,8 @@ function callHandler(body: Record<string, unknown>) {
 afterEach(() => {
   mockOperationResult = { content: "ok", isError: false };
   mockOperationCalls = [];
-  mockResolvedContext = null;
-  mockResolverCalls = [];
+  mockConversation = null;
+  mockFindConversationCalls = [];
 });
 
 // ---------------------------------------------------------------------------
@@ -170,7 +163,7 @@ describe("browser_execute route", () => {
     expect(mockOperationCalls[0].conversationId).toBe("browser-cli:default");
   });
 
-  test("passes requested conversationId to context resolver", async () => {
+  test("looks up conversation when conversationId is provided", async () => {
     await callHandler({
       operation: "status",
       input: {},
@@ -178,20 +171,31 @@ describe("browser_execute route", () => {
       conversationId: "conv-live-123",
     });
 
-    expect(mockResolverCalls).toHaveLength(1);
-    expect(mockResolverCalls[0]).toEqual({
-      requestedConversationId: "conv-live-123",
-      fallbackConversationId: "browser-cli:s1",
-    });
+    expect(mockFindConversationCalls).toEqual(["conv-live-123"]);
   });
 
-  test("uses resolved context fields when resolver returns live conversation context", async () => {
+  test("falls back to session key when conversation not found", async () => {
+    mockConversation = null;
+
+    await callHandler({
+      operation: "status",
+      input: {},
+      sessionId: "s1",
+      conversationId: "conv-missing",
+    });
+
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(mockOperationCalls[0].conversationId).toBe("browser-cli:s1");
+    expect(mockOperationCalls[0].trustClass).toBe("unknown");
+  });
+
+  test("uses live conversation context fields when found", async () => {
     const fakeProxy = { isAvailable: () => true };
-    mockResolvedContext = {
-      conversationId: "conv-live-456",
-      trustClass: "trusted",
+    mockConversation = {
+      trustContext: { trustClass: "trusted" },
       hostBrowserProxy: fakeProxy,
       transportInterface: "chrome-extension",
+      hostBrowserSenderOverride: { some: "sender" },
     };
 
     await callHandler({
@@ -208,6 +212,16 @@ describe("browser_execute route", () => {
       hostBrowserProxy: fakeProxy,
       transportInterface: "chrome-extension",
     });
+  });
+
+  test("does not call findConversation when no conversationId provided", async () => {
+    await callHandler({
+      operation: "snapshot",
+      input: {},
+      sessionId: "s1",
+    });
+
+    expect(mockFindConversationCalls).toHaveLength(0);
   });
 
   test("same sessionId produces same conversation key", () => {

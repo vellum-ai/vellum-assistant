@@ -6631,7 +6631,7 @@ paths:
       tags:
         - messages
       responses:
-        "200":
+        "202":
           description: Successful response
       requestBody:
         required: true

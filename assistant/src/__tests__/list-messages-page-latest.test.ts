@@ -32,6 +32,7 @@ import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 initializeDb();
@@ -90,30 +91,18 @@ interface ListResponse {
   oldestMessageId?: string | null;
 }
 
-interface ErrorResponse {
-  error: { code: string; message: string };
-}
-
-function buildUrl(query: Record<string, string>): URL {
-  const url = new URL("http://localhost/v1/messages");
-  for (const [k, v] of Object.entries(query)) {
-    url.searchParams.set(k, v);
-  }
-  return url;
+function callList(query: Record<string, string>): ListResponse {
+  return handleListMessages({ queryParams: query }, null) as ListResponse;
 }
 
 describe("handleListMessages page=latest", () => {
   beforeEach(resetTables);
 
-  test("page=latest with no limit returns all messages chronologically", async () => {
+  test("page=latest with no limit returns all messages chronologically", () => {
     const conv = createConversation();
     seedMessages(conv.id, 120);
 
-    const response = handleListMessages(
-      buildUrl({ conversationId: conv.id, page: "latest" }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages).toHaveLength(120);
     expect(body.messages[0].id).toBe("msg-1");
@@ -123,15 +112,15 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBe("msg-1");
   });
 
-  test("page=latest&limit=50 with 120 seeded messages returns newest 50 chronologically", async () => {
+  test("page=latest&limit=50 with 120 seeded messages returns newest 50 chronologically", () => {
     const conv = createConversation();
     seedMessages(conv.id, 120);
 
-    const response = handleListMessages(
-      buildUrl({ conversationId: conv.id, page: "latest", limit: "50" }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({
+      conversationId: conv.id,
+      page: "latest",
+      limit: "50",
+    });
 
     expect(body.messages).toHaveLength(50);
     // newest 50 are ids 71..120 (1..120 seeded)
@@ -142,15 +131,15 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBe("msg-71");
   });
 
-  test("page=latest&limit=50 with 10 seeded messages returns all 10 with hasMore=false", async () => {
+  test("page=latest&limit=50 with 10 seeded messages returns all 10 with hasMore=false", () => {
     const conv = createConversation();
     seedMessages(conv.id, 10);
 
-    const response = handleListMessages(
-      buildUrl({ conversationId: conv.id, page: "latest", limit: "50" }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({
+      conversationId: conv.id,
+      page: "latest",
+      limit: "50",
+    });
 
     expect(body.messages).toHaveLength(10);
     expect(body.messages[0].id).toBe("msg-1");
@@ -160,32 +149,24 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBe("msg-1");
   });
 
-  test("beforeTimestamp wins when combined with page=latest", async () => {
+  test("beforeTimestamp wins when combined with page=latest", () => {
     const conv = createConversation();
     seedMessages(conv.id, 120);
 
     // beforeTimestamp=100 + limit=50 should return msgs 50..99 (the 50 messages
     // immediately older than ts=100), regardless of the page=latest signal.
-    const combined = handleListMessages(
-      buildUrl({
-        conversationId: conv.id,
-        page: "latest",
-        limit: "50",
-        beforeTimestamp: "100",
-      }),
-      null,
-    );
-    const combinedBody = (await combined.json()) as ListResponse;
+    const combinedBody = callList({
+      conversationId: conv.id,
+      page: "latest",
+      limit: "50",
+      beforeTimestamp: "100",
+    });
 
-    const beforeOnly = handleListMessages(
-      buildUrl({
-        conversationId: conv.id,
-        limit: "50",
-        beforeTimestamp: "100",
-      }),
-      null,
-    );
-    const beforeOnlyBody = (await beforeOnly.json()) as ListResponse;
+    const beforeOnlyBody = callList({
+      conversationId: conv.id,
+      limit: "50",
+      beforeTimestamp: "100",
+    });
 
     expect(combinedBody.messages.map((m) => m.id)).toEqual(
       beforeOnlyBody.messages.map((m) => m.id),
@@ -199,14 +180,10 @@ describe("handleListMessages page=latest", () => {
     expect(combinedBody.messages[49].id).toBe("msg-99");
   });
 
-  test("page=latest on empty conversation returns null pagination metadata", async () => {
+  test("page=latest on empty conversation returns null pagination metadata", () => {
     const conv = createConversation();
 
-    const response = handleListMessages(
-      buildUrl({ conversationId: conv.id, page: "latest" }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({ conversationId: conv.id, page: "latest" });
 
     expect(body.messages).toEqual([]);
     expect(body.hasMore).toBe(false);
@@ -214,12 +191,11 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBeNull();
   });
 
-  test("page=latest on unresolved conversationKey returns null metadata contract", async () => {
-    const response = handleListMessages(
-      buildUrl({ conversationKey: "no-such-key", page: "latest" }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+  test("page=latest on unresolved conversationKey returns null metadata contract", () => {
+    const body = callList({
+      conversationKey: "no-such-key",
+      page: "latest",
+    });
 
     expect(body.messages).toEqual([]);
     expect(body.hasMore).toBe(false);
@@ -227,12 +203,8 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBeNull();
   });
 
-  test("no-page GET on unresolved conversationKey keeps minimal shape", async () => {
-    const response = handleListMessages(
-      buildUrl({ conversationKey: "no-such-key" }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+  test("no-page GET on unresolved conversationKey keeps minimal shape", () => {
+    const body = callList({ conversationKey: "no-such-key" });
 
     expect(body.messages).toEqual([]);
     expect("hasMore" in body).toBe(false);
@@ -240,28 +212,28 @@ describe("handleListMessages page=latest", () => {
     expect("oldestMessageId" in body).toBe(false);
   });
 
-  test("page=invalid returns 400 with httpError shape", async () => {
+  test("page=invalid throws BadRequestError", () => {
     const conv = createConversation();
 
-    const response = handleListMessages(
-      buildUrl({ conversationId: conv.id, page: "invalid" }),
-      null,
-    );
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as ErrorResponse;
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toBe("page must be 'latest' when provided");
+    expect(() =>
+      handleListMessages(
+        { queryParams: { conversationId: conv.id, page: "invalid" } },
+        null,
+      ),
+    ).toThrow(BadRequestError);
+    expect(() =>
+      handleListMessages(
+        { queryParams: { conversationId: conv.id, page: "invalid" } },
+        null,
+      ),
+    ).toThrow("page must be 'latest' when provided");
   });
 
-  test("no-param GET returns full history without pagination metadata", async () => {
+  test("no-param GET returns full history without pagination metadata", () => {
     const conv = createConversation();
     seedMessages(conv.id, 5);
 
-    const response = handleListMessages(
-      buildUrl({ conversationId: conv.id }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({ conversationId: conv.id });
 
     expect(body.messages).toHaveLength(5);
     expect(body.messages[0].id).toBe("msg-1");
@@ -272,20 +244,16 @@ describe("handleListMessages page=latest", () => {
     expect("oldestMessageId" in body).toBe(false);
   });
 
-  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (no results)", async () => {
+  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (no results)", () => {
     const conv = createConversation();
     seedMessages(conv.id, 5);
 
     // beforeTimestamp before all seeded rows => no results, metadata omitted.
-    const response = handleListMessages(
-      buildUrl({
-        conversationId: conv.id,
-        limit: "10",
-        beforeTimestamp: "0",
-      }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({
+      conversationId: conv.id,
+      limit: "10",
+      beforeTimestamp: "0",
+    });
 
     expect(body.messages).toEqual([]);
     expect(body.hasMore).toBe(false);
@@ -294,19 +262,15 @@ describe("handleListMessages page=latest", () => {
     expect("oldestMessageId" in body).toBe(false);
   });
 
-  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (with results)", async () => {
+  test("beforeTimestamp-only GET keeps existing conditional-metadata shape (with results)", () => {
     const conv = createConversation();
     seedMessages(conv.id, 5);
 
-    const response = handleListMessages(
-      buildUrl({
-        conversationId: conv.id,
-        limit: "10",
-        beforeTimestamp: "100",
-      }),
-      null,
-    );
-    const body = (await response.json()) as ListResponse;
+    const body = callList({
+      conversationId: conv.id,
+      limit: "10",
+      beforeTimestamp: "100",
+    });
 
     expect(body.messages).toHaveLength(5);
     expect(body.hasMore).toBe(false);

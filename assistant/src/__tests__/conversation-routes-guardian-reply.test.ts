@@ -105,8 +105,9 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
 
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
-const testAuthContext: AuthContext = {
+const _testAuthContext: AuthContext = {
   subject: "actor:self:test-guardian",
   principalType: "actor",
   assistantId: "self",
@@ -181,7 +182,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "05BECB approve",
@@ -190,17 +191,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    const res = await handleSendMessage(
-      req,
-      {
+    const res = await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
-      },
-      testAuthContext,
-    );
+      }),
+      req,
+      undefined,
+      202,
+      );
 
     expect(res.status).toBe(202);
     const body = (await res.json()) as {
@@ -262,7 +264,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "hello there",
@@ -271,17 +273,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    const res = await handleSendMessage(
-      req,
-      {
+    const res = await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
-      },
-      testAuthContext,
-    );
+      }),
+      req,
+      undefined,
+      202,
+      );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -339,7 +342,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "approve",
@@ -348,17 +351,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    const res = await handleSendMessage(
-      req,
-      {
+    const res = await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
-      },
-      testAuthContext,
-    );
+      }),
+      req,
+      undefined,
+      202,
+      );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -420,7 +424,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "A1B2C3 approve",
@@ -429,17 +433,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    const res = await handleSendMessage(
-      req,
-      {
+    const res = await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
-      },
-      testAuthContext,
-    );
+      }),
+      req,
+      undefined,
+      202,
+      );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -497,7 +502,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "reject",
@@ -506,17 +511,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    const res = await handleSendMessage(
-      req,
-      {
+    const res = await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
-      },
-      testAuthContext,
-    );
+      }),
+      req,
+      undefined,
+      202,
+      );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -568,7 +574,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "tell me more about this request",
@@ -577,17 +583,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    const res = await handleSendMessage(
-      req,
-      {
+    const res = await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
-      },
-      testAuthContext,
-    );
+      }),
+      req,
+      undefined,
+      202,
+      );
 
     expect(res.status).toBe(202);
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -641,7 +648,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "no sorry, beats 0 and 3 should be new threads",
@@ -650,17 +657,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    await handleSendMessage(
-      req,
-      {
+    await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
         approvalConversationGenerator: mockGenerator as any,
-      },
-      testAuthContext,
+      }),
+      req,
+      undefined,
+      202,
     );
 
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);
@@ -715,7 +723,7 @@ describe("handleSendMessage canonical guardian reply interception", () => {
 
     const req = new Request("http://localhost/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
       body: JSON.stringify({
         conversationKey: "guardian-conversation-key",
         content: "no sorry, beats 0 and 3 should be new threads",
@@ -724,17 +732,18 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       }),
     });
 
-    await handleSendMessage(
-      req,
-      {
+    await callHandler(
+      (args) => handleSendMessage(args, {
         sendMessageDeps: {
           getOrCreateConversation: async () => session,
           assistantEventHub: { publish: async () => {} } as any,
           resolveAttachments: () => [],
         },
         approvalConversationGenerator: mockGenerator as any,
-      },
-      testAuthContext,
+      }),
+      req,
+      undefined,
+      202,
     );
 
     expect(routeGuardianReplyMock).toHaveBeenCalledTimes(1);

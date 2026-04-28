@@ -181,8 +181,9 @@ mock.module("../ipc/gateway-client.js", () => ({
 
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
-const testAuthContext: AuthContext = {
+const _testAuthContext: AuthContext = {
   subject: "actor:self:test-guardian",
   principalType: "actor",
   assistantId: "self",
@@ -267,7 +268,7 @@ function makeConversation() {
 function makeRequest(content: string, extras: Record<string, unknown> = {}) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-vellum-actor-principal-id": "test-user", "x-vellum-principal-type": "actor" },
     body: JSON.stringify({
       conversationKey: "slash-test-key",
       content,
@@ -305,10 +306,11 @@ describe("handleSendMessage slash command interception", () => {
 
     const { conversation, persistUserMessage, runAgentLoop } =
       makeConversation();
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
       makeRequest("/status"),
-      makeDeps(conversation),
-      testAuthContext,
+      undefined,
+      202,
     );
 
     expect(res.status).toBe(202);
@@ -343,10 +345,11 @@ describe("handleSendMessage slash command interception", () => {
       runAgentLoop,
       setPreactivatedSkillIds,
     } = makeConversation();
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
       makeRequest("hello there"),
-      makeDeps(conversation),
-      testAuthContext,
+      undefined,
+      202,
     );
 
     expect(res.status).toBe(202);
@@ -371,10 +374,11 @@ describe("handleSendMessage slash command interception", () => {
     });
 
     const { conversation } = makeConversation();
-    await handleSendMessage(
+    await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
       makeRequest("test"),
-      makeDeps(conversation),
-      testAuthContext,
+      undefined,
+      202,
     );
 
     expect(resolveSlashMock).toHaveBeenCalledTimes(1);
@@ -399,10 +403,11 @@ describe("handleSendMessage slash command interception", () => {
     });
 
     const { conversation } = makeConversation();
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
       makeRequest("hello there", { riskThreshold: "none" }),
-      makeDeps(conversation),
-      testAuthContext,
+      undefined,
+      202,
     );
 
     expect(res.status).toBe(202);
@@ -420,10 +425,11 @@ describe("handleSendMessage slash command interception", () => {
     ipcCallMock.mockImplementationOnce(async () => undefined);
 
     const { conversation } = makeConversation();
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
       makeRequest("hello there", { riskThreshold: "none" }),
-      makeDeps(conversation),
-      testAuthContext,
+      undefined,
+      202,
     );
 
     expect(res.status).toBe(500);
@@ -433,10 +439,11 @@ describe("handleSendMessage slash command interception", () => {
 
   test("rejects invalid riskThreshold values", async () => {
     const { conversation } = makeConversation();
-    const res = await handleSendMessage(
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
       makeRequest("hello there", { riskThreshold: "critical" }),
-      makeDeps(conversation),
-      testAuthContext,
+      undefined,
+      202,
     );
 
     expect(res.status).toBe(400);

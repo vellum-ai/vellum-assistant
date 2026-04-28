@@ -83,6 +83,25 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+// ---------------------------------------------------------------------------
+// Module mocks for direct-import deps used by conversation-routes ROUTES.
+// These must appear before any import that triggers conversation-routes.ts
+// module evaluation, so the routes pick up the test-controlled instances.
+// ---------------------------------------------------------------------------
+let _conversationFactory: (() => Conversation) | undefined;
+let _approvalGenerator: unknown;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async (..._args: unknown[]) => {
+    if (!_conversationFactory)
+      throw new Error("_conversationFactory not set in test");
+    return _conversationFactory();
+  },
+}));
+mock.module("../daemon/approval-generators.js", () => ({
+  createApprovalConversationGenerator: () => _approvalGenerator,
+}));
+
 // Mock local-actor-identity to return a stable guardian context that uses
 // the same principal as the canonical requests created in tests.
 mock.module("../runtime/local-actor-identity.js", () => ({
@@ -97,7 +116,6 @@ mock.module("../runtime/local-actor-identity.js", () => ({
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
-import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -324,8 +342,6 @@ const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   let server: RuntimeHttpServer;
   let port: number;
-  let eventHub: AssistantEventHub;
-
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM messages");
@@ -344,8 +360,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       guardianPrincipalId: "test-principal-id",
       verifiedVia: "test",
     });
-
-    eventHub = new AssistantEventHub();
   });
 
   afterEach(async () => {
@@ -356,14 +370,10 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     conversationFactory: () => Conversation,
     options?: { approvalConversationGenerator?: ApprovalConversationGenerator },
   ): Promise<void> {
+    _conversationFactory = conversationFactory;
+    _approvalGenerator = options?.approvalConversationGenerator;
     server = new RuntimeHttpServer({
       port: 0,
-      approvalConversationGenerator: options?.approvalConversationGenerator,
-      sendMessageDeps: {
-        getOrCreateConversation: async () => conversationFactory(),
-        assistantEventHub: eventHub,
-        resolveAttachments: () => [],
-      },
     });
     await server.start();
     port = server.actualPort;
@@ -412,9 +422,15 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
 
     await startServer(() => makeCompletingConversation());
 
-    eventHub.subscribe({ assistantId: "self" }, (event) => {
-      publishedEvents.push(event);
-    });
+    // Subscribe on the module-level singleton that the route handler publishes to
+    const { assistantEventHub: routeEventHub } =
+      await import("../runtime/assistant-event-hub.js");
+    routeEventHub.subscribe(
+      { assistantId: "self" },
+      (event: AssistantEvent) => {
+        publishedEvents.push(event);
+      },
+    );
 
     const res = await fetch(messagesUrl(), {
       method: "POST",

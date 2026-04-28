@@ -29,6 +29,7 @@ import {
 } from "../runtime/chrome-extension-registry.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(testDir, "conversations");
@@ -400,10 +401,25 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     const content = "Test macOS fallback path.";
     let capturedConversation: Conversation | undefined;
 
-    const response = await handleSendMessage(
+    const deps = {
+      sendMessageDeps: {
+        getOrCreateConversation: async (conversationId: string) => {
+          const conv = getOrCreateFakeConversation(conversationId);
+          capturedConversation = conv;
+          return conv;
+        },
+        assistantEventHub: new AssistantEventHub(),
+        resolveAttachments: () => [],
+      },
+    };
+    const response = await callHandler(
+      (args) => handleSendMessage(args, deps),
       new Request("http://localhost/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
         body: JSON.stringify({
           conversationKey,
           content,
@@ -411,18 +427,8 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
           interface: "macos",
         }),
       }),
-      {
-        sendMessageDeps: {
-          getOrCreateConversation: async (conversationId: string) => {
-            const conv = getOrCreateFakeConversation(conversationId);
-            capturedConversation = conv;
-            return conv;
-          },
-          assistantEventHub: new AssistantEventHub(),
-          resolveAttachments: () => [],
-        },
-      },
-      authContext,
+      undefined,
+      202,
     );
 
     expect(response.status).toBe(202);
@@ -458,10 +464,22 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     const conversationKey = `macos-metadata-${crypto.randomUUID()}`;
     const content = "Verify interface metadata persistence.";
 
-    const response = await handleSendMessage(
+    const response = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async (conversationId: string) =>
+              getOrCreateFakeConversation(conversationId),
+            assistantEventHub: new AssistantEventHub(),
+            resolveAttachments: () => [],
+          },
+        }),
       new Request("http://localhost/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
         body: JSON.stringify({
           conversationKey,
           content,
@@ -469,15 +487,8 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
           interface: "macos",
         }),
       }),
-      {
-        sendMessageDeps: {
-          getOrCreateConversation: async (conversationId: string) =>
-            getOrCreateFakeConversation(conversationId),
-          assistantEventHub: new AssistantEventHub(),
-          resolveAttachments: () => [],
-        },
-      },
-      authContext,
+      undefined,
+      202,
     );
 
     expect(response.status).toBe(202);
@@ -559,10 +570,70 @@ describe("chrome-extension host_browser pending registration", () => {
     };
 
     const conversationKey = `chrome-ext-pending-${crypto.randomUUID()}`;
-    const response = await handleSendMessage(
+    const chromeDeps = {
+      sendMessageDeps: {
+        getOrCreateConversation: async (conversationId: string) => {
+          const conversation = createFakeConversation(
+            conversationId,
+          ) as unknown as {
+            hostBrowserProxy?: {
+              request: (
+                input: { cdpMethod: string; timeout_seconds?: number },
+                conversationId: string,
+              ) => Promise<{ content: string; isError: boolean }>;
+            };
+            processing: boolean;
+            abortController: AbortController | null;
+            currentRequestId?: string;
+            runAgentLoop: (
+              content: string,
+              userMessageId: string,
+              onEvent: (msg: Record<string, unknown>) => void,
+            ) => Promise<void>;
+            conversationId: string;
+          };
+
+          conversation.runAgentLoop = async function (
+            _content: string,
+            _userMessageId: string,
+            _onEvent: (msg: Record<string, unknown>) => void,
+          ): Promise<void> {
+            if (!this.hostBrowserProxy) {
+              throw new Error(
+                "Expected hostBrowserProxy to be provisioned for chrome-extension turn",
+              );
+            }
+            await this.hostBrowserProxy.request(
+              {
+                cdpMethod: "Browser.getVersion",
+                timeout_seconds: 0.05,
+              },
+              this.conversationId,
+            );
+            this.processing = false;
+            this.abortController = null;
+            this.currentRequestId = undefined;
+          };
+
+          conversationInstances.set(
+            conversationId,
+            conversation as unknown as Conversation,
+          );
+          return conversation as unknown as Conversation;
+        },
+        assistantEventHub: new AssistantEventHub(),
+        resolveAttachments: () => [],
+      },
+    };
+    const response = await callHandler(
+      (args) => handleSendMessage(args, chromeDeps),
       new Request("http://localhost/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-actor-principal-id": actorAuthContext.actorPrincipalId!,
+          "x-vellum-principal-type": actorAuthContext.principalType,
+        },
         body: JSON.stringify({
           conversationKey,
           content: "Trigger host browser request via registry sender.",
@@ -570,63 +641,8 @@ describe("chrome-extension host_browser pending registration", () => {
           interface: "chrome-extension",
         }),
       }),
-      {
-        sendMessageDeps: {
-          getOrCreateConversation: async (conversationId: string) => {
-            const conversation = createFakeConversation(
-              conversationId,
-            ) as unknown as {
-              hostBrowserProxy?: {
-                request: (
-                  input: { cdpMethod: string; timeout_seconds?: number },
-                  conversationId: string,
-                ) => Promise<{ content: string; isError: boolean }>;
-              };
-              processing: boolean;
-              abortController: AbortController | null;
-              currentRequestId?: string;
-              runAgentLoop: (
-                content: string,
-                userMessageId: string,
-                onEvent: (msg: Record<string, unknown>) => void,
-              ) => Promise<void>;
-              conversationId: string;
-            };
-
-            conversation.runAgentLoop = async function (
-              _content: string,
-              _userMessageId: string,
-              _onEvent: (msg: Record<string, unknown>) => void,
-            ): Promise<void> {
-              if (!this.hostBrowserProxy) {
-                throw new Error(
-                  "Expected hostBrowserProxy to be provisioned for chrome-extension turn",
-                );
-              }
-              await this.hostBrowserProxy.request(
-                {
-                  cdpMethod: "Browser.getVersion",
-                  // Keep the test fast while still allowing assertion at send time.
-                  timeout_seconds: 0.05,
-                },
-                this.conversationId,
-              );
-              this.processing = false;
-              this.abortController = null;
-              this.currentRequestId = undefined;
-            };
-
-            conversationInstances.set(
-              conversationId,
-              conversation as unknown as Conversation,
-            );
-            return conversation as unknown as Conversation;
-          },
-          assistantEventHub: new AssistantEventHub(),
-          resolveAttachments: () => [],
-        },
-      },
-      actorAuthContext,
+      undefined,
+      202,
     );
 
     expect(response.status).toBe(202);
@@ -641,10 +657,22 @@ describe("conversationKey send path disk-view regression", () => {
     const conversationKey = `fresh-conv-key-${crypto.randomUUID()}`;
     const content = "Please persist this first turn.";
 
-    const response = await handleSendMessage(
+    const response = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async (conversationId: string) =>
+              getOrCreateFakeConversation(conversationId),
+            assistantEventHub: new AssistantEventHub(),
+            resolveAttachments: () => [],
+          },
+        }),
       new Request("http://localhost/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
         body: JSON.stringify({
           conversationKey,
           content,
@@ -652,15 +680,8 @@ describe("conversationKey send path disk-view regression", () => {
           interface: "macos",
         }),
       }),
-      {
-        sendMessageDeps: {
-          getOrCreateConversation: async (conversationId: string) =>
-            getOrCreateFakeConversation(conversationId),
-          assistantEventHub: new AssistantEventHub(),
-          resolveAttachments: () => [],
-        },
-      },
-      authContext,
+      undefined,
+      202,
     );
 
     expect(response.status).toBe(202);

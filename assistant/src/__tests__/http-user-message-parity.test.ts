@@ -176,8 +176,9 @@ mock.module("../config/loader.js", () => ({
 
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
-const testAuthContext: AuthContext = {
+const _testAuthContext: AuthContext = {
   subject: "actor:self:test-actor",
   principalType: "actor",
   assistantId: "self",
@@ -236,7 +237,11 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
 function makeRequest(content: string, extra: Record<string, unknown> = {}) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-vellum-actor-principal-id": "test-user",
+      "x-vellum-principal-type": "actor",
+    },
     body: JSON.stringify({
       conversationKey: "parity-test-key",
       content,
@@ -253,16 +258,18 @@ async function sendMessage(
   conversationObj: import("../daemon/conversation.js").Conversation,
   extra: Record<string, unknown> = {},
 ) {
-  return handleSendMessage(
+  return callHandler(
+    (args) =>
+      handleSendMessage(args, {
+        sendMessageDeps: {
+          getOrCreateConversation: async () => conversationObj,
+          assistantEventHub: { publish: async () => {} } as any,
+          resolveAttachments: () => [],
+        },
+      }),
     makeRequest(content, extra),
-    {
-      sendMessageDeps: {
-        getOrCreateConversation: async () => conversationObj,
-        assistantEventHub: { publish: async () => {} } as any,
-        resolveAttachments: () => [],
-      },
-    },
-    testAuthContext,
+    undefined,
+    202,
   );
 }
 

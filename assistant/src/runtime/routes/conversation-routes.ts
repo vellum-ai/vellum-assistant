@@ -30,6 +30,7 @@ import {
 } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
+import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
 import {
   buildModelInfoEvent,
@@ -40,6 +41,7 @@ import {
   resolveSlash,
   type SlashContext,
 } from "../../daemon/conversation-slash.js";
+import { getOrCreateConversation as getOrCreateConversationInstance } from "../../daemon/conversation-store.js";
 import {
   getCannedFirstGreeting,
   isWakeUpGreeting,
@@ -67,6 +69,7 @@ import {
   getAttachmentById,
   getAttachmentMetadataForMessage,
   getAttachmentsByIds,
+  getSourcePathsForAttachments,
 } from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -98,18 +101,19 @@ import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getInterfacesDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import type { AuthContext } from "../auth/types.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { getClientRegistry } from "../client-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
   RuntimeAttachmentMetadata,
@@ -122,6 +126,9 @@ import {
   resolveTrustContext,
   withSourceChannel,
 } from "../trust-context-resolver.js";
+import { BadRequestError, InternalError, RouteError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 const log = getLogger("conversation-routes");
 
@@ -385,11 +392,11 @@ function getInterfaceFilesWithMtimes(
 }
 
 export function handleListMessages(
-  url: URL,
+  { queryParams }: RouteHandlerArgs,
   interfacesDir: string | null,
-): Response {
-  const conversationId = url.searchParams.get("conversationId");
-  const conversationKey = url.searchParams.get("conversationKey");
+): Record<string, unknown> {
+  const conversationId = queryParams?.conversationId;
+  const conversationKey = queryParams?.conversationKey;
 
   let resolvedConversationId: string | undefined;
   if (conversationId) {
@@ -398,34 +405,24 @@ export function handleListMessages(
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
   } else {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "conversationKey or conversationId query parameter is required",
-      400,
     );
   }
 
-  const beforeTimestampRaw = url.searchParams.get("beforeTimestamp");
-  const limitRaw = url.searchParams.get("limit");
-  const pageRaw = url.searchParams.get("page");
+  const beforeTimestampRaw = queryParams?.beforeTimestamp;
+  const limitRaw = queryParams?.limit;
+  const pageRaw = queryParams?.page;
 
   // Validate: reject NaN values with 400
-  if (beforeTimestampRaw !== null && isNaN(Number(beforeTimestampRaw))) {
-    return httpError(
-      "BAD_REQUEST",
-      "beforeTimestamp must be a valid number",
-      400,
-    );
+  if (beforeTimestampRaw != null && isNaN(Number(beforeTimestampRaw))) {
+    throw new BadRequestError("beforeTimestamp must be a valid number");
   }
-  if (limitRaw !== null && isNaN(Number(limitRaw))) {
-    return httpError("BAD_REQUEST", "limit must be a valid number", 400);
+  if (limitRaw != null && isNaN(Number(limitRaw))) {
+    throw new BadRequestError("limit must be a valid number");
   }
-  if (pageRaw !== null && pageRaw !== "latest") {
-    return httpError(
-      "BAD_REQUEST",
-      "page must be 'latest' when provided",
-      400,
-    );
+  if (pageRaw != null && pageRaw !== "latest") {
+    throw new BadRequestError("page must be 'latest' when provided");
   }
   const isLatestPage = pageRaw === "latest";
 
@@ -433,15 +430,15 @@ export function handleListMessages(
     // Unresolved conversation keys still need to advertise the stable
     // `page=latest` contract so the web client can rely on metadata fields
     // being present even before any message is persisted.
-    if (isLatestPage && beforeTimestampRaw === null) {
-      return Response.json({
+    if (isLatestPage && beforeTimestampRaw == null) {
+      return {
         messages: [],
         hasMore: false,
         oldestTimestamp: null,
         oldestMessageId: null,
-      });
+      };
     }
-    return Response.json({ messages: [] });
+    return { messages: [] };
   }
 
   const beforeTimestamp = beforeTimestampRaw
@@ -703,29 +700,28 @@ export function handleListMessages(
       rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
     const oldestMessageId =
       rawMessages.length > 0 ? rawMessages[0].id : undefined;
-
     // `page=latest` always emits both metadata fields so the web client has
     // a stable contract; emit `null` when the conversation is empty.
     // The existing `beforeTimestamp` branch keeps its conditional shape to
     // avoid disturbing current callers.
     if (isLatestPage && beforeTimestamp == null) {
-      return Response.json({
+      return {
         messages,
         hasMore,
         oldestTimestamp: oldestTimestamp ?? null,
         oldestMessageId: oldestMessageId ?? null,
-      });
+      };
     }
 
-    return Response.json({
+    return {
       messages,
       hasMore,
       ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
       ...(oldestMessageId != null ? { oldestMessageId } : {}),
-    });
+    };
   }
 
-  return Response.json({ messages });
+  return { messages };
 }
 
 // ── Tool-result merging ─────────────────────────────────────────────
@@ -1313,7 +1309,7 @@ function registerHostProxyPendingInteraction(
 function resolveHostBrowserSender(
   conversation: Conversation,
   conversationId: string,
-  authContext: AuthContext,
+  actorPrincipalId: string | undefined,
   onEvent: (msg: ServerMessage) => void,
   sourceInterface: InterfaceId,
 ): {
@@ -1322,8 +1318,7 @@ function resolveHostBrowserSender(
   hasSseExtension: boolean;
 } {
   const guardianId =
-    conversation.trustContext?.guardianPrincipalId ??
-    authContext.actorPrincipalId;
+    conversation.trustContext?.guardianPrincipalId ?? actorPrincipalId;
   const hasExtensionConnection =
     !!guardianId && !!getChromeExtensionRegistry().get(guardianId);
 
@@ -1336,8 +1331,7 @@ function resolveHostBrowserSender(
         conversationId,
       );
       const gid =
-        conversation.trustContext?.guardianPrincipalId ??
-        authContext.actorPrincipalId;
+        conversation.trustContext?.guardianPrincipalId ?? actorPrincipalId;
       if (!gid) {
         if (requestId) pendingInteractions.resolve(requestId);
         throw new Error(
@@ -1461,15 +1455,14 @@ export function persistOnboardingArtifacts(onboarding: {
 }
 
 export async function handleSendMessage(
-  req: Request,
+  { body: rawBody, headers }: RouteHandlerArgs,
   deps: {
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
     heartbeatService?: HeartbeatService;
   },
-  authContext: AuthContext,
-): Promise<Response> {
-  const body = (await req.json()) as {
+): Promise<unknown> {
+  const body = (rawBody ?? {}) as {
     conversationKey?: string;
     content?: string;
     attachmentIds?: string[];
@@ -1493,6 +1486,9 @@ export async function handleSendMessage(
     };
   };
 
+  const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+  const principalType = headers?.["x-vellum-principal-type"];
+
   const { conversationKey, content, attachmentIds } = body;
   const clientMessageId =
     typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
@@ -1505,17 +1501,13 @@ export async function handleSendMessage(
     body.inferenceProfile != null &&
     typeof body.inferenceProfile !== "string"
   ) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "inferenceProfile must be a non-empty string or null",
-      400,
     );
   }
   if (requestedInferenceProfile === "") {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "inferenceProfile must be a non-empty string or null",
-      400,
     );
   }
   if (requestedInferenceProfile !== undefined) {
@@ -1523,10 +1515,8 @@ export async function handleSendMessage(
     if (
       !Object.prototype.hasOwnProperty.call(profiles, requestedInferenceProfile)
     ) {
-      return httpError(
-        "BAD_REQUEST",
+      throw new BadRequestError(
         `Profile "${requestedInferenceProfile}" is not defined in llm.profiles`,
-        400,
       );
     }
   }
@@ -1534,38 +1524,32 @@ export async function handleSendMessage(
     requestedRiskThreshold !== undefined &&
     !isValidRiskThreshold(requestedRiskThreshold)
   ) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `riskThreshold must be one of: ${VALID_RISK_THRESHOLDS.join(", ")}`,
-      400,
     );
   }
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
-    return httpError("BAD_REQUEST", "sourceChannel is required", 400);
+    throw new BadRequestError("sourceChannel is required");
   }
   const sourceChannel = parseChannelId(body.sourceChannel);
 
   if (!sourceChannel) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid sourceChannel: ${
         body.sourceChannel
       }. Valid values: ${CHANNEL_IDS.join(", ")}`,
-      400,
     );
   }
 
   if (!body.interface || typeof body.interface !== "string") {
-    return httpError("BAD_REQUEST", "interface is required", 400);
+    throw new BadRequestError("interface is required");
   }
   const sourceInterface = parseInterfaceId(body.interface);
   if (!sourceInterface) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid interface: ${body.interface}. Valid values: ${INTERFACE_IDS.join(
         ", ",
       )}`,
-      400,
     );
   }
 
@@ -1577,7 +1561,7 @@ export async function handleSendMessage(
 
   // Reject non-string content values (numbers, objects, etc.)
   if (content != null && typeof content !== "string") {
-    return httpError("BAD_REQUEST", "content must be a string", 400);
+    throw new BadRequestError("content must be a string");
   }
 
   const trimmedContent = typeof content === "string" ? content.trim() : "";
@@ -1585,11 +1569,7 @@ export async function handleSendMessage(
     Array.isArray(attachmentIds) && attachmentIds.length > 0;
 
   if (trimmedContent.length === 0 && !hasAttachments) {
-    return httpError(
-      "BAD_REQUEST",
-      "content or attachmentIds is required",
-      400,
-    );
+    throw new BadRequestError("content or attachmentIds is required");
   }
 
   // Validate that all attachment IDs resolve
@@ -1598,10 +1578,8 @@ export async function handleSendMessage(
     if (resolved.length !== attachmentIds.length) {
       const resolvedIds = new Set(resolved.map((a) => a.id));
       const missing = attachmentIds.filter((id) => !resolvedIds.has(id));
-      return httpError(
-        "BAD_REQUEST",
+      throw new BadRequestError(
         `Attachment IDs not found: ${missing.join(", ")}`,
-        400,
       );
     }
   }
@@ -1610,22 +1588,23 @@ export async function handleSendMessage(
   if (trimmedContent.length > 0 && !body.bypassSecretCheck) {
     const ingressResult = checkIngressForSecrets(trimmedContent);
     if (ingressResult.blocked) {
-      return Response.json(
-        {
+      return new RouteResponse(
+        JSON.stringify({
           accepted: false,
           error: "secret_blocked",
           message: ingressResult.userNotice,
           detectedTypes: ingressResult.detectedTypes,
-        },
-        { status: 422 },
+        }),
+        { "content-type": "application/json" },
+        422,
       );
     }
   }
 
   if (!deps.sendMessageDeps) {
-    return httpError(
-      "SERVICE_UNAVAILABLE",
+    throw new RouteError(
       "Message processing is not available",
+      "SERVICE_UNAVAILABLE",
       503,
     );
   }
@@ -1651,11 +1630,7 @@ export async function handleSendMessage(
         },
         "Failed to set conversation risk threshold override via gateway IPC",
       );
-      return httpError(
-        "INTERNAL_ERROR",
-        "Failed to persist risk threshold override",
-        500,
-      );
+      throw new InternalError("Failed to persist risk threshold override");
     }
   }
 
@@ -1729,11 +1704,11 @@ export async function handleSendMessage(
   // Resolve guardian context from the AuthContext's actorPrincipalId.
   // The JWT-verified principal is used as the sender identity through
   // the same trust resolution pipeline that channel ingress uses.
-  if (authContext.actorPrincipalId) {
+  if (actorPrincipalId) {
     // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
     // won't match any guardian binding. Resolve from the local guardian
     // binding instead, which produces the correct guardian trust context.
-    if (isHttpAuthDisabled() && authContext.actorPrincipalId === "dev-bypass") {
+    if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
       conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
     } else {
       const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
@@ -1741,24 +1716,24 @@ export async function handleSendMessage(
         assistantId,
         sourceChannel: "vellum",
         conversationExternalId: "local",
-        actorExternalId: authContext.actorPrincipalId,
+        actorExternalId: actorPrincipalId,
       });
       if (trustCtx.trustClass === "unknown") {
         // Attempt to heal guardian binding drift: after a DB reset the
         // guardian binding gets a new vellum-principal-* UUID while the
         // client still holds a valid JWT with the old one. The signing
         // key survives the reset, so the JWT is authentic — just stale.
-        const healed = healGuardianBindingDrift(authContext.actorPrincipalId);
+        const healed = healGuardianBindingDrift(actorPrincipalId);
         if (healed) {
           trustCtx = resolveTrustContext({
             assistantId,
             sourceChannel: "vellum",
             conversationExternalId: "local",
-            actorExternalId: authContext.actorPrincipalId,
+            actorExternalId: actorPrincipalId,
           });
           log.info(
             {
-              actorPrincipalId: authContext.actorPrincipalId,
+              actorPrincipalId: actorPrincipalId,
               trustClass: trustCtx.trustClass,
             },
             "Trust re-resolved after guardian binding drift heal",
@@ -1766,10 +1741,10 @@ export async function handleSendMessage(
         } else {
           log.warn(
             {
-              actorPrincipalId: authContext.actorPrincipalId,
+              actorPrincipalId: actorPrincipalId,
               sourceChannel,
               trustClass: trustCtx.trustClass,
-              principalType: authContext.principalType,
+              principalType: principalType,
             },
             "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
           );
@@ -1817,7 +1792,7 @@ export async function handleSendMessage(
   } = resolveHostBrowserSender(
     conversation,
     mapping.conversationId,
-    authContext,
+    actorPrincipalId,
     onEvent,
     sourceInterface,
   );
@@ -1980,10 +1955,11 @@ export async function handleSendMessage(
       );
       conversation.getMessages().push(assistantMsg);
 
-      const response = Response.json(
-        { accepted: true, messageId: persisted.id, conversationId },
-        { status: 202 },
-      );
+      const response = {
+        accepted: true,
+        messageId: persisted.id,
+        conversationId,
+      };
 
       setTimeout(() => {
         onEvent({
@@ -2059,16 +2035,13 @@ export async function handleSendMessage(
       verifiedActorPrincipalId,
     });
     if (inlineReplyResult.consumed) {
-      return Response.json(
-        {
-          accepted: true,
-          conversationId: mapping.conversationId,
-          ...(inlineReplyResult.messageId
-            ? { messageId: inlineReplyResult.messageId }
-            : {}),
-        },
-        { status: 202 },
-      );
+      return {
+        accepted: true,
+        conversationId: mapping.conversationId,
+        ...(inlineReplyResult.messageId
+          ? { messageId: inlineReplyResult.messageId }
+          : {}),
+      };
     }
   } catch (err) {
     log.warn(
@@ -2100,9 +2073,10 @@ export async function handleSendMessage(
       clientMessageId,
     );
     if (enqueueResult.rejected) {
-      return Response.json(
-        { accepted: false, error: "queue_full" },
-        { status: 429 },
+      return new RouteResponse(
+        JSON.stringify({ accepted: false, error: "queue_full" }),
+        { "content-type": "application/json" },
+        429,
       );
     }
 
@@ -2151,10 +2125,11 @@ export async function handleSendMessage(
       );
     }
 
-    return Response.json(
-      { accepted: true, queued: true, conversationId: mapping.conversationId },
-      { status: 202 },
-    );
+    return {
+      accepted: true,
+      queued: true,
+      conversationId: mapping.conversationId,
+    };
   }
 
   // Auto-deny pending confirmations for idle conversations. The legacy
@@ -2275,14 +2250,11 @@ export async function handleSendMessage(
         ? await buildModelInfoEvent()
         : null;
 
-      const response = Response.json(
-        {
-          accepted: true,
-          messageId: persisted.id,
-          conversationId: mapping.conversationId,
-        },
-        { status: 202 },
-      );
+      const response = {
+        accepted: true,
+        messageId: persisted.id,
+        conversationId: mapping.conversationId,
+      };
 
       // Defer event publishing to next tick so the HTTP response reaches the
       // client first. This ensures the client's serverToLocalConversationMap is
@@ -2396,14 +2368,11 @@ export async function handleSendMessage(
       }
     })();
 
-    return Response.json(
-      {
-        accepted: true,
-        messageId: persisted.id,
-        conversationId,
-      },
-      { status: 202 },
-    );
+    return {
+      accepted: true,
+      messageId: persisted.id,
+      conversationId,
+    };
   }
 
   const resolvedContent = slashResult.content;
@@ -2443,10 +2412,11 @@ export async function handleSendMessage(
       );
     });
 
-  return Response.json(
-    { accepted: true, messageId, conversationId: mapping.conversationId },
-    { status: 202 },
-  );
+  return {
+    accepted: true,
+    messageId,
+    conversationId: mapping.conversationId,
+  };
 }
 
 function escapeXmlContent(text: string): string {
@@ -2533,54 +2503,39 @@ async function generateLlmSuggestion(
 }
 
 export async function handleGetSuggestion(
-  url: URL,
+  { queryParams }: RouteHandlerArgs,
   deps: {
     suggestionCache: Map<string, string>;
     suggestionInFlight: Map<string, Promise<string | null>>;
   },
-): Promise<Response> {
-  const conversationKey = url.searchParams.get("conversationKey");
+): Promise<Record<string, unknown>> {
+  const noSuggestion = {
+    suggestion: null,
+    messageId: null,
+    source: "none" as const,
+  };
+
+  const conversationKey = queryParams?.conversationKey;
   if (!conversationKey) {
-    return httpError(
-      "BAD_REQUEST",
-      "conversationKey query parameter is required",
-      400,
-    );
+    throw new BadRequestError("conversationKey query parameter is required");
   }
 
   const mapping = getConversationByKey(conversationKey);
-  if (!mapping) {
-    return Response.json({
-      suggestion: null,
-      messageId: null,
-      source: "none" as const,
-    });
-  }
+  if (!mapping) return noSuggestion;
 
   const rawMessages = getMessages(mapping.conversationId);
-  if (rawMessages.length === 0) {
-    return Response.json({
-      suggestion: null,
-      messageId: null,
-      source: "none" as const,
-    });
-  }
+  if (rawMessages.length === 0) return noSuggestion;
 
   // Staleness check: compare requested messageId against the latest
   // assistant message BEFORE filtering by text content.  This ensures
   // that a newer tool-only assistant turn (empty text) still causes
   // older messageId requests to be correctly marked as stale.
-  const requestedMessageId = url.searchParams.get("messageId");
+  const requestedMessageId = queryParams?.messageId;
   if (requestedMessageId) {
     for (let i = rawMessages.length - 1; i >= 0; i--) {
       if (rawMessages[i].role === "assistant") {
         if (rawMessages[i].id !== requestedMessageId) {
-          return Response.json({
-            suggestion: null,
-            messageId: null,
-            source: "none" as const,
-            stale: true,
-          });
+          return { ...noSuggestion, stale: true };
         }
         break;
       }
@@ -2608,22 +2563,13 @@ export async function handleGetSuggestion(
     // If a messageId was requested and the first text-bearing assistant
     // message is a *different* message, the request is stale.
     if (requestedMessageId && msg.id !== requestedMessageId) {
-      return Response.json({
-        suggestion: null,
-        messageId: null,
-        source: "none" as const,
-        stale: true,
-      });
+      return { ...noSuggestion, stale: true };
     }
 
     // Return cached suggestion if we already generated one for this message
     const cached = suggestionCache.get(msg.id);
     if (cached !== undefined) {
-      return Response.json({
-        suggestion: cached,
-        messageId: msg.id,
-        source: "llm" as const,
-      });
+      return { suggestion: cached, messageId: msg.id, source: "llm" as const };
     }
 
     // Find the most recent user message preceding this assistant turn so the
@@ -2667,11 +2613,11 @@ export async function handleGetSuggestion(
           }
           suggestionCache.set(msg.id, llmSuggestion);
 
-          return Response.json({
+          return {
             suggestion: llmSuggestion,
             messageId: msg.id,
             source: "llm" as const,
-          });
+          };
         }
       } catch (err) {
         suggestionInFlight.delete(msg.id);
@@ -2687,18 +2633,10 @@ export async function handleGetSuggestion(
       );
     }
 
-    return Response.json({
-      suggestion: null,
-      messageId: null,
-      source: "none" as const,
-    });
+    return noSuggestion;
   }
 
-  return Response.json({
-    suggestion: null,
-    messageId: null,
-    source: "none" as const,
-  });
+  return noSuggestion;
 }
 
 /**
@@ -2707,19 +2645,17 @@ export async function handleGetSuggestion(
  * Full-text search across all conversations (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
-function handleSearchConversations(url: URL): Response {
-  const query = url.searchParams.get("q") ?? "";
+function handleSearchConversations({
+  queryParams,
+}: RouteHandlerArgs): Record<string, unknown> {
+  const query = queryParams?.q ?? "";
   if (!query.trim()) {
-    return httpError("BAD_REQUEST", "q query parameter is required", 400);
+    throw new BadRequestError("q query parameter is required");
   }
 
-  const limit = url.searchParams.has("limit")
-    ? Number(url.searchParams.get("limit"))
-    : undefined;
-  const maxMessagesPerConversation = url.searchParams.has(
-    "maxMessagesPerConversation",
-  )
-    ? Number(url.searchParams.get("maxMessagesPerConversation"))
+  const limit = queryParams?.limit ? Number(queryParams.limit) : undefined;
+  const maxMessagesPerConversation = queryParams?.maxMessagesPerConversation
+    ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
 
   const results = searchConversations(query, {
@@ -2730,108 +2666,126 @@ function handleSearchConversations(url: URL): Response {
       : {}),
   });
 
-  return Response.json({ query, results });
+  return { query, results };
+}
+
+// ---------------------------------------------------------------------------
+// Module-level state
+// ---------------------------------------------------------------------------
+
+const suggestionCache = new Map<string, string>();
+const suggestionInFlight = new Map<string, Promise<string | null>>();
+
+function resolveAttachments(attachmentIds: string[]) {
+  const resolved = getAttachmentsByIds(attachmentIds, {
+    hydrateFileData: true,
+  });
+  const sourcePaths = getSourcePathsForAttachments(attachmentIds);
+  return resolved.map((a) => ({
+    id: a.id,
+    filename: a.originalFilename,
+    mimeType: a.mimeType,
+    data: a.dataBase64,
+    ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
+  }));
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function conversationRouteDefinitions(deps: {
-  interfacesDir: string | null;
-  sendMessageDeps?: SendMessageDeps;
-  approvalConversationGenerator?: ApprovalConversationGenerator;
-  suggestionCache: Map<string, string>;
-  suggestionInFlight: Map<string, Promise<string | null>>;
-}): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "messages",
-      method: "GET",
-      summary: "List messages",
-      description:
-        "Return messages for a conversation, including attachments and interface file metadata.",
-      tags: ["messages"],
-      responseBody: z.object({
-        messages: z.array(z.unknown()).describe("Array of message objects"),
-        hasMore: z
-          .boolean()
-          .optional()
-          .describe("Whether older messages exist beyond this page"),
-        oldestTimestamp: z
-          .number()
-          .nullable()
-          .optional()
-          .describe(
-            "Timestamp of the oldest message in this page (ms since epoch). Null when page=latest is used on an empty conversation.",
-          ),
-        oldestMessageId: z
-          .string()
-          .nullable()
-          .optional()
-          .describe("ID of the oldest message in this page"),
-      }),
-      handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
-    },
-    {
-      endpoint: "messages",
-      method: "POST",
-      summary: "Send a message",
-      description:
-        "Send a user message to a conversation and trigger the assistant response.",
-      tags: ["messages"],
-      requestBody: z.object({
-        conversationKey: z.string().optional(),
-        content: z.string().describe("Message text content"),
-        attachments: z
-          .array(z.unknown())
-          .describe("Optional file attachments")
-          .optional(),
-        conversationType: z.string().optional(),
-        slashCommand: z.string().optional(),
-        inferenceProfile: z.string().nullable().optional(),
-        riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleSendMessage(
-          req,
-          {
-            sendMessageDeps: deps.sendMessageDeps,
-            approvalConversationGenerator: deps.approvalConversationGenerator,
-            heartbeatService: HeartbeatService.getInstance(),
-          },
-          authContext,
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "messages_get",
+    endpoint: "messages",
+    method: "GET",
+    summary: "List messages",
+    description:
+      "Return messages for a conversation, including attachments and interface file metadata.",
+    tags: ["messages"],
+    responseBody: z.object({
+      messages: z.array(z.unknown()).describe("Array of message objects"),
+      hasMore: z
+        .boolean()
+        .optional()
+        .describe("Whether older messages exist beyond this page"),
+      oldestTimestamp: z
+        .number()
+        .nullable()
+        .optional()
+        .describe(
+          "Timestamp of the oldest message in this page (ms since epoch). Null when page=latest is used on an empty conversation.",
         ),
-    },
-    {
-      endpoint: "search",
-      method: "GET",
-      summary: "Search conversations",
-      description: "Full-text search across all conversations.",
-      tags: ["conversations"],
-      responseBody: z.object({
-        query: z.string(),
-        results: z.array(z.unknown()),
+      oldestMessageId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("ID of the oldest message in this page"),
+    }),
+    handler: (args) => handleListMessages(args, getInterfacesDir()),
+  },
+  {
+    operationId: "messages_post",
+    endpoint: "messages",
+    method: "POST",
+    summary: "Send a message",
+    description:
+      "Send a user message to a conversation and trigger the assistant response.",
+    tags: ["messages"],
+    responseStatus: "202",
+    requestBody: z.object({
+      conversationKey: z.string().optional(),
+      content: z.string().describe("Message text content"),
+      attachments: z
+        .array(z.unknown())
+        .describe("Optional file attachments")
+        .optional(),
+      conversationType: z.string().optional(),
+      slashCommand: z.string().optional(),
+      inferenceProfile: z.string().nullable().optional(),
+      riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+    }),
+    handler: async (args) =>
+      handleSendMessage(args, {
+        sendMessageDeps: {
+          getOrCreateConversation: getOrCreateConversationInstance,
+          assistantEventHub,
+          resolveAttachments,
+        },
+        approvalConversationGenerator: createApprovalConversationGenerator(),
+        heartbeatService: HeartbeatService.getInstance(),
       }),
-      handler: ({ url }) => handleSearchConversations(url),
-    },
-    {
-      endpoint: "suggestion",
-      method: "GET",
-      summary: "Get reply suggestion",
-      description:
-        "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
-      tags: ["messages"],
-      responseBody: z.object({
-        suggestion: z.string(),
-        messageId: z.string(),
-        source: z.string(),
+  },
+  {
+    operationId: "search_get",
+    endpoint: "search",
+    method: "GET",
+    summary: "Search conversations",
+    description: "Full-text search across all conversations.",
+    tags: ["conversations"],
+    responseBody: z.object({
+      query: z.string(),
+      results: z.array(z.unknown()),
+    }),
+    handler: handleSearchConversations,
+  },
+  {
+    operationId: "suggestion_get",
+    endpoint: "suggestion",
+    method: "GET",
+    summary: "Get reply suggestion",
+    description:
+      "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
+    tags: ["messages"],
+    responseBody: z.object({
+      suggestion: z.string(),
+      messageId: z.string(),
+      source: z.string(),
+    }),
+    handler: async (args) =>
+      handleGetSuggestion(args, {
+        suggestionCache,
+        suggestionInFlight,
       }),
-      handler: async ({ url }) =>
-        handleGetSuggestion(url, {
-          suggestionCache: deps.suggestionCache,
-          suggestionInFlight: deps.suggestionInFlight,
-        }),
-    },
-  ];
-}
+  },
+];

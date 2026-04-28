@@ -114,6 +114,22 @@ mock.module("../permissions/trust-store.js", () => ({
   getRules: () => [],
 }));
 
+// ---------------------------------------------------------------------------
+// Module mocks for direct-import deps used by conversation-routes ROUTES
+// ---------------------------------------------------------------------------
+let _conversationFactory: (() => Conversation) | undefined;
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: async () => {
+    if (!_conversationFactory)
+      throw new Error("_conversationFactory not set in test");
+    return _conversationFactory();
+  },
+}));
+mock.module("../daemon/approval-generators.js", () => ({
+  createApprovalConversationGenerator: () => undefined,
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -270,7 +286,7 @@ const AUTH_HEADERS = { Authorization: `Bearer ${TEST_TOKEN}` };
 describe("standalone approval endpoints — HTTP layer", () => {
   let server: RuntimeHttpServer;
   let port: number;
-  let eventHub: AssistantEventHub;
+  let _eventHub: AssistantEventHub;
 
   beforeEach(() => {
     const db = getDb();
@@ -279,20 +295,16 @@ describe("standalone approval endpoints — HTTP layer", () => {
     db.run("DELETE FROM conversation_keys");
     pendingInteractions.clear();
     addRuleCalls.length = 0;
-    eventHub = new AssistantEventHub();
+    _eventHub = new AssistantEventHub();
   });
 
   async function startServer(
     conversationFactory: () => Conversation,
   ): Promise<void> {
+    _conversationFactory = conversationFactory;
     port = 20000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
       port,
-      sendMessageDeps: {
-        getOrCreateConversation: async () => conversationFactory(),
-        assistantEventHub: eventHub,
-        resolveAttachments: () => [],
-      },
     });
     await server.start();
   }
@@ -476,9 +488,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       // are accepted. The canonicalizeConfirmDecision function returns null for temporal
       // decisions, resulting in a 400 before the host-access-specific check.
       expect(res.status).toBe(400);
-      expect(body.error?.message).toContain(
-        "resolve to allow or deny",
-      );
+      expect(body.error?.message).toContain("resolve to allow or deny");
       expect(confirmedDecision).toBeUndefined();
       expect(pendingInteractions.get("req-host-access")).toBeDefined();
 

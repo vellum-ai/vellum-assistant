@@ -48,7 +48,7 @@ export async function callHandler(
     const result = await handler(args);
     if (result instanceof RouteResponse) {
       return new Response(result.body, {
-        status: successStatus,
+        status: result.status ?? successStatus,
         headers: result.headers,
       });
     }

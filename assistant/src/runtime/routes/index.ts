@@ -31,6 +31,7 @@ import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attentio
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "./conversation-list-routes.js";
 import { ROUTES as CONVERSATION_MANAGEMENT_ROUTES } from "./conversation-management-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
+import { ROUTES as CONVERSATION_MESSAGE_ROUTES } from "./conversation-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
 import { ROUTES as CREDENTIAL_PROMPT_ROUTES } from "./credential-prompt-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
@@ -57,6 +58,7 @@ import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as INTERFACE_ROUTES } from "./interface-routes.js";
+import { ROUTES as INTERNAL_OAUTH_ROUTES } from "./internal-oauth-routes.js";
 import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
@@ -119,6 +121,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CONVERSATION_LIST_ROUTES,
   ...CONVERSATION_MANAGEMENT_ROUTES,
+  ...CONVERSATION_MESSAGE_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
   ...DEFER_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
@@ -141,6 +144,7 @@ export const ROUTES: RouteDefinition[] = [
   ...HOST_TRANSFER_ROUTES,
   ...IDENTITY_ROUTES,
   ...INTERFACE_ROUTES,
+  ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...MEMORY_ITEM_ROUTES,
