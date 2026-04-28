@@ -10669,6 +10669,25 @@ paths:
       responses:
         "200":
           description: Successful response
+      parameters:
+        - name: tool
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by tool name
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by origin
+        - name: include_all
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Include unmodified defaults
     post:
       operationId: trustrules_post
       summary: Create a trust rule

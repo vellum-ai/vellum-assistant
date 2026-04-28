@@ -173,14 +173,14 @@ describe("trustRuleRoutes", () => {
       const route = findRoute("trust_rules_update");
       await expect(
         route.handler({ body: { risk: "low" } }),
-      ).rejects.toThrow();
+      ).rejects.toThrow("id is required");
     });
 
     test("throws when id is empty string", async () => {
       const route = findRoute("trust_rules_update");
       await expect(
         route.handler({ body: { id: "", risk: "low" } }),
-      ).rejects.toThrow();
+      ).rejects.toThrow("id is required");
     });
   });
 
@@ -199,7 +199,7 @@ describe("trustRuleRoutes", () => {
       const route = findRoute("trust_rules_remove");
       await expect(
         route.handler({ body: {} }),
-      ).rejects.toThrow();
+      ).rejects.toThrow("id is required");
     });
   });
 

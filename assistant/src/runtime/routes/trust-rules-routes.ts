@@ -53,24 +53,22 @@ const TrustRulesCreateParams = z
   })
   .strict();
 
-const TrustRulesUpdateParams = z
+const TrustRulesUpdateBody = z
   .object({
-    id: z.string().min(1, "id is required"),
     risk: z.string().optional(),
     description: z.string().optional(),
   })
   .strict();
 
-const TrustRulesRemoveParams = z
-  .object({
-    id: z.string().min(1, "id is required"),
-  })
-  .strict();
-
 // ── Handlers ────────────────────────────────────────────────────────────
 
-async function handleList({ body = {} }: RouteHandlerArgs) {
-  const p = TrustRulesListParams.parse(body);
+async function handleList({
+  queryParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
+  const source = Object.keys(queryParams).length > 0 ? queryParams : body;
+  const p = TrustRulesListParams.parse(source);
   const qs = new URLSearchParams();
   if (p.tool) qs.set("tool", p.tool);
   if (p.origin) qs.set("origin", p.origin);
@@ -88,8 +86,16 @@ async function handleCreate({ body = {} }: RouteHandlerArgs) {
   });
 }
 
-async function handleUpdate({ body = {} }: RouteHandlerArgs) {
-  const { id, ...fields } = TrustRulesUpdateParams.parse(body);
+async function handleUpdate({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  // HTTP path delivers id via pathParams; CLI IPC puts it in body.
+  const rawBody = body as Record<string, unknown>;
+  const id = pathParams.id ?? rawBody.id;
+  if (!id || typeof id !== "string") throw new Error("id is required");
+  const { id: _discarded, ...rest } = rawBody;
+  const fields = TrustRulesUpdateBody.parse(rest);
   const patchBody: Record<string, unknown> = {};
   if (fields.risk !== undefined) patchBody.risk = fields.risk;
   if (fields.description !== undefined) patchBody.description = fields.description;
@@ -100,8 +106,13 @@ async function handleUpdate({ body = {} }: RouteHandlerArgs) {
   });
 }
 
-async function handleRemove({ body = {} }: RouteHandlerArgs) {
-  const { id } = TrustRulesRemoveParams.parse(body);
+async function handleRemove({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  // HTTP path delivers id via pathParams; CLI IPC puts it in body.
+  const id = pathParams.id ?? (body as Record<string, unknown>).id;
+  if (!id || typeof id !== "string") throw new Error("id is required");
   return gatewayFetch(`/v1/trust-rules/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
@@ -116,8 +127,14 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "trust-rules",
     handler: handleList,
     summary: "List trust rules",
-    description: "List trust rules, optionally filtered by tool, origin, or include_all.",
+    description:
+      "List trust rules, optionally filtered by tool, origin, or include_all.",
     tags: ["trust-rules"],
+    queryParams: [
+      { name: "tool", description: "Filter by tool name" },
+      { name: "origin", description: "Filter by origin" },
+      { name: "include_all", description: "Include unmodified defaults" },
+    ],
   },
   {
     operationId: "trust_rules_create",
@@ -137,7 +154,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Update a trust rule",
     description: "Update the risk level or description of an existing trust rule.",
     tags: ["trust-rules"],
-    requestBody: TrustRulesUpdateParams.omit({ id: true }),
+    requestBody: TrustRulesUpdateBody,
   },
   {
     operationId: "trust_rules_remove",

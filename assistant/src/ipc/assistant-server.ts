@@ -33,6 +33,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
 import { RouteError } from "../runtime/routes/errors.js";
+import { ROUTES } from "../runtime/routes/index.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import type { IpcEnvelope } from "./ipc-framing.js";
@@ -43,7 +44,7 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
-import { cliIpcRoutes } from "./routes/index.js";
+import { routeDefinitionsToIpcRoutes } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
@@ -148,7 +149,7 @@ export class AssistantIpcServer {
       { source: resolution.source, path: resolution.path },
       "Assistant IPC socket path resolved",
     );
-    for (const route of cliIpcRoutes) {
+    for (const route of routeDefinitionsToIpcRoutes(ROUTES)) {
       this.methods.set(route.method, route.handler);
       if (route.structuredHandler) {
         this.structuredMethods.set(route.method, route.structuredHandler);
