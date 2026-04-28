@@ -35,6 +35,7 @@ import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DOCUMENT_ROUTES } from "./documents-routes.js";
+import { ROUTES as EVENTS_ROUTES } from "./events-routes.js";
 import { ROUTES as FILING_ROUTES } from "./filing-routes.js";
 import { ROUTES as GLOBAL_SEARCH_ROUTES } from "./global-search-routes.js";
 import { ROUTES as GROUP_ROUTES } from "./group-routes.js";
@@ -115,6 +116,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DEBUG_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DOCUMENT_ROUTES,
+  ...EVENTS_ROUTES,
   ...FILING_ROUTES,
   ...GLOBAL_SEARCH_ROUTES,
   ...GROUP_ROUTES,

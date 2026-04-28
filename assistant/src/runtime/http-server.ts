@@ -120,7 +120,6 @@ import {
 } from "./routes/conversation-management-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { RouteError } from "./routes/errors.js";
-import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import {
   resolveHostBrowserEvent,
   resolveHostBrowserResultByRequestId,
@@ -1704,7 +1703,6 @@ export class RuntimeHttpServer {
         },
       },
 
-      ...eventsRouteDefinitions(),
       ...migrationRouteDefinitions(),
 
       // User-defined routes under /x/* — must be LAST so built-in routes

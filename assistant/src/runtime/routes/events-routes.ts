@@ -43,10 +43,9 @@ import {
   assistantEventHub,
 } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import type { AuthContext } from "../auth/types.js";
 import { getClientRegistry } from "../client-registry.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, ServiceUnavailableError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("events-routes");
 
@@ -73,33 +72,22 @@ const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
  *   heartbeatIntervalMs -- how often to emit keep-alive comments (default 30 s).
  */
 export function handleSubscribeAssistantEvents(
-  req: Request,
-  url: URL,
-  options?:
-    | {
-        hub?: AssistantEventHub;
-        heartbeatIntervalMs?: number;
-        authContext: AuthContext;
-      }
-    | {
-        hub?: AssistantEventHub;
-        heartbeatIntervalMs?: number;
-        skipActorVerification: true;
-      },
-): Response {
-  // Auth is already verified upstream by JWT middleware. The AuthContext
-  // is available via options.authContext but we don't need to check it
-  // further here -- the route policy in http-server.ts already enforced
-  // scope and principal type requirements.
+  args: RouteHandlerArgs,
+  options?: {
+    hub?: AssistantEventHub;
+    heartbeatIntervalMs?: number;
+  },
+): ReadableStream<Uint8Array> {
+  const { queryParams, headers, abortSignal } = args;
 
-  const conversationKey = url.searchParams.get("conversationKey");
-  if (url.searchParams.has("conversationKey") && !conversationKey?.trim()) {
-    return httpError("BAD_REQUEST", "conversationKey must not be empty", 400);
+  const conversationKey = queryParams?.conversationKey;
+  if ("conversationKey" in (queryParams ?? {}) && !conversationKey?.trim()) {
+    throw new BadRequestError("conversationKey must not be empty");
   }
 
   // ── Client registration from headers ──────────────────────────────────
-  const rawClientId = req.headers.get("x-vellum-client-id");
-  const rawInterfaceId = req.headers.get("x-vellum-interface-id");
+  const rawClientId = headers?.["x-vellum-client-id"];
+  const rawInterfaceId = headers?.["x-vellum-interface-id"];
   const clientId = rawClientId?.trim() || null;
   const interfaceId = clientId
     ? parseInterfaceId(rawInterfaceId?.trim())
@@ -110,10 +98,8 @@ export function handleSubscribeAssistantEvents(
       { clientId, rawInterfaceId },
       "client registration failed: invalid or missing X-Vellum-Interface-Id",
     );
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "X-Vellum-Interface-Id is required when X-Vellum-Client-Id is provided",
-      400,
     );
   }
 
@@ -197,15 +183,10 @@ export function handleSubscribeAssistantEvents(
     );
   } catch (err) {
     if (err instanceof RangeError) {
-      // Clean up registration if we can't actually subscribe
       if (clientId) {
         registry.unregister(clientId);
       }
-      return httpError(
-        "SERVICE_UNAVAILABLE",
-        "Too many concurrent connections",
-        503,
-      );
+      throw new ServiceUnavailableError("Too many concurrent connections");
     }
     throw err;
   }
@@ -220,7 +201,7 @@ export function handleSubscribeAssistantEvents(
 
         // If the client already disconnected before start() ran, clean up
         // immediately -- the abort event fires once and won't be re-dispatched.
-        if (req.signal.aborted) {
+        if (abortSignal?.aborted) {
           sub.dispose();
           cleanup();
           return;
@@ -258,7 +239,7 @@ export function handleSubscribeAssistantEvents(
           }
         }, heartbeatIntervalMs);
 
-        req.signal.addEventListener(
+        abortSignal?.addEventListener(
           "abort",
           () => {
             sub.dispose();
@@ -275,36 +256,32 @@ export function handleSubscribeAssistantEvents(
     new CountQueuingStrategy({ highWaterMark: 16 }),
   );
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return stream;
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function eventsRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "events",
-      method: "GET",
-      summary: "Subscribe to assistant events",
-      description: "Stream assistant events as Server-Sent Events (SSE).",
-      tags: ["events"],
-      queryParams: [
-        {
-          name: "conversationKey",
-          schema: { type: "string" },
-          description: "Scope to a single conversation",
-        },
-      ],
-      handler: ({ req, url, authContext }) =>
-        handleSubscribeAssistantEvents(req, url, { authContext }),
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "subscribe_assistant_events",
+    endpoint: "events",
+    method: "GET",
+    summary: "Subscribe to assistant events",
+    description: "Stream assistant events as Server-Sent Events (SSE).",
+    tags: ["events"],
+    queryParams: [
+      {
+        name: "conversationKey",
+        description: "Scope to a single conversation",
+      },
+    ],
+    responseHeaders: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
-  ];
-}
+    handler: (args) => handleSubscribeAssistantEvents(args),
+  },
+];

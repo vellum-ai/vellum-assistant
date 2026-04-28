@@ -119,25 +119,21 @@ describe("SSE assistant-events endpoint", () => {
     const { conversationId } = getOrCreateConversation("sse-happy-path");
 
     const ac = new AbortController();
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=sse-happy-path",
-      { signal: ac.signal },
-    );
 
     const { handleSubscribeAssistantEvents } =
       await import("../runtime/routes/events-routes.js");
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url));
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const stream = handleSubscribeAssistantEvents({
+      queryParams: { conversationKey: "sse-happy-path" },
+      abortSignal: ac.signal,
+    });
 
     // start() is called synchronously during ReadableStream construction, so the
     // hub subscription is already registered before we publish.
     const event = buildAssistantEvent("self", { type: "pong" }, conversationId);
     await assistantEventHub.publish(event);
 
-    // Read the first frame directly from the response body stream.
-    const reader = response.body!.getReader();
+    // Read the first frame directly from the stream.
+    const reader = stream.getReader();
 
     // The first chunk is the immediate heartbeat comment enqueued in start().
     const initial = await reader.read();
@@ -161,9 +157,6 @@ describe("SSE assistant-events endpoint", () => {
   test("streams all events when conversationKey is omitted", async () => {
     // Subscribe without a conversationKey — should receive events from any conversation.
     const ac = new AbortController();
-    const req = new Request("http://localhost/v1/events", {
-      signal: ac.signal,
-    });
 
     const { AssistantEventHub } =
       await import("../runtime/assistant-event-hub.js");
@@ -171,14 +164,12 @@ describe("SSE assistant-events endpoint", () => {
 
     const { handleSubscribeAssistantEvents } =
       await import("../runtime/routes/events-routes.js");
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub: testHub,
-      skipActorVerification: true,
-    });
+    const stream = handleSubscribeAssistantEvents(
+      { abortSignal: ac.signal },
+      { hub: testHub },
+    );
 
-    expect(response.status).toBe(200);
-
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
 
     // Consume the initial heartbeat.
     const heartbeat = await reader.read();

@@ -64,19 +64,18 @@ async function publishAndReadFrame(
   const { conversationId } = getOrCreateConversation(conversationKey);
 
   const ac = new AbortController();
-  const req = new Request(
-    `http://localhost/v1/events?conversationKey=${conversationKey}`,
-    { signal: ac.signal },
-  );
 
   const { handleSubscribeAssistantEvents } =
     await import("../runtime/routes/events-routes.js");
-  const response = handleSubscribeAssistantEvents(req, new URL(req.url));
+  const stream = handleSubscribeAssistantEvents({
+    queryParams: { conversationKey },
+    abortSignal: ac.signal,
+  });
 
   const event = buildAssistantEvent("self", message, conversationId);
   await assistantEventHub.publish(event);
 
-  const reader = response.body!.getReader();
+  const reader = stream.getReader();
 
   // The first chunk is the immediate heartbeat comment enqueued in start().
   await reader.read();
@@ -328,13 +327,12 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const { conversationId } = getOrCreateConversation(conversationKey);
 
     const ac = new AbortController();
-    const req = new Request(
-      `http://localhost/v1/events?conversationKey=${conversationKey}`,
-      { signal: ac.signal },
-    );
     const { handleSubscribeAssistantEvents } =
       await import("../runtime/routes/events-routes.js");
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url));
+    const stream = handleSubscribeAssistantEvents({
+      queryParams: { conversationKey },
+      abortSignal: ac.signal,
+    });
 
     const msg: ServerMessage = {
       type: "assistant_text_delta" as const,
@@ -343,7 +341,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const published = buildAssistantEvent("self", msg, conversationId);
     await assistantEventHub.publish(published);
 
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
 
     // The first chunk is the immediate heartbeat comment enqueued in start().
     await reader.read();
