@@ -278,6 +278,8 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
   test("docker mode (DinD): uses host-path Binds to daemon-internal workspace paths, host-gateway alias, host.docker.internal DAEMON_URL, and ephemeral 127.0.0.1 port binding", async () => {
     engine = await startDockerEngineMock();
     // /_ping → /containers/create → /containers/<id>/start → /containers/<id>/json
+    // + /containers/<id>/wait (fire-and-forget container-exit watcher)
+    // + /containers/<id>/stop + /containers/<id>/wait + DELETE (leave cleanup)
     engine.queueResponse({ status: 200, body: "OK" });
     engine.queueResponse({ status: 201, body: { Id: "dk-1" } });
     engine.queueResponse({ status: 204, body: null });
@@ -294,6 +296,11 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
         },
       },
     });
+    // container-exit watcher wait + leave teardown (stop, wait, remove)
+    engine.queueResponse({ status: 200, body: { StatusCode: 0 } });
+    engine.queueResponse({ status: 204, body: null });
+    engine.queueResponse({ status: 200, body: { StatusCode: 0 } });
+    engine.queueResponse({ status: 204, body: null });
 
     const runner = new DockerRunner({
       socketPath: engine.socketPath,
@@ -338,7 +345,6 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
       // by direct host-path binds now that inner dockerd has direct
       // visibility into /workspace.
       expect(body.HostConfig.Binds).toEqual([
-        `${workspaceDir}/meets/m-docker-1/sockets:/sockets`,
         `${workspaceDir}/meets/m-docker-1/out:/out`,
       ]);
       expect(body.HostConfig.Mounts).toBeUndefined();
@@ -434,7 +440,6 @@ describe("Meet Docker-mode spawn-arg E2E", () => {
 
       // ── Host-path binds rooted in the workspace dir ──
       expect(body.HostConfig.Binds).toEqual([
-        `${workspaceDir}/meets/m-bm-1/sockets:/sockets`,
         `${workspaceDir}/meets/m-bm-1/out:/out`,
       ]);
 
