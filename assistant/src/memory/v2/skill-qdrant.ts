@@ -295,17 +295,31 @@ export async function pruneSkillsExcept(
  * if it appears in either channel; the missing channel's score is left
  * `undefined` so callers can detect single-channel matches.
  *
- * Unlike `hybridQueryConceptPages`, there is no `restrictToIds` parameter —
- * skill activation always considers the full enabled-skill catalog.
+ * `restrictToIds`, when provided, filters the search server-side to only
+ * those ids (Qdrant `id IN [...]` filter). Used by `simSkillBatch` when the
+ * candidate set is already known so the activation scorer gets scores for
+ * exactly those ids rather than Qdrant's global top-`limit`. An empty list
+ * short-circuits to no results — the caller is asking for "nothing", not
+ * "everything". Undefined queries the full collection (used by
+ * `selectSkillCandidates` to discover candidates from the global top-K).
  */
 export async function hybridQuerySkills(
   dense: number[],
   sparse: SparseEmbedding,
   limit: number,
+  restrictToIds?: readonly string[],
 ): Promise<SkillQueryResult[]> {
+  if (restrictToIds && restrictToIds.length === 0) {
+    // An empty restriction means "no candidates"; skip the round-trip.
+    return [];
+  }
+
   await ensureSkillCollection();
 
   const client = getClient();
+  const filter = restrictToIds
+    ? { must: [{ key: "id", match: { any: [...restrictToIds] } }] }
+    : undefined;
 
   const denseQuery = () =>
     client.query(MEMORY_V2_SKILLS_COLLECTION, {
@@ -313,6 +327,7 @@ export async function hybridQuerySkills(
       using: "dense",
       limit,
       with_payload: true,
+      filter,
     });
   const sparseQuery = () =>
     client.query(MEMORY_V2_SKILLS_COLLECTION, {
@@ -320,6 +335,7 @@ export async function hybridQuerySkills(
       using: "sparse",
       limit,
       with_payload: true,
+      filter,
     });
 
   // Run both queries concurrently — they hit independent named vectors.

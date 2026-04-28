@@ -425,7 +425,7 @@ describe("simSkillBatch", () => {
     expect(state.queryCalls).toHaveLength(0);
   });
 
-  test("queries the dedicated skills collection with no filter", async () => {
+  test("queries the dedicated skills collection and forwards an id-IN filter", async () => {
     const config = configWithWeights(0.7, 0.3);
     stageSkillHybridResponse([]);
 
@@ -438,8 +438,14 @@ describe("simSkillBatch", () => {
     expect(state.queryCalls).toHaveLength(2);
     for (const call of state.queryCalls) {
       expect(call.collection).toBe("memory_v2_skills");
-      // Skills are unrestricted: no slug/id filter is forwarded.
-      expect(call.filter).toBeUndefined();
+      // The candidate ids are forwarded as a Qdrant filter so Qdrant scores
+      // exactly the candidate set, not its global top-K. Without this,
+      // candidate ids absent from the global top-K silently score 0.
+      expect(call.filter).toEqual({
+        must: [
+          { key: "id", match: { any: ["example-skill-a", "example-skill-b"] } },
+        ],
+      });
       // Limit equals the candidate count.
       expect(call.limit).toBe(2);
     }
@@ -483,13 +489,19 @@ describe("simSkillBatch", () => {
     expect(out.get("example-skill-b")).toBeCloseTo(0.3, 6);
   });
 
-  test("drops hits whose id is not in the candidate set", async () => {
-    // `hybridQuerySkills` queries the full collection — `simSkillBatch`
-    // must filter the results down to ids the caller asked for.
+  test("forwards candidate ids as the Qdrant restriction; only candidates in result", async () => {
+    // The bug we're guarding against: when the skills collection has more
+    // skills than `ids.length`, calling `hybridQuerySkills` without a filter
+    // returns Qdrant's global top-K. Candidate ids absent from that top-K
+    // would silently score 0. The fix is to forward the candidate ids as a
+    // server-side restriction so Qdrant scores exactly the candidate set.
     const config = configWithWeights(0.7, 0.3);
     stageSkillHybridResponse([
       { id: "example-skill-a", denseScore: 0.5, sparseScore: 1 },
-      { id: "example-skill-c", denseScore: 0.9, sparseScore: 1 }, // not requested
+      // `example-skill-c` would never be returned in production once the
+      // filter is applied; the post-filter in simSkillBatch defensively
+      // drops it even if a stale payload slips through.
+      { id: "example-skill-c", denseScore: 0.9, sparseScore: 1 },
     ]);
 
     const out = await simSkillBatch(
@@ -498,6 +510,17 @@ describe("simSkillBatch", () => {
       config,
     );
 
+    // The Qdrant filter was forwarded — both channels carry the id-IN
+    // restriction matching the caller's candidate set.
+    expect(state.queryCalls).toHaveLength(2);
+    for (const call of state.queryCalls) {
+      expect(call.filter).toEqual({
+        must: [
+          { key: "id", match: { any: ["example-skill-a", "example-skill-b"] } },
+        ],
+      });
+    }
+    // Only candidate ids appear in the result map.
     expect(out.has("example-skill-a")).toBe(true);
     expect(out.has("example-skill-c")).toBe(false);
   });

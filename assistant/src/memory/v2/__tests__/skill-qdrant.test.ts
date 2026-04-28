@@ -57,6 +57,7 @@ const state = {
     query: unknown;
     limit: number;
     with_payload: boolean;
+    filter?: unknown;
   }>,
   scrollCalls: [] as Array<{
     limit?: number;
@@ -120,6 +121,7 @@ class MockQdrantClient {
       query: unknown;
       limit: number;
       with_payload: boolean;
+      filter?: unknown;
     },
   ) {
     state.queryCalls.push(params);
@@ -625,17 +627,73 @@ describe("memory v2 skill qdrant — hybrid query", () => {
     }
   });
 
-  test("does not pass a payload filter (full skill catalog is always queried)", async () => {
+  test("undefined restrictToIds queries the full catalog (no filter)", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.queryResponses.dense.push({
+      points: [{ score: 0.5, payload: { id: "example-skill-1" } }],
+    });
+    state.queryResponses.sparse.push({
+      points: [{ score: 1, payload: { id: "example-skill-2" } }],
+    });
+
+    const results = await hybridQuerySkills(
+      [0.1],
+      { indices: [1], values: [1] },
+      5,
+    );
+
+    // Both channels ran without any payload filter.
+    expect(state.queryCalls).toHaveLength(2);
+    for (const call of state.queryCalls) {
+      expect(call.filter).toBeUndefined();
+    }
+    // Full results flow through unchanged.
+    expect(results.map((r) => r.id).sort()).toEqual([
+      "example-skill-1",
+      "example-skill-2",
+    ]);
+  });
+
+  test("restrictToIds forwards a Qdrant id-IN filter to BOTH channels", async () => {
     state.collectionExistsBeforeCreate = true;
     state.queryResponses.dense.push({ points: [] });
     state.queryResponses.sparse.push({ points: [] });
 
-    await hybridQuerySkills([0.1], { indices: [1], values: [1] }, 5);
+    await hybridQuerySkills([0.1], { indices: [1], values: [1] }, 5, [
+      "example-skill-a",
+      "example-skill-b",
+    ]);
 
+    expect(state.queryCalls).toHaveLength(2);
+    const usings = state.queryCalls.map((c) => c.using).sort();
+    expect(usings).toEqual(["dense", "sparse"]);
     for (const call of state.queryCalls) {
-      const wholeCall = call as unknown as Record<string, unknown>;
-      expect(wholeCall.filter).toBeUndefined();
+      // Filter is forwarded to both dense and sparse — without this the
+      // sparse channel would still grab the global top-K and corrupt
+      // candidate scoring.
+      expect(call.filter).toEqual({
+        must: [
+          { key: "id", match: { any: ["example-skill-a", "example-skill-b"] } },
+        ],
+      });
     }
+  });
+
+  test("empty restrictToIds short-circuits without hitting Qdrant", async () => {
+    state.collectionExistsBeforeCreate = true;
+
+    const results = await hybridQuerySkills(
+      [0.1],
+      { indices: [1], values: [1] },
+      5,
+      [],
+    );
+
+    expect(results).toEqual([]);
+    // No Qdrant calls were made — the function returned before
+    // ensureSkillCollection ran.
+    expect(state.queryCalls).toHaveLength(0);
+    expect(state.collectionExistsCalls).toBe(0);
   });
 
   test("empty Qdrant responses yield []", async () => {
