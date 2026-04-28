@@ -291,6 +291,146 @@ describe("cache set", () => {
 });
 
 // ---------------------------------------------------------------------------
+// set — --value and --file input methods
+// ---------------------------------------------------------------------------
+
+describe("cache set --value", () => {
+  test("accepts inline JSON via --value", async () => {
+    mockIpcResult = { ok: true, result: { key: "val-key" } };
+
+    const { exitCode } = await runCommand([
+      "cache",
+      "set",
+      "--value",
+      '{"scores":[98,85,72]}',
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall).toBeDefined();
+    expect(lastIpcCall!.method).toBe("cache_set");
+    expect(lastBody().data).toEqual({ scores: [98, 85, 72] });
+  });
+
+  test("--value takes precedence over stdin", async () => {
+    mockStdinContent = '{"from":"stdin"}';
+    mockIpcResult = { ok: true, result: { key: "k" } };
+
+    const { exitCode } = await runCommand([
+      "cache",
+      "set",
+      "--value",
+      '{"from":"flag"}',
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastBody().data).toEqual({ from: "flag" });
+  });
+
+  test("errors on invalid JSON in --value", async () => {
+    const { exitCode } = await runCommand([
+      "cache",
+      "set",
+      "--value",
+      "{not-json}",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("errors on empty --value", async () => {
+    const { exitCode } = await runCommand(["cache", "set", "--value", "   "]);
+
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("--json outputs error on invalid --value", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "set",
+      "--value",
+      "bad",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid JSON");
+  });
+
+  test("errors when both --value and --file are provided", async () => {
+    const { exitCode } = await runCommand([
+      "cache",
+      "set",
+      "--value",
+      '"x"',
+      "--file",
+      "/tmp/foo.json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("works in TTY mode (no stdin required)", async () => {
+    mockStdinIsTTY = true;
+    mockIpcResult = { ok: true, result: { key: "tty-key" } };
+
+    const { exitCode } = await runCommand([
+      "cache",
+      "set",
+      "--value",
+      '"hello"',
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastBody().data).toBe("hello");
+  });
+});
+
+describe("cache set --file", () => {
+  test("reads JSON from a file", async () => {
+    mockIpcResult = { ok: true, result: { key: "file-key" } };
+    const pkgPath = new URL("../../../../package.json", import.meta.url)
+      .pathname;
+
+    const { exitCode } = await runCommand(["cache", "set", "--file", pkgPath]);
+
+    expect(exitCode).toBe(0);
+    expect(lastIpcCall).toBeDefined();
+    expect(lastIpcCall!.method).toBe("cache_set");
+    // package.json is valid JSON, so data should be an object
+    expect(typeof lastBody().data).toBe("object");
+  });
+
+  test("errors on non-existent file", async () => {
+    const { exitCode } = await runCommand([
+      "cache",
+      "set",
+      "--file",
+      "/tmp/does-not-exist-vellum-cache-test.json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("works in TTY mode (no stdin required)", async () => {
+    mockStdinIsTTY = true;
+    mockIpcResult = { ok: true, result: { key: "file-tty-key" } };
+    const pkgPath = new URL("../../../../package.json", import.meta.url)
+      .pathname;
+
+    const { exitCode } = await runCommand(["cache", "set", "--file", pkgPath]);
+
+    expect(exitCode).toBe(0);
+    expect(lastBody().data).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // set — TTL parsing edge cases
 // ---------------------------------------------------------------------------
 

@@ -5,7 +5,7 @@
  * cache IPC routes (`cache/set`, `cache/get`, `cache/delete`).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
@@ -63,39 +63,20 @@ function parseTtl(raw: string | undefined): number | undefined {
   return ms;
 }
 
-// ── Stdin helpers ─────────────────────────────────────────────────────
+// ── Payload helpers ──────────────────────────────────────────────────
 
 /**
- * Read JSON payload from stdin when piped. Throws when stdin is a TTY
- * (no piped input) or when the input is empty/invalid JSON, so the CLI
- * can surface actionable parse errors.
+ * Parse and validate a raw JSON string, emitting a size warning to stderr
+ * if it exceeds 1 MB.
  */
-function readPayloadFromStdin(): unknown {
-  if (process.stdin.isTTY) {
-    throw new Error(
-      "No input provided. Pipe JSON into stdin.\n" +
-        '  Example: echo \'{"key":"value"}\' | assistant cache set',
-    );
-  }
-
-  let raw: string;
-  try {
-    raw = readFileSync("/dev/stdin", "utf-8");
-  } catch (err) {
-    throw new Error(
-      `Failed to read stdin: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
+function parseJsonPayload(raw: string, source: string): unknown {
   if (!raw.trim()) {
     throw new Error(
-      "Empty input on stdin. Pipe valid JSON.\n" +
-        '  Example: echo \'{"key":"value"}\' | assistant cache set',
+      `Empty input from ${source}. Provide valid JSON.\n` +
+        '  Example: assistant cache set --value \'{"key":"value"}\'',
     );
   }
 
-  // Warn on large payloads (but do not fail).
-  // Write directly to stderr so --json stdout output stays clean.
   const byteLength = Buffer.byteLength(raw, "utf-8");
   if (byteLength > MAX_PAYLOAD_BYTES) {
     const sizeMb = (byteLength / 1_000_000).toFixed(2);
@@ -108,10 +89,80 @@ function readPayloadFromStdin(): unknown {
     return JSON.parse(raw);
   } catch {
     throw new Error(
-      "Invalid JSON on stdin. Provide a valid JSON value.\n" +
-        '  Example: echo \'{"key":"value"}\' | assistant cache set',
+      `Invalid JSON from ${source}. Provide a valid JSON value.\n` +
+        '  Example: assistant cache set --value \'{"key":"value"}\'',
     );
   }
+}
+
+/**
+ * Read JSON payload from stdin when piped. Throws when stdin is a TTY
+ * (no piped input) or when the input is empty/invalid JSON, so the CLI
+ * can surface actionable parse errors.
+ */
+function readPayloadFromStdin(): unknown {
+  if (process.stdin.isTTY) {
+    throw new Error(
+      "No input provided. Pipe JSON into stdin, or use --value / --file.\n" +
+        '  Example: echo \'{"key":"value"}\' | assistant cache set\n' +
+        '  Example: assistant cache set --value \'{"key":"value"}\'',
+    );
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync("/dev/stdin", "utf-8");
+  } catch (err) {
+    throw new Error(
+      `Failed to read stdin: ${err instanceof Error ? err.message : String(err)}.\n` +
+        "Use --value or --file as an alternative when stdin is unavailable.",
+    );
+  }
+
+  return parseJsonPayload(raw, "stdin");
+}
+
+/**
+ * Read JSON payload from a file path. Throws on missing file or invalid JSON.
+ */
+function readPayloadFromFile(filePath: string): unknown {
+  if (!existsSync(filePath)) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    throw new Error(
+      `Failed to read file "${filePath}": ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return parseJsonPayload(raw, `file "${filePath}"`);
+}
+
+/**
+ * Resolve the JSON payload from whichever input method was specified.
+ * Priority: --value > --file > stdin.
+ * Throws if multiple explicit sources are provided (--value + --file).
+ */
+function resolvePayload(opts: { value?: string; file?: string }): unknown {
+  if (opts.value !== undefined && opts.file !== undefined) {
+    throw new Error(
+      "Cannot use both --value and --file. Provide exactly one input source.",
+    );
+  }
+
+  if (opts.value !== undefined) {
+    return parseJsonPayload(opts.value, "--value");
+  }
+
+  if (opts.file !== undefined) {
+    return readPayloadFromFile(opts.file);
+  }
+
+  return readPayloadFromStdin();
 }
 
 // ── Registration ──────────────────────────────────────────────────────
@@ -132,8 +183,9 @@ Keys are opaque strings. If no key is provided on set, the assistant
 generates one and returns it. Values can be any JSON-serializable data.
 
 Examples:
+  $ assistant cache set --value '{"result": [1,2,3]}' --ttl 5m
+  $ assistant cache set --file /tmp/data.json --key my-key --ttl 1h
   $ echo '{"result": [1,2,3]}' | assistant cache set --ttl 5m
-  $ echo '{"result": [1,2,3]}' | assistant cache set --key my-key --ttl 1h
   $ assistant cache get my-key
   $ assistant cache delete my-key`,
   );
@@ -142,7 +194,7 @@ Examples:
 
   cache
     .command("set")
-    .description("Store a JSON value in the cache (reads payload from stdin)")
+    .description("Store a JSON value in the cache")
     .option(
       "--key <key>",
       "Cache key for idempotent upsert. Omit to auto-generate.",
@@ -151,18 +203,29 @@ Examples:
       "--ttl <duration>",
       "Time-to-live (minimum 1s). Units: ms, s, m, h (e.g. 1000ms, 30s, 5m, 2h). Defaults to 30m if omitted.",
     )
+    .option(
+      "--value <json>",
+      "JSON payload to store. Alternative to piping via stdin.",
+    )
+    .option(
+      "--file <path>",
+      "Path to a file containing the JSON payload. Alternative to piping via stdin.",
+    )
     .option("--json", "Output result as machine-readable JSON.")
     .addHelpText(
       "after",
       `
-Reads a JSON payload from stdin, stores it in the cache, and prints the
-assigned key. If --key is provided, the entry is upserted (created or
-replaced). If omitted, a new unique key is generated.
+Stores a JSON payload in the cache and prints the assigned key. The payload
+can be provided via --value, --file, or piped through stdin. If --key is
+provided, the entry is upserted (created or replaced). If omitted, a new
+unique key is generated.
 
 Payloads exceeding 1 MB emit a warning to stderr but are still stored.
 
-Arguments:
-  (none — payload is read from stdin)
+Input sources (mutually exclusive, checked in this order):
+  --value <json>    Inline JSON string.
+  --file <path>     Path to a JSON file.
+  (stdin)           Piped input (fallback when neither flag is given).
 
 Options:
   --key <key>       Cache key string. Omit to auto-generate a random hex key.
@@ -171,71 +234,80 @@ Options:
   --json            Output as JSON: { "ok": true, "key": "..." }
 
 Examples:
+  $ assistant cache set --value '{"scores":[98,85,72]}' --ttl 5m
+  $ assistant cache set --file /tmp/payload.json --key scores --ttl 10m
   $ echo '{"scores":[98,85,72]}' | assistant cache set
-  $ echo '{"scores":[98,85,72]}' | assistant cache set --key scores --ttl 10m
   $ echo '"simple string"' | assistant cache set --ttl 1h --json`,
     )
-    .action(async (opts: { key?: string; ttl?: string; json?: boolean }) => {
-      let data: unknown;
-      try {
-        data = readPayloadFromStdin();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+    .action(
+      async (opts: {
+        key?: string;
+        ttl?: string;
+        value?: string;
+        file?: string;
+        json?: boolean;
+      }) => {
+        let data: unknown;
+        try {
+          data = resolvePayload(opts);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
+          } else {
+            log.error(msg);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        let ttl_ms: number | undefined;
+        try {
+          ttl_ms = parseTtl(opts.ttl);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
+          } else {
+            log.error(msg);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
+        const params: Record<string, unknown> = { data };
+        if (ttl_ms !== undefined) params.ttl_ms = ttl_ms;
+        if (opts.key) params.key = opts.key;
+
+        const result = await cliIpcCall<{ key: string }>("cache_set", {
+          body: params,
+        });
+
+        if (!result.ok) {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: result.error }) + "\n",
+            );
+          } else {
+            log.error(`Error: ${result.error}`);
+          }
+          process.exitCode = 1;
+          return;
+        }
+
         if (opts.json) {
           process.stdout.write(
-            JSON.stringify({ ok: false, error: msg }) + "\n",
+            JSON.stringify({ ok: true, key: result.result!.key }) + "\n",
           );
         } else {
-          log.error(msg);
+          log.info(`Cached with key: ${result.result!.key}`);
         }
-        process.exitCode = 1;
-        return;
-      }
-
-      let ttl_ms: number | undefined;
-      try {
-        ttl_ms = parseTtl(opts.ttl);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({ ok: false, error: msg }) + "\n",
-          );
-        } else {
-          log.error(msg);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      const params: Record<string, unknown> = { data };
-      if (ttl_ms !== undefined) params.ttl_ms = ttl_ms;
-      if (opts.key) params.key = opts.key;
-
-      const result = await cliIpcCall<{ key: string }>("cache_set", {
-        body: params,
-      });
-
-      if (!result.ok) {
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({ ok: false, error: result.error }) + "\n",
-          );
-        } else {
-          log.error(`Error: ${result.error}`);
-        }
-        process.exitCode = 1;
-        return;
-      }
-
-      if (opts.json) {
-        process.stdout.write(
-          JSON.stringify({ ok: true, key: result.result!.key }) + "\n",
-        );
-      } else {
-        log.info(`Cached with key: ${result.result!.key}`);
-      }
-    });
+      },
+    );
 
   // ── get ───────────────────────────────────────────────────────────
 
