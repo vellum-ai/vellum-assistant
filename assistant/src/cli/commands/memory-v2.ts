@@ -38,8 +38,8 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
-} from "../../ipc/routes/memory-v2-backfill.js";
-import type { MemoryV2ValidateResult } from "../../ipc/routes/memory-v2-validate.js";
+  MemoryV2ValidateResult,
+} from "../../runtime/routes/memory-v2-routes.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -61,8 +61,8 @@ async function runBackfillOp(
   if (opts.force === true) params.force = true;
 
   const result = await cliIpcCall<MemoryV2BackfillResult>(
-    "memory_v2/backfill",
-    params,
+    "memory_v2_backfill",
+    { body: params },
   );
 
   if (!result.ok) {
@@ -254,7 +254,9 @@ Examples:
     )
     .action(async () => {
       const result =
-        await cliIpcCall<MemoryV2ValidateResult>("memory_v2/validate");
+        await cliIpcCall<MemoryV2ValidateResult>("memory_v2_validate", {
+          body: {},
+        });
 
       if (!result.ok) {
         log.error(result.error ?? "Failed to validate memory v2 state");

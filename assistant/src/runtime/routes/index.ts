@@ -55,6 +55,7 @@ import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
 import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
+import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
@@ -130,6 +131,7 @@ export const ROUTES: RouteDefinition[] = [
   ...IDENTITY_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...MEMORY_ITEM_ROUTES,
+  ...MEMORY_V2_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
   ...NOTIFICATION_ROUTES,
   ...OAUTH_APPS_ROUTES,

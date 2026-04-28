@@ -6440,6 +6440,55 @@ paths:
                 importance:
                   type: number
               additionalProperties: false
+  /v1/memory/v2/backfill:
+    post:
+      operationId: memory_v2_backfill_post
+      summary: Enqueue a memory v2 backfill job
+      description:
+        Enqueues one of four operator-triggered backfill jobs (migrate, rebuild-edges, reembed,
+        activation-recompute) against the memory jobs queue.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                op:
+                  type: string
+                  enum:
+                    - migrate
+                    - rebuild-edges
+                    - reembed
+                    - activation-recompute
+                force:
+                  type: boolean
+              required:
+                - op
+              additionalProperties: false
+  /v1/memory/v2/validate:
+    post:
+      operationId: memory_v2_validate_post
+      summary: Validate memory v2 workspace state
+      description: Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get

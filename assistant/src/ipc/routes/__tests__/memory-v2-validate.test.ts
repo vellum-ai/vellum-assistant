@@ -25,8 +25,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { invalidateConfigCache } from "../../../config/loader.js";
 import { writeEdges } from "../../../memory/v2/edges.js";
 import { writePage } from "../../../memory/v2/page-store.js";
+import { ROUTES as memoryV2Routes } from "../../../runtime/routes/memory-v2-routes.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
-import { memoryV2ValidateRoute } from "../memory-v2-validate.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -41,10 +41,12 @@ type ValidateResult = {
   parseFailures: { slug: string; error: string }[];
 };
 
+const validateRoute = memoryV2Routes.find(r => r.operationId === "memory_v2_validate")!;
+
 async function runRoute(
   params: Record<string, unknown> = {},
 ): Promise<ValidateResult> {
-  return (await memoryV2ValidateRoute.handler(params)) as ValidateResult;
+  return (await validateRoute.handler({ body: params })) as ValidateResult;
 }
 
 function workspace(): string {
@@ -93,9 +95,9 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("memoryV2ValidateRoute", () => {
-  test("method is 'memory_v2/validate'", () => {
-    expect(memoryV2ValidateRoute.method).toBe("memory_v2/validate");
+describe("memory_v2_validate route", () => {
+  test("operationId is 'memory_v2_validate'", () => {
+    expect(validateRoute.operationId).toBe("memory_v2_validate");
   });
 
   test("rejects unknown params", async () => {

@@ -4,9 +4,9 @@
  * Validates:
  *   - Subcommand registration (migrate, rebuild-edges, reembed, activation,
  *     validate) under `memory v2`.
- *   - Each mutating subcommand maps to the right `memory_v2/backfill` op.
+ *   - Each mutating subcommand maps to the right `memory_v2_backfill` op.
  *   - `migrate --force` propagates `force: true`; bare `migrate` omits it.
- *   - `validate` calls `memory_v2/validate` and pretty-prints the report.
+ *   - `validate` calls `memory_v2_validate` and pretty-prints the report.
  *   - IPC error paths return a non-zero exit code without throwing.
  *   - `registerMemoryV2Command` throws if the parent `memory` command is
  *     not registered first (the contract documented in program.ts).
@@ -23,7 +23,8 @@ import { Command } from "commander";
 /** The last `cliIpcCall` invocation captured for assertions. */
 let lastIpcCall: {
   method: string;
-  params?: Record<string, unknown>;
+   
+  params?: any;
 } | null = null;
 
 /** The result that cliIpcCall will return. */
@@ -41,7 +42,8 @@ let logOutput: string[] = [];
 // ---------------------------------------------------------------------------
 
 mock.module("../../../ipc/cli-client.js", () => ({
-  cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
+  cliIpcCall: async (method: string,  
+  params?: any) => {
     lastIpcCall = { method, params };
     return mockIpcResult;
   },
@@ -185,8 +187,8 @@ describe("memory v2 migrate", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("memory_v2/backfill");
-    expect(lastIpcCall!.params).toEqual({ op: "migrate" });
+    expect(lastIpcCall!.method).toBe("memory_v2_backfill");
+    expect(lastIpcCall!.params.body).toEqual({ op: "migrate" });
   });
 
   test("--force propagates force:true", async () => {
@@ -194,7 +196,7 @@ describe("memory v2 migrate", () => {
 
     await runCommand(["memory", "v2", "migrate", "--force"]);
 
-    expect(lastIpcCall!.params).toEqual({ op: "migrate", force: true });
+    expect(lastIpcCall!.params.body).toEqual({ op: "migrate", force: true });
   });
 
   test("logs the returned jobId", async () => {
@@ -225,8 +227,8 @@ describe("memory v2 rebuild-edges", () => {
     const { exitCode } = await runCommand(["memory", "v2", "rebuild-edges"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("memory_v2/backfill");
-    expect(lastIpcCall!.params).toEqual({ op: "rebuild-edges" });
+    expect(lastIpcCall!.method).toBe("memory_v2_backfill");
+    expect(lastIpcCall!.params.body).toEqual({ op: "rebuild-edges" });
   });
 
   test("logs the returned jobId", async () => {
@@ -257,8 +259,8 @@ describe("memory v2 reembed", () => {
     const { exitCode } = await runCommand(["memory", "v2", "reembed"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("memory_v2/backfill");
-    expect(lastIpcCall!.params).toEqual({ op: "reembed" });
+    expect(lastIpcCall!.method).toBe("memory_v2_backfill");
+    expect(lastIpcCall!.params.body).toEqual({ op: "reembed" });
   });
 
   test("logs the returned jobId", async () => {
@@ -289,8 +291,8 @@ describe("memory v2 activation", () => {
     const { exitCode } = await runCommand(["memory", "v2", "activation"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("memory_v2/backfill");
-    expect(lastIpcCall!.params).toEqual({ op: "activation-recompute" });
+    expect(lastIpcCall!.method).toBe("memory_v2_backfill");
+    expect(lastIpcCall!.params.body).toEqual({ op: "activation-recompute" });
   });
 
   test("logs the returned jobId", async () => {
@@ -332,8 +334,8 @@ describe("memory v2 validate", () => {
     const { exitCode } = await runCommand(["memory", "v2", "validate"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("memory_v2/validate");
-    expect(lastIpcCall!.params).toBeUndefined();
+    expect(lastIpcCall!.method).toBe("memory_v2_validate");
+    expect(lastIpcCall!.params.body).toEqual({});
   });
 
   test("prints zero-violation report cleanly", async () => {
