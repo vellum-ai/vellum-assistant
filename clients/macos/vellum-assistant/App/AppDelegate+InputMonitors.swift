@@ -563,8 +563,20 @@ extension AppDelegate {
 
         let (prevModifiers, prevKey) = ShortcutHelper.parseShortcut(prevShortcut)
         let (nextModifiers, nextKey) = ShortcutHelper.parseShortcut(nextShortcut)
-        let prevMods = prevModifiers.subtracting(.function)
-        let nextMods = nextModifiers.subtracting(.function)
+
+        // Only strip .function for arrow-key shortcuts where macOS implicitly
+        // adds the flag. For non-arrow keys, keep .function so that explicit
+        // fn+key bindings (e.g. fn+cmd+k) are not triggered without Fn held.
+        let arrowKeyScalars: Set<UInt32> = [
+            NSUpArrowFunctionKey, NSDownArrowFunctionKey,
+            NSLeftArrowFunctionKey, NSRightArrowFunctionKey
+        ]
+        func isArrowKey(_ key: String) -> Bool {
+            guard let scalar = key.unicodeScalars.first, key.unicodeScalars.count == 1 else { return false }
+            return arrowKeyScalars.contains(scalar.value)
+        }
+        let prevMods = isArrowKey(prevKey) ? prevModifiers.subtracting(.function) : prevModifiers
+        let nextMods = isArrowKey(nextKey) ? nextModifiers.subtracting(.function) : nextModifiers
 
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             guard self?.isBootstrapping != true,
