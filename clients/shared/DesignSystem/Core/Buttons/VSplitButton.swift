@@ -32,7 +32,7 @@ public struct VSplitButton<MenuContent: View>: View {
     @State private var isDropdownHovered = false
 
     #if os(macOS)
-    @State private var buttonFrame: CGRect = .zero
+    @State private var dropdownFrame: CGRect = .zero
     @State private var activePanel: VMenuPanel?
     @State private var isMenuOpen = false
     #endif
@@ -123,17 +123,6 @@ public struct VSplitButton<MenuContent: View>: View {
         .animation(VAnimation.fast, value: isPrimaryHovered)
         .animation(VAnimation.fast, value: isDropdownHovered)
         .optionalSplitButtonAccessibilityID(accessibilityID)
-        #if os(macOS)
-        .overlay {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { buttonFrame = geo.frame(in: .global) }
-                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                        buttonFrame = newFrame
-                    }
-            }
-        }
-        #endif
     }
 
     // MARK: - Dropdown Zone
@@ -213,6 +202,15 @@ public struct VSplitButton<MenuContent: View>: View {
             isDropdownHovered = isDisabled ? false : hovering
         }
         .pointerCursor()
+        .overlay {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { dropdownFrame = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                        dropdownFrame = newFrame
+                    }
+            }
+        }
     }
 
     private func showMenuAbove() {
@@ -224,22 +222,22 @@ public struct VSplitButton<MenuContent: View>: View {
             return
         }
 
-        // Convert the button's top-left from SwiftUI (y-down) to screen (y-up) coordinates.
-        let topLeftInWindow = CGPoint(x: buttonFrame.minX, y: buttonFrame.minY)
+        // Convert the dropdown zone's top-left from SwiftUI (y-down) to screen (y-up) coordinates.
+        let topLeftInWindow = CGPoint(x: dropdownFrame.minX, y: dropdownFrame.minY)
         let screenPoint = window.convertPoint(toScreen: NSPoint(
             x: topLeftInWindow.x,
             y: window.frame.height - topLeftInWindow.y
         ))
 
-        // Compute button rect in screen coordinates for the excludeRect so
-        // clicks on the button itself don't dismiss the menu.
-        let buttonScreenOrigin = window.convertPoint(toScreen: NSPoint(
-            x: buttonFrame.minX,
-            y: window.frame.height - buttonFrame.maxY
+        // Exclude only the dropdown zone so clicks on the primary action
+        // half correctly dismiss the menu via VMenuPanel's click monitor.
+        let dropdownScreenOrigin = window.convertPoint(toScreen: NSPoint(
+            x: dropdownFrame.minX,
+            y: window.frame.height - dropdownFrame.maxY
         ))
-        let buttonScreenRect = CGRect(
-            origin: buttonScreenOrigin,
-            size: CGSize(width: buttonFrame.width, height: buttonFrame.height)
+        let dropdownScreenRect = CGRect(
+            origin: dropdownScreenOrigin,
+            size: CGSize(width: dropdownFrame.width, height: dropdownFrame.height)
         )
 
         let appearance = window.effectiveAppearance
@@ -248,11 +246,16 @@ public struct VSplitButton<MenuContent: View>: View {
             anchor: .above,
             sourceWindow: window,
             sourceAppearance: appearance,
-            excludeRect: buttonScreenRect
+            excludeRect: dropdownScreenRect
         ) {
             VMenu {
                 menuContent()
             }
+            // Dismiss the panel on any tap so plain Button items (not just
+            // VMenuItem) close the menu after their action fires.
+            .simultaneousGesture(TapGesture().onEnded {
+                activePanel?.close()
+            })
         } onDismiss: {
             isMenuOpen = false
             activePanel = nil
