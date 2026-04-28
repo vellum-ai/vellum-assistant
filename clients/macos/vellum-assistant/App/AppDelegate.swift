@@ -156,6 +156,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// (e.g. the async batch STT fallback completing after the user already sent).
     var voiceTranscriptionConsumed = false
     var connectionStatusTask: Task<Void, Never>?
+    var diskPressureConnectionTask: Task<Void, Never>?
     var quickInputAttachmentCancellable: AnyCancellable?
     var avatarChangeObserver: NSObjectProtocol?
     /// Cached circular avatar image for the menu bar icon. Invalidated only
@@ -401,6 +402,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = ChatDiagnosticsStore.shared
 
         MainThreadStallDetector.shared.start()
+        services.diskPressureMonitor.start()
         // Begin observing system memory pressure so subsystems that do
         // periodic main-thread work (e.g. DebugStateWriter) can throttle
         // under warning/critical events instead of compounding the stall.
@@ -833,6 +835,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         tearDownSleepWakeHandlers()
         NSApp.dockTile.badgeLabel = nil
         connectionStatusTask?.cancel()
+        diskPressureConnectionTask?.cancel()
+        services.diskPressureMonitor.stop()
         statusDotLayer?.removeAllAnimations()
         statusDotLayer?.removeFromSuperlayer()
         statusDotLayer = nil

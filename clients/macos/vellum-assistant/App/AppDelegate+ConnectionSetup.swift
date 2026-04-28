@@ -118,6 +118,7 @@ extension AppDelegate {
         let assistant = loadAssistantFromLockfile()
 
         configureDaemonTransport(for: assistant)
+        services.diskPressureMonitor.refreshForCurrentAssistant()
 
         // Set recovery credentials for automatic 401 re-bootstrap
         connectionManager.recoveryPlatform = "macos"
@@ -149,6 +150,7 @@ extension AppDelegate {
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
+        rebindDiskPressureConnectionObserver()
 
         // Observe the managed-assistant-gone signal (health check 404) once
         // per setup so a retired/deleted platform assistant no longer leaves
@@ -190,6 +192,7 @@ extension AppDelegate {
                 log.info("setupGatewayConnectionManager: skipping connect() — isConnected=\(self.connectionManager.isConnected), isConnecting=\(self.connectionManager.isConnecting)")
             }
             if connectionManager.isConnected {
+                services.diskPressureMonitor.connectionStateChanged(isConnected: true)
                 setupAmbientAgent()
                 refreshAppsCache()
                 refreshSkillsCache()
@@ -200,6 +203,17 @@ extension AppDelegate {
     }
 
     // MARK: - SSE Event Subscription
+
+    func rebindDiskPressureConnectionObserver() {
+        diskPressureConnectionTask?.cancel()
+        diskPressureConnectionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await isConnected in self.connectionManager.isConnectedStream {
+                guard !Task.isCancelled else { break }
+                self.services.diskPressureMonitor.connectionStateChanged(isConnected: isConnected)
+            }
+        }
+    }
 
     /// Subscribe to the event stream and dispatch events to their handlers.
     /// Each event type is handled in a single switch statement.
