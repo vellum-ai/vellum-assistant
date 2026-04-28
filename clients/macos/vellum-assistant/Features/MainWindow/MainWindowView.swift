@@ -52,7 +52,7 @@ struct MainWindowView: View {
     @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("themePreference") private var themePreference: String = "system"
-    @State private var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+    @State var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     let sidebarExpandedWidth: CGFloat = 240
     let sidebarCollapsedWidth: CGFloat = 52
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
@@ -444,7 +444,7 @@ struct MainWindowView: View {
         return false
     }
 
-    /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
+    /// Assistant loading overlay shown during daemon startup.
     @ViewBuilder
     private var assistantLoadingOverlayIfNeeded: some View {
         if showAssistantLoading && !isSettingsOpen {
@@ -655,11 +655,8 @@ struct ErrorToastOverlay: View {
 
 // MARK: - Assistant Loading Overlay Content
 
-/// Standalone view for the assistant loading overlay that shows either a
-/// platform URL mismatch error, a connection timeout error, or the default
-/// skeleton placeholder.
-/// Extracted from MainWindowView to reduce type-checker complexity in
-/// `coreLayoutView`.
+/// Assistant loading overlay that shows either a platform URL mismatch
+/// error, a connection timeout error, or the default skeleton placeholder.
 private struct AssistantLoadingOverlayContent: View {
     @Binding var timedOut: Bool
     let onRetry: () -> Void
@@ -750,10 +747,8 @@ private struct PlatformURLMismatchInfo {
 
 // MARK: - Conversation Title Overlay
 
-/// Standalone view that constructs `ConversationHeaderPresentation` in its
-/// own body, keeping `@Observable` reads of `hasNonEmptyMessage` and
-/// `latestPersistedTipDaemonMessageId` out of `MainWindowView`'s
-/// observation scope.
+/// Conversation title and actions overlay displayed in the top bar when
+/// a conversation is active.
 struct ConversationTitleOverlay: View {
     let conversationManager: ConversationManager
     let windowState: MainWindowState

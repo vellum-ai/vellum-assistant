@@ -1,10 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Standalone view for the main window toolbar. Isolates ~12 @Observable
-/// property reads (updateManager, homeStore, connectionManager, windowState
-/// navigation history) into its own observation scope, preventing changes
-/// to toolbar-only state from re-evaluating the entire MainWindowView body.
+/// Main window toolbar: sidebar toggle, home, search, navigation,
+/// coding agents, update button, and conversation title overlay.
 struct TopBarView: View {
     @Bindable var windowState: MainWindowState
     var conversationManager: ConversationManager
