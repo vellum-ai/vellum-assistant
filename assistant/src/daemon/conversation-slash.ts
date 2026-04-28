@@ -1,4 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
@@ -41,6 +42,7 @@ const DEPRECATED_MODEL_SHORTCUTS = new Set([
 async function resolveModelList(): Promise<SlashResolution> {
   const config = getConfig();
   const configuredProviders = new Set<string>(await getConfiguredProviders());
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
 
   const lines = ["Available models:\n"];
 
@@ -53,9 +55,7 @@ async function resolveModelList(): Promise<SlashResolution> {
     const status = hasKey ? "✓" : "✗";
     lines.push(`**${providerName}** ${status}`);
     for (const { id, displayName } of models) {
-      const isCurrent =
-        config.llm.default.provider === provider &&
-        config.llm.default.model === id;
+      const isCurrent = resolved.provider === provider && resolved.model === id;
       const current = isCurrent ? " **[current]**" : "";
       lines.push(`  - ${displayName} (\`${id}\`)${current}`);
     }

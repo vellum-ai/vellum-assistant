@@ -27,6 +27,71 @@ export function setLlmDefaultField(
 }
 
 /**
+ * Safely set a nested field on a raw config object's `llm.callSites.<site>`
+ * map. Creates intermediate objects as needed.
+ *
+ * Example: `setLlmCallSiteField(raw, "mainAgent", "model", "claude-opus-4-7")`
+ * produces `raw.llm.callSites.mainAgent.model = "claude-opus-4-7"`.
+ */
+export function setLlmCallSiteField(
+  raw: Record<string, unknown>,
+  site: string,
+  field: string,
+  value: unknown,
+): void {
+  const llm: Record<string, unknown> =
+    raw.llm != null && typeof raw.llm === "object" && !Array.isArray(raw.llm)
+      ? (raw.llm as Record<string, unknown>)
+      : {};
+  const callSitesRaw = llm.callSites;
+  const callSites: Record<string, unknown> =
+    callSitesRaw != null &&
+    typeof callSitesRaw === "object" &&
+    !Array.isArray(callSitesRaw)
+      ? (callSitesRaw as Record<string, unknown>)
+      : {};
+  const siteRaw = callSites[site];
+  const siteBlock: Record<string, unknown> =
+    siteRaw != null && typeof siteRaw === "object" && !Array.isArray(siteRaw)
+      ? (siteRaw as Record<string, unknown>)
+      : {};
+  siteBlock[field] = value;
+  callSites[site] = siteBlock;
+  llm.callSites = callSites;
+  raw.llm = llm;
+}
+
+/**
+ * Check whether a call-site override exists in a raw config object.
+ */
+export function hasLlmCallSiteOverride(
+  raw: Record<string, unknown>,
+  site: string,
+): boolean {
+  if (
+    raw.llm == null ||
+    typeof raw.llm !== "object" ||
+    Array.isArray(raw.llm)
+  ) {
+    return false;
+  }
+  const llm = raw.llm as Record<string, unknown>;
+  const callSitesRaw = llm.callSites;
+  if (
+    callSitesRaw == null ||
+    typeof callSitesRaw !== "object" ||
+    Array.isArray(callSitesRaw)
+  ) {
+    return false;
+  }
+  const callSites = callSitesRaw as Record<string, unknown>;
+  const siteRaw = callSites[site];
+  return (
+    siteRaw != null && typeof siteRaw === "object" && !Array.isArray(siteRaw)
+  );
+}
+
+/**
  * Safely set a nested field on a raw config object's `services` map.
  *
  * Ensures the `services` and service-level objects exist before writing,

@@ -1,9 +1,12 @@
+import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import {
   getConfig,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
 import {
+  hasLlmCallSiteOverride,
+  setLlmCallSiteField,
   setLlmDefaultField,
   setServiceField,
 } from "../../config/raw-config-utils.js";
@@ -85,14 +88,14 @@ export function projectProviderForWire(
 /** Return current model configuration. */
 export async function getModelInfo(): Promise<ModelInfo> {
   const config = getConfig();
-  const provider = config.llm.default.provider;
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
 
   return {
-    model: config.llm.default.model,
-    provider,
+    model: resolved.model,
+    provider: resolved.provider,
     configuredProviders: await getConfiguredProviders(),
     availableModels: PROVIDER_CATALOG.find(
-      (p) => p.id === provider,
+      (p) => p.id === resolved.provider,
     )?.models?.map((m) => ({ id: m.id, displayName: m.displayName })),
     allProviders: PROVIDER_CATALOG.map(projectProviderForWire),
   };
@@ -148,10 +151,13 @@ export async function setModel(
     modelId = getProviderDefaultModel(resolvedProvider);
   }
 
-  // No-op guard: skip expensive reinitialization when nothing changed
+  // No-op guard: skip expensive reinitialization when nothing changed.
+  // Compare against the resolved mainAgent config since that's what the
+  // conversation loop actually uses and what getModelInfo() reports.
+  const currentResolved = resolveCallSiteConfig("mainAgent", current.llm);
   if (
-    modelId === current.llm.default.model &&
-    resolvedProvider === current.llm.default.provider
+    modelId === currentResolved.model &&
+    resolvedProvider === currentResolved.provider
   ) {
     return await getModelInfo();
   }
@@ -166,6 +172,14 @@ export async function setModel(
   const raw = loadRawConfig();
   setLlmDefaultField(raw, "model", modelId);
   setLlmDefaultField(raw, "provider", resolvedProvider);
+
+  // Keep the mainAgent call-site override in sync when one exists —
+  // otherwise the call-site override masks the user's explicit choice
+  // and the resolver continues returning the old model.
+  if (hasLlmCallSiteOverride(raw, "mainAgent")) {
+    setLlmCallSiteField(raw, "mainAgent", "model", modelId);
+    setLlmCallSiteField(raw, "mainAgent", "provider", resolvedProvider);
+  }
 
   // Suppress the file watcher callback — setModel already does
   // the full reload sequence; a redundant watcher-triggered reload
