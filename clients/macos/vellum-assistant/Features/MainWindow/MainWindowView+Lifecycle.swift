@@ -52,10 +52,8 @@ extension MainWindowView {
     }
 
     /// Observes all NotificationCenter notifications in a single structured
-    /// concurrency scope. Replaces 15 individual `.onReceive` view modifiers
-    /// that previously inflated the generic view type by ~15 layers. All
-    /// child tasks are cancelled automatically when the view disappears
-    /// (via `.task` cancellation).
+    /// concurrency scope. All child tasks are cancelled automatically when
+    /// the view disappears (via `.task` cancellation).
     func observeNotifications() async {
         await withTaskGroup(of: Void.self) { group in
             let nc = NotificationCenter.default
