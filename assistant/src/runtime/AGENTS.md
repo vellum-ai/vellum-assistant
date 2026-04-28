@@ -12,6 +12,10 @@ The single HTTP send endpoint is `POST /v1/messages`. Key behaviors:
 
 Do NOT add new send endpoints. All message ingress should go through `POST /v1/messages` (HTTP).
 
+### GET handler idempotency
+
+GET handlers must be safe and side-effect-free — they must not enqueue background jobs, mutate database state, or trigger writes. If a feature needs server-initiated work in response to a client request, use an explicit POST endpoint or a push-based flow (SSE event → client refetch). See [RFC 9110 §9.2.1 — Safe Methods](https://httpwg.org/specs/rfc9110.html#safe.methods).
+
 ### Approvals (confirmations, secrets, trust rules)
 
 Approvals are **orthogonal to message sending**. The assistant asks for approval whenever it needs one — this is a separate concern from how a message enters the system.
