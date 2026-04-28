@@ -26,24 +26,24 @@ This skill contains zero static information — only pointers to where the truth
 
 The CLI is the single source of truth for anything about the running assistant's current state.
 
-| Question type | Command |
-|---|---|
-| Current model, provider, config | `assistant config get llm` |
-| Full config | `assistant config list` |
-| Config schema (what's configurable) | `assistant config schema [path]` |
-| Available/installed skills | `assistant skills list --json` |
-| Platform connection | `assistant platform status --json` |
-| Auth/identity | `assistant auth info --json` |
-| Connected OAuth providers | `assistant oauth status <provider>` |
-| Connected clients | `assistant clients list --json` |
-| Trust rules | `assistant trust list` |
-| Stored credentials | `assistant credentials list` |
-| API keys | `assistant keys list` |
-| MCP servers | `assistant mcp list` |
-| Autonomy tiers | `assistant autonomy get` |
-| Watchers | `assistant watchers list` |
-| Token usage/costs | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
-| Version | `assistant --version` |
+| Question type                       | Command                                                                    |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| Current model, provider, config     | `assistant config get llm`                                                 |
+| Full config                         | `assistant config list`                                                    |
+| Config schema (what's configurable) | `assistant config schema [path]`                                           |
+| Available/installed skills          | `assistant skills list --json`                                             |
+| Platform connection                 | `assistant platform status --json`                                         |
+| Auth/identity                       | `assistant auth info --json`                                               |
+| Connected OAuth providers           | `assistant oauth status <provider>`                                        |
+| Connected clients                   | `assistant clients list --json`                                            |
+| Trust rules                         | `assistant trust list`                                                     |
+| Stored credentials                  | `assistant credentials list`                                               |
+| API keys                            | `assistant keys list`                                                      |
+| MCP servers                         | `assistant mcp list`                                                       |
+| Autonomy tiers                      | `assistant autonomy get`                                                   |
+| Watchers                            | `assistant watchers list`                                                  |
+| Token usage/costs                   | `assistant usage totals` / `assistant usage breakdown --group-by provider` |
+| Version                             | `assistant --version`                                                      |
 
 Run `assistant --help` or `assistant <command> --help` to discover more.
 
@@ -52,39 +52,39 @@ Run `assistant --help` or `assistant <command> --help` to discover more.
 For "what is", "how does", and "why" questions, fetch the relevant page from the docs site.
 Base URL: `https://www.vellum.ai/docs`
 
-| Topic | Path |
-|---|---|
-| What is Vellum | `/getting-started/what-is-vellum` |
-| Installation | `/getting-started/installation` |
-| Quick start | `/getting-started/quick-start` |
-| Your first skill | `/getting-started/your-first-skill` |
-| How it all fits together | `/key-concepts/how-it-all-fits-together` |
-| The workspace | `/key-concepts/the-workspace` |
-| Skills & tools | `/key-concepts/skills-and-tools` |
-| Memory & context | `/key-concepts/memory-and-context` |
-| Channels | `/key-concepts/channels` |
-| Identity | `/key-concepts/identity` |
-| Scheduling | `/key-concepts/scheduling` |
-| Glossary | `/key-concepts/glossary` |
-| Privacy & data | `/trust-security/privacy-and-data` |
-| The permissions model | `/trust-security/the-permissions-model` |
-| Security best practices | `/trust-security/security-best-practices` |
-| Architecture | `/developer-guide/architecture` |
-| Security (developer) | `/developer-guide/security` |
-| Features & capabilities | `/developer-guide/features` |
-| API & communication | `/developer-guide/api` |
-| Development workflow | `/developer-guide/development-workflow` |
-| Contributing | `/developer-guide/contributing` |
-| Local hosting | `/hosting-options/local-hosting` |
-| Advanced hosting | `/hosting-options/advanced-options` |
-| Environments | `/environments` |
-| Pricing | `/pricing` |
-| Roadmap | `/roadmap` |
-| FAQ | `/help/faq` |
-| Common issues | `/help/common-issues` |
-| Getting help | `/help/getting-help` |
-| Skills reference index | `/skills-reference` |
-| Specific skill reference | `/skills-reference/<skill-name>` |
+| Topic                    | Path                                      |
+| ------------------------ | ----------------------------------------- |
+| What is Vellum           | `/getting-started/what-is-vellum`         |
+| Installation             | `/getting-started/installation`           |
+| Quick start              | `/getting-started/quick-start`            |
+| Your first skill         | `/getting-started/your-first-skill`       |
+| How it all fits together | `/key-concepts/how-it-all-fits-together`  |
+| The workspace            | `/key-concepts/the-workspace`             |
+| Skills & tools           | `/key-concepts/skills-and-tools`          |
+| Memory & context         | `/key-concepts/memory-and-context`        |
+| Channels                 | `/key-concepts/channels`                  |
+| Identity                 | `/key-concepts/identity`                  |
+| Scheduling               | `/key-concepts/scheduling`                |
+| Glossary                 | `/key-concepts/glossary`                  |
+| Privacy & data           | `/trust-security/privacy-and-data`        |
+| The permissions model    | `/trust-security/the-permissions-model`   |
+| Security best practices  | `/trust-security/security-best-practices` |
+| Architecture             | `/developer-guide/architecture`           |
+| Security (developer)     | `/developer-guide/security`               |
+| Features & capabilities  | `/developer-guide/features`               |
+| API & communication      | `/developer-guide/api`                    |
+| Development workflow     | `/developer-guide/development-workflow`   |
+| Contributing             | `/developer-guide/contributing`           |
+| Local hosting            | `/hosting-options/local-hosting`          |
+| Advanced hosting         | `/hosting-options/advanced-options`       |
+| Environments             | `/environments`                           |
+| Pricing                  | `/pricing`                                |
+| Roadmap                  | `/roadmap`                                |
+| FAQ                      | `/help/faq`                               |
+| Common issues            | `/help/common-issues`                     |
+| Getting help             | `/help/getting-help`                      |
+| Skills reference index   | `/skills-reference`                       |
+| Specific skill reference | `/skills-reference/<skill-name>`          |
 
 Use `web_fetch` to pull the page content. If a URL 404s, try fetching the docs homepage and navigating from the sidebar.
 
