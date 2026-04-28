@@ -18,7 +18,7 @@ describe("MemoryV2ConfigSchema", () => {
       epsilon: 0.01,
       dense_weight: 0.7,
       sparse_weight: 0.3,
-      consolidation_interval_hours: 1,
+      consolidation_interval_hours: 4,
       max_page_chars: 5000,
     });
   });
@@ -153,7 +153,7 @@ describe("MemoryConfigSchema integration with v2 block", () => {
     expect(parsed.v2.d).toBe(0.3);
     expect(parsed.v2.dense_weight).toBe(0.7);
     expect(parsed.v2.sparse_weight).toBe(0.3);
-    expect(parsed.v2.consolidation_interval_hours).toBe(1);
+    expect(parsed.v2.consolidation_interval_hours).toBe(4);
     expect(parsed.v2.max_page_chars).toBe(5000);
   });
 
