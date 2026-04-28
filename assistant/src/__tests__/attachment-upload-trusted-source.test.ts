@@ -1,8 +1,9 @@
 /**
- * Tests the trustedSource flag plumbing through handleUploadAttachment.
+ * Tests the trustedSource flag plumbing through the attachment upload route.
  * The flag is forwarded by the gateway when a channel actor resolves to
- * a guardian binding; the assistant only honors it when the request is
- * authenticated as a gateway service token.
+ * a guardian binding; the assistant only honors it when the request
+ * carries the x-vellum-principal-type: svc_gateway header (injected by
+ * the HTTP adapter from AuthContext).
  */
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -25,45 +26,31 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { initializeDb } from "../memory/db-init.js";
-import type { AuthContext } from "../runtime/auth/types.js";
-import { handleUploadAttachment } from "../runtime/routes/attachment-routes.js";
+import { ROUTES } from "../runtime/routes/attachment-routes.js";
+import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 const SMALL_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
-function makeJsonRequest(body: unknown): Request {
-  return new Request("http://localhost/v1/attachments", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const uploadRoute = ROUTES.find((r) => r.operationId === "attachment_upload")!;
 
-function makeServiceAuthContext(): AuthContext {
+function makeUploadArgs(
+  body: Record<string, unknown>,
+  principalType: string,
+): RouteHandlerArgs {
+  const jsonBody = JSON.stringify(body);
   return {
-    subject: "svc:gateway:self",
-    principalType: "svc_gateway",
-    assistantId: "self",
-    actorPrincipalId: undefined,
-    scopeProfile: "gateway_service_v1",
-    scopes: new Set(),
-    policyEpoch: 0,
-  } as AuthContext;
+    body,
+    rawBody: new TextEncoder().encode(jsonBody),
+    headers: {
+      "content-type": "application/json",
+      "x-vellum-principal-type": principalType,
+    },
+    queryParams: {},
+  };
 }
 
-function makeActorAuthContext(): AuthContext {
-  return {
-    subject: "actor:self:principal-abc",
-    principalType: "actor",
-    assistantId: "self",
-    actorPrincipalId: "principal-abc",
-    scopeProfile: "actor_client_v1",
-    scopes: new Set(),
-    policyEpoch: 0,
-  } as AuthContext;
-}
-
-describe("handleUploadAttachment — trustedSource flag", () => {
+describe("attachment upload — trustedSource flag", () => {
   beforeAll(() => {
     initializeDb();
   });
@@ -74,64 +61,72 @@ describe("handleUploadAttachment — trustedSource flag", () => {
   });
 
   test("svc_gateway + trustedSource:true accepts a non-allowlisted MIME type", async () => {
-    const res = await handleUploadAttachment(
-      makeJsonRequest({
-        filename: "clip.mkv",
-        mimeType: "video/x-matroska",
-        data: SMALL_PNG_BASE64, // bytes don't have to match the claimed MIME for this path
-        trustedSource: true,
-      }),
-      makeServiceAuthContext(),
-    );
+    const result = (await uploadRoute.handler(
+      makeUploadArgs(
+        {
+          filename: "clip.mkv",
+          mimeType: "video/x-matroska",
+          data: SMALL_PNG_BASE64,
+          trustedSource: true,
+        },
+        "svc_gateway",
+      ),
+    )) as Response;
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string; mime_type: string };
+    expect(result.status).toBe(200);
+    const body = (await result.json()) as { id: string; mime_type: string };
     expect(body.id).toBeDefined();
     expect(body.mime_type).toBe("video/x-matroska");
   });
 
   test("svc_gateway + trustedSource:true accepts a dangerous extension", async () => {
-    const res = await handleUploadAttachment(
-      makeJsonRequest({
-        filename: "installer.dmg",
-        mimeType: "application/octet-stream",
-        data: SMALL_PNG_BASE64,
-        trustedSource: true,
-      }),
-      makeServiceAuthContext(),
-    );
+    const result = (await uploadRoute.handler(
+      makeUploadArgs(
+        {
+          filename: "installer.dmg",
+          mimeType: "application/octet-stream",
+          data: SMALL_PNG_BASE64,
+          trustedSource: true,
+        },
+        "svc_gateway",
+      ),
+    )) as Response;
 
-    expect(res.status).toBe(200);
+    expect(result.status).toBe(200);
   });
 
   test("actor caller with trustedSource:true is still rejected (gating works)", async () => {
-    const res = await handleUploadAttachment(
-      makeJsonRequest({
-        filename: "clip.mkv",
-        mimeType: "video/x-matroska",
-        data: SMALL_PNG_BASE64,
-        trustedSource: true,
-      }),
-      makeActorAuthContext(),
-    );
+    const result = (await uploadRoute.handler(
+      makeUploadArgs(
+        {
+          filename: "clip.mkv",
+          mimeType: "video/x-matroska",
+          data: SMALL_PNG_BASE64,
+          trustedSource: true,
+        },
+        "actor",
+      ),
+    )) as Response;
 
-    expect(res.status).toBe(415);
-    const body = (await res.json()) as { error: { message: string } };
+    expect(result.status).toBe(415);
+    const body = (await result.json()) as { error: { message: string } };
     expect(body.error.message).toContain("Unsupported MIME type");
   });
 
   test("svc_gateway without trustedSource keeps existing rejection", async () => {
-    const res = await handleUploadAttachment(
-      makeJsonRequest({
-        filename: "payload.exe",
-        mimeType: "application/octet-stream",
-        data: SMALL_PNG_BASE64,
-      }),
-      makeServiceAuthContext(),
-    );
+    const result = (await uploadRoute.handler(
+      makeUploadArgs(
+        {
+          filename: "payload.exe",
+          mimeType: "application/octet-stream",
+          data: SMALL_PNG_BASE64,
+        },
+        "svc_gateway",
+      ),
+    )) as Response;
 
-    expect(res.status).toBe(415);
-    const body = (await res.json()) as { error: { message: string } };
+    expect(result.status).toBe(415);
+    const body = (await result.json()) as { error: { message: string } };
     expect(body.error.message).toContain("Dangerous file type");
   });
 });

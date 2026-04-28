@@ -27,11 +27,8 @@ import {
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { isServiceGatewayPrincipal } from "../auth/context.js";
-import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
-import { BadRequestError, NotFoundError } from "./errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
@@ -134,16 +131,14 @@ function attachmentResponse(attachment: StoredAttachment): Response {
  * Expects: "file" (Blob), "filename" (string), "mimeType" (string).
  *
  * `gatewayTrustedSource` is true only when the caller is the gateway
- * service AND requested the bypass — see `handleUploadAttachment`.
+ * service AND requested the bypass — see `handleUploadAttachmentRoute`.
  */
 async function handleMultipartUpload(
-  req: Request,
+  rawBody: Uint8Array,
+  headers: Record<string, string>,
   gatewayTrustedSource: boolean,
 ): Promise<Response> {
-  // Pre-check Content-Length before parsing to reject oversized requests
-  // without buffering the full multipart body into memory. Binary uploads
-  // have no base64 overhead, so use the raw file size limit directly.
-  const contentLength = req.headers.get("content-length");
+  const contentLength = headers["content-length"];
   if (contentLength && Number(contentLength) > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
@@ -152,9 +147,16 @@ async function handleMultipartUpload(
     );
   }
 
+  // Reconstruct a Request to use the platform's multipart parser.
+  const syntheticReq = new Request("http://localhost", {
+    method: "POST",
+    headers: { "content-type": headers["content-type"] ?? "" },
+    body: rawBody.buffer as ArrayBuffer,
+  });
+
   let formData: FormData;
   try {
-    formData = await req.formData();
+    formData = await syntheticReq.formData();
   } catch {
     return httpError("BAD_REQUEST", "Invalid multipart form data", 400);
   }
@@ -178,8 +180,6 @@ async function handleMultipartUpload(
     return httpError("BAD_REQUEST", "mimeType field is required", 400);
   }
 
-  // Check file part size against the raw file limit (Content-Length may be
-  // absent or inaccurate, so this is the authoritative check).
   if (file.size > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
@@ -210,13 +210,13 @@ async function handleMultipartUpload(
  *
  * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-async function handleOctetStreamUpload(
-  req: Request,
+function handleOctetStreamUpload(
+  rawBody: Uint8Array,
+  headers: Record<string, string>,
+  queryParams: Record<string, string>,
   gatewayTrustedSource: boolean,
-): Promise<Response> {
-  // Pre-check Content-Length before buffering to reject oversized requests
-  // without reading the full body into memory.
-  const contentLength = req.headers.get("content-length");
+): Response {
+  const contentLength = headers["content-length"];
   if (contentLength && Number(contentLength) > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
@@ -225,8 +225,7 @@ async function handleOctetStreamUpload(
     );
   }
 
-  const url = new URL(req.url);
-  const filename = url.searchParams.get("filename");
+  const filename = queryParams.filename;
   if (!filename || typeof filename !== "string") {
     return httpError(
       "BAD_REQUEST",
@@ -235,7 +234,7 @@ async function handleOctetStreamUpload(
     );
   }
 
-  const mimeType = url.searchParams.get("mimeType");
+  const mimeType = queryParams.mimeType;
   if (!mimeType || typeof mimeType !== "string") {
     return httpError(
       "BAD_REQUEST",
@@ -244,8 +243,6 @@ async function handleOctetStreamUpload(
     );
   }
 
-  const rawBody = await req.arrayBuffer();
-  // Post-read check (Content-Length may be absent or inaccurate).
   if (rawBody.byteLength > MAX_UPLOAD_BYTES) {
     return httpError(
       "BAD_REQUEST",
@@ -255,7 +252,7 @@ async function handleOctetStreamUpload(
   }
 
   const trustedSource =
-    gatewayTrustedSource && url.searchParams.get("trustedSource") === "true";
+    gatewayTrustedSource && queryParams.trustedSource === "true";
 
   const validation = validateAttachmentUpload(filename, mimeType, {
     trustedSource,
@@ -264,9 +261,7 @@ async function handleOctetStreamUpload(
     return httpError("UNPROCESSABLE_ENTITY", validation.error, 415);
   }
 
-  const bytes = new Uint8Array(rawBody);
-
-  const attachment = uploadAttachmentFromBytes(filename, mimeType, bytes);
+  const attachment = uploadAttachmentFromBytes(filename, mimeType, rawBody);
   return attachmentResponse(attachment);
 }
 
@@ -275,12 +270,12 @@ async function handleOctetStreamUpload(
  *
  * See `handleMultipartUpload` for `gatewayTrustedSource` semantics.
  */
-async function handleJsonUpload(
-  req: Request,
+function handleJsonUpload(
+  body: Record<string, unknown>,
+  rawBody: Uint8Array | undefined,
   gatewayTrustedSource: boolean,
-): Promise<Response> {
-  const rawBody = await req.arrayBuffer();
-  if (rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
+): Response {
+  if (rawBody && rawBody.byteLength > MAX_UPLOAD_BODY_BYTES) {
     return httpError(
       "BAD_REQUEST",
       `Request body too large (limit: ${MAX_UPLOAD_BODY_BYTES} bytes)`,
@@ -288,15 +283,13 @@ async function handleJsonUpload(
     );
   }
 
-  const body = JSON.parse(new TextDecoder().decode(rawBody)) as {
+  const { filename, mimeType, data, filePath } = body as {
     filename?: string;
     mimeType?: string;
     data?: string;
     filePath?: string;
     trustedSource?: boolean;
   };
-
-  const { filename, mimeType, data, filePath } = body;
 
   if (!filename || typeof filename !== "string") {
     return httpError("BAD_REQUEST", "filename is required", 400);
@@ -306,7 +299,8 @@ async function handleJsonUpload(
     return httpError("BAD_REQUEST", "mimeType is required", 400);
   }
 
-  const trustedSource = gatewayTrustedSource && body.trustedSource === true;
+  const trustedSource =
+    gatewayTrustedSource && (body as { trustedSource?: boolean }).trustedSource === true;
 
   const validation = validateAttachmentUpload(filename, mimeType, {
     trustedSource,
@@ -317,21 +311,9 @@ async function handleJsonUpload(
 
   let attachment: StoredAttachment;
 
-  // File-backed upload: when filePath is provided and data is empty/missing,
-  // register the attachment by path reference instead of requiring base64 data.
-  // This supports:
-  //   1. Desktop client file-picker uploads — the file is copied into the
-  //      workspace attachments directory so it passes the directory allowlist.
-  //   2. Retry of file-backed attachments (e.g. recordings) where the client
-  //      no longer holds the inline data but the file still exists on disk.
   if (filePath && typeof filePath === "string" && (!data || data === "")) {
     let resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
 
-    // If the file isn't in an allowed directory, copy it into the workspace
-    // attachments directory. This handles desktop client file-picker uploads
-    // where the source file lives in an arbitrary user directory (e.g.
-    // ~/Desktop, ~/Downloads). The copy lands in the allowlisted workspace
-    // directory, preserving the security model.
     if (!resolvedPath) {
       const canonicalSource = resolveCanonicalPath(filePath);
       if (!existsSync(canonicalSource)) {
@@ -394,63 +376,59 @@ async function handleJsonUpload(
   return attachmentResponse(attachment);
 }
 
-export async function handleUploadAttachment(
-  req: Request,
-  authContext: AuthContext,
+async function handleUploadAttachmentRoute(
+  args: RouteHandlerArgs,
 ): Promise<Response> {
-  const contentType = req.headers.get("content-type") ?? "";
+  const { rawBody, headers = {}, queryParams = {}, body } = args;
+  const contentType = headers["content-type"] ?? "";
 
-  // Decide once whether the caller is allowed to opt into the validation
-  // bypass; each handler combines this with its own per-request flag
-  // (form field, query param, or JSON body) to produce the final
-  // trustedSource boolean. End-user actor tokens never get the bypass —
-  // the assistant ignores any trustedSource flag on such requests.
-  const gatewayTrustedSource = isServiceGatewayPrincipal(authContext);
+  // The gateway sets x-vellum-principal-type when proxying authenticated
+  // requests. Only gateway service principals can opt into the trusted
+  // source bypass (skips attachment validation for channel-sourced files).
+  const gatewayTrustedSource =
+    headers["x-vellum-principal-type"] === "svc_gateway";
 
-  if (contentType.includes("multipart/form-data")) {
-    return handleMultipartUpload(req, gatewayTrustedSource);
+  if (contentType.includes("multipart/form-data") && rawBody) {
+    return handleMultipartUpload(rawBody, headers, gatewayTrustedSource);
   }
 
-  if (contentType.includes("application/octet-stream")) {
-    return handleOctetStreamUpload(req, gatewayTrustedSource);
+  if (contentType.includes("application/octet-stream") && rawBody) {
+    return handleOctetStreamUpload(
+      rawBody,
+      headers,
+      queryParams,
+      gatewayTrustedSource,
+    );
   }
 
   // Default: JSON+base64 (existing behaviour)
-  return handleJsonUpload(req, gatewayTrustedSource);
+  return handleJsonUpload(body ?? {}, rawBody, gatewayTrustedSource);
 }
 
-async function handleDeleteAttachment(req: Request): Promise<Response> {
-  let body: { attachmentId?: string };
-  try {
-    body = (await req.json()) as { attachmentId?: string };
-  } catch {
-    return httpError("BAD_REQUEST", "Invalid or missing JSON body", 400);
-  }
-
-  const { attachmentId } = body;
+function handleDeleteAttachmentRoute({ body }: RouteHandlerArgs) {
+  const attachmentId = body?.attachmentId as string | undefined;
 
   if (!attachmentId || typeof attachmentId !== "string") {
-    return httpError("BAD_REQUEST", "attachmentId is required", 400);
+    throw new BadRequestError("attachmentId is required");
   }
 
   const result = deleteAttachment(attachmentId);
 
   if (result === "not_found") {
-    return httpError("NOT_FOUND", "Attachment not found", 404);
+    throw new NotFoundError("Attachment not found");
   }
 
   if (result === "still_referenced") {
-    return httpError(
-      "CONFLICT",
+    throw new ConflictError(
       "Attachment is still referenced by one or more messages",
-      409,
     );
   }
 
-  return new Response(null, { status: 204 });
+  return null;
 }
 
-function handleGetAttachment(attachmentId: string): Response {
+function handleGetAttachmentRoute({ pathParams }: RouteHandlerArgs) {
+  const attachmentId = pathParams!.id;
   // Use the file_path column to detect file-backed attachments, not string
   // truthiness of dataBase64 (which would also match valid zero-byte uploads).
   const isFileBacked = !!getFilePathForAttachment(attachmentId);
@@ -462,10 +440,10 @@ function handleGetAttachment(attachmentId: string): Response {
     hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
-    return httpError("NOT_FOUND", "Attachment not found", 404);
+    throw new NotFoundError("Attachment not found");
   }
 
-  return Response.json({
+  return {
     id: attachment.id,
     filename: attachment.originalFilename,
     mimeType: attachment.mimeType,
@@ -476,7 +454,7 @@ function handleGetAttachment(attachmentId: string): Response {
     data: isFileBacked ? null : attachment.dataBase64,
     // Signal to clients that they should fetch content via the /content endpoint
     ...(isFileBacked ? { fileBacked: true } : {}),
-  });
+  };
 }
 
 /**
@@ -484,12 +462,11 @@ function handleGetAttachment(attachmentId: string): Response {
  * streams from disk; for inline attachments it decodes the base64 data.
  * Supports Range headers for video seeking.
  */
-function handleGetAttachmentContent(
-  attachmentId: string,
-  req: Request,
-): Response {
-  // Check for file-backed attachment first so we can skip hydration — file-backed
-  // content is served directly from disk via Bun.file, not from the hydrated base64.
+function handleGetAttachmentContentRoute({
+  pathParams,
+  headers = {},
+}: RouteHandlerArgs): Response {
+  const attachmentId = pathParams!.id;
   const filePath = getFilePathForAttachment(attachmentId);
   const isFileBacked = !!filePath;
 
@@ -509,24 +486,21 @@ function handleGetAttachmentContent(
     }
 
     const file = Bun.file(resolvedPath);
-    const rangeHeader = req.headers.get("Range");
+    const rangeHeader = headers["range"];
 
     if (rangeHeader) {
       const fileSize = attachment.sizeBytes;
       let start: number;
       let end: number;
 
-      // Parse suffix range: bytes=-N (last N bytes)
       const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
       if (suffixMatch) {
         const suffixLen = parseInt(suffixMatch[1]);
         start = Math.max(0, fileSize - suffixLen);
         end = fileSize - 1;
       } else {
-        // Parse standard range: bytes=start-end
         const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
         if (!match) {
-          // Unparseable range — return full file
           return new Response(file, {
             headers: {
               "Content-Type": attachment.mimeType,
@@ -539,10 +513,8 @@ function handleGetAttachmentContent(
         end = match[2] ? parseInt(match[2]) : fileSize - 1;
       }
 
-      // Clamp end to file size
       end = Math.min(end, fileSize - 1);
 
-      // Reject invalid ranges
       if (start > end || start >= fileSize) {
         return new Response(null, {
           status: 416,
@@ -590,82 +562,7 @@ function handleGetAttachmentContent(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function attachmentRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "attachments",
-      method: "POST",
-      summary: "Upload attachment",
-      description:
-        "Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query params).",
-      tags: ["attachments"],
-      requestBody: z.object({
-        filename: z.string(),
-        mimeType: z.string(),
-        data: z.string().describe("Base64-encoded file data").optional(),
-        filePath: z
-          .string()
-          .describe("On-disk file path (file-backed upload)")
-          .optional(),
-        trustedSource: z
-          .boolean()
-          .describe(
-            "Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is authenticated as a gateway service token; ignored otherwise.",
-          )
-          .optional(),
-      }),
-      responseBody: z.object({
-        id: z.string(),
-        original_filename: z.string(),
-        mime_type: z.string(),
-        size_bytes: z.number(),
-        kind: z.string(),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleUploadAttachment(req, authContext),
-    },
-    {
-      endpoint: "attachments",
-      method: "DELETE",
-      summary: "Delete attachment",
-      description: "Delete an attachment by ID.",
-      tags: ["attachments"],
-      requestBody: z.object({
-        attachmentId: z.string(),
-      }),
-      handler: async ({ req }) => handleDeleteAttachment(req),
-    },
-    {
-      endpoint: "attachments/:id/content",
-      method: "GET",
-      policyKey: "attachments/content",
-      summary: "Get attachment content",
-      description:
-        "Serve raw file bytes for an attachment. Supports Range headers.",
-      tags: ["attachments"],
-      handler: ({ req, params }) => handleGetAttachmentContent(params.id, req),
-    },
-    {
-      endpoint: "attachments/:id",
-      method: "GET",
-      policyKey: "attachments",
-      summary: "Get attachment metadata",
-      description:
-        "Return metadata and optional base64 data for an attachment.",
-      tags: ["attachments"],
-      responseBody: z.object({
-        id: z.string(),
-        filename: z.string(),
-        mimeType: z.string(),
-        sizeBytes: z.number(),
-        kind: z.string(),
-        data: z.string().describe("Base64-encoded content"),
-        fileBacked: z.boolean(),
-      }),
-      handler: ({ params }) => handleGetAttachment(params.id),
-    },
-  ];
-}
+
 
 // ---------------------------------------------------------------------------
 // Shared (transport-agnostic) routes — served via HTTP + IPC
@@ -779,6 +676,81 @@ function handleAttachmentLookup({ body = {} }: RouteHandlerArgs) {
 }
 
 export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "attachment_content",
+    endpoint: "attachments/:id/content",
+    method: "GET",
+    policyKey: "attachments/content",
+    summary: "Get attachment content",
+    description:
+      "Serve raw file bytes for an attachment. Supports Range headers.",
+    tags: ["attachments"],
+    handler: handleGetAttachmentContentRoute,
+  },
+  {
+    operationId: "attachment_delete",
+    endpoint: "attachments",
+    method: "DELETE",
+    summary: "Delete attachment",
+    description: "Delete an attachment by ID.",
+    tags: ["attachments"],
+    requestBody: z.object({
+      attachmentId: z.string(),
+    }),
+    responseStatus: "204",
+    handler: handleDeleteAttachmentRoute,
+  },
+  {
+    operationId: "attachment_get",
+    endpoint: "attachments/:id",
+    method: "GET",
+    summary: "Get attachment metadata",
+    description:
+      "Return metadata and optional base64 data for an attachment.",
+    tags: ["attachments"],
+    responseBody: z.object({
+      id: z.string(),
+      filename: z.string(),
+      mimeType: z.string(),
+      sizeBytes: z.number(),
+      kind: z.string(),
+      data: z.string().describe("Base64-encoded content").nullable(),
+      fileBacked: z.boolean().optional(),
+    }),
+    handler: handleGetAttachmentRoute,
+  },
+  {
+    operationId: "attachment_upload",
+    endpoint: "attachments",
+    method: "POST",
+    summary: "Upload attachment",
+    description:
+      "Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query params).",
+    tags: ["attachments"],
+    requestBody: z.object({
+      filename: z.string(),
+      mimeType: z.string(),
+      data: z.string().describe("Base64-encoded file data").optional(),
+      filePath: z
+        .string()
+        .describe("On-disk file path (file-backed upload)")
+        .optional(),
+      trustedSource: z
+        .boolean()
+        .describe(
+          "Set by the gateway when the file came from a guardian-bound channel actor. Honored only when the request is authenticated as a gateway service token; ignored otherwise.",
+        )
+        .optional(),
+    }),
+    responseBody: z.object({
+      id: z.string(),
+      original_filename: z.string(),
+      mime_type: z.string(),
+      size_bytes: z.number(),
+      kind: z.string(),
+    }),
+    handler: handleUploadAttachmentRoute,
+  },
   {
     operationId: "attachment_register",
     endpoint: "attachments/register",
