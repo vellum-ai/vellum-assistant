@@ -256,7 +256,6 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getConversation",
     endpoint: "conversations/:id",
     method: "GET",
-    policyKey: "conversations/detail",
     summary: "Get conversation detail",
     description: "Retrieve a single conversation with full metadata.",
     tags: ["conversations"],
