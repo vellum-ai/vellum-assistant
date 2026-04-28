@@ -1,5 +1,4 @@
-import { getIsPlatform } from "../config/env-registry.js";
-import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import {
   getServiceMode,
   type Services,
@@ -52,15 +51,7 @@ export async function resolveOAuthConnection(
 
   if (managedKey && managedKey in ServicesSchema.shape) {
     const services: Services = getConfig().services;
-    const explicitMode = getServiceMode(services, managedKey as keyof Services);
-    // Treat as managed when explicitly configured OR when on a platform
-    // instance and the user hasn't explicitly opted into "your-own".
-    const effectivelyManaged =
-      explicitMode === "managed" ||
-      (getIsPlatform() &&
-        getNestedValue(loadRawConfig(), `services.${managedKey}.mode`) ===
-          undefined);
-    if (effectivelyManaged) {
+    if (getServiceMode(services, managedKey as keyof Services) === "managed") {
       const client = await VellumPlatformClient.create();
       if (!client || !client.platformAssistantId) {
         const detail = !client
