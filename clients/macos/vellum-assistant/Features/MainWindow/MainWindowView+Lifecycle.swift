@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -16,13 +15,6 @@ extension MainWindowView {
         content
             .onAppear { handleCoreLayoutAppear() }
             .onDisappear { handleCoreLayoutDisappear() }
-            .onReceive(NotificationCenter.default.publisher(for: .identityChanged)) { _ in
-                Task {
-                    let info = await IdentityInfo.refreshCache()
-                    cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
-                    if info != nil { assistantNameResolved = true }
-                }
-            }
             .onChange(of: connectionManager.isConnected) { _, connected in
                 handleDaemonConnectionChange(connected)
             }
@@ -39,26 +31,11 @@ extension MainWindowView {
                 }
             }
             .onChange(of: conversationManager.selectionStore.isRestoringConversations) { _, isRestoring in
-                // Dismiss the skeleton when restoration completes, covering the
-                // zero-conversations case (list stays empty but restoration is done)
-                // and the managed-assistant case where the HTTP fetch exceeds the
-                // timer-based fallback.
                 if !isRestoring && showAssistantLoading {
                     withAnimation(VAnimation.standard) {
                         showAssistantLoading = false
                     }
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                conversationManager.markActiveConversationSeenIfNeeded()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { notification in
-                guard notification.object is TitleBarZoomableWindow else { return }
-                isInFullscreen = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { notification in
-                guard notification.object is TitleBarZoomableWindow else { return }
-                isInFullscreen = false
             }
     }
 
@@ -74,42 +51,107 @@ extension MainWindowView {
             }
     }
 
-    func applyWorkspaceNotificationModifiers<Content: View>(to content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .openDynamicWorkspace)) { notification in
-                handleOpenDynamicWorkspace(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
-                guard let appId = notification.userInfo?["appId"] as? String else { return }
-                bundleAndShare(appId: appId)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .pinApp)) { notification in
-                handlePinAppNotification(notification, isPinned: true)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .unpinApp)) { notification in
-                handlePinAppNotification(notification, isPinned: false)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .queryAppPinState)) { notification in
-                handleQueryAppPinState(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
-                handleOpenDocumentEditor(notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .updateDynamicWorkspace)) { notification in
-                if let updated = notification.userInfo?["surface"] as? Surface,
-                   updated.id == windowState.activeDynamicSurface?.surfaceId {
-                    windowState.activeDynamicParsedSurface = updated
+    /// Observes all NotificationCenter notifications in a single structured
+    /// concurrency scope. Replaces 15 individual `.onReceive` view modifiers
+    /// that previously inflated the generic view type by ~15 layers. All
+    /// child tasks are cancelled automatically when the view disappears
+    /// (via `.task` cancellation).
+    func observeNotifications() async {
+        await withTaskGroup(of: Void.self) { group in
+            let nc = NotificationCenter.default
+
+            // MARK: Lifecycle notifications
+
+            group.addTask { @MainActor [self] in
+                for await _ in nc.notifications(named: .identityChanged) {
+                    let info = await IdentityInfo.refreshCache()
+                    cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
+                    if info != nil { assistantNameResolved = true }
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .requestAppPreview)) { notification in
-                handleRequestAppPreview(notification)
+            group.addTask { @MainActor [self] in
+                for await _ in nc.notifications(named: NSApplication.didBecomeActiveNotification) {
+                    conversationManager.markActiveConversationSeenIfNeeded()
+                }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .refreshAppsCache)) { _ in
-                AppDelegate.shared?.refreshAppsCache()
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: NSWindow.willEnterFullScreenNotification) {
+                    guard notification.object is TitleBarZoomableWindow else { continue }
+                    isInFullscreen = true
+                }
             }
-            .onReceive(NotificationCenter.default.publisher(for: .dismissDynamicWorkspace)) { notification in
-                handleDismissDynamicWorkspace(notification)
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: NSWindow.willExitFullScreenNotification) {
+                    guard notification.object is TitleBarZoomableWindow else { continue }
+                    isInFullscreen = false
+                }
             }
+
+            // MARK: Workspace notifications
+
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .openDynamicWorkspace) {
+                    handleOpenDynamicWorkspace(notification)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .shareAppCloud) {
+                    guard let appId = notification.userInfo?["appId"] as? String else { continue }
+                    bundleAndShare(appId: appId)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .pinApp) {
+                    handlePinAppNotification(notification, isPinned: true)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .unpinApp) {
+                    handlePinAppNotification(notification, isPinned: false)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .queryAppPinState) {
+                    handleQueryAppPinState(notification)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .openDocumentEditor) {
+                    handleOpenDocumentEditor(notification)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .updateDynamicWorkspace) {
+                    if let updated = notification.userInfo?["surface"] as? Surface,
+                       updated.id == windowState.activeDynamicSurface?.surfaceId {
+                        windowState.activeDynamicParsedSurface = updated
+                    }
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .requestAppPreview) {
+                    handleRequestAppPreview(notification)
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await _ in nc.notifications(named: .refreshAppsCache) {
+                    AppDelegate.shared?.refreshAppsCache()
+                }
+            }
+            group.addTask { @MainActor [self] in
+                for await notification in nc.notifications(named: .dismissDynamicWorkspace) {
+                    handleDismissDynamicWorkspace(notification)
+                }
+            }
+
+            // MARK: System appearance
+
+            group.addTask { @MainActor [self] in
+                for await _ in DistributedNotificationCenter.default().notifications(named: Notification.Name("AppleInterfaceThemeChangedNotification")) {
+                    systemIsDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+                }
+            }
+        }
     }
 
     // MARK: - Event Handlers
