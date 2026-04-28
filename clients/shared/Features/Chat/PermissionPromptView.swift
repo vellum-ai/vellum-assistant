@@ -217,9 +217,15 @@ public struct PermissionPromptView: View {
                         onAllow()
                     }
                 }) {
-                    DismissableMenuAction(label: "Allow & Create Rule") {
+                    #if os(macOS)
+                    VMenuItem(label: "Allow & Create Rule", size: .mini) {
                         onAllowAndSuggestRule?()
                     }
+                    #else
+                    Button("Allow & Create Rule") {
+                        onAllowAndSuggestRule?()
+                    }
+                    #endif
                 }
                 .overlay(
                     Capsule()
@@ -325,32 +331,5 @@ public struct PermissionPromptView: View {
         default:
             break
         }
-    }
-}
-
-// MARK: - DismissableMenuAction
-
-/// A lightweight menu action that reads `vMenuDismiss` from the
-/// environment to auto-dismiss the parent VMenu on tap.
-/// Used instead of `VMenuItem` when a compact, single-line action
-/// is needed without VMenuItem's 32pt minimum row height.
-private struct DismissableMenuAction: View {
-    let label: String
-    let action: () -> Void
-    @Environment(\.vMenuDismiss) private var dismiss
-
-    var body: some View {
-        Button {
-            dismiss?()
-            action()
-        } label: {
-            Text(label)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
     }
 }
