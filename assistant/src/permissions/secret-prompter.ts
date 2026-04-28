@@ -49,10 +49,6 @@ export class SecretPrompter {
     this.sendToClient = sendToClient;
   }
 
-  updateBroadcast(broadcastToAllClients?: (msg: ServerMessage) => void): void {
-    this.broadcastToAllClients = broadcastToAllClients;
-  }
-
   setChannelContext(ctx: SecretPrompterChannelContext | undefined): void {
     this.channelContext = ctx;
   }
@@ -123,14 +119,13 @@ export class SecretPrompter {
         allowOneTimeSend: config.secretDetection.allowOneTimeSend,
       };
 
-      // Use broadcastToAllClients when the originating channel cannot render
-      // secure prompts — this routes the request to the SSE hub where a
-      // connected desktop client can pick it up.
+      // When the originating channel cannot render secure prompts, broadcast
+      // to the SSE hub so a connected desktop client can pick it up, AND
+      // send via sendToClient so the voice path can still auto-resolve.
       if (!channelSupportsPrompt && this.broadcastToAllClients) {
         this.broadcastToAllClients(msg);
-      } else {
-        this.sendToClient(msg);
       }
+      this.sendToClient(msg);
     });
   }
 

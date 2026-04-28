@@ -59,7 +59,7 @@ describe("secret prompter channel fallback", () => {
     expect(sentMessages).toHaveLength(0);
   });
 
-  test("broadcasts secret_request via SSE hub when channel lacks dynamic UI but broadcast is available", async () => {
+  test("broadcasts secret_request via SSE hub AND sends via sendToClient when channel lacks dynamic UI but broadcast is available", async () => {
     const prompter = new SecretPrompter(
       (msg) => sentMessages.push(msg),
       (msg) => broadcastMessages.push(msg),
@@ -71,10 +71,11 @@ describe("secret prompter channel fallback", () => {
 
     const promise = prompter.prompt("myservice", "apikey", "API Key");
 
-    // Should have broadcast the message, not sent via per-channel sender
-    expect(sentMessages).toHaveLength(0);
+    // Should have broadcast AND sent via per-channel sender (voice path needs sendToClient)
     expect(broadcastMessages).toHaveLength(1);
     expect(broadcastMessages[0]!.type).toBe("secret_request");
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0]!.type).toBe("secret_request");
 
     // Resolve the prompt so it doesn't hang
     const requestId = (broadcastMessages[0] as SecretRequest).requestId;
