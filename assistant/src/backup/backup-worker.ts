@@ -26,7 +26,6 @@
  * surface against temp directories with tiny fake bundles.
  */
 
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { getConfig } from "../config/loader.js";
@@ -105,8 +104,6 @@ export interface BackupDeps {
   workspaceDir?: string;
   /** Override for the local backup directory (tests). */
   localDir?: string;
-  /** Override for the trust.json path (tests). */
-  trustPath?: string;
   /** Override for the backup key file path (tests). */
   backupKeyPath?: string;
   /**
@@ -174,7 +171,6 @@ async function performBackup(
   const ensureKey = deps.ensureBackupKey ?? realEnsureBackupKey;
   const workspaceDir = deps.workspaceDir ?? getWorkspaceDir();
   const localDir = deps.localDir ?? getLocalBackupsDir(config.localDirectory);
-  const trustPath = deps.trustPath ?? join(getWorkspaceDir(), "trust.json");
   const backupKeyPath = deps.backupKeyPath ?? getBackupKeyPath();
 
   const startTimestamp = Date.now();
@@ -191,7 +187,6 @@ async function performBackup(
   // best-effort — the export still proceeds with whatever is on disk.
   const result = await streamExport({
     workspaceDir,
-    trustPath,
     source: "backup-worker",
     description: "Automated backup snapshot",
     checkpoint: () => {

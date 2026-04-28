@@ -12,7 +12,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
 import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
@@ -136,7 +135,6 @@ export class ConfigWatcher {
     onSoundsConfigChanged?: () => void,
     onAvatarChanged?: () => void,
     onConfigChanged?: () => void,
-    onFeatureFlagsChanged?: () => void,
   ): void {
     const workspaceDir = getWorkspaceDir();
 
@@ -209,7 +207,6 @@ export class ConfigWatcher {
       this.startAvatarWatcher(onAvatarChanged);
     }
 
-    this.startFeatureFlagsWatcher(onFeatureFlagsChanged);
     this.startSignalsWatcher();
     this.startUsersWatcher(onConversationEvict);
     this.startSkillsWatchers(onConversationEvict);
@@ -318,47 +315,6 @@ export class ConfigWatcher {
       log.warn(
         { err, dir: avatarDir },
         "Failed to watch avatar directory. Avatar changes will require a restart.",
-      );
-    }
-  }
-
-  private startFeatureFlagsWatcher(onFeatureFlagsChanged?: () => void): void {
-    const protectedDir = process.env.GATEWAY_SECURITY_DIR;
-    if (!protectedDir) return;
-
-    const FLAG_FILES = new Set([
-      "feature-flags.json",
-      "feature-flags-remote.json",
-    ]);
-
-    try {
-      const watcher = watch(protectedDir, (_eventType, filename) => {
-        if (!filename) return;
-        const file = String(filename);
-        if (!FLAG_FILES.has(file)) return;
-        this.debounceTimers.schedule(
-          "file:feature-flags",
-          () => {
-            log.info(
-              { file },
-              "Feature flags file changed, invalidating cache",
-            );
-            clearFeatureFlagOverridesCache();
-            onFeatureFlagsChanged?.();
-          },
-          500,
-        );
-      });
-      attachWatcherErrorHandler(watcher, protectedDir);
-      this.watchers.push(watcher);
-      log.info(
-        { dir: protectedDir },
-        "Watching protected directory for feature flag changes",
-      );
-    } catch (err) {
-      log.warn(
-        { err, dir: protectedDir },
-        "Failed to watch protected directory for feature flags. Flag changes will require a restart.",
       );
     }
   }

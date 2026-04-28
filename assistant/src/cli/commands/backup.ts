@@ -919,7 +919,7 @@ Examples:
       `
 Restores a snapshot by writing its contents back into the workspace.
 Encryption is auto-detected from the file extension; encrypted snapshots
-(.vbundle.enc) require the backup key (see VELLUM_BACKUP_KEY_PATH).
+(.vbundle.enc) require the backup key at ~/.vellum/protected/backup.key.
 
 Prompts for confirmation unless --yes is passed.
 
@@ -951,7 +951,7 @@ Arguments:
 
 Runs the same validation the importer would run but never touches the
 workspace. Encryption is auto-detected from the file extension; encrypted
-snapshots require the backup key (see VELLUM_BACKUP_KEY_PATH).
+snapshots require the backup key at ~/.vellum/protected/backup.key.
 
 Examples:
   $ vellum backup verify ~/.vellum/backups/local/backup-20260411-093000.vbundle
