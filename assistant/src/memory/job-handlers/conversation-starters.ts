@@ -405,21 +405,31 @@ export async function generateConversationStartersJob(
   if (starters.length === 0) {
     log.info({ scopeId }, "No conversation starters generated");
 
-    // Update CK_LAST_GEN_AT so `staleByAge` clears and the GET handler
-    // stops re-enqueueing generation jobs on every client poll.
+    // Update checkpoints so `staleByAge` and `checkpointAhead` both clear,
+    // preventing the GET handler from re-enqueueing on every client poll.
     const db = getDb();
     const now = Date.now();
-    db.insert(memoryCheckpoints)
-      .values({
-        key: checkpointKey(CK_LAST_GEN_AT, scopeId),
-        value: String(now),
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: memoryCheckpoints.key,
-        set: { value: String(now), updatedAt: now },
-      })
-      .run();
+    const countRow = rawGet<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
+      scopeId,
+    );
+    const totalActive = countRow?.c ?? 0;
+
+    const upsertCheckpoint = (key: string, value: string) => {
+      db.insert(memoryCheckpoints)
+        .values({ key, value, updatedAt: now })
+        .onConflictDoUpdate({
+          target: memoryCheckpoints.key,
+          set: { value, updatedAt: now },
+        })
+        .run();
+    };
+
+    upsertCheckpoint(
+      checkpointKey(CK_ITEM_COUNT, scopeId),
+      String(totalActive),
+    );
+    upsertCheckpoint(checkpointKey(CK_LAST_GEN_AT, scopeId), String(now));
     return;
   }
 

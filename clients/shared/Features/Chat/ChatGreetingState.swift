@@ -170,6 +170,7 @@ public final class ChatGreetingState {
     public func cancelConversationStarterPoll() {
         conversationStarterPollTask?.cancel()
         conversationStarterPollTask = nil
+        conversationStartersLoading = false
     }
 
     /// Cancel all in-flight tasks. Called from ChatViewModel's nonisolated deinit.
