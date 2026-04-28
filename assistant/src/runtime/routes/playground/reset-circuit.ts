@@ -24,70 +24,44 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
-// Import directly from the source modules (not ./index.js) — index.ts imports
-// this file's `resetCircuitRouteDefinitions`, so pulling its re-exports back
-// through the barrel would create a cycle.
-import { conversationNotFoundResponse } from "./conversation-not-found.js";
-import type { PlaygroundRouteDeps } from "./deps.js";
+import type { RouteDefinition } from "../types.js";
+import { throwConversationNotFound } from "./conversation-not-found.js";
 import { assertPlaygroundEnabled } from "./guard.js";
+import { getConversationById } from "./helpers.js";
 
-export function resetCircuitRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversations/:id/playground/reset-compaction-circuit",
-      method: "POST",
-      policyKey: "conversations/playground/reset-circuit",
-      summary: "Clear compaction circuit-breaker state (dev-only playground)",
-      tags: ["playground"],
-      handler: async ({ params }) => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "playgroundResetCompactionCircuit",
+    endpoint: "conversations/:id/playground/reset-compaction-circuit",
+    method: "POST",
+    policyKey: "conversations/playground/reset-circuit",
+    summary: "Clear compaction circuit-breaker state (dev-only playground)",
+    tags: ["playground"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    handler: async ({ pathParams }) => {
+      assertPlaygroundEnabled();
 
-        const conversation = await deps.getConversationById(params.id);
-        if (!conversation) {
-          return conversationNotFoundResponse(params.id);
-        }
+      const id = pathParams!.id;
+      const conversation = await getConversationById(id);
+      if (!conversation) {
+        throwConversationNotFound(id);
+      }
 
-        conversation.consecutiveCompactionFailures = 0;
-        if (conversation.compactionCircuitOpenUntil !== null) {
-          conversation.compactionCircuitOpenUntil = null;
-          // Mirror `trackCompactionOutcome()` — emit only on the open→closed
-          // transition so clients don't receive a redundant close event when
-          // the breaker was already closed.
-          conversation.sendToClient({
-            type: "compaction_circuit_closed",
-            conversationId: conversation.conversationId,
-          });
-        }
+      conversation.consecutiveCompactionFailures = 0;
+      if (conversation.compactionCircuitOpenUntil !== null) {
+        conversation.compactionCircuitOpenUntil = null;
+        conversation.sendToClient({
+          type: "compaction_circuit_closed",
+          conversationId: conversation.conversationId,
+        });
+      }
 
-        return Response.json(buildCompactionState(conversation));
-      },
+      return buildCompactionState(conversation);
     },
-  ];
-}
+  },
+];
 
-/**
- * Local state-builder with the same shape as the (future) shared
- * `CompactionStateResponse`. Sibling PRs (7, 9) carry near-identical copies;
- * PR 9 extracts a consolidated version and this local copy can be deleted at
- * that cleanup step.
- */
-function buildCompactionState(conversation: Conversation): {
-  estimatedInputTokens: number;
-  maxInputTokens: number;
-  compactThresholdRatio: number;
-  thresholdTokens: number;
-  messageCount: number;
-  contextCompactedMessageCount: number;
-  contextCompactedAt: number | null;
-  consecutiveCompactionFailures: number;
-  compactionCircuitOpenUntil: number | null;
-  isCircuitOpen: boolean;
-  isCompactionEnabled: boolean;
-} {
+function buildCompactionState(conversation: Conversation) {
   const config = getConfig();
   const contextWindow = config.llm.default.contextWindow;
   const messages = conversation.getMessages();

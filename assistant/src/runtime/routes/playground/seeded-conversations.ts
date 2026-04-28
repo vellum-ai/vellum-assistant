@@ -5,74 +5,70 @@
  * these routes to list or delete unrelated conversations.
  */
 
-import { httpError } from "../../http-errors.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
-import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
+import { ForbiddenError } from "../errors.js";
+import type { RouteDefinition } from "../types.js";
+import { assertPlaygroundEnabled } from "./guard.js";
+import {
+  deleteConversationById,
+  listConversationsByTitlePrefix,
+} from "./helpers.js";
 import { PLAYGROUND_TITLE_PREFIX } from "./seed-conversation.js";
 
-export function seededConversationsRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "playground/seeded-conversations",
-      method: "GET",
-      policyKey: "playground/seeded-conversations/list",
-      summary: "List conversations created by the seed-conversation endpoint",
-      tags: ["playground"],
-      handler: async () => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
-        const conversations = deps.listConversationsByTitlePrefix(
-          PLAYGROUND_TITLE_PREFIX,
-        );
-        return Response.json({ conversations });
-      },
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "playgroundListSeededConversations",
+    endpoint: "playground/seeded-conversations",
+    method: "GET",
+    policyKey: "playground/seeded-conversations/list",
+    summary: "List conversations created by the seed-conversation endpoint",
+    tags: ["playground"],
+    handler: () => {
+      assertPlaygroundEnabled();
+      const conversations = listConversationsByTitlePrefix(
+        PLAYGROUND_TITLE_PREFIX,
+      );
+      return { conversations };
     },
-    {
-      endpoint: "playground/seeded-conversations/:id",
-      method: "DELETE",
-      policyKey: "playground/seeded-conversations/delete-one",
-      summary: "Delete a single seeded conversation (prefix-gated)",
-      tags: ["playground"],
-      handler: async ({ params }) => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
+  },
+  {
+    operationId: "playgroundDeleteSeededConversation",
+    endpoint: "playground/seeded-conversations/:id",
+    method: "DELETE",
+    policyKey: "playground/seeded-conversations/delete-one",
+    summary: "Delete a single seeded conversation (prefix-gated)",
+    tags: ["playground"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    handler: ({ pathParams }) => {
+      assertPlaygroundEnabled();
 
-        // The in-memory `Conversation` object does not carry the DB title,
-        // and the seeded row may not be loaded into memory at all. Use the
-        // prefix-filtered DB listing as the authoritative membership check
-        // so we reject attempts to delete arbitrary conversations via this
-        // endpoint even when the flag is on.
-        const seeded = deps
-          .listConversationsByTitlePrefix(PLAYGROUND_TITLE_PREFIX)
-          .find((c) => c.id === params.id);
-        if (!seeded) {
-          return httpError("FORBIDDEN", "Not a playground conversation", 403);
-        }
+      const id = pathParams!.id;
+      const seeded = listConversationsByTitlePrefix(PLAYGROUND_TITLE_PREFIX)
+        .find((c) => c.id === id);
+      if (!seeded) {
+        throw new ForbiddenError("Not a playground conversation");
+      }
 
-        const deleted = deps.deleteConversationById(params.id);
-        return Response.json({ deletedCount: deleted ? 1 : 0 });
-      },
+      const deleted = deleteConversationById(id);
+      return { deletedCount: deleted ? 1 : 0 };
     },
-    {
-      endpoint: "playground/seeded-conversations",
-      method: "DELETE",
-      policyKey: "playground/seeded-conversations/delete-all",
-      summary: "Delete every seeded playground conversation (prefix-gated)",
-      tags: ["playground"],
-      handler: async () => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
-        const candidates = deps.listConversationsByTitlePrefix(
-          PLAYGROUND_TITLE_PREFIX,
-        );
-        let deletedCount = 0;
-        for (const c of candidates) {
-          if (deps.deleteConversationById(c.id)) deletedCount++;
-        }
-        return Response.json({ deletedCount });
-      },
+  },
+  {
+    operationId: "playgroundDeleteAllSeededConversations",
+    endpoint: "playground/seeded-conversations",
+    method: "DELETE",
+    policyKey: "playground/seeded-conversations/delete-all",
+    summary: "Delete every seeded playground conversation (prefix-gated)",
+    tags: ["playground"],
+    handler: () => {
+      assertPlaygroundEnabled();
+      const candidates = listConversationsByTitlePrefix(
+        PLAYGROUND_TITLE_PREFIX,
+      );
+      let deletedCount = 0;
+      for (const c of candidates) {
+        if (deleteConversationById(c.id)) deletedCount++;
+      }
+      return { deletedCount };
     },
-  ];
-}
+  },
+];

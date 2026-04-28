@@ -20,11 +20,11 @@ import { z } from "zod";
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import { httpError } from "../../http-errors.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
-import { conversationNotFoundResponse } from "./conversation-not-found.js";
-import type { PlaygroundRouteDeps } from "./deps.js";
+import { BadRequestError } from "../errors.js";
+import type { RouteDefinition } from "../types.js";
+import { throwConversationNotFound } from "./conversation-not-found.js";
 import { assertPlaygroundEnabled } from "./guard.js";
+import { getConversationById } from "./helpers.js";
 
 const InjectBodySchema = z.object({
   consecutiveFailures: z.number().int().min(0).max(10).optional(),
@@ -36,77 +36,61 @@ const InjectBodySchema = z.object({
     .optional(),
 });
 
-export function injectFailuresRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversations/:id/playground/inject-compaction-failures",
-      method: "POST",
-      policyKey: "conversations/playground/inject-failures",
-      summary:
-        "Directly mutate compaction circuit-breaker state (dev-only playground)",
-      tags: ["playground"],
-      requestBody: InjectBodySchema,
-      handler: async ({ req, params }) => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "playgroundInjectCompactionFailures",
+    endpoint: "conversations/:id/playground/inject-compaction-failures",
+    method: "POST",
+    policyKey: "conversations/playground/inject-failures",
+    summary:
+      "Directly mutate compaction circuit-breaker state (dev-only playground)",
+    tags: ["playground"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: InjectBodySchema,
+    handler: async ({ pathParams, body }) => {
+      assertPlaygroundEnabled();
 
-        const conversation = await deps.getConversationById(params.id);
-        if (!conversation) {
-          return conversationNotFoundResponse(params.id);
-        }
+      const id = pathParams!.id;
+      const conversation = await getConversationById(id);
+      if (!conversation) {
+        throwConversationNotFound(id);
+      }
 
-        let rawBody: unknown = {};
-        try {
-          const contentLength = req.headers.get("content-length");
-          if (contentLength !== "0" && req.body !== null) {
-            rawBody = await req.json();
-          }
-        } catch {
-          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-        }
+      const parsed = InjectBodySchema.safeParse(body ?? {});
+      if (!parsed.success) {
+        throw new BadRequestError(parsed.error.message);
+      }
+      const { consecutiveFailures, circuitOpenForMs } = parsed.data;
 
-        const parsed = InjectBodySchema.safeParse(rawBody ?? {});
-        if (!parsed.success) {
-          return httpError("BAD_REQUEST", parsed.error.message, 400);
-        }
-        const { consecutiveFailures, circuitOpenForMs } = parsed.data;
+      if (consecutiveFailures !== undefined) {
+        conversation.consecutiveCompactionFailures = consecutiveFailures;
+      }
 
-        if (consecutiveFailures !== undefined) {
-          conversation.consecutiveCompactionFailures = consecutiveFailures;
-        }
-
-        if (circuitOpenForMs !== undefined) {
-          if (circuitOpenForMs === 0) {
-            // Mirror `trackCompactionOutcome()` (and `reset-circuit.ts`) —
-            // emit `compaction_circuit_closed` only on the open→closed
-            // transition so clients don't receive a redundant close event
-            // when the breaker was already closed.
-            if (conversation.compactionCircuitOpenUntil !== null) {
-              conversation.compactionCircuitOpenUntil = null;
-              conversation.sendToClient({
-                type: "compaction_circuit_closed",
-                conversationId: conversation.conversationId,
-              });
-            }
-          } else {
-            const openUntil = Date.now() + circuitOpenForMs;
-            conversation.compactionCircuitOpenUntil = openUntil;
+      if (circuitOpenForMs !== undefined) {
+        if (circuitOpenForMs === 0) {
+          if (conversation.compactionCircuitOpenUntil !== null) {
+            conversation.compactionCircuitOpenUntil = null;
             conversation.sendToClient({
-              type: "compaction_circuit_open",
+              type: "compaction_circuit_closed",
               conversationId: conversation.conversationId,
-              reason: "3_consecutive_failures",
-              openUntil,
             });
           }
+        } else {
+          const openUntil = Date.now() + circuitOpenForMs;
+          conversation.compactionCircuitOpenUntil = openUntil;
+          conversation.sendToClient({
+            type: "compaction_circuit_open",
+            conversationId: conversation.conversationId,
+            reason: "3_consecutive_failures",
+            openUntil,
+          });
         }
+      }
 
-        return Response.json(buildCompactionState(conversation));
-      },
+      return buildCompactionState(conversation);
     },
-  ];
-}
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Local state-builder — identical in shape to `buildCompactionStateResponse`

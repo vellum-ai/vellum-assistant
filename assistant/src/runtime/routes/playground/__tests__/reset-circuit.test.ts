@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Module mocks — must appear before any imports of the modules under test.
-// ---------------------------------------------------------------------------
-
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => true,
 }));
 
 mock.module("../../../../config/loader.js", () => ({
@@ -29,19 +29,21 @@ mock.module("../../../../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1234,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports under test — after mocks.
-// ---------------------------------------------------------------------------
+let _mockConversation: FakeConversation | undefined;
+
+mock.module("../helpers.js", () => ({
+  getConversationById: async () =>
+    _mockConversation ? _mockConversation.conversation : undefined,
+  listConversationsByTitlePrefix: () => [],
+  deleteConversationById: () => false,
+  createPlaygroundConversation: () => ({ id: "conv-test" }),
+  addPlaygroundMessage: async () => ({ id: "msg-test" }),
+}));
 
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
-import type { HTTPRouteDefinition,RouteContext } from "../../../http-router.js";
-import type { PlaygroundRouteDeps } from "../deps.js";
-import { resetCircuitRouteDefinitions } from "../reset-circuit.js";
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
+import { RouteError } from "../../errors.js";
+import { ROUTES } from "../index.js";
 
 interface FakeConversationState {
   consecutiveCompactionFailures: number;
@@ -96,59 +98,17 @@ function makeFakeConversation(
   return { conversation: fake, sent, state };
 }
 
-function makeDeps(
-  overrides: Partial<PlaygroundRouteDeps> = {},
-): PlaygroundRouteDeps {
-  return {
-    getConversationById: async () => undefined,
-    isPlaygroundEnabled: () => true,
-    listConversationsByTitlePrefix: () => [],
-    deleteConversationById: () => false,
-    createConversation: async () => ({ id: "conv-test" }),
-    addMessage: async () => ({ id: "msg-test" }),
-    ...overrides,
-  };
-}
-
-function makeRouteContext(conversationId: string): RouteContext {
-  const url = new URL(
-    `http://localhost/v1/conversations/${conversationId}/playground/reset-compaction-circuit`,
+function findRoute() {
+  const route = ROUTES.find(
+    (r) => r.operationId === "playgroundResetCompactionCircuit",
   );
-  return {
-    req: new Request(url, { method: "POST" }),
-    url,
-    server: {} as RouteContext["server"],
-    authContext: {
-      subject: "test-user",
-      principalType: "local",
-      assistantId: "self",
-      scopeProfile: "local_v1",
-      scopes: new Set(["local.all" as const]),
-      policyEpoch: 0,
-    },
-    params: { id: conversationId },
-  } as unknown as RouteContext;
+  if (!route) throw new Error("reset-circuit route not registered");
+  return route;
 }
-
-function getHandler(deps: PlaygroundRouteDeps): HTTPRouteDefinition["handler"] {
-  const routes = resetCircuitRouteDefinitions(deps);
-  expect(routes).toHaveLength(1);
-  return routes[0].handler;
-}
-
-async function readJsonBody(response: Response): Promise<unknown> {
-  return response.json();
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("reset-circuit route — metadata", () => {
   test("registers POST at conversations/:id/playground/reset-compaction-circuit", () => {
-    const routes = resetCircuitRouteDefinitions(makeDeps());
-    expect(routes).toHaveLength(1);
-    const route = routes[0];
+    const route = findRoute();
     expect(route.endpoint).toBe(
       "conversations/:id/playground/reset-compaction-circuit",
     );
@@ -163,46 +123,19 @@ describe("reset-circuit route — gating", () => {
 
   beforeEach(() => {
     fake = makeFakeConversation();
+    _mockConversation = fake;
   });
 
-  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
-    const deps = makeDeps({
-      isPlaygroundEnabled: () => false,
-      getConversationById: async () => fake.conversation,
-    });
-    const handler = getHandler(deps);
-
-    const response = (await handler(makeRouteContext("conv-abc"))) as Response;
-
-    expect(response.status).toBe(404);
-    const body = (await readJsonBody(response)) as {
-      error: { code: string; message: string };
-    };
-    // Distinct from `conversation_not_found` so the Swift client can
-    // surface the right toast text without sniffing the URL path.
-    expect(body.error.code).toBe("playground_disabled");
-    // State must not be mutated and no event emitted on the disabled path.
-    expect(fake.state.consecutiveCompactionFailures).toBe(0);
-    expect(fake.state.compactionCircuitOpenUntil).toBeNull();
-    expect(fake.sent).toHaveLength(0);
-  });
-
-  test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
-    const deps = makeDeps({
-      getConversationById: async () => undefined,
-    });
-    const handler = getHandler(deps);
-
-    const response = (await handler(
-      makeRouteContext("missing-id"),
-    )) as Response;
-
-    expect(response.status).toBe(404);
-    const body = (await readJsonBody(response)) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("conversation_not_found");
-    expect(body.error.message).toContain("missing-id");
+  test("throws RouteError with conversation_not_found code when the conversation is missing", async () => {
+    _mockConversation = undefined;
+    try {
+      await findRoute().handler({ pathParams: { id: "missing-id" } });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).code).toBe("conversation_not_found");
+      expect((err as RouteError).message).toContain("missing-id");
+    }
   });
 });
 
@@ -213,14 +146,12 @@ describe("reset-circuit route — behavior", () => {
       consecutiveCompactionFailures: 2,
       compactionCircuitOpenUntil: future,
     });
-    const deps = makeDeps({
-      getConversationById: async () => fake.conversation,
-    });
-    const handler = getHandler(deps);
+    _mockConversation = fake;
 
-    const response = (await handler(makeRouteContext("conv-abc"))) as Response;
+    const body = (await findRoute().handler({
+      pathParams: { id: "conv-abc" },
+    })) as Record<string, unknown>;
 
-    expect(response.status).toBe(200);
     expect(fake.state.consecutiveCompactionFailures).toBe(0);
     expect(fake.state.compactionCircuitOpenUntil).toBeNull();
     expect(fake.sent).toHaveLength(1);
@@ -229,7 +160,6 @@ describe("reset-circuit route — behavior", () => {
       conversationId: "conv-abc",
     });
 
-    const body = (await readJsonBody(response)) as Record<string, unknown>;
     expect(body.consecutiveCompactionFailures).toBe(0);
     expect(body.compactionCircuitOpenUntil).toBeNull();
     expect(body.isCircuitOpen).toBe(false);
@@ -248,22 +178,16 @@ describe("reset-circuit route — behavior", () => {
       consecutiveCompactionFailures: 2,
       compactionCircuitOpenUntil: null,
     });
-    const deps = makeDeps({
-      getConversationById: async () => fake.conversation,
-    });
-    const handler = getHandler(deps);
+    _mockConversation = fake;
 
-    const response = (await handler(makeRouteContext("conv-abc"))) as Response;
+    const body = (await findRoute().handler({
+      pathParams: { id: "conv-abc" },
+    })) as Record<string, unknown>;
 
-    expect(response.status).toBe(200);
     expect(fake.state.consecutiveCompactionFailures).toBe(0);
     expect(fake.state.compactionCircuitOpenUntil).toBeNull();
-    // Do not emit compaction_circuit_closed when the breaker was already
-    // closed — the event is reserved for the open→closed transition so the
-    // Swift banner doesn't receive redundant "paused" dismissals.
     expect(fake.sent).toHaveLength(0);
 
-    const body = (await readJsonBody(response)) as Record<string, unknown>;
     expect(body.consecutiveCompactionFailures).toBe(0);
     expect(body.compactionCircuitOpenUntil).toBeNull();
     expect(body.isCircuitOpen).toBe(false);

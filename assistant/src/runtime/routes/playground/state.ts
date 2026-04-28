@@ -14,9 +14,10 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
-import { conversationNotFoundResponse } from "./conversation-not-found.js";
-import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
+import type { RouteDefinition } from "../types.js";
+import { throwConversationNotFound } from "./conversation-not-found.js";
+import { assertPlaygroundEnabled } from "./guard.js";
+import { getConversationById } from "./helpers.js";
 
 /**
  * Build the `CompactionStateResponse` payload used by:
@@ -52,27 +53,25 @@ export function buildCompactionStateResponse(conversation: Conversation) {
   };
 }
 
-export function stateRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversations/:id/playground/compaction-state",
-      method: "GET",
-      policyKey: "conversations/playground/state",
-      summary: "Read current compaction state for a conversation",
-      tags: ["playground"],
-      handler: async ({ params }) => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "playgroundGetCompactionState",
+    endpoint: "conversations/:id/playground/compaction-state",
+    method: "GET",
+    policyKey: "conversations/playground/state",
+    summary: "Read current compaction state for a conversation",
+    tags: ["playground"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    handler: async ({ pathParams }) => {
+      assertPlaygroundEnabled();
 
-        const conversation = await deps.getConversationById(params.id);
-        if (!conversation) {
-          return conversationNotFoundResponse(params.id);
-        }
+      const id = pathParams!.id;
+      const conversation = await getConversationById(id);
+      if (!conversation) {
+        throwConversationNotFound(id);
+      }
 
-        return Response.json(buildCompactionStateResponse(conversation));
-      },
+      return buildCompactionStateResponse(conversation);
     },
-  ];
-}
+  },
+];

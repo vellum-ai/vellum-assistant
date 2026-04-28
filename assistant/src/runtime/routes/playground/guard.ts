@@ -1,4 +1,6 @@
-import type { PlaygroundRouteDeps } from "./deps.js";
+import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
+import { getConfig } from "../../../config/loader.js";
+import { RouteError } from "../errors.js";
 
 /**
  * Body code for flag-off playground 404s. Distinct from the generic
@@ -13,25 +15,22 @@ import type { PlaygroundRouteDeps } from "./deps.js";
  */
 const PLAYGROUND_DISABLED_CODE = "playground_disabled";
 
+export function isPlaygroundEnabled(): boolean {
+  return isAssistantFeatureFlagEnabled("compaction-playground", getConfig());
+}
+
 /**
- * Defense-in-depth guard every playground route calls first. Returns a 404
- * Response when the `compaction-playground` feature flag is disabled so the
- * entire /playground/* surface is invisible in production regardless of UI
- * gating.
+ * Defense-in-depth guard every playground route calls first. Throws a
+ * RouteError when the `compaction-playground` feature flag is disabled so
+ * the entire /playground/* surface is invisible in production regardless
+ * of UI gating.
  */
-export function assertPlaygroundEnabled(
-  deps: PlaygroundRouteDeps,
-): Response | null {
-  if (!deps.isPlaygroundEnabled()) {
-    return Response.json(
-      {
-        error: {
-          code: PLAYGROUND_DISABLED_CODE,
-          message: "Compaction playground is not enabled",
-        },
-      },
-      { status: 404 },
+export function assertPlaygroundEnabled(): void {
+  if (!isPlaygroundEnabled()) {
+    throw new RouteError(
+      "Compaction playground is not enabled",
+      PLAYGROUND_DISABLED_CODE,
+      404,
     );
   }
-  return null;
 }

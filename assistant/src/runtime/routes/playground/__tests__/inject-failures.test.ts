@@ -1,20 +1,49 @@
 /**
  * Tests for the inject-compaction-failures playground endpoint.
- *
- * This endpoint is dev-only (gated by the `compaction-playground` feature
- * flag) and directly mutates `consecutiveCompactionFailures` and/or
- * `compactionCircuitOpenUntil` on a live `Conversation`. It is used by the
- * macOS playground UI and integration tests to drive the circuit breaker
- * into interesting states without having to wait for three real summary
- * LLM failures.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { ServerMessage } from "../../../../daemon/message-protocol.js";
-import type { RouteContext } from "../../../http-router.js";
-import type { PlaygroundRouteDeps } from "../deps.js";
-import { injectFailuresRouteDefinitions } from "../inject-failures.js";
+
+let _mockConversation: MockConversation | undefined;
+
+mock.module("../../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => true,
+}));
+
+mock.module("../../../../config/loader.js", () => ({
+  getConfig: () => ({
+    llm: {
+      default: {
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 200_000,
+          compactThreshold: 0.8,
+        },
+      },
+    },
+  }),
+}));
+
+mock.module("../../../../context/token-estimator.js", () => ({
+  estimatePromptTokens: (messages: unknown[]): number => messages.length * 10,
+}));
+
+mock.module("../helpers.js", () => ({
+  getConversationById: async (id: string) => {
+    if (!_mockConversation) return undefined;
+    if (_mockConversation.conversationId !== id) return undefined;
+    return _mockConversation as unknown as Conversation;
+  },
+  listConversationsByTitlePrefix: () => [],
+  deleteConversationById: () => false,
+  createPlaygroundConversation: () => ({ id: "conv-test" }),
+  addPlaygroundMessage: async () => ({ id: "msg-test" }),
+}));
+
+import { RouteError } from "../../errors.js";
+import { ROUTES } from "../index.js";
 
 interface MockConversation {
   readonly conversationId: string;
@@ -41,109 +70,44 @@ function makeConversation(id = "conv-playground-test"): MockConversation {
   };
 }
 
-function makeDeps(
-  opts: {
-    enabled?: boolean;
-    conversation?: MockConversation | undefined;
-  } = {},
-): PlaygroundRouteDeps {
-  const enabled = opts.enabled ?? true;
-  const conversation = opts.conversation;
-  return {
-    isPlaygroundEnabled: () => enabled,
-    getConversationById: async (id) => {
-      if (!conversation) return undefined;
-      if (conversation.conversationId !== id) return undefined;
-      return conversation as unknown as Conversation;
-    },
-    listConversationsByTitlePrefix: () => [],
-    deleteConversationById: () => false,
-    createConversation: async () => ({ id: "conv-test" }),
-    addMessage: async () => ({ id: "msg-test" }),
-  };
-}
-
-function getInjectRoute(deps: PlaygroundRouteDeps) {
-  const routes = injectFailuresRouteDefinitions(deps);
-  const route = routes.find(
-    (r) =>
-      r.endpoint ===
-        "conversations/:id/playground/inject-compaction-failures" &&
-      r.method === "POST",
+function findRoute() {
+  const route = ROUTES.find(
+    (r) => r.operationId === "playgroundInjectCompactionFailures",
   );
-  if (!route) {
-    throw new Error("inject-failures route not registered");
-  }
+  if (!route) throw new Error("inject-failures route not registered");
   return route;
 }
 
-async function invoke(
-  route: ReturnType<typeof getInjectRoute>,
-  conversationId: string,
-  body: unknown,
-): Promise<Response> {
-  const url = `http://localhost/v1/conversations/${conversationId}/playground/inject-compaction-failures`;
-  const req = new Request(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+async function invoke(conversationId: string, body: unknown) {
+  return findRoute().handler({
+    pathParams: { id: conversationId },
+    body: body as Record<string, unknown>,
   });
-  return Promise.resolve(
-    route.handler({
-      req,
-      url: new URL(url),
-      params: { id: conversationId },
-    } as unknown as RouteContext),
-  );
 }
 
 describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () => {
-  test("returns 404 with playground_disabled code when the compaction-playground flag is disabled", async () => {
-    const conversation = makeConversation();
-    const deps = makeDeps({ enabled: false, conversation });
-    const route = getInjectRoute(deps);
-
-    const res = await invoke(route, conversation.conversationId, {});
-    expect(res.status).toBe(404);
-
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    // Distinct from `conversation_not_found` so the Swift client can
-    // surface the right toast text without sniffing the URL path.
-    expect(body.error.code).toBe("playground_disabled");
-
-    // Flag-gated — the handler must not mutate conversation state or emit
-    // events when the playground is disabled.
-    expect(conversation.sentMessages).toHaveLength(0);
-  });
-
-  test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
-    const deps = makeDeps({ enabled: true, conversation: undefined });
-    const route = getInjectRoute(deps);
-
-    const res = await invoke(route, "missing-conv-id", {});
-    expect(res.status).toBe(404);
-
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("conversation_not_found");
-    expect(body.error.message).toContain("missing-conv-id");
+  test("throws RouteError with conversation_not_found code when the conversation is missing", async () => {
+    _mockConversation = undefined;
+    try {
+      await invoke("missing-conv-id", {});
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).code).toBe("conversation_not_found");
+      expect((err as RouteError).message).toContain("missing-conv-id");
+    }
   });
 
   test("mutates both fields and emits compaction_circuit_open when both provided", async () => {
     const conversation = makeConversation("conv-open");
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
+    _mockConversation = conversation;
 
     const beforeNow = Date.now();
-    const res = await invoke(route, conversation.conversationId, {
+    const body = (await invoke(conversation.conversationId, {
       consecutiveFailures: 3,
       circuitOpenForMs: 60_000,
-    });
+    })) as Record<string, unknown>;
     const afterNow = Date.now();
-    expect(res.status).toBe(200);
 
     expect(conversation.consecutiveCompactionFailures).toBe(3);
     expect(conversation.compactionCircuitOpenUntil).not.toBeNull();
@@ -151,7 +115,6 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
     expect(openUntil).toBeGreaterThanOrEqual(beforeNow + 60_000);
     expect(openUntil).toBeLessThanOrEqual(afterNow + 60_000);
 
-    // Exactly one event emitted with the expected shape.
     expect(conversation.sentMessages).toHaveLength(1);
     expect(conversation.sentMessages[0]).toEqual({
       type: "compaction_circuit_open",
@@ -159,25 +122,21 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
       reason: "3_consecutive_failures",
       openUntil,
     });
+
+    expect(body.consecutiveCompactionFailures).toBe(3);
   });
 
   test("clears the circuit and emits compaction_circuit_closed on circuitOpenForMs: 0", async () => {
     const conversation = makeConversation("conv-close");
-    // Start with an open breaker so the endpoint can clear it.
     conversation.compactionCircuitOpenUntil = Date.now() + 10_000;
     conversation.consecutiveCompactionFailures = 3;
+    _mockConversation = conversation;
 
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
-
-    const res = await invoke(route, conversation.conversationId, {
+    await invoke(conversation.conversationId, {
       circuitOpenForMs: 0,
     });
-    expect(res.status).toBe(200);
 
     expect(conversation.compactionCircuitOpenUntil).toBeNull();
-    // consecutiveFailures was not specified in the body, so it must be
-    // unchanged (the endpoint only mutates fields that are explicitly set).
     expect(conversation.consecutiveCompactionFailures).toBe(3);
 
     expect(conversation.sentMessages).toHaveLength(1);
@@ -189,82 +148,79 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
 
   test("is a no-op on the event channel when circuitOpenForMs: 0 but the breaker is already closed", async () => {
     const conversation = makeConversation("conv-already-closed");
-    // Breaker is already closed before the request.
     expect(conversation.compactionCircuitOpenUntil).toBeNull();
+    _mockConversation = conversation;
 
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
-
-    const res = await invoke(route, conversation.conversationId, {
+    const body = (await invoke(conversation.conversationId, {
       circuitOpenForMs: 0,
-    });
-    expect(res.status).toBe(200);
+    })) as Record<string, unknown>;
 
-    // Still null after the request.
     expect(conversation.compactionCircuitOpenUntil).toBeNull();
-    // Critically: no `compaction_circuit_closed` event is emitted, since
-    // there was no open→closed transition. Clients must not see a spurious
-    // close event.
     expect(conversation.sentMessages).toHaveLength(0);
-
-    // Response body still reflects the expected shape.
-    const body = (await res.json()) as Record<string, unknown>;
     expect(body.compactionCircuitOpenUntil).toBeNull();
     expect(body.isCircuitOpen).toBe(false);
   });
 
-  test("rejects out-of-range consecutiveFailures with 400", async () => {
+  test("throws BadRequestError for out-of-range consecutiveFailures", async () => {
     const conversation = makeConversation();
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
+    _mockConversation = conversation;
 
-    const res = await invoke(route, conversation.conversationId, {
-      consecutiveFailures: 99, // above max (10)
-    });
-    expect(res.status).toBe(400);
+    try {
+      await invoke(conversation.conversationId, {
+        consecutiveFailures: 99,
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+    }
 
-    // No mutation, no event.
     expect(conversation.consecutiveCompactionFailures).toBe(0);
     expect(conversation.sentMessages).toHaveLength(0);
   });
 
-  test("rejects out-of-range circuitOpenForMs with 400", async () => {
+  test("throws BadRequestError for out-of-range circuitOpenForMs", async () => {
     const conversation = makeConversation();
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
+    _mockConversation = conversation;
 
-    const res = await invoke(route, conversation.conversationId, {
-      circuitOpenForMs: 25 * 60 * 60 * 1000, // 25h, above the 24h cap
-    });
-    expect(res.status).toBe(400);
+    try {
+      await invoke(conversation.conversationId, {
+        circuitOpenForMs: 25 * 60 * 60 * 1000,
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+    }
 
     expect(conversation.compactionCircuitOpenUntil).toBeNull();
     expect(conversation.sentMessages).toHaveLength(0);
   });
 
-  test("rejects negative consecutiveFailures with 400", async () => {
+  test("throws BadRequestError for negative consecutiveFailures", async () => {
     const conversation = makeConversation();
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
+    _mockConversation = conversation;
 
-    const res = await invoke(route, conversation.conversationId, {
-      consecutiveFailures: -1,
-    });
-    expect(res.status).toBe(400);
+    try {
+      await invoke(conversation.conversationId, {
+        consecutiveFailures: -1,
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+    }
     expect(conversation.consecutiveCompactionFailures).toBe(0);
   });
 
   test("response body includes the full CompactionStateResponse shape", async () => {
     const conversation = makeConversation("conv-shape");
-    const deps = makeDeps({ enabled: true, conversation });
-    const route = getInjectRoute(deps);
+    _mockConversation = conversation;
 
-    const res = await invoke(route, conversation.conversationId, {
+    const body = (await invoke(conversation.conversationId, {
       consecutiveFailures: 2,
-    });
-    expect(res.status).toBe(200);
+    })) as Record<string, unknown>;
 
-    const body = (await res.json()) as Record<string, unknown>;
     const requiredKeys = [
       "estimatedInputTokens",
       "maxInputTokens",

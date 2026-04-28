@@ -11,63 +11,50 @@
  */
 
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
-import { httpError } from "../../http-errors.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
-import { conversationNotFoundResponse } from "./conversation-not-found.js";
-import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
+import { ConflictError } from "../errors.js";
+import type { RouteDefinition } from "../types.js";
+import { throwConversationNotFound } from "./conversation-not-found.js";
+import { assertPlaygroundEnabled } from "./guard.js";
+import { getConversationById } from "./helpers.js";
 
-export function forceCompactRouteDefinitions(
-  deps: PlaygroundRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversations/:id/playground/compact",
-      method: "POST",
-      policyKey: "conversations/playground/compact",
-      summary: "Force compaction on a conversation (dev-only playground)",
-      tags: ["playground"],
-      handler: async ({ params }) => {
-        const gate = assertPlaygroundEnabled(deps);
-        if (gate) return gate;
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "playgroundForceCompact",
+    endpoint: "conversations/:id/playground/compact",
+    method: "POST",
+    policyKey: "conversations/playground/compact",
+    summary: "Force compaction on a conversation (dev-only playground)",
+    tags: ["playground"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    handler: async ({ pathParams }) => {
+      assertPlaygroundEnabled();
 
-        const conversation = await deps.getConversationById(params.id);
-        if (!conversation) {
-          return conversationNotFoundResponse(params.id);
-        }
+      const id = pathParams!.id;
+      const conversation = await getConversationById(id);
+      if (!conversation) {
+        throwConversationNotFound(id);
+      }
 
-        // Per-conversation in-flight guard. `Conversation.processing` is set
-        // to `true` whenever an agent turn or a slash-`/compact` is mid-flight
-        // (see `conversation-routes.ts` and `Conversation.persistUserMessage`).
-        // If we ran a second `forceCompact()` against the same conversation
-        // while one was already in progress, we would race and double up
-        // `contextCompactedMessageCount`, emit duplicate `context_compacted`
-        // SSE events, and double-record usage. Easy to trigger by
-        // double-clicking the playground "Force Compact" button. Fail fast
-        // with 409 — the playground is a debug tool and clobbering legitimate
-        // in-flight processing is worse than a brief retryable error.
-        if (conversation.processing) {
-          return httpError(
-            "CONFLICT",
-            "Compaction already in progress for this conversation",
-            409,
-          );
-        }
+      if (conversation.processing) {
+        throw new ConflictError(
+          "Compaction already in progress for this conversation",
+        );
+      }
 
-        const messagesBefore = conversation.getMessages();
-        const previousTokens = estimatePromptTokens(messagesBefore);
-        const result = await conversation.forceCompact();
-        const messagesAfter = conversation.getMessages();
-        const newTokens = estimatePromptTokens(messagesAfter);
+      const messagesBefore = conversation.getMessages();
+      const previousTokens = estimatePromptTokens(messagesBefore);
+      const result = await conversation.forceCompact();
+      const messagesAfter = conversation.getMessages();
+      const newTokens = estimatePromptTokens(messagesAfter);
 
-        return Response.json({
-          compacted: result.compacted,
-          previousTokens,
-          newTokens,
-          summaryText: result.summaryText ?? null,
-          messagesRemoved: result.compactedPersistedMessages ?? 0,
-          summaryFailed: result.summaryFailed ?? null,
-        });
-      },
+      return {
+        compacted: result.compacted,
+        previousTokens,
+        newTokens,
+        summaryText: result.summaryText ?? null,
+        messagesRemoved: result.compactedPersistedMessages ?? 0,
+        summaryFailed: result.summaryFailed ?? null,
+      };
     },
-  ];
-}
+  },
+];

@@ -1,3 +1,5 @@
+import { RouteError } from "../errors.js";
+
 /**
  * Body code for "conversation lookup returned no row" 404s on
  * conversation-scoped playground routes. Distinct from the generic
@@ -12,18 +14,14 @@
 const CONVERSATION_NOT_FOUND_CODE = "conversation_not_found";
 
 /**
- * Build a 404 response for a missing conversation on a playground route.
+ * Throw a 404 RouteError for a missing conversation on a playground route.
  * Uses a distinguishing body `code` so the Swift client can route this
  * to `.notFound` (rather than `.notAvailable`).
  */
-export function conversationNotFoundResponse(conversationId: string): Response {
-  return Response.json(
-    {
-      error: {
-        code: CONVERSATION_NOT_FOUND_CODE,
-        message: `Conversation ${conversationId} not found`,
-      },
-    },
-    { status: 404 },
+export function throwConversationNotFound(conversationId: string): never {
+  throw new RouteError(
+    `Conversation ${conversationId} not found`,
+    CONVERSATION_NOT_FOUND_CODE,
+    404,
   );
 }
