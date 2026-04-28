@@ -959,6 +959,11 @@ struct ActiveChatViewWrapper: View {
                     settingsStore.pendingSettingsTab = .modelsAndServices
                     windowState.selection = .panel(.settings)
                 },
+                diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
+                onReviewDiskUsage: {
+                    settingsStore.requestGeneralSection(.systemResources)
+                    windowState.selection = .panel(.settings)
+                },
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
                 },
