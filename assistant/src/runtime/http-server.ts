@@ -5,7 +5,6 @@
  * configured port (default: 7821).
  */
 
-
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -58,6 +57,7 @@ import { verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
+import { getClientRegistry } from "./client-registry.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
@@ -277,6 +277,10 @@ export class RuntimeHttpServer {
                 ws,
                 connectedAt: now,
                 lastActiveAt: now,
+              });
+              getClientRegistry().register({
+                clientId: data.connectionId,
+                interfaceId: "chrome-extension",
               });
             }
             return;
@@ -568,6 +572,7 @@ export class RuntimeHttpServer {
             // undefined, or when it was superseded by a newer registration
             // for the same guardian).
             getChromeExtensionRegistry().unregister(data.connectionId);
+            getClientRegistry().unregister(data.connectionId);
             return;
           }
           if ("wsType" in data && data.wsType === "media-stream") {
@@ -1443,5 +1448,4 @@ export class RuntimeHttpServer {
 
     return null;
   }
-
 }

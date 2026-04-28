@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getChromeExtensionRegistry } from "../runtime/chrome-extension-registry.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { getClientRegistry } from "../runtime/client-registry.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -33,30 +33,15 @@ export class HostBrowserProxy {
   private static _instance: HostBrowserProxy | null = null;
 
   /**
-   * Lazily-initialized singleton wired to the ChromeExtensionRegistry.
-   * Returns `undefined` when no extension connection is available.
+   * Lazily-initialized singleton. Always creates the instance on first
+   * access — availability of an actual extension connection is checked
+   * at send time, not at construction time.
    */
-  static get instance(): HostBrowserProxy | undefined {
-    const conn = getChromeExtensionRegistry().getAny();
-    if (!conn) {
-      if (HostBrowserProxy._instance) {
-        HostBrowserProxy._instance.dispose();
-        HostBrowserProxy._instance = null;
-      }
-      return undefined;
-    }
-
+  static get instance(): HostBrowserProxy {
     if (!HostBrowserProxy._instance) {
-      log.info(
-        "Creating singleton HostBrowserProxy wired to extension registry",
-      );
-      const sender = HostBrowserProxy.createRegistrySender();
-      HostBrowserProxy._instance = new HostBrowserProxy(sender, (requestId) => {
-        pendingInteractions.resolve(requestId);
-      });
-      HostBrowserProxy._instance.updateSender(sender, true);
+      log.info("Creating singleton HostBrowserProxy");
+      HostBrowserProxy._instance = new HostBrowserProxy();
     }
-
     return HostBrowserProxy._instance;
   }
 
@@ -68,67 +53,34 @@ export class HostBrowserProxy {
     }
   }
 
-  /** Test helper: reset the singleton so each test starts fresh. */
-  static resetInstanceForTests(): void {
+  /** For tests. */
+  static reset(): void {
     HostBrowserProxy._instance = null;
   }
 
-  private static createRegistrySender(): (msg: ServerMessage) => void {
-    return (msg: ServerMessage): void => {
-      const conn = getChromeExtensionRegistry().getAny();
-      if (!conn) {
-        throw new Error(
-          "host_browser send failed: no active extension connection in registry",
-        );
-      }
-
-      if (
-        msg.type === "host_browser_request" &&
-        "requestId" in msg &&
-        typeof msg.requestId === "string"
-      ) {
-        pendingInteractions.register(msg.requestId, {
-          conversation: null,
-          conversationId: "host-browser-singleton",
-          kind: "host_browser",
-        });
-      }
-
-      const ok = getChromeExtensionRegistry().send(conn.guardianId, msg);
-      if (!ok) {
-        if (
-          msg.type === "host_browser_request" &&
-          "requestId" in msg &&
-          typeof msg.requestId === "string"
-        ) {
-          pendingInteractions.resolve(msg.requestId);
-        }
-        throw new Error(
-          `host_browser send failed: extension connection for guardian ${conn.guardianId} went away`,
-        );
-      }
-    };
-  }
-
   private pending = new Map<string, PendingRequest>();
-  private sendToClient: (msg: ServerMessage) => void;
-  private onInternalResolve?: (requestId: string) => void;
-  private clientConnected = false;
 
-  constructor(
-    sendToClient: (msg: ServerMessage) => void,
-    onInternalResolve?: (requestId: string) => void,
-  ) {
-    this.sendToClient = sendToClient;
-    this.onInternalResolve = onInternalResolve;
+  /**
+   * Whether an extension client with `host_browser` capability is connected.
+   * Checks the client registry first; falls back to the chrome extension
+   * registry until all callers are migrated to the client registry.
+   */
+  isAvailable(): boolean {
+    const clientEntry =
+      getClientRegistry().getMostRecentByCapability("host_browser");
+    if (clientEntry) return true;
+    return getChromeExtensionRegistry().getAny() != null;
   }
 
-  updateSender(
-    sendToClient: (msg: ServerMessage) => void,
-    clientConnected: boolean,
-  ): void {
-    this.sendToClient = sendToClient;
-    this.clientConnected = clientConnected;
+  /**
+   * Send a ServerMessage to the connected extension. Resolves the
+   * transport at send time — tries the chrome extension registry for
+   * now. Returns true on success, false when no connection is available.
+   */
+  private sendToExtension(msg: ServerMessage): boolean {
+    const conn = getChromeExtensionRegistry().getAny();
+    if (!conn) return false;
+    return getChromeExtensionRegistry().send(conn.guardianId, msg);
   }
 
   request(
@@ -153,7 +105,6 @@ export class HostBrowserProxy {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
         log.warn(
           { requestId, cdpMethod: input.cdpMethod },
           "Host browser proxy request timed out",
@@ -173,9 +124,8 @@ export class HostBrowserProxy {
             // Abort fired — nothing to detach, but call the no-op for symmetry
             // so callers can rely on detachAbort being idempotent.
             detachAbort();
-            this.onInternalResolve?.(requestId);
             try {
-              this.sendToClient({
+              this.sendToExtension({
                 type: "host_browser_cancel",
                 requestId,
               } as ServerMessage);
@@ -192,12 +142,23 @@ export class HostBrowserProxy {
       this.pending.set(requestId, { resolve, reject, timer, detachAbort });
 
       try {
-        this.sendToClient({
+        const sent = this.sendToExtension({
           ...input,
           type: "host_browser_request",
           requestId,
           conversationId,
         } as ServerMessage);
+
+        if (!sent) {
+          clearTimeout(timer);
+          this.pending.delete(requestId);
+          detachAbort();
+          reject(
+            new Error(
+              "host_browser send failed: no active extension connection",
+            ),
+          );
+        }
       } catch (err) {
         // Sender threw synchronously (e.g. client transport error during
         // event emission). Clean up pending state and timer so we don't
@@ -205,7 +166,6 @@ export class HostBrowserProxy {
         clearTimeout(timer);
         this.pending.delete(requestId);
         detachAbort();
-        this.onInternalResolve?.(requestId);
         log.warn(
           { requestId, cdpMethod: input.cdpMethod, err },
           "Host browser proxy send failed",
@@ -245,17 +205,12 @@ export class HostBrowserProxy {
     return this.pending.has(requestId);
   }
 
-  isAvailable(): boolean {
-    return this.clientConnected;
-  }
-
   dispose(): void {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       entry.detachAbort();
-      this.onInternalResolve?.(requestId);
       try {
-        this.sendToClient({
+        this.sendToExtension({
           type: "host_browser_cancel",
           requestId,
         } as ServerMessage);
