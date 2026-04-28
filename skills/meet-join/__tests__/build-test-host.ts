@@ -92,8 +92,6 @@ import type {
 import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 import { mock } from "bun:test";
 
-
-
 /**
  * Silent default logger. Every severity method is a `mock()` spy so
  * tests that want to assert against log output can inspect the spy's
@@ -305,7 +303,6 @@ export class InMemoryEventHub {
     // Snapshot so a subscriber that self-unsubscribes mid-dispatch doesn't
     // mutate the Set we're iterating.
     for (const entry of Array.from(this.subscribers)) {
-      if (entry.filter.assistantId !== event.assistantId) continue;
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&

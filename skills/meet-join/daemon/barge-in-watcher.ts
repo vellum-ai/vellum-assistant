@@ -250,10 +250,10 @@ export class MeetBargeInWatcher {
       try {
         this.hubSubscription.dispose();
       } catch (err) {
-        this.log.warn(
-          "MeetBargeInWatcher: assistant-event-hub dispose threw",
-          { err, meetingId: this.meetingId },
-        );
+        this.log.warn("MeetBargeInWatcher: assistant-event-hub dispose threw", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.hubSubscription = null;
     }

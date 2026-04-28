@@ -341,7 +341,7 @@ if (import.meta.main) {
       // eslint-disable-next-line no-console -- top-level fatal
       console.error(
         `meet-host entrypoint: fatal error: ${
-          err instanceof Error ? err.stack ?? err.message : String(err)
+          err instanceof Error ? (err.stack ?? err.message) : String(err)
         }`,
       );
       process.exit(1);

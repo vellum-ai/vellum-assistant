@@ -231,13 +231,10 @@ export class MeetConversationBridge {
       try {
         this.unsubscribeFn();
       } catch (err) {
-        this.log.warn(
-          "MeetConversationBridge: dispatcher unsubscribe threw",
-          {
-            err,
-            meetingId: this.meetingId,
-          },
-        );
+        this.log.warn("MeetConversationBridge: dispatcher unsubscribe threw", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.unsubscribeFn = null;
     }
@@ -341,9 +338,7 @@ export class MeetConversationBridge {
     if (!this.hub) return;
 
     try {
-      await this.hub.publish(
-        this.buildEvent(message, this.conversationId),
-      );
+      await this.hub.publish(this.buildEvent(message, this.conversationId));
     } catch (err) {
       this.log.warn("MeetConversationBridge: interim publish failed", {
         err,

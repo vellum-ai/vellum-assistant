@@ -152,12 +152,9 @@ function captureHub(): {
   dispose: () => void;
 } {
   const received: AssistantEvent[] = [];
-  const sub = testHub.subscribe(
-    {},
-    (event) => {
-      received.push(event);
-    },
-  );
+  const sub = testHub.subscribe({}, (event) => {
+    received.push(event);
+  });
   return { received, dispose: () => sub.dispose() };
 }
 

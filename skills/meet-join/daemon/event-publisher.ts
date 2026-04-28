@@ -159,9 +159,7 @@ export interface EventPublisher {
   ): MeetEventUnsubscribe;
   registerMeetingDispatcher(meetingId: string): void;
   unregisterMeetingDispatcher(meetingId: string): void;
-  subscribeEventHubPublisher(
-    meetingId: string,
-  ): MeetEventUnsubscribe;
+  subscribeEventHubPublisher(meetingId: string): MeetEventUnsubscribe;
 }
 
 /**
@@ -212,9 +210,7 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
       dispatcher.clear(meetingId);
     },
 
-    subscribeEventHubPublisher(
-      meetingId: string,
-    ): MeetEventUnsubscribe {
+    subscribeEventHubPublisher(meetingId: string): MeetEventUnsubscribe {
       return publisher.subscribeToMeetingEvents(meetingId, (event) => {
         switch (event.type) {
           case "participant.change":
@@ -228,14 +224,10 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
             );
             return;
           case "speaker.change":
-            void publisher.publishMeetEvent(
-              meetingId,
-              "meet.speaker_changed",
-              {
-                speakerId: event.speakerId,
-                speakerName: event.speakerName,
-              },
-            );
+            void publisher.publishMeetEvent(meetingId, "meet.speaker_changed", {
+              speakerId: event.speakerId,
+              speakerName: event.speakerName,
+            });
             return;
           case "transcript.chunk": {
             if (!event.isFinal) return;
@@ -305,11 +297,7 @@ export function publishMeetEvent(
   kind: MeetEventKind,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  return requirePublisher().publishMeetEvent(
-    meetingId,
-    kind,
-    payload,
-  );
+  return requirePublisher().publishMeetEvent(meetingId, kind, payload);
 }
 
 /**
