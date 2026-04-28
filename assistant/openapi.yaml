@@ -6610,11 +6610,17 @@ paths:
                     description: Whether older messages exist beyond this page
                     type: boolean
                   oldestTimestamp:
-                    description: Timestamp of the oldest message in this page (ms since epoch)
-                    type: number
+                    description:
+                      Timestamp of the oldest message in this page (ms since epoch). Null when page=latest is used on an empty
+                      conversation.
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   oldestMessageId:
                     description: ID of the oldest message in this page
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                 required:
                   - messages
                 additionalProperties: false
