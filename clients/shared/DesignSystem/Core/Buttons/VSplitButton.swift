@@ -130,18 +130,15 @@ public struct VSplitButton<MenuContent: View>: View {
     @ViewBuilder
     private var dropdownZone: some View {
         #if os(macOS)
-        if chevronDirection == .up {
-            upwardDropdownZone
-        } else {
-            defaultDropdownZone
-        }
+        macOSDropdownZone
         #else
-        defaultDropdownZone
+        iOSDropdownZone
         #endif
     }
 
-    /// Default dropdown using SwiftUI Menu.
-    private var defaultDropdownZone: some View {
+    #if !os(macOS)
+    /// iOS fallback using SwiftUI's native Menu.
+    private var iOSDropdownZone: some View {
         ZStack(alignment: .center) {
             zoneBackgroundColor(isHovered: isDropdownHovered)
                 .frame(width: dropdownWidth, height: zoneHeight)
@@ -168,15 +165,16 @@ public struct VSplitButton<MenuContent: View>: View {
         }
         .pointerCursor()
     }
+    #endif
 
     #if os(macOS)
-    /// Upward dropdown using VMenuPanel, anchored above the button.
-    private var upwardDropdownZone: some View {
+    /// macOS dropdown using VMenu + VMenuPanel for both directions.
+    private var macOSDropdownZone: some View {
         ZStack(alignment: .center) {
             zoneBackgroundColor(isHovered: isDropdownHovered)
                 .frame(width: dropdownWidth, height: zoneHeight)
 
-            VIconView(.chevronUp, size: 11)
+            VIconView(chevronIcon, size: 11)
                 .foregroundStyle(foregroundColor)
                 .frame(width: dropdownWidth, height: zoneHeight)
                 .allowsHitTesting(false)
@@ -187,7 +185,7 @@ public struct VSplitButton<MenuContent: View>: View {
                     activePanel = nil
                     isMenuOpen = false
                 } else {
-                    showMenuAbove()
+                    showMenu()
                 }
             } label: {
                 Color.clear
@@ -213,7 +211,11 @@ public struct VSplitButton<MenuContent: View>: View {
         }
     }
 
-    private func showMenuAbove() {
+    private var menuAnchor: VMenuAnchorEdge {
+        chevronDirection == .up ? .above : .below
+    }
+
+    private func showMenu() {
         guard !isMenuOpen else { return }
         isMenuOpen = true
 
@@ -222,11 +224,12 @@ public struct VSplitButton<MenuContent: View>: View {
             return
         }
 
-        // Convert the dropdown zone's top-left from SwiftUI (y-down) to screen (y-up) coordinates.
-        let topLeftInWindow = CGPoint(x: dropdownFrame.minX, y: dropdownFrame.minY)
+        // Anchor point in screen coordinates (y-up).
+        // .below: bottom-left of dropdown zone; .above: top-left of dropdown zone.
+        let anchorY = chevronDirection == .up ? dropdownFrame.minY : dropdownFrame.maxY
         let screenPoint = window.convertPoint(toScreen: NSPoint(
-            x: topLeftInWindow.x,
-            y: window.frame.height - topLeftInWindow.y
+            x: dropdownFrame.minX,
+            y: window.frame.height - anchorY
         ))
 
         // Exclude only the dropdown zone so clicks on the primary action
@@ -243,7 +246,7 @@ public struct VSplitButton<MenuContent: View>: View {
         let appearance = window.effectiveAppearance
         activePanel = VMenuPanel.show(
             at: screenPoint,
-            anchor: .above,
+            anchor: menuAnchor,
             sourceWindow: window,
             sourceAppearance: appearance,
             excludeRect: dropdownScreenRect
