@@ -7,6 +7,7 @@ import {
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
+import { resolveEnvironmentSource } from "../lib/environments/resolve";
 import { loadGuardianToken } from "../lib/guardian-token";
 import {
   checkHealth,
@@ -468,6 +469,15 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
 // ── List all assistants (no arg) ────────────────────────────────
 
 async function listAllAssistants(): Promise<void> {
+  const { name: envName, source: envSource } = resolveEnvironmentSource();
+  const sourceLabels: Record<typeof envSource, string> = {
+    flag: "--environment flag",
+    env: "VELLUM_ENVIRONMENT",
+    config: "~/.config/vellum/environment",
+    default: "default",
+  };
+  console.log(`Environment: ${envName} (${sourceLabels[envSource]})\n`);
+
   const assistants = loadAllAssistants();
   const activeId = getActiveAssistant();
 

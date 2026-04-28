@@ -1,7 +1,64 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
+
 import { SEEDS } from "./seeds.js";
 import type { EnvironmentDefinition } from "./types.js";
 
 const DEFAULT_ENVIRONMENT_NAME = "production";
+
+/**
+ * Path to the user's persisted default environment file.
+ * Lives at `~/.config/vellum/environment` — a fixed, environment-agnostic
+ * location so it can be read before the environment is resolved.
+ */
+function getDefaultEnvironmentPath(): string {
+  const xdgConfig =
+    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return join(xdgConfig, "vellum", "environment");
+}
+
+/**
+ * Read the persisted default environment name, if any.
+ * Returns `undefined` if no file exists or the file is empty.
+ */
+export function readDefaultEnvironment(): string | undefined {
+  const filePath = getDefaultEnvironmentPath();
+  try {
+    if (!existsSync(filePath)) return undefined;
+    const content = readFileSync(filePath, "utf-8").trim();
+    return content.length > 0 ? content : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Persist a default environment name to the user config file.
+ */
+export function writeDefaultEnvironment(name: string): void {
+  const filePath = getDefaultEnvironmentPath();
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, name + "\n", "utf-8");
+}
+
+/**
+ * Remove the persisted default environment file, falling back to production.
+ */
+export function clearDefaultEnvironment(): void {
+  const filePath = getDefaultEnvironmentPath();
+  try {
+    unlinkSync(filePath);
+  } catch {
+    // Already absent — nothing to do.
+  }
+}
 
 /**
  * Look up a seed entry by name. Returns `undefined` if no seed matches.
@@ -22,7 +79,7 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  * Priority:
  *   1. `override` argument (from a `--environment` CLI flag, when wired)
  *   2. `VELLUM_ENVIRONMENT` env var
- *   3. (future) user context file
+ *   3. User config file (`~/.config/vellum/environment`, set via `vellum env set`)
  *   4. Default: `production`
  *
  * Per-field env-var overrides are honored on the resolved definition as
@@ -39,7 +96,15 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
 export function getCurrentEnvironment(
   override?: string,
 ): EnvironmentDefinition {
-  const name = resolveEnvironmentName(override);
+  const { name, source } = resolveEnvironmentSource(override);
+
+  // When the environment was resolved from the config file, propagate it
+  // into process.env so child processes (daemon, gateway) inherit the same
+  // environment without needing to read the config file themselves.
+  if (source === "config" && !process.env.VELLUM_ENVIRONMENT) {
+    process.env.VELLUM_ENVIRONMENT = name;
+  }
+
   const seed = SEEDS[name];
   if (!seed) {
     if (name !== DEFAULT_ENVIRONMENT_NAME) {
@@ -88,15 +153,26 @@ export function getCurrentEnvironment(
   return resolved;
 }
 
-function resolveEnvironmentName(override: string | undefined): string {
+/**
+ * Resolve the environment name and its source for diagnostics.
+ */
+export function resolveEnvironmentSource(override?: string): {
+  name: string;
+  source: "flag" | "env" | "config" | "default";
+} {
   const trimmedOverride = override?.trim();
   if (trimmedOverride && trimmedOverride.length > 0) {
-    return trimmedOverride;
+    return { name: trimmedOverride, source: "flag" };
   }
   const envVar = process.env.VELLUM_ENVIRONMENT?.trim();
   if (envVar && envVar.length > 0) {
-    return envVar;
+    return { name: envVar, source: "env" };
   }
-
-  return DEFAULT_ENVIRONMENT_NAME;
+  const configDefault = readDefaultEnvironment();
+  if (configDefault) {
+    return { name: configDefault, source: "config" };
+  }
+  return { name: DEFAULT_ENVIRONMENT_NAME, source: "default" };
 }
+
+
