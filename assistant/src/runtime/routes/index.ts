@@ -25,6 +25,7 @@ import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.j
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
 import { ROUTES as CONTACT_ROUTES } from "./contact-routes.js";
+import { ROUTES as CONVERSATION_ANALYSIS_ROUTES } from "./conversation-analysis-routes.js";
 import { ROUTES as CONVERSATION_ATTENTION_ROUTES } from "./conversation-attention-routes.js";
 import { ROUTES as CONVERSATION_QUERY_ROUTES } from "./conversation-query-routes.js";
 import { ROUTES as CONVERSATION_STARTER_ROUTES } from "./conversation-starter-routes.js";
@@ -67,8 +68,10 @@ import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
+import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
+import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
 import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
@@ -98,6 +101,7 @@ export const ROUTES: RouteDefinition[] = [
   ...BRAIN_GRAPH_ROUTES,
   ...CLIENT_ROUTES,
   ...CONTACT_ROUTES,
+  ...CONVERSATION_ANALYSIS_ROUTES,
   ...CONVERSATION_ATTENTION_ROUTES,
   ...CREDENTIAL_PROMPT_ROUTES,
   ...DEFER_ROUTES,
@@ -136,11 +140,13 @@ export const ROUTES: RouteDefinition[] = [
   ...SLACK_CHANNEL_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
+  ...SUGGEST_TRUST_RULE_ROUTES,
   ...SUBAGENT_ROUTES,
   ...SURFACE_ACTION_ROUTES,
   ...SURFACE_CONTENT_ROUTES,
   ...TELEGRAM_ROUTES,
   ...TWILIO_ROUTES,
+  ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
   ...TRACE_EVENT_ROUTES,
   ...TTS_ROUTES,

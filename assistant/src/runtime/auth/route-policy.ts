@@ -609,6 +609,58 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Task templates and queue: local-only (CLI / IPC callers)
+registerPolicy("tasks/save", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/run", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/delete", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/queue/show", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/queue/add", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/queue/update", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/queue/remove", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("tasks/queue/run", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Trust rule suggestion: local-only (gateway IPC)
+registerPolicy("trust-rules/suggest", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Notification pipeline: local-only (CLI / IPC callers)
 registerPolicy("notifications/emit", {
   requiredScopes: ["settings.write"],

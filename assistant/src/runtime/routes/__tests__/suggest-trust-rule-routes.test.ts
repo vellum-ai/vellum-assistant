@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be defined before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -56,7 +56,7 @@ let mockExtractToolUseResult: unknown = {
   },
 };
 
-mock.module("../../providers/provider-send-message.js", () => ({
+mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => mockProvider,
   createTimeout: () => ({
     signal: new AbortController().signal,
@@ -70,7 +70,9 @@ mock.module("../../providers/provider-send-message.js", () => ({
 // Import the module under test AFTER mocks are set up
 // ---------------------------------------------------------------------------
 
-import { suggestTrustRuleRoute } from "./suggest-trust-rule.js";
+import { ROUTES } from "../suggest-trust-rule-routes.js";
+
+const suggestTrustRuleRoute = ROUTES[0];
 
 // ---------------------------------------------------------------------------
 // Shared test data
@@ -140,15 +142,15 @@ describe("suggestTrustRuleRoute", () => {
     };
   });
 
-  test("route method is 'suggest_trust_rule'", () => {
-    expect(suggestTrustRuleRoute.method).toBe("suggest_trust_rule");
+  test("route operationId is 'suggest_trust_rule'", () => {
+    expect(suggestTrustRuleRoute.operationId).toBe("suggest_trust_rule");
   });
 
   describe("happy path", () => {
     test("returns correct SuggestTrustRuleResponse shape with scopeOptions and directoryScopeOptions passed through", async () => {
-      const result = await suggestTrustRuleRoute.handler(
-        baseRequest as unknown as Record<string, unknown>,
-      );
+      const result = await suggestTrustRuleRoute.handler({
+        body: baseRequest as unknown as Record<string, unknown>,
+      });
 
       expect(result).toMatchObject({
         pattern: "rm -rf *",
@@ -161,9 +163,9 @@ describe("suggestTrustRuleRoute", () => {
     });
 
     test("passes callSite 'trustRuleSuggestion' and tool_choice to provider", async () => {
-      await suggestTrustRuleRoute.handler(
-        baseRequest as unknown as Record<string, unknown>,
-      );
+      await suggestTrustRuleRoute.handler({
+        body: baseRequest as unknown as Record<string, unknown>,
+      });
 
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
       const callArgs = mockSendMessage.mock.calls[0] as unknown[];
@@ -183,9 +185,9 @@ describe("suggestTrustRuleRoute", () => {
       mockProvider = null;
 
       await expect(
-        suggestTrustRuleRoute.handler(
-          baseRequest as unknown as Record<string, unknown>,
-        ),
+        suggestTrustRuleRoute.handler({
+          body: baseRequest as unknown as Record<string, unknown>,
+        }),
       ).rejects.toThrow("No LLM provider configured for trustRuleSuggestion");
     });
   });
@@ -195,9 +197,9 @@ describe("suggestTrustRuleRoute", () => {
       mockExtractToolUseResult = undefined;
 
       await expect(
-        suggestTrustRuleRoute.handler(
-          baseRequest as unknown as Record<string, unknown>,
-        ),
+        suggestTrustRuleRoute.handler({
+          body: baseRequest as unknown as Record<string, unknown>,
+        }),
       ).rejects.toThrow("No tool_use block in trust rule suggestion response");
     });
   });
@@ -209,9 +211,9 @@ describe("suggestTrustRuleRoute", () => {
         directoryScopeOptions: undefined,
       };
 
-      const result = await suggestTrustRuleRoute.handler(
-        requestWithoutDirScope as unknown as Record<string, unknown>,
-      );
+      const result = await suggestTrustRuleRoute.handler({
+        body: requestWithoutDirScope as unknown as Record<string, unknown>,
+      });
 
       expect(result).toMatchObject({
         pattern: "rm -rf *",

@@ -1,9 +1,9 @@
 /**
  * Unit tests for the `conversation_analyze` job handler.
  *
- * The handler bridges the jobs worker to `analyzeConversation()` via the
- * singleton deps bundle. Tests stub both the singleton and the service so we
- * exercise dispatch logic without pulling in HTTP-layer wiring.
+ * The handler bridges the jobs worker to `analyzeConversation()`. Tests stub
+ * the service so we exercise dispatch logic without pulling in full daemon
+ * wiring.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -15,18 +15,9 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-// Mock analyze-deps singleton — each test overrides via mockGetAnalysisDeps.
-type DepsStub = Record<string, unknown>;
-const mockGetAnalysisDeps = mock((): DepsStub | null => null);
-
-mock.module("../../runtime/services/analyze-deps-singleton.js", () => ({
-  getAnalysisDeps: mockGetAnalysisDeps,
-}));
-
 // Mock analyze-conversation service — default resolves with a success result.
 type AnalyzeArgs = {
   conversationId: string;
-  deps: DepsStub;
   opts: { trigger: "manual" | "auto" };
 };
 const analyzeCalls: AnalyzeArgs[] = [];
@@ -36,10 +27,9 @@ type AnalyzeResultStub =
 const mockAnalyzeConversation = mock(
   async (
     conversationId: string,
-    deps: DepsStub,
     opts: { trigger: "manual" | "auto" },
   ): Promise<AnalyzeResultStub> => {
-    analyzeCalls.push({ conversationId, deps, opts });
+    analyzeCalls.push({ conversationId, opts });
     return { analysisConversationId: "analysis-1" };
   },
 );
@@ -64,7 +54,6 @@ mock.module("../auto-analysis-enqueue.js", () => ({
 
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { BackendUnavailableError } from "../../util/errors.js";
 import { conversationAnalyzeJob } from "../conversation-analyze-job.js";
 import type { MemoryJob } from "../jobs-store.js";
 
@@ -92,16 +81,10 @@ describe("conversationAnalyzeJob", () => {
   beforeEach(() => {
     analyzeCalls.length = 0;
     enqueueCalls.length = 0;
-    mockGetAnalysisDeps.mockReset();
-    mockGetAnalysisDeps.mockImplementation(() => null);
     mockAnalyzeConversation.mockReset();
     mockAnalyzeConversation.mockImplementation(
-      async (
-        conversationId: string,
-        deps: DepsStub,
-        opts: { trigger: "manual" | "auto" },
-      ) => {
-        analyzeCalls.push({ conversationId, deps, opts });
+      async (conversationId: string, opts: { trigger: "manual" | "auto" }) => {
+        analyzeCalls.push({ conversationId, opts });
         return { analysisConversationId: "analysis-1" };
       },
     );
@@ -110,40 +93,14 @@ describe("conversationAnalyzeJob", () => {
   test("returns without calling the service when conversationId is missing", async () => {
     await conversationAnalyzeJob(makeJob({}), TEST_CONFIG);
     expect(analyzeCalls).toHaveLength(0);
-    expect(mockGetAnalysisDeps).not.toHaveBeenCalled();
   });
 
   test("returns without calling the service when conversationId is empty string", async () => {
-    await conversationAnalyzeJob(
-      makeJob({ conversationId: "" }),
-      TEST_CONFIG,
-    );
+    await conversationAnalyzeJob(makeJob({ conversationId: "" }), TEST_CONFIG);
     expect(analyzeCalls).toHaveLength(0);
-    expect(mockGetAnalysisDeps).not.toHaveBeenCalled();
-  });
-
-  test("throws BackendUnavailableError when deps singleton is not yet initialized", async () => {
-    // Deps singleton is unset during slow daemon startup. The handler throws
-    // BackendUnavailableError so handleJobError() in the worker defers the
-    // job with exponential backoff (via deferMemoryJob) instead of completing
-    // it. Returning success here would permanently drop the job via
-    // completeMemoryJob — conversations with a pre-existing queued job
-    // during startup and no subsequent activity would never be analyzed.
-    mockGetAnalysisDeps.mockImplementation(() => null);
-    await expect(
-      conversationAnalyzeJob(
-        makeJob({ conversationId: "conv-1" }),
-        TEST_CONFIG,
-      ),
-    ).rejects.toBeInstanceOf(BackendUnavailableError);
-    expect(analyzeCalls).toHaveLength(0);
-    expect(mockGetAnalysisDeps).toHaveBeenCalled();
   });
 
   test("invokes analyzeConversation with trigger=auto and the conversationId", async () => {
-    const depsStub: DepsStub = { _tag: "deps-stub" };
-    mockGetAnalysisDeps.mockImplementation(() => depsStub);
-
     await conversationAnalyzeJob(
       makeJob({ conversationId: "conv-42" }),
       TEST_CONFIG,
@@ -152,16 +109,9 @@ describe("conversationAnalyzeJob", () => {
     expect(analyzeCalls).toHaveLength(1);
     expect(analyzeCalls[0]!.conversationId).toBe("conv-42");
     expect(analyzeCalls[0]!.opts).toEqual({ trigger: "auto" });
-    expect(analyzeCalls[0]!.deps).toBe(depsStub);
   });
 
   test("requeues a follow-up idle trigger when the service returns skipped=true", async () => {
-    // If the rolling analysis conversation is already processing, the
-    // service returns { skipped: true } without running. The job handler
-    // completes successfully (no retry), so we must enqueue a follow-up
-    // ourselves — otherwise, if no later batch/idle/lifecycle trigger
-    // arrives, new source messages would never be analyzed.
-    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
     mockAnalyzeConversation.mockImplementation(async () => ({
       analysisConversationId: "analysis-1",
       skipped: true as const,
@@ -180,7 +130,6 @@ describe("conversationAnalyzeJob", () => {
   });
 
   test("does not requeue on a normal (non-skipped) successful run", async () => {
-    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
     mockAnalyzeConversation.mockImplementation(async () => ({
       analysisConversationId: "analysis-1",
     }));
@@ -194,7 +143,6 @@ describe("conversationAnalyzeJob", () => {
   });
 
   test("does not requeue when the service returns an error result", async () => {
-    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
     mockAnalyzeConversation.mockImplementation(async () => ({
       error: {
         kind: "BAD_REQUEST",
@@ -212,7 +160,6 @@ describe("conversationAnalyzeJob", () => {
   });
 
   test("swallows (does not throw) when the service returns an error result", async () => {
-    mockGetAnalysisDeps.mockImplementation(() => ({ _tag: "deps" }));
     mockAnalyzeConversation.mockImplementation(async () => ({
       error: {
         kind: "BAD_REQUEST",
@@ -221,8 +168,6 @@ describe("conversationAnalyzeJob", () => {
       },
     }));
 
-    // Must not throw — the worker would otherwise retry forever on a
-    // deterministic rejection (e.g. the recursion guard).
     await expect(
       conversationAnalyzeJob(
         makeJob({ conversationId: "conv-2" }),

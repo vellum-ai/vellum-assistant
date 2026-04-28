@@ -1,5 +1,5 @@
 /**
- * Tests for the task template and task queue IPC routes.
+ * Tests for the task template and task queue route definitions.
  *
  * Mocks the execute functions at the module boundary so route handlers
  * can be exercised without real task/queue state.
@@ -7,7 +7,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import type { ToolExecutionResult } from "../../tools/types.js";
+import type { ToolExecutionResult } from "../../../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Mock state — task template operations
@@ -100,7 +100,7 @@ let mockWorkItemRunCalls: Array<{
 // Module mocks — task template execute functions
 // ---------------------------------------------------------------------------
 
-mock.module("../../tools/tasks/task-save.js", () => ({
+mock.module("../../../tools/tasks/task-save.js", () => ({
   executeTaskSave: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -110,7 +110,7 @@ mock.module("../../tools/tasks/task-save.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/task-list.js", () => ({
+mock.module("../../../tools/tasks/task-list.js", () => ({
   executeTaskList: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -120,7 +120,7 @@ mock.module("../../tools/tasks/task-list.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/task-run.js", () => ({
+mock.module("../../../tools/tasks/task-run.js", () => ({
   executeTaskRun: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -130,7 +130,7 @@ mock.module("../../tools/tasks/task-run.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/task-delete.js", () => ({
+mock.module("../../../tools/tasks/task-delete.js", () => ({
   executeTaskDelete: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -144,7 +144,7 @@ mock.module("../../tools/tasks/task-delete.js", () => ({
 // Module mocks — task queue execute functions
 // ---------------------------------------------------------------------------
 
-mock.module("../../tools/tasks/work-item-list.js", () => ({
+mock.module("../../../tools/tasks/work-item-list.js", () => ({
   executeTaskListShow: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -154,7 +154,7 @@ mock.module("../../tools/tasks/work-item-list.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/work-item-enqueue.js", () => ({
+mock.module("../../../tools/tasks/work-item-enqueue.js", () => ({
   executeTaskListAdd: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -164,7 +164,7 @@ mock.module("../../tools/tasks/work-item-enqueue.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/work-item-update.js", () => ({
+mock.module("../../../tools/tasks/work-item-update.js", () => ({
   executeTaskListUpdate: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -174,7 +174,7 @@ mock.module("../../tools/tasks/work-item-update.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/work-item-remove.js", () => ({
+mock.module("../../../tools/tasks/work-item-remove.js", () => ({
   executeTaskListRemove: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -184,7 +184,7 @@ mock.module("../../tools/tasks/work-item-remove.js", () => ({
   },
 }));
 
-mock.module("../../tools/tasks/work-item-run.js", () => ({
+mock.module("../../../tools/tasks/work-item-run.js", () => ({
   executeTaskQueueRun: async (
     input: Record<string, unknown>,
     context: { conversationId: string },
@@ -194,25 +194,22 @@ mock.module("../../tools/tasks/work-item-run.js", () => ({
   },
 }));
 
-// Also mock getWorkspaceDir so task.ts doesn't hit the real filesystem
-mock.module("../../util/platform.js", () => ({
+// Also mock getWorkspaceDir so handlers don't hit the real filesystem
+mock.module("../../../util/platform.js", () => ({
   getWorkspaceDir: () => "/mock/workspace",
 }));
 
 // ---------------------------------------------------------------------------
-// Import route handlers after mocking
+// Import route definitions after mocking
 // ---------------------------------------------------------------------------
 
-const { taskSaveRoute, taskListRoute, taskRunRoute, taskDeleteRoute } =
-  await import("../routes/task.js");
+const { ROUTES } = await import("../task-routes.js");
 
-const {
-  taskQueueShowRoute,
-  taskQueueAddRoute,
-  taskQueueUpdateRoute,
-  taskQueueRemoveRoute,
-  taskQueueRunRoute,
-} = await import("../routes/task-queue.js");
+function findRoute(opId: string) {
+  const r = ROUTES.find((r) => r.operationId === opId);
+  if (!r) throw new Error(`Route ${opId} not found`);
+  return r;
+}
 
 // ---------------------------------------------------------------------------
 // Reset helpers
@@ -244,17 +241,17 @@ afterEach(() => {
 // Task template routes
 // ===========================================================================
 
-describe("task/save IPC route", () => {
-  test("method is task/save", () => {
-    expect(taskSaveRoute.method).toBe("task/save");
+describe("task_save route", () => {
+  test("operationId is task_save", () => {
+    expect(findRoute("task_save").operationId).toBe("task_save");
   });
 
   test("delegates to executeTaskSave with correct conversationId", async () => {
     mockTaskSaveResult = { content: "Task saved", isError: false };
 
-    const result = await taskSaveRoute.handler({
-      conversation_id: "conv-123",
-      title: "My Task",
+    const route = findRoute("task_save");
+    const result = await route.handler({
+      body: { conversation_id: "conv-123", title: "My Task" },
     });
 
     expect(result).toEqual({ ok: true, content: "Task saved" });
@@ -267,7 +264,8 @@ describe("task/save IPC route", () => {
   });
 
   test("passes empty conversationId when conversation_id is omitted", async () => {
-    await taskSaveRoute.handler({});
+    const route = findRoute("task_save");
+    await route.handler({ body: {} });
 
     expect(mockTaskSaveCalls).toHaveLength(1);
     expect(mockTaskSaveCalls[0].context.conversationId).toBe("");
@@ -276,15 +274,16 @@ describe("task/save IPC route", () => {
   test("throws when executeTaskSave returns isError: true", async () => {
     mockTaskSaveResult = { content: "Save failed", isError: true };
 
+    const route = findRoute("task_save");
     await expect(
-      taskSaveRoute.handler({ conversation_id: "conv-1" }),
+      route.handler({ body: { conversation_id: "conv-1" } }),
     ).rejects.toThrow("Save failed");
   });
 });
 
-describe("task/list IPC route", () => {
-  test("method is task/list", () => {
-    expect(taskListRoute.method).toBe("task/list");
+describe("task_list route", () => {
+  test("operationId is task_list", () => {
+    expect(findRoute("task_list").operationId).toBe("task_list");
   });
 
   test("delegates to executeTaskList with no params", async () => {
@@ -293,7 +292,8 @@ describe("task/list IPC route", () => {
       isError: false,
     };
 
-    const result = await taskListRoute.handler();
+    const route = findRoute("task_list");
+    const result = await route.handler({ body: {} });
 
     expect(result).toEqual({ ok: true, content: "task1\ntask2" });
     expect(mockTaskListCalls).toHaveLength(1);
@@ -303,21 +303,22 @@ describe("task/list IPC route", () => {
   test("throws when executeTaskList returns isError: true", async () => {
     mockTaskListResult = { content: "List failed", isError: true };
 
-    await expect(taskListRoute.handler()).rejects.toThrow("List failed");
+    const route = findRoute("task_list");
+    await expect(route.handler({ body: {} })).rejects.toThrow("List failed");
   });
 });
 
-describe("task/run IPC route", () => {
-  test("method is task/run", () => {
-    expect(taskRunRoute.method).toBe("task/run");
+describe("task_run route", () => {
+  test("operationId is task_run", () => {
+    expect(findRoute("task_run").operationId).toBe("task_run");
   });
 
   test("delegates with task_name and inputs", async () => {
     mockTaskRunResult = { content: "Task started", isError: false };
 
-    const result = await taskRunRoute.handler({
-      task_name: "deploy",
-      inputs: { env: "prod" },
+    const route = findRoute("task_run");
+    const result = await route.handler({
+      body: { task_name: "deploy", inputs: { env: "prod" } },
     });
 
     expect(result).toEqual({ ok: true, content: "Task started" });
@@ -329,7 +330,8 @@ describe("task/run IPC route", () => {
   });
 
   test("delegates with task_id", async () => {
-    await taskRunRoute.handler({ task_id: "tid-42" });
+    const route = findRoute("task_run");
+    await route.handler({ body: { task_id: "tid-42" } });
 
     expect(mockTaskRunCalls).toHaveLength(1);
     expect(mockTaskRunCalls[0].input).toEqual({ task_id: "tid-42" });
@@ -338,22 +340,24 @@ describe("task/run IPC route", () => {
   test("throws when executeTaskRun returns isError: true", async () => {
     mockTaskRunResult = { content: "Run failed", isError: true };
 
-    await expect(taskRunRoute.handler({ task_name: "broken" })).rejects.toThrow(
-      "Run failed",
-    );
+    const route = findRoute("task_run");
+    await expect(
+      route.handler({ body: { task_name: "broken" } }),
+    ).rejects.toThrow("Run failed");
   });
 });
 
-describe("task/delete IPC route", () => {
-  test("method is task/delete", () => {
-    expect(taskDeleteRoute.method).toBe("task/delete");
+describe("task_delete route", () => {
+  test("operationId is task_delete", () => {
+    expect(findRoute("task_delete").operationId).toBe("task_delete");
   });
 
   test("delegates with task_ids array", async () => {
     mockTaskDeleteResult = { content: "Deleted 2 tasks", isError: false };
 
-    const result = await taskDeleteRoute.handler({
-      task_ids: ["id-1", "id-2"],
+    const route = findRoute("task_delete");
+    const result = await route.handler({
+      body: { task_ids: ["id-1", "id-2"] },
     });
 
     expect(result).toEqual({ ok: true, content: "Deleted 2 tasks" });
@@ -364,13 +368,17 @@ describe("task/delete IPC route", () => {
   });
 
   test("throws Zod validation error for empty task_ids array", async () => {
-    await expect(taskDeleteRoute.handler({ task_ids: [] })).rejects.toThrow();
+    const route = findRoute("task_delete");
+    await expect(
+      route.handler({ body: { task_ids: [] } }),
+    ).rejects.toThrow();
 
     expect(mockTaskDeleteCalls).toHaveLength(0);
   });
 
   test("throws Zod validation error for missing task_ids", async () => {
-    await expect(taskDeleteRoute.handler({})).rejects.toThrow();
+    const route = findRoute("task_delete");
+    await expect(route.handler({ body: {} })).rejects.toThrow();
 
     expect(mockTaskDeleteCalls).toHaveLength(0);
   });
@@ -378,8 +386,9 @@ describe("task/delete IPC route", () => {
   test("throws when executeTaskDelete returns isError: true", async () => {
     mockTaskDeleteResult = { content: "Delete failed", isError: true };
 
+    const route = findRoute("task_delete");
     await expect(
-      taskDeleteRoute.handler({ task_ids: ["id-1"] }),
+      route.handler({ body: { task_ids: ["id-1"] } }),
     ).rejects.toThrow("Delete failed");
   });
 });
@@ -388,15 +397,16 @@ describe("task/delete IPC route", () => {
 // Task queue routes
 // ===========================================================================
 
-describe("task/queue/show IPC route", () => {
-  test("method is task/queue/show", () => {
-    expect(taskQueueShowRoute.method).toBe("task/queue/show");
+describe("task_queue_show route", () => {
+  test("operationId is task_queue_show", () => {
+    expect(findRoute("task_queue_show").operationId).toBe("task_queue_show");
   });
 
-  test("lists all when called with no params", async () => {
+  test("lists all when called with empty body", async () => {
     mockWorkItemListResult = { content: "item1\nitem2", isError: false };
 
-    const result = await taskQueueShowRoute.handler();
+    const route = findRoute("task_queue_show");
+    const result = await route.handler({ body: {} });
 
     expect(result).toEqual({ content: "item1\nitem2", isError: false });
     expect(mockWorkItemListCalls).toHaveLength(1);
@@ -405,7 +415,8 @@ describe("task/queue/show IPC route", () => {
   test("passes status filter through", async () => {
     mockWorkItemListResult = { content: "queued items", isError: false };
 
-    const result = await taskQueueShowRoute.handler({ status: "queued" });
+    const route = findRoute("task_queue_show");
+    const result = await route.handler({ body: { status: "queued" } });
 
     expect(result).toEqual({ content: "queued items", isError: false });
     expect(mockWorkItemListCalls).toHaveLength(1);
@@ -415,22 +426,24 @@ describe("task/queue/show IPC route", () => {
   test("propagates isError from execute function", async () => {
     mockWorkItemListResult = { content: "Show failed", isError: true };
 
-    const result = await taskQueueShowRoute.handler();
+    const route = findRoute("task_queue_show");
+    const result = await route.handler({ body: {} });
 
     expect(result).toEqual({ content: "Show failed", isError: true });
   });
 });
 
-describe("task/queue/add IPC route", () => {
-  test("method is task/queue/add", () => {
-    expect(taskQueueAddRoute.method).toBe("task/queue/add");
+describe("task_queue_add route", () => {
+  test("operationId is task_queue_add", () => {
+    expect(findRoute("task_queue_add").operationId).toBe("task_queue_add");
   });
 
   test("passes ad-hoc title through", async () => {
     mockWorkItemEnqueueResult = { content: "Item added", isError: false };
 
-    const result = await taskQueueAddRoute.handler({
-      title: "Fix homepage bug",
+    const route = findRoute("task_queue_add");
+    const result = await route.handler({
+      body: { title: "Fix homepage bug" },
     });
 
     expect(result).toEqual({ content: "Item added", isError: false });
@@ -446,7 +459,8 @@ describe("task/queue/add IPC route", () => {
       isError: false,
     };
 
-    const result = await taskQueueAddRoute.handler({ task_id: "tmpl-1" });
+    const route = findRoute("task_queue_add");
+    const result = await route.handler({ body: { task_id: "tmpl-1" } });
 
     expect(result).toEqual({
       content: "Item added from template",
@@ -461,25 +475,26 @@ describe("task/queue/add IPC route", () => {
   test("propagates isError from execute function", async () => {
     mockWorkItemEnqueueResult = { content: "Add failed", isError: true };
 
-    const result = await taskQueueAddRoute.handler({
-      title: "broken",
-    });
+    const route = findRoute("task_queue_add");
+    const result = await route.handler({ body: { title: "broken" } });
 
     expect(result).toEqual({ content: "Add failed", isError: true });
   });
 });
 
-describe("task/queue/update IPC route", () => {
-  test("method is task/queue/update", () => {
-    expect(taskQueueUpdateRoute.method).toBe("task/queue/update");
+describe("task_queue_update route", () => {
+  test("operationId is task_queue_update", () => {
+    expect(findRoute("task_queue_update").operationId).toBe(
+      "task_queue_update",
+    );
   });
 
   test("delegates with work_item_id and status update", async () => {
     mockWorkItemUpdateResult = { content: "Updated", isError: false };
 
-    const result = await taskQueueUpdateRoute.handler({
-      work_item_id: "wi-1",
-      status: "done",
+    const route = findRoute("task_queue_update");
+    const result = await route.handler({
+      body: { work_item_id: "wi-1", status: "done" },
     });
 
     expect(result).toEqual({ content: "Updated", isError: false });
@@ -493,25 +508,28 @@ describe("task/queue/update IPC route", () => {
   test("propagates isError from execute function", async () => {
     mockWorkItemUpdateResult = { content: "Update failed", isError: true };
 
-    const result = await taskQueueUpdateRoute.handler({
-      work_item_id: "wi-1",
-      status: "done",
+    const route = findRoute("task_queue_update");
+    const result = await route.handler({
+      body: { work_item_id: "wi-1", status: "done" },
     });
 
     expect(result).toEqual({ content: "Update failed", isError: true });
   });
 });
 
-describe("task/queue/remove IPC route", () => {
-  test("method is task/queue/remove", () => {
-    expect(taskQueueRemoveRoute.method).toBe("task/queue/remove");
+describe("task_queue_remove route", () => {
+  test("operationId is task_queue_remove", () => {
+    expect(findRoute("task_queue_remove").operationId).toBe(
+      "task_queue_remove",
+    );
   });
 
   test("delegates with work_item_id", async () => {
     mockWorkItemRemoveResult = { content: "Removed", isError: false };
 
-    const result = await taskQueueRemoveRoute.handler({
-      work_item_id: "wi-2",
+    const route = findRoute("task_queue_remove");
+    const result = await route.handler({
+      body: { work_item_id: "wi-2" },
     });
 
     expect(result).toEqual({ content: "Removed", isError: false });
@@ -524,24 +542,26 @@ describe("task/queue/remove IPC route", () => {
   test("propagates isError from execute function", async () => {
     mockWorkItemRemoveResult = { content: "Remove failed", isError: true };
 
-    const result = await taskQueueRemoveRoute.handler({
-      work_item_id: "wi-2",
+    const route = findRoute("task_queue_remove");
+    const result = await route.handler({
+      body: { work_item_id: "wi-2" },
     });
 
     expect(result).toEqual({ content: "Remove failed", isError: true });
   });
 });
 
-describe("task/queue/run IPC route", () => {
-  test("method is task/queue/run", () => {
-    expect(taskQueueRunRoute.method).toBe("task/queue/run");
+describe("task_queue_run route", () => {
+  test("operationId is task_queue_run", () => {
+    expect(findRoute("task_queue_run").operationId).toBe("task_queue_run");
   });
 
   test("delegates with title", async () => {
     mockWorkItemRunResult = { content: "Running", isError: false };
 
-    const result = await taskQueueRunRoute.handler({
-      title: "Deploy staging",
+    const route = findRoute("task_queue_run");
+    const result = await route.handler({
+      body: { title: "Deploy staging" },
     });
 
     expect(result).toEqual({ content: "Running", isError: false });
@@ -554,8 +574,9 @@ describe("task/queue/run IPC route", () => {
   test("delegates with work_item_id", async () => {
     mockWorkItemRunResult = { content: "Running by id", isError: false };
 
-    const result = await taskQueueRunRoute.handler({
-      work_item_id: "wi-5",
+    const route = findRoute("task_queue_run");
+    const result = await route.handler({
+      body: { work_item_id: "wi-5" },
     });
 
     expect(result).toEqual({ content: "Running by id", isError: false });
@@ -568,9 +589,8 @@ describe("task/queue/run IPC route", () => {
   test("propagates isError from execute function", async () => {
     mockWorkItemRunResult = { content: "Run failed", isError: true };
 
-    const result = await taskQueueRunRoute.handler({
-      title: "broken",
-    });
+    const route = findRoute("task_queue_run");
+    const result = await route.handler({ body: { title: "broken" } });
 
     expect(result).toEqual({ content: "Run failed", isError: true });
   });

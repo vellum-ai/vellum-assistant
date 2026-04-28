@@ -19,9 +19,10 @@ import { Command } from "commander";
 // ---------------------------------------------------------------------------
 
 /** The last `cliIpcCall` invocation captured for assertions. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let lastIpcCall: {
   method: string;
-  params?: Record<string, unknown>;
+  params?: any;
 } | null = null;
 
 /** The result that cliIpcCall will return. */
@@ -159,7 +160,7 @@ describe("task list", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/list");
+    expect(lastIpcCall!.method).toBe("task_list");
   });
 
   test("--json outputs { ok: true, result: ... }", async () => {
@@ -206,8 +207,8 @@ describe("task save", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/save");
-    expect(lastIpcCall!.params).toEqual({
+    expect(lastIpcCall!.method).toBe("task_save");
+    expect(lastIpcCall!.params!.body).toEqual({
       conversation_id: "conv-123",
       title: "My Task",
     });
@@ -220,8 +221,8 @@ describe("task save", () => {
     const { exitCode } = await runCommand(["task", "save"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("task/save");
-    expect(lastIpcCall!.params!.conversation_id).toBe("env-conv-456");
+    expect(lastIpcCall!.method).toBe("task_save");
+    expect(lastIpcCall!.params!.body!.conversation_id).toBe("env-conv-456");
   });
 
   test("prefers __SKILL_CONTEXT_JSON over __CONVERSATION_ID", async () => {
@@ -234,7 +235,7 @@ describe("task save", () => {
     const { exitCode } = await runCommand(["task", "save"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.conversation_id).toBe("skill-conv-789");
+    expect(lastIpcCall!.params!.body!.conversation_id).toBe("skill-conv-789");
   });
 
   test("exits with error when no conversation ID is available", async () => {
@@ -294,8 +295,8 @@ describe("task run", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/run");
-    expect(lastIpcCall!.params).toEqual({
+    expect(lastIpcCall!.method).toBe("task_run");
+    expect(lastIpcCall!.params!.body).toEqual({
       task_name: "deploy",
       inputs: { env: "prod" },
     });
@@ -312,7 +313,7 @@ describe("task run", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params).toEqual({ task_id: "task_abc123" });
+    expect(lastIpcCall!.params!.body).toEqual({ task_id: "task_abc123" });
   });
 
   test("exits with error on invalid JSON --inputs", async () => {
@@ -391,8 +392,8 @@ describe("task delete", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/delete");
-    expect(lastIpcCall!.params).toEqual({ task_ids: ["id1", "id2"] });
+    expect(lastIpcCall!.method).toBe("task_delete");
+    expect(lastIpcCall!.params!.body).toEqual({ task_ids: ["id1", "id2"] });
   });
 
   test("passes single ID as task_ids array", async () => {
@@ -401,7 +402,7 @@ describe("task delete", () => {
     const { exitCode } = await runCommand(["task", "delete", "id1"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params).toEqual({ task_ids: ["id1"] });
+    expect(lastIpcCall!.params!.body).toEqual({ task_ids: ["id1"] });
   });
 
   test("--json outputs { ok: true, result: ... } on success", async () => {
@@ -462,8 +463,8 @@ describe("task queue show", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/queue/show");
-    expect(lastIpcCall!.params).toEqual({});
+    expect(lastIpcCall!.method).toBe("task_queue_show");
+    expect(lastIpcCall!.params!.body).toEqual({});
   });
 
   test("passes --status filter", async () => {
@@ -481,7 +482,7 @@ describe("task queue show", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params).toEqual({ status: "queued" });
+    expect(lastIpcCall!.params!.body).toEqual({ status: "queued" });
   });
 
   test("--json outputs { ok: true, result: ... } on success", async () => {
@@ -534,9 +535,9 @@ describe("task queue add", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/queue/add");
-    expect(lastIpcCall!.params!.title).toBe("Fix bug");
-    expect(lastIpcCall!.params!.priority_tier).toBe(0);
+    expect(lastIpcCall!.method).toBe("task_queue_add");
+    expect(lastIpcCall!.params!.body!.title).toBe("Fix bug");
+    expect(lastIpcCall!.params!.body!.priority_tier).toBe(0);
   });
 
   test("splits --required-tools by comma", async () => {
@@ -556,7 +557,7 @@ describe("task queue add", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.required_tools).toEqual([
+    expect(lastIpcCall!.params!.body!.required_tools).toEqual([
       "host_bash",
       "host_file_read",
     ]);
@@ -579,7 +580,7 @@ describe("task queue add", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.required_tools).toEqual([
+    expect(lastIpcCall!.params!.body!.required_tools).toEqual([
       "host_bash",
       "host_file_read",
       "browser",
@@ -603,7 +604,7 @@ describe("task queue add", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.if_exists).toBe("reuse_existing");
+    expect(lastIpcCall!.params!.body!.if_exists).toBe("reuse_existing");
   });
 
   test("passes --name as task_name", async () => {
@@ -623,8 +624,8 @@ describe("task queue add", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.task_name).toBe("Deploy workflow");
-    expect(lastIpcCall!.params!.title).toBe("Deploy v2");
+    expect(lastIpcCall!.params!.body!.task_name).toBe("Deploy workflow");
+    expect(lastIpcCall!.params!.body!.title).toBe("Deploy v2");
   });
 
   test("--json outputs { ok: true, result: ... } on success", async () => {
@@ -685,9 +686,9 @@ describe("task queue update", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/queue/update");
-    expect(lastIpcCall!.params!.work_item_id).toBe("wi-1");
-    expect(lastIpcCall!.params!.status).toBe("done");
+    expect(lastIpcCall!.method).toBe("task_queue_update");
+    expect(lastIpcCall!.params!.body!.work_item_id).toBe("wi-1");
+    expect(lastIpcCall!.params!.body!.status).toBe("done");
   });
 
   test("passes --priority as priority_tier", async () => {
@@ -707,7 +708,7 @@ describe("task queue update", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.priority_tier).toBe(1);
+    expect(lastIpcCall!.params!.body!.priority_tier).toBe(1);
   });
 
   test("--json outputs { ok: true, result: ... } on success", async () => {
@@ -770,8 +771,8 @@ describe("task queue remove", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/queue/remove");
-    expect(lastIpcCall!.params!.title).toBe("Fix bug");
+    expect(lastIpcCall!.method).toBe("task_queue_remove");
+    expect(lastIpcCall!.params!.body!.title).toBe("Fix bug");
   });
 
   test("passes --work-item-id", async () => {
@@ -789,7 +790,7 @@ describe("task queue remove", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.params!.work_item_id).toBe("wi-abc");
+    expect(lastIpcCall!.params!.body!.work_item_id).toBe("wi-abc");
   });
 
   test("--json outputs { ok: true, result: ... } on success", async () => {
@@ -851,8 +852,8 @@ describe("task queue run", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("task/queue/run");
-    expect(lastIpcCall!.params!.work_item_id).toBe("wi-1");
+    expect(lastIpcCall!.method).toBe("task_queue_run");
+    expect(lastIpcCall!.params!.body!.work_item_id).toBe("wi-1");
   });
 
   test("calls task/queue/run with no params (next eligible)", async () => {
@@ -864,8 +865,8 @@ describe("task queue run", () => {
     const { exitCode } = await runCommand(["task", "queue", "run"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("task/queue/run");
-    expect(lastIpcCall!.params).toEqual({});
+    expect(lastIpcCall!.method).toBe("task_queue_run");
+    expect(lastIpcCall!.params!.body).toEqual({});
   });
 
   test("--json outputs { ok: true, result: ... } on success", async () => {
