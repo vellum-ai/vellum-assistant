@@ -9,26 +9,27 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-/** Messages sent through the mock registry. */
+/** Messages sent through the mock client registry send callback. */
 let sentMessages: unknown[] = [];
 let mockSendResult = true;
 let mockHasConnection = true;
 
-mock.module("../runtime/chrome-extension-registry.js", () => ({
-  getChromeExtensionRegistry: () => ({
-    getAny: () =>
-      mockHasConnection ? { guardianId: "test-guardian" } : undefined,
-    send: (_guardianId: string, msg: unknown) => {
-      if (!mockSendResult) return false;
-      sentMessages.push(msg);
-      return true;
-    },
-  }),
-}));
+const mockSendFn = (msg: unknown) => {
+  if (!mockSendResult) return false;
+  sentMessages.push(msg);
+  return true;
+};
 
 mock.module("../runtime/client-registry.js", () => ({
   getClientRegistry: () => ({
-    getMostRecentByCapability: () => undefined,
+    getMostRecentByCapability: (cap: string) =>
+      cap === "host_browser" && mockHasConnection
+        ? { clientId: "test-client", send: mockSendFn }
+        : undefined,
+    sendToCapability: (cap: string, msg: unknown) => {
+      if (cap !== "host_browser" || !mockHasConnection) return false;
+      return mockSendFn(msg);
+    },
   }),
 }));
 

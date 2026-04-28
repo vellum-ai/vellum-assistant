@@ -1,6 +1,5 @@
 import { v4 as uuid } from "uuid";
 
-import { getChromeExtensionRegistry } from "../runtime/chrome-extension-registry.js";
 import { getClientRegistry } from "../runtime/client-registry.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -61,26 +60,21 @@ export class HostBrowserProxy {
   private pending = new Map<string, PendingRequest>();
 
   /**
-   * Whether an extension client with `host_browser` capability is connected.
-   * Checks the client registry first; falls back to the chrome extension
-   * registry until all callers are migrated to the client registry.
+   * Whether a client with `host_browser` capability is connected.
    */
   isAvailable(): boolean {
-    const clientEntry =
-      getClientRegistry().getMostRecentByCapability("host_browser");
-    if (clientEntry) return true;
-    return getChromeExtensionRegistry().getAny() != null;
+    return (
+      getClientRegistry().getMostRecentByCapability("host_browser") != null
+    );
   }
 
   /**
-   * Send a ServerMessage to the connected extension. Resolves the
-   * transport at send time — tries the chrome extension registry for
-   * now. Returns true on success, false when no connection is available.
+   * Send a ServerMessage to the most recently active `host_browser`
+   * client via the client registry. Returns true on success, false when
+   * no sendable client is available.
    */
   private sendToExtension(msg: ServerMessage): boolean {
-    const conn = getChromeExtensionRegistry().getAny();
-    if (!conn) return false;
-    return getChromeExtensionRegistry().send(conn.guardianId, msg);
+    return getClientRegistry().sendToCapability("host_browser", msg);
   }
 
   request(

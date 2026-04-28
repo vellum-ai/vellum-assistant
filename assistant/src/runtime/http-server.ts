@@ -281,6 +281,14 @@ export class RuntimeHttpServer {
               getClientRegistry().register({
                 clientId: data.connectionId,
                 interfaceId: "chrome-extension",
+                send: (msg: unknown) => {
+                  try {
+                    ws.send(JSON.stringify(msg));
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                },
               });
             }
             return;
