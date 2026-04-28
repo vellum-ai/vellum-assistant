@@ -11,9 +11,7 @@ import type { AssistantEvent } from "./assistant-event.js";
 
 /** Predicate that determines whether a subscriber wants a given event. */
 export type AssistantEventFilter = {
-  /** Only deliver events for this assistant. */
-  assistantId: string;
-  /** When set, further restrict to this conversation. */
+  /** When set, restrict delivery to this conversation. */
   conversationId?: string;
 };
 
@@ -42,7 +40,7 @@ interface SubscriberEntry {
  * Lightweight pub/sub hub for `AssistantEvent` messages.
  *
  * Filtering is applied at subscription level — subscribers receive only
- * events that match their `assistantId` (and optionally `conversationId`).
+ * events that match their `conversationId` (when specified).
  *
  * The hub is intentionally simple: synchronous fanout, no buffering, no
  * backpressure. Slow-consumer protection lives in the SSE route.
@@ -115,7 +113,6 @@ export class AssistantEventHub {
    * Publish an event to all matching subscribers.
    *
    * Matching rules:
-   * - `event.assistantId` must equal `filter.assistantId`
    * - if `filter.conversationId` is set, `event.conversationId` must equal it
    *
    * Fanout is isolated: a throwing or rejecting subscriber does not abort
@@ -132,7 +129,6 @@ export class AssistantEventHub {
 
     for (const entry of snapshot) {
       if (!entry.active) continue;
-      if (entry.filter.assistantId !== event.assistantId) continue;
       // System events (no conversationId) match all subscribers; scoped events
       // must match the subscriber's conversationId filter when present.
       if (
@@ -158,14 +154,13 @@ export class AssistantEventHub {
 
   /**
    * Returns true when at least one active subscriber would receive the given
-   * event based on the same assistant/conversation matching rules as publish().
+   * event based on the same conversation matching rules as publish().
    */
   hasSubscribersForEvent(
-    event: Pick<AssistantEvent, "assistantId" | "conversationId">,
+    event: Pick<AssistantEvent, "conversationId">,
   ): boolean {
     for (const entry of this.subscribers) {
       if (!entry.active) continue;
-      if (entry.filter.assistantId !== event.assistantId) continue;
       if (
         event.conversationId != null &&
         entry.filter.conversationId != null &&

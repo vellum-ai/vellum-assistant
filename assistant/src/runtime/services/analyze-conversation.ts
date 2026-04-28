@@ -243,7 +243,6 @@ export async function analyzeConversation(
   }
 
   const hasLiveSubscriber = assistantEventHub.hasSubscribersForEvent({
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     conversationId: analysisConversationId,
   });
 

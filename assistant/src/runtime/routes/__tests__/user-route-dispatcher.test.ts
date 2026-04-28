@@ -447,7 +447,7 @@ describe("context injection", () => {
     const hub = new AssistantEventHub();
     const received: unknown[] = [];
     hub.subscribe(
-      { assistantId: "test-assistant" },
+      {},
       (event) => { received.push(event); },
     );
 

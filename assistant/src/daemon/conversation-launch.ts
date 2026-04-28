@@ -55,8 +55,6 @@ export interface LaunchConversationDeps {
    * Wraps `DaemonServer.publishAssistantEvent`.
    */
   publishAssistantEvent: (msg: ServerMessage, conversationId?: string) => void;
-  /** Assistant id to stamp onto the `open_conversation` event. */
-  getAssistantId: () => string | undefined;
 }
 
 let _deps: LaunchConversationDeps | null = null;
@@ -168,7 +166,7 @@ export async function launchConversation(
   // from the origin.
   await assistantEventHub.publish(
     buildAssistantEvent(
-      deps.getAssistantId() ?? DAEMON_INTERNAL_ASSISTANT_ID,
+      DAEMON_INTERNAL_ASSISTANT_ID,
       {
         type: "open_conversation",
         conversationId,

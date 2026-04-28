@@ -49,7 +49,7 @@ describe("handleEmitEventSignal", () => {
 
     subscriptions.push(
       assistantEventHub.subscribe(
-        { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+        {},
         (event) => {
           received.push(event);
           resolveDelivered?.();

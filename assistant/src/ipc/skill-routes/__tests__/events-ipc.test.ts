@@ -145,7 +145,7 @@ describe("host.events.publish", () => {
   test("publish round-trip reaches assistantEventHub subscribers", async () => {
     const received: AssistantEvent[] = [];
     const subscription = assistantEventHub.subscribe(
-      { assistantId: "test-asst" },
+      {},
       (evt) => {
         received.push(evt);
       },
@@ -222,7 +222,7 @@ describe("host.events.buildEvent", () => {
 });
 
 describe("host.events.subscribe", () => {
-  test("opens ack, delivers matching events, filters non-matching", async () => {
+  test("opens ack, delivers matching events, filters non-matching conversations", async () => {
     const baseSubscribers = assistantEventHub.subscriberCount();
     const client = await openClient();
     client.send({
@@ -230,7 +230,6 @@ describe("host.events.subscribe", () => {
       method: "host.events.subscribe",
       params: {
         filter: {
-          assistantId: "asst-a",
           conversationId: "conv-a",
         },
       },
@@ -265,16 +264,7 @@ describe("host.events.subscribe", () => {
       message: { type: "t2" },
     } as never);
 
-    // Non-matching event on a different assistant.
-    await assistantEventHub.publish({
-      id: "e3",
-      assistantId: "asst-b",
-      conversationId: "conv-a",
-      emittedAt: new Date().toISOString(),
-      message: { type: "t3" },
-    } as never);
-
-    // Confirm no delivery frame arrives for the non-matching events by
+    // Confirm no delivery frame arrives for the non-matching event by
     // publishing another matching event and asserting ordering.
     await assistantEventHub.publish({
       id: "e4",
@@ -300,7 +290,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-2",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-close" } },
+      params: { filter: {} },
     });
     await client.nextFrame(); // ack
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
@@ -324,7 +314,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-3",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-leak" } },
+      params: { filter: {} },
     });
     await client.nextFrame(); // ack
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
@@ -352,7 +342,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-4",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-stop" } },
+      params: { filter: {} },
     });
     await client.nextFrame(); // ack
     expect(assistantEventHub.subscriberCount()).toBe(baseSubscribers + 1);
@@ -371,7 +361,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-dup",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-dup" } },
+      params: { filter: {} },
     });
     const ack = await client.nextFrame();
     expect("result" in ack && ack.result).toEqual({ subscribed: true });
@@ -379,7 +369,7 @@ describe("host.events.subscribe", () => {
     client.send({
       id: "sub-dup",
       method: "host.events.subscribe",
-      params: { filter: { assistantId: "asst-dup" } },
+      params: { filter: {} },
     });
     const err = await client.nextFrame();
     expect("error" in err && err.error).toContain("sub-dup");

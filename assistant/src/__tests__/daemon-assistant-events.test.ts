@@ -65,7 +65,7 @@ describe("daemon send → one mirrored assistant event", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_test" }, (e) => {
+    hub.subscribe({}, (e) => {
       received.push(e);
     });
 
@@ -87,7 +87,7 @@ describe("daemon send → one mirrored assistant event", () => {
     const hub = new AssistantEventHub();
     const received: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_test" }, (e) => {
+    hub.subscribe({}, (e) => {
       received.push(e);
     });
 
@@ -107,10 +107,10 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     const received: AssistantEvent[] = [];
 
     // Two subscribers (simulating two wire clients)
-    hub.subscribe({ assistantId: "ast_bc" }, (e) => {
+    hub.subscribe({}, (e) => {
       received.push(e);
     });
-    hub.subscribe({ assistantId: "ast_bc" }, (e) => {
+    hub.subscribe({}, (e) => {
       received.push(e);
     });
 
@@ -130,7 +130,7 @@ describe("daemon broadcast → one mirrored event per message (not per socket)",
     const hub = new AssistantEventHub();
     const publishedEvents: AssistantEvent[] = [];
 
-    hub.subscribe({ assistantId: "ast_bc" }, (e) => {
+    hub.subscribe({}, (e) => {
       publishedEvents.push(e);
     });
 

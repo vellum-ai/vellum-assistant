@@ -228,9 +228,7 @@ export interface MemoryFacet {
 
 /** Subscription filter mirroring `AssistantEventFilter` from the daemon's hub. */
 export interface Filter {
-  /** Only deliver events for this assistant. */
-  assistantId: string;
-  /** When set, further restrict to this conversation. */
+  /** When set, restrict delivery to this conversation. */
   conversationId?: string;
 }
 
