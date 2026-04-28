@@ -106,7 +106,6 @@ import {
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
-import { userRouteDefinitions } from "./routes/user-routes.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -1490,12 +1489,6 @@ export class RuntimeHttpServer {
    * preserves the original top-to-bottom matching semantics.
    */
   private buildRouteTable(): HTTPRouteDefinition[] {
-    return [
-      ...routeDefinitionsToHTTPRoutes(ROUTES),
-
-      // User-defined routes under /x/* — must be LAST so built-in routes
-      // always take priority.
-      ...userRouteDefinitions(),
-    ];
+    return [...routeDefinitionsToHTTPRoutes(ROUTES)];
   }
 }

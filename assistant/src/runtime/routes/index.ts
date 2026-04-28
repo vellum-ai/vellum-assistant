@@ -92,6 +92,7 @@ import type { RouteDefinition } from "./types.js";
 import { ROUTES as UI_REQUEST_ROUTES } from "./ui-request-routes.js";
 import { ROUTES as UPGRADE_BROADCAST_ROUTES } from "./upgrade-broadcast-routes.js";
 import { ROUTES as USAGE_ROUTES } from "./usage-routes.js";
+import { ROUTES as USER_ROUTES } from "./user-routes.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
 import { ROUTES as WIPE_CONVERSATION_ROUTES } from "./wipe-conversation-routes.js";
@@ -189,4 +190,8 @@ export const ROUTES: RouteDefinition[] = [
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,
+
+  // User-defined routes under /x/* — MUST be last so built-in routes
+  // always take priority over the catch-all pattern.
+  ...USER_ROUTES,
 ];
