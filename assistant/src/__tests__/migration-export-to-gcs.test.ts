@@ -84,6 +84,7 @@ import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationExportToGcs,
 } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // ---------------------------------------------------------------------------
 // Fixture workspace: write a minimal SQLite file + config so the exporter
@@ -241,7 +242,7 @@ describe("handleMigrationExportToGcs — happy path", () => {
         }),
       });
 
-      const res = await handleMigrationExportToGcs(req);
+      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
       expect(res.status).toBe(202);
 
       const body = (await res.json()) as AcceptedResponse;
@@ -318,7 +319,7 @@ describe("handleMigrationExportToGcs — concurrency", () => {
           }),
         },
       );
-      const firstRes = await handleMigrationExportToGcs(firstReq);
+      const firstRes = await callHandler(handleMigrationExportToGcs, firstReq, undefined, 202);
       expect(firstRes.status).toBe(202);
       const firstBody = (await firstRes.json()) as AcceptedResponse;
 
@@ -337,11 +338,11 @@ describe("handleMigrationExportToGcs — concurrency", () => {
           }),
         },
       );
-      const secondRes = await handleMigrationExportToGcs(secondReq);
+      const secondRes = await callHandler(handleMigrationExportToGcs, secondReq, undefined, 202);
       expect(secondRes.status).toBe(409);
       const secondBody = (await secondRes.json()) as ErrorEnvelope;
       expect(secondBody.error.code).toBe("export_in_progress");
-      expect(secondBody.error.job_id).toBe(firstBody.job_id);
+      expect(secondBody.error.message).toContain(firstBody.job_id);
 
       // Unblock the first fixture so the first job can finalize and the
       // afterEach cleanup sweeps it out.
@@ -374,7 +375,7 @@ describe("handleMigrationExportToGcs — upload failure", () => {
         }),
       });
 
-      const res = await handleMigrationExportToGcs(req);
+      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -418,7 +419,7 @@ describe("handleMigrationExportToGcs — redirect handling", () => {
         }),
       });
 
-      const res = await handleMigrationExportToGcs(req);
+      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -445,11 +446,11 @@ describe("handleMigrationExportToGcs — URL validation", () => {
           upload_url: "http://storage.googleapis.com/b/o?X-Goog-Signature=fake",
         }),
       });
-      const res = await handleMigrationExportToGcs(req);
+      const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
       expect(res.status).toBe(400);
       const body = (await res.json()) as ErrorEnvelope;
       expect(body.error.code).toBe("invalid_upload_url");
-      expect(body.error.reason).toBe("scheme");
+      expect(body.error.message).toContain("scheme");
     } finally {
       _setUrlImportValidatorOptionsForTests({
         allowedHosts: ["127.0.0.1", "storage.googleapis.com"],
@@ -465,11 +466,11 @@ describe("handleMigrationExportToGcs — URL validation", () => {
         upload_url: "https://evil.example.com/bucket/obj?X-Goog-Signature=fake",
       }),
     });
-    const res = await handleMigrationExportToGcs(req);
+    const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorEnvelope;
     expect(body.error.code).toBe("invalid_upload_url");
-    expect(body.error.reason).toBe("host");
+    expect(body.error.message).toContain("host");
   });
 
   test("rejects path traversal (400)", async () => {
@@ -481,10 +482,10 @@ describe("handleMigrationExportToGcs — URL validation", () => {
           "https://storage.googleapis.com/bucket/..%2Fother?X-Goog-Signature=fake",
       }),
     });
-    const res = await handleMigrationExportToGcs(req);
+    const res = await callHandler(handleMigrationExportToGcs, req, undefined, 202);
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorEnvelope;
     expect(body.error.code).toBe("invalid_upload_url");
-    expect(body.error.reason).toBe("path_traversal");
+    expect(body.error.message).toContain("path_traversal");
   });
 });
