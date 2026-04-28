@@ -329,6 +329,26 @@ struct ButtonsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Contrast").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Copy SVG", style: .contrast, action: {}) {
+                                    Button("Copy SVG") {}
+                                    Button("Copy Data URL") {}
+                                    Button("Download SVG") {}
+                                    Button("Download PNG") {}
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Chevron Up").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Copy SVG", style: .contrast, chevronDirection: .up, action: {}) {
+                                    Button("Copy SVG") {}
+                                    Button("Copy Data URL") {}
+                                    Button("Download SVG") {}
+                                    Button("Download PNG") {}
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
                                 Text("Long Label").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow for this conversation", icon: VIcon.check.rawValue, style: .primary, action: {}) {
                                     Button("Allow once") {}

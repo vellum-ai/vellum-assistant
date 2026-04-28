@@ -1,11 +1,20 @@
 import SwiftUI
 
 public struct VSplitButton<MenuContent: View>: View {
+    /// Controls the chevron icon direction and, on macOS, the menu pop direction.
+    public enum ChevronDirection {
+        /// Chevron points down; menu appears below (default).
+        case down
+        /// Chevron points up; on macOS the menu appears above via VMenuPanel.
+        case up
+    }
+
     public let label: String
     public var icon: String?
     public var style: VButton.Style
     public var size: VButton.Size
     public var isDisabled: Bool
+    public var chevronDirection: ChevronDirection
     public var accessibilityID: String?
     public let action: () -> Void
     @ViewBuilder public let menuContent: () -> MenuContent
@@ -13,12 +22,19 @@ public struct VSplitButton<MenuContent: View>: View {
     @State private var isPrimaryHovered = false
     @State private var isDropdownHovered = false
 
+    #if os(macOS)
+    @State private var buttonFrame: CGRect = .zero
+    @State private var activePanel: VMenuPanel?
+    @State private var isMenuOpen = false
+    #endif
+
     public init(
         label: String,
         icon: String? = nil,
         style: VButton.Style = .primary,
         size: VButton.Size = .regular,
         isDisabled: Bool = false,
+        chevronDirection: ChevronDirection = .down,
         accessibilityID: String? = nil,
         action: @escaping () -> Void,
         @ViewBuilder menuContent: @escaping () -> MenuContent
@@ -28,6 +44,7 @@ public struct VSplitButton<MenuContent: View>: View {
         self.style = style
         self.size = size
         self.isDisabled = isDisabled
+        self.chevronDirection = chevronDirection
         self.accessibilityID = accessibilityID
         self.action = action
         self.menuContent = menuContent
@@ -38,9 +55,12 @@ public struct VSplitButton<MenuContent: View>: View {
     /// Dropdown zone is square (width == height).
     private var dropdownWidth: CGFloat { zoneHeight }
 
+    private var chevronIcon: VIcon {
+        chevronDirection == .up ? .chevronUp : .chevronDown
+    }
+
     public var body: some View {
-        let cornerRadius = VRadius.md
-        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        let shape = Capsule()
 
         HStack(spacing: 0) {
             // Primary action zone
@@ -66,34 +86,8 @@ public struct VSplitButton<MenuContent: View>: View {
             // Divider
             divider
 
-            // Dropdown zone — visual layer + invisible Menu overlay
-            ZStack(alignment: .center) {
-                // Visual layer: background + centered icon
-                zoneBackgroundColor(isHovered: isDropdownHovered)
-                    .frame(width: dropdownWidth, height: zoneHeight)
-
-                VIconView(.chevronDown, size: 11)
-                    .foregroundStyle(foregroundColor)
-                    .frame(width: dropdownWidth, height: zoneHeight)
-                    .allowsHitTesting(false)
-
-                // Interactive layer: fills entire zone
-                Menu {
-                    menuContent()
-                } label: {
-                    Color.clear
-                        .frame(width: dropdownWidth, height: zoneHeight)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .accessibilityLabel("\(label) options")
-            }
-            .frame(width: dropdownWidth, height: zoneHeight)
-            .onHover { hovering in
-                isDropdownHovered = isDisabled ? false : hovering
-            }
-            .pointerCursor()
+            // Dropdown zone
+            dropdownZone
         }
         .fixedSize()
         .clipShape(shape)
@@ -109,7 +103,142 @@ public struct VSplitButton<MenuContent: View>: View {
         .animation(VAnimation.fast, value: isPrimaryHovered)
         .animation(VAnimation.fast, value: isDropdownHovered)
         .optionalSplitButtonAccessibilityID(accessibilityID)
+        #if os(macOS)
+        .overlay {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { buttonFrame = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                        buttonFrame = newFrame
+                    }
+            }
+        }
+        #endif
     }
+
+    // MARK: - Dropdown Zone
+
+    @ViewBuilder
+    private var dropdownZone: some View {
+        #if os(macOS)
+        if chevronDirection == .up {
+            upwardDropdownZone
+        } else {
+            defaultDropdownZone
+        }
+        #else
+        defaultDropdownZone
+        #endif
+    }
+
+    /// Default dropdown using SwiftUI Menu.
+    private var defaultDropdownZone: some View {
+        ZStack(alignment: .center) {
+            zoneBackgroundColor(isHovered: isDropdownHovered)
+                .frame(width: dropdownWidth, height: zoneHeight)
+
+            VIconView(chevronIcon, size: 11)
+                .foregroundStyle(foregroundColor)
+                .frame(width: dropdownWidth, height: zoneHeight)
+                .allowsHitTesting(false)
+
+            Menu {
+                menuContent()
+            } label: {
+                Color.clear
+                    .frame(width: dropdownWidth, height: zoneHeight)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .accessibilityLabel("\(label) options")
+        }
+        .frame(width: dropdownWidth, height: zoneHeight)
+        .onHover { hovering in
+            isDropdownHovered = isDisabled ? false : hovering
+        }
+        .pointerCursor()
+    }
+
+    #if os(macOS)
+    /// Upward dropdown using VMenuPanel, anchored above the button.
+    private var upwardDropdownZone: some View {
+        ZStack(alignment: .center) {
+            zoneBackgroundColor(isHovered: isDropdownHovered)
+                .frame(width: dropdownWidth, height: zoneHeight)
+
+            VIconView(.chevronUp, size: 11)
+                .foregroundStyle(foregroundColor)
+                .frame(width: dropdownWidth, height: zoneHeight)
+                .allowsHitTesting(false)
+
+            Button {
+                if isMenuOpen {
+                    activePanel?.close()
+                    activePanel = nil
+                    isMenuOpen = false
+                } else {
+                    showMenuAbove()
+                }
+            } label: {
+                Color.clear
+                    .frame(width: dropdownWidth, height: zoneHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(label) options")
+        }
+        .frame(width: dropdownWidth, height: zoneHeight)
+        .onHover { hovering in
+            isDropdownHovered = isDisabled ? false : hovering
+        }
+        .pointerCursor()
+    }
+
+    private func showMenuAbove() {
+        guard !isMenuOpen else { return }
+        isMenuOpen = true
+
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) else {
+            isMenuOpen = false
+            return
+        }
+
+        // Convert the button's top-left from SwiftUI (y-down) to screen (y-up) coordinates.
+        let topLeftInWindow = CGPoint(x: buttonFrame.minX, y: buttonFrame.minY)
+        let screenPoint = window.convertPoint(toScreen: NSPoint(
+            x: topLeftInWindow.x,
+            y: window.frame.height - topLeftInWindow.y
+        ))
+
+        // Compute button rect in screen coordinates for the excludeRect so
+        // clicks on the button itself don't dismiss the menu.
+        let buttonScreenOrigin = window.convertPoint(toScreen: NSPoint(
+            x: buttonFrame.minX,
+            y: window.frame.height - buttonFrame.maxY
+        ))
+        let buttonScreenRect = CGRect(
+            origin: buttonScreenOrigin,
+            size: CGSize(width: buttonFrame.width, height: buttonFrame.height)
+        )
+
+        let appearance = window.effectiveAppearance
+        activePanel = VMenuPanel.show(
+            at: screenPoint,
+            anchor: .above,
+            sourceWindow: window,
+            sourceAppearance: appearance,
+            excludeRect: buttonScreenRect
+        ) {
+            VMenu {
+                menuContent()
+            }
+        } onDismiss: {
+            isMenuOpen = false
+            activePanel = nil
+        }
+    }
+    #endif
 
     // MARK: - Divider
 
@@ -117,12 +246,10 @@ public struct VSplitButton<MenuContent: View>: View {
     private var divider: some View {
         switch style {
         case .primary, .danger:
-            // For filled styles, pad the divider and fill behind it with the base color
-            // so no transparency leaks through between the two zones
             ZStack {
                 Rectangle()
                     .fill(filledBaseColor)
-                    .frame(width: 1 + 2, height: zoneHeight) // 1px divider + 1px padding each side
+                    .frame(width: 1 + 2, height: zoneHeight)
                 Rectangle()
                     .fill(VColor.auxWhite.opacity(0.3))
                     .frame(width: 1, height: zoneHeight)

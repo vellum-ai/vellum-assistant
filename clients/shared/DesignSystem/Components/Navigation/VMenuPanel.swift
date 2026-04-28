@@ -2,6 +2,16 @@
 import SwiftUI
 import AppKit
 
+// MARK: - VMenuAnchorEdge
+
+/// Controls whether a VMenuPanel appears below or above the anchor point.
+public enum VMenuAnchorEdge {
+    /// Menu top aligns with the anchor point, extending downward (default).
+    case below
+    /// Menu bottom aligns with the anchor point, extending upward.
+    case above
+}
+
 // MARK: - VMenuPanel
 
 /// A borderless, floating NSPanel that hosts a SwiftUI `VMenu` at a given
@@ -46,6 +56,7 @@ public class VMenuPanel: NSPanel {
     @discardableResult
     public static func show<Content: View>(
         at screenPoint: CGPoint,
+        anchor: VMenuAnchorEdge = .below,
         sourceWindow: NSWindow? = nil,
         sourceAppearance: NSAppearance? = nil,
         excludeRect: CGRect? = nil,
@@ -115,7 +126,7 @@ public class VMenuPanel: NSPanel {
             height: max(fittingSize.height, 1)
         )
 
-        let origin = clampedOrigin(for: menuSize, cursorAt: screenPoint)
+        let origin = clampedOrigin(for: menuSize, cursorAt: screenPoint, anchor: anchor)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
 
         // Resolve the parent window for child-window attachment. Prefer the
@@ -231,13 +242,20 @@ public class VMenuPanel: NSPanel {
     // MARK: - Positioning
 
     /// Calculate panel origin clamped to the visible bounds of the screen containing the cursor.
-    private static func clampedOrigin(for size: CGSize, cursorAt cursor: CGPoint) -> CGPoint {
+    private static func clampedOrigin(for size: CGSize, cursorAt cursor: CGPoint, anchor: VMenuAnchorEdge = .below) -> CGPoint {
         let screen = NSScreen.screens.first(where: { $0.frame.contains(cursor) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? .zero
 
         var x = cursor.x - shadowInset
-        var y = cursor.y - size.height + shadowInset
+        var y: CGFloat
+
+        switch anchor {
+        case .below:
+            y = cursor.y - size.height + shadowInset
+        case .above:
+            y = cursor.y - shadowInset
+        }
 
         if x + size.width > screen.maxX {
             x = cursor.x - size.width + shadowInset
