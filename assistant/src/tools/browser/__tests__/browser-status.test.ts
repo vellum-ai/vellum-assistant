@@ -82,6 +82,16 @@ mock.module("../browser-manager.js", () => ({
   },
 }));
 
+/** Mutable proxy returned by getHostBrowserProxySingleton. Set to null for "no extension". */
+let mockSingletonProxy: {
+  isAvailable: () => boolean;
+  request: unknown;
+} | null = null;
+
+mock.module("../host-browser-proxy-singleton.js", () => ({
+  getHostBrowserProxySingleton: () => mockSingletonProxy,
+}));
+
 const { executeBrowserStatus } = await import("../browser-execution.js");
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -101,6 +111,7 @@ describe("executeBrowserStatus", () => {
     probeErrors[BROWSER_STATUS_MODE.EXTENSION] = null;
     probeErrors[BROWSER_STATUS_MODE.CDP_INSPECT] = null;
     probeErrors[BROWSER_STATUS_MODE.LOCAL] = null;
+    mockSingletonProxy = null;
   });
 
   test("reports extension preflight-unavailable when no host browser proxy is bound", async () => {
@@ -139,20 +150,14 @@ describe("executeBrowserStatus", () => {
   });
 
   test("reports extension as connected when probe fails on restricted chrome:// page", async () => {
+    mockSingletonProxy = { isAvailable: () => true, request: () => {} };
     probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
     probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
       "cdp_error",
       "Cannot access a chrome:// URL",
     );
 
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        hostBrowserProxy: {
-          isAvailable: () => true,
-        } as ToolContext["hostBrowserProxy"],
-      }),
-    );
+    const result = await executeBrowserStatus({}, makeContext());
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
     const extension = payload.modes.find(
@@ -166,14 +171,12 @@ describe("executeBrowserStatus", () => {
 
   // ── macOS host-browser proxy mode tests ─────────────────────────────
 
-  test("macOS: reports host browser proxy as available when proxy is bound and connected", async () => {
+  test("reports extension as available when singleton proxy is connected", async () => {
+    mockSingletonProxy = { isAvailable: () => true, request: () => {} };
     const result = await executeBrowserStatus(
       {},
       makeContext({
         transportInterface: "macos",
-        hostBrowserProxy: {
-          isAvailable: () => true,
-        } as ToolContext["hostBrowserProxy"],
       }),
     );
     expect(result.isError).toBe(false);
@@ -184,21 +187,84 @@ describe("executeBrowserStatus", () => {
     expect(extension).toBeDefined();
     expect(extension.available).toBe(true);
     expect(extension.verified).toBe("active_probe");
-    expect(extension.summary).toContain("macOS host browser proxy");
-    expect(extension.details.transport).toBe("macos-sse");
+    expect(extension.details.transport).toBe("extension-ws");
   });
 
-  test("macOS: reports transport as extension-ws when hostBrowserRegistryRouted is true", async () => {
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-        hostBrowserRegistryRouted: true,
-        hostBrowserProxy: {
-          isAvailable: () => true,
-        } as ToolContext["hostBrowserProxy"],
-      }),
+  test("reports extension unavailable when no singleton proxy exists", async () => {
+    // mockSingletonProxy = null (set in beforeEach)
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
     );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(false);
+    expect(extension.summary).toContain("no Chrome extension connection");
+    expect(extension.details.transport).toBe("extension-ws");
+  });
+
+  test("reports extension disconnected when singleton proxy exists but not available", async () => {
+    mockSingletonProxy = { isAvailable: () => false, request: () => {} };
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
+    );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(false);
+    expect(extension.summary).toContain("disconnected");
+    expect(extension.details.transport).toBe("extension-ws");
+  });
+
+  test("probe failure diagnostics include remediation actions", async () => {
+    mockSingletonProxy = { isAvailable: () => true, request: () => {} };
+    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
+    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
+      "transport_error",
+      "transport disconnected before response",
+    );
+
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
+    );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(false);
+    expect(extension.summary).toContain("probe failed");
+  });
+
+  test("recommendation order follows auto candidate precedence with available extension", async () => {
+    mockSingletonProxy = { isAvailable: () => true, request: () => {} };
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    // Extension is the top auto candidate and is available, so it should be recommended
+    expect(payload.recommendedMode).toBe(BROWSER_STATUS_MODE.EXTENSION);
+    expect(payload.autoCandidateOrder[0]).toBe(BROWSER_STATUS_MODE.EXTENSION);
+  });
+
+  test("recommendation falls to cdp-inspect when extension is unavailable", async () => {
+    // No singleton proxy → extension unavailable
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    // Extension is unavailable, so recommendation should fall to next available
+    expect(payload.recommendedMode).toBe(BROWSER_STATUS_MODE.CDP_INSPECT);
+  });
+
+  test("restricted chrome:// page probe includes transport details", async () => {
+    mockSingletonProxy = { isAvailable: () => true, request: () => {} };
+    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
+    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
+      "cdp_error",
+      "Cannot access a chrome:// URL",
+    );
+
+    const result = await executeBrowserStatus({}, makeContext());
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
     const extension = payload.modes.find(
@@ -207,149 +273,5 @@ describe("executeBrowserStatus", () => {
     expect(extension).toBeDefined();
     expect(extension.available).toBe(true);
     expect(extension.details.transport).toBe("extension-ws");
-  });
-
-  test("macOS: reports proxy unbound with macOS-specific actions when no proxy is present", async () => {
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-      }),
-    );
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    const extension = payload.modes.find(
-      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
-    );
-    expect(extension).toBeDefined();
-    expect(extension.available).toBe(false);
-    expect(extension.summary).toContain("macOS host browser proxy");
-    expect(extension.summary).toContain("desktop client");
-    expect(extension.details.transport).toBe("macos-sse");
-    // macOS-specific user actions should mention the desktop app, not the extension
-    expect(
-      extension.userActions.some((a: string) => a.includes("desktop app")),
-    ).toBe(true);
-  });
-
-  test("macOS: reports proxy disconnected with reconnect actions when proxy is bound but not available", async () => {
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-        hostBrowserProxy: {
-          isAvailable: () => false,
-        } as ToolContext["hostBrowserProxy"],
-      }),
-    );
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    const extension = payload.modes.find(
-      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
-    );
-    expect(extension).toBeDefined();
-    expect(extension.available).toBe(false);
-    expect(extension.summary).toContain("macOS host browser proxy");
-    expect(extension.summary).toContain("SSE transport");
-    expect(extension.details.transport).toBe("macos-sse");
-    // Should suggest reconnection, not extension install
-    expect(
-      extension.userActions.some((a: string) => a.includes("desktop app")),
-    ).toBe(true);
-  });
-
-  test("macOS: probe failure diagnostics include transport-specific remediation", async () => {
-    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
-    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
-      "transport_error",
-      "transport disconnected before response",
-    );
-
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-        hostBrowserProxy: {
-          isAvailable: () => true,
-        } as ToolContext["hostBrowserProxy"],
-      }),
-    );
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    const extension = payload.modes.find(
-      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
-    );
-    expect(extension).toBeDefined();
-    expect(extension.available).toBe(false);
-    expect(extension.summary).toContain("macOS host browser proxy");
-    // Should have remediation actions mentioning SSE bridge
-    expect(
-      extension.userActions.some((a: string) => a.includes("SSE bridge")),
-    ).toBe(true);
-  });
-
-  test("recommendation order follows auto candidate precedence for macOS with available extension proxy", async () => {
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-        hostBrowserProxy: {
-          isAvailable: () => true,
-        } as ToolContext["hostBrowserProxy"],
-      }),
-    );
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    // Extension is the top auto candidate and is available, so it should be recommended
-    expect(payload.recommendedMode).toBe(BROWSER_STATUS_MODE.EXTENSION);
-    expect(payload.autoCandidateOrder[0]).toBe(BROWSER_STATUS_MODE.EXTENSION);
-  });
-
-  test("recommendation falls to cdp-inspect when macOS proxy is unavailable", async () => {
-    // Extension probe fails
-    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
-    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
-      "transport_error",
-      "proxy not connected",
-    );
-
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-        // No proxy bound, so extension unavailable
-      }),
-    );
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    // Extension is unavailable (no proxy), so recommendation should fall to next available
-    expect(payload.recommendedMode).toBe(BROWSER_STATUS_MODE.CDP_INSPECT);
-  });
-
-  test("macOS: restricted chrome:// page probe includes macOS transport details", async () => {
-    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
-    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
-      "cdp_error",
-      "Cannot access a chrome:// URL",
-    );
-
-    const result = await executeBrowserStatus(
-      {},
-      makeContext({
-        transportInterface: "macos",
-        hostBrowserProxy: {
-          isAvailable: () => true,
-        } as ToolContext["hostBrowserProxy"],
-      }),
-    );
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    const extension = payload.modes.find(
-      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
-    );
-    expect(extension).toBeDefined();
-    expect(extension.available).toBe(true);
-    expect(extension.summary).toContain("macOS host browser proxy");
-    expect(extension.details.transport).toBe("macos-sse");
   });
 });

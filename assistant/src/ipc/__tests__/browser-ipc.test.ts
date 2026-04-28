@@ -23,16 +23,13 @@ let mockOperationCalls: Array<{
   input: Record<string, unknown>;
   conversationId: string;
   trustClass?: string;
-  hostBrowserProxy?: unknown;
   transportInterface?: string;
 }> = [];
 
 /** When set, findConversation returns a fake conversation object. */
 let mockConversation: {
   trustContext?: { trustClass: string };
-  hostBrowserProxy?: unknown;
   transportInterface?: string;
-  hostBrowserSenderOverride?: unknown;
 } | null = null;
 
 let mockFindConversationCalls: string[] = [];
@@ -44,7 +41,6 @@ mock.module("../../browser/operations.js", () => ({
     context: {
       conversationId: string;
       trustClass?: string;
-      hostBrowserProxy?: unknown;
       transportInterface?: string;
     },
   ) => {
@@ -53,7 +49,6 @@ mock.module("../../browser/operations.js", () => ({
       input,
       conversationId: context.conversationId,
       trustClass: context.trustClass,
-      hostBrowserProxy: context.hostBrowserProxy,
       transportInterface: context.transportInterface,
     });
     return mockOperationResult;
@@ -68,9 +63,8 @@ mock.module("../../daemon/conversation-store.js", () => ({
 }));
 
 // Import after mocking — now from the shared routes location
-const { ROUTES, browserCliConversationKey } = await import(
-  "../../runtime/routes/browser-routes.js"
-);
+const { ROUTES, browserCliConversationKey } =
+  await import("../../runtime/routes/browser-routes.js");
 
 const browserExecuteHandler = ROUTES.find(
   (r) => r.operationId === "browser_execute",
@@ -190,12 +184,9 @@ describe("browser_execute route", () => {
   });
 
   test("uses live conversation context fields when found", async () => {
-    const fakeProxy = { isAvailable: () => true };
     mockConversation = {
       trustContext: { trustClass: "trusted" },
-      hostBrowserProxy: fakeProxy,
       transportInterface: "chrome-extension",
-      hostBrowserSenderOverride: { some: "sender" },
     };
 
     await callHandler({
@@ -209,7 +200,6 @@ describe("browser_execute route", () => {
     expect(mockOperationCalls[0]).toMatchObject({
       conversationId: "conv-live-456",
       trustClass: "trusted",
-      hostBrowserProxy: fakeProxy,
       transportInterface: "chrome-extension",
     });
   });

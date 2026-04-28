@@ -444,20 +444,9 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     expect(interfaceCtx!.userMessageInterface).toBe("macos");
     expect(interfaceCtx!.assistantMessageInterface).toBe("macos");
 
-    // macOS now natively supports host_browser, so the conversation gets a
-    // hostBrowserProxy provisioned via the SSE sender path even without an
-    // extension connection. The proxy routes host_browser_request frames to
-    // the macOS desktop client over SSE. The hostBrowserSenderOverride
-    // remains undefined because no registry-routed extension connection is
-    // present — the proxy uses the default SSE sender.
-    expect(
-      (capturedConversation as unknown as Record<string, unknown>)
-        .hostBrowserProxy,
-    ).toBeDefined();
-    expect(
-      (capturedConversation as unknown as Record<string, unknown>)
-        .hostBrowserSenderOverride,
-    ).toBeUndefined();
+    // NOTE: hostBrowserProxy is now a singleton (not per-conversation).
+    // The proxy is resolved inside the browser execution layer via
+    // getHostBrowserProxySingleton(), not provisioned on the conversation.
   });
 
   test("macOS turn correctly persists interface metadata through the agent loop", async () => {
@@ -527,128 +516,6 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     expect(assistantLine?.role).toBe("assistant");
     expect(assistantLine?.metadata?.userMessageInterface).toBe("macos");
     expect(assistantLine?.metadata?.assistantMessageInterface).toBe("macos");
-  });
-});
-
-describe("chrome-extension host_browser pending registration", () => {
-  test("registers pending interaction before registry-routed host_browser send", async () => {
-    const guardianId = `guardian-${crypto.randomUUID()}`;
-    let pendingRegisteredAtSend: boolean | undefined;
-    let observedRequestId: string | undefined;
-
-    const connection: ChromeExtensionConnection = {
-      id: `conn-${crypto.randomUUID()}`,
-      guardianId,
-      ws: {
-        send(payload: string) {
-          const frame = JSON.parse(payload) as {
-            type?: string;
-            requestId?: string;
-          };
-          if (
-            frame.type === "host_browser_request" &&
-            typeof frame.requestId === "string"
-          ) {
-            observedRequestId = frame.requestId;
-            pendingRegisteredAtSend =
-              pendingInteractions.get(frame.requestId)?.kind === "host_browser";
-          }
-        },
-        close() {},
-      } as unknown as ChromeExtensionConnection["ws"],
-      connectedAt: Date.now(),
-      lastActiveAt: Date.now(),
-    };
-    getChromeExtensionRegistry().register(connection);
-
-    const actorAuthContext: AuthContext = {
-      ...authContext,
-      subject: `actor:self:${guardianId}`,
-      principalType: "actor",
-      scopeProfile: "actor_client_v1",
-      actorPrincipalId: guardianId,
-    };
-
-    const conversationKey = `chrome-ext-pending-${crypto.randomUUID()}`;
-    const chromeDeps = {
-      sendMessageDeps: {
-        getOrCreateConversation: async (conversationId: string) => {
-          const conversation = createFakeConversation(
-            conversationId,
-          ) as unknown as {
-            hostBrowserProxy?: {
-              request: (
-                input: { cdpMethod: string; timeout_seconds?: number },
-                conversationId: string,
-              ) => Promise<{ content: string; isError: boolean }>;
-            };
-            processing: boolean;
-            abortController: AbortController | null;
-            currentRequestId?: string;
-            runAgentLoop: (
-              content: string,
-              userMessageId: string,
-              onEvent: (msg: Record<string, unknown>) => void,
-            ) => Promise<void>;
-            conversationId: string;
-          };
-
-          conversation.runAgentLoop = async function (
-            _content: string,
-            _userMessageId: string,
-            _onEvent: (msg: Record<string, unknown>) => void,
-          ): Promise<void> {
-            if (!this.hostBrowserProxy) {
-              throw new Error(
-                "Expected hostBrowserProxy to be provisioned for chrome-extension turn",
-              );
-            }
-            await this.hostBrowserProxy.request(
-              {
-                cdpMethod: "Browser.getVersion",
-                timeout_seconds: 0.05,
-              },
-              this.conversationId,
-            );
-            this.processing = false;
-            this.abortController = null;
-            this.currentRequestId = undefined;
-          };
-
-          conversationInstances.set(
-            conversationId,
-            conversation as unknown as Conversation,
-          );
-          return conversation as unknown as Conversation;
-        },
-        assistantEventHub: new AssistantEventHub(),
-        resolveAttachments: () => [],
-      },
-    };
-    const response = await callHandler(
-      (args) => handleSendMessage(args, chromeDeps),
-      new Request("http://localhost/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-vellum-actor-principal-id": actorAuthContext.actorPrincipalId!,
-          "x-vellum-principal-type": actorAuthContext.principalType,
-        },
-        body: JSON.stringify({
-          conversationKey,
-          content: "Trigger host browser request via registry sender.",
-          sourceChannel: "vellum",
-          interface: "chrome-extension",
-        }),
-      }),
-      undefined,
-      202,
-    );
-
-    expect(response.status).toBe(202);
-    const registered = await waitFor(() => pendingRegisteredAtSend, 1000);
-    expect(observedRequestId).toBeDefined();
-    expect(registered).toBe(true);
   });
 });
 
