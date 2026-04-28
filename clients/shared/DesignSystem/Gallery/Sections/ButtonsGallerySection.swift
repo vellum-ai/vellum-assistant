@@ -86,6 +86,32 @@ struct ButtonsGallerySection: View {
                     }
                 }
 
+                // Button Shapes
+                Text("Button Shapes")
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+
+                VCard {
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Default (Rounded Rect)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Continue", icon: VIcon.arrowRight.rawValue, style: .primary) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Capsule").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Continue", icon: VIcon.arrowRight.rawValue, style: .primary, buttonShape: .capsule) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Rounded Rect (explicit)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Continue", icon: VIcon.arrowRight.rawValue, style: .primary, buttonShape: .roundedRectangle) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("Capsule Outlined").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Save", style: .outlined, buttonShape: .capsule) {}
+                        }
+                    }
+                }
+
                 Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
                 // MARK: - VButton (Icon Only — Ghost)
