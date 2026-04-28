@@ -1,8 +1,6 @@
 import { ROUTES } from "../../runtime/routes/index.js";
 import type { IpcRoute } from "../assistant-server.js";
 import { routeDefinitionsToIpcRoutes } from "./route-adapter.js";
-import { taskTemplateRoutes } from "./task.js";
-import { taskQueueRoutes } from "./task-queue.js";
 import { trustRuleRoutes } from "./trust-rules.js";
 import { uiRequestRoute } from "./ui-request.js";
 import { watcherRoutes } from "./watcher.js";
@@ -15,8 +13,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   uiRequestRoute,
   wipeConversationRoute,
 
-  ...taskTemplateRoutes,
-  ...taskQueueRoutes,
+
   ...watcherRoutes,
   ...routeDefinitionsToIpcRoutes(ROUTES),
 ];

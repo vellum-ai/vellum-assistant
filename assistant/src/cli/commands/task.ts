@@ -119,7 +119,7 @@ Examples:
         };
         if (opts.title) params.title = opts.title;
 
-        const result = await cliIpcCall("task/save", params);
+        const result = await cliIpcCall("task_save", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
@@ -159,7 +159,7 @@ Examples:
   $ assistant task list --json`,
     )
     .action(async (opts: { json?: boolean }) => {
-      const result = await cliIpcCall("task/list");
+      const result = await cliIpcCall("task_list", { body: {} });
 
       if (!result.ok) {
         if (opts.json) {
@@ -237,7 +237,7 @@ Examples:
           }
         }
 
-        const result = await cliIpcCall("task/run", params);
+        const result = await cliIpcCall("task_run", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
@@ -282,7 +282,9 @@ Examples:
   $ assistant task delete task_abc123 --json`,
     )
     .action(async (ids: string[], opts: { json?: boolean }) => {
-      const result = await cliIpcCall("task/delete", { task_ids: ids });
+      const result = await cliIpcCall("task_delete", {
+        body: { task_ids: ids },
+      });
 
       if (!result.ok) {
         if (opts.json) {
@@ -347,8 +349,8 @@ Examples:
       if (opts.status) params.status = opts.status;
 
       const result = await cliIpcCall<{ content: string; isError?: boolean }>(
-        "task/queue/show",
-        params,
+        "task_queue_show",
+        { body: params },
       );
 
       if (!result.ok) {
@@ -466,7 +468,7 @@ Examples:
         const result = await cliIpcCall<{
           content: string;
           isError?: boolean;
-        }>("task/queue/add", params);
+        }>("task_queue_add", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
@@ -582,7 +584,7 @@ Examples:
         const result = await cliIpcCall<{
           content: string;
           isError?: boolean;
-        }>("task/queue/update", params);
+        }>("task_queue_update", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
@@ -676,7 +678,7 @@ Examples:
         const result = await cliIpcCall<{
           content: string;
           isError?: boolean;
-        }>("task/queue/remove", params);
+        }>("task_queue_remove", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
@@ -756,7 +758,7 @@ Examples:
         const result = await cliIpcCall<{
           content: string;
           isError?: boolean;
-        }>("task/queue/run", params);
+        }>("task_queue_run", { body: params });
 
         if (!result.ok) {
           if (opts.json) {
