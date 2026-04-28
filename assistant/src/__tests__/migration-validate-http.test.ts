@@ -51,7 +51,9 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 import { handleMigrationValidate } from "../runtime/routes/migration-routes.js";
+import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 // ---------------------------------------------------------------------------
 // Tar archive builder helpers
@@ -476,57 +478,49 @@ describe("validateVBundle", () => {
 // HTTP route handler tests
 // ---------------------------------------------------------------------------
 
+/** Build RouteHandlerArgs from multipart FormData by serializing through a temp Request. */
+async function multipartArgs(formData: FormData): Promise<RouteHandlerArgs> {
+  const tmpReq = new Request("http://localhost", {
+    method: "POST",
+    body: formData,
+  });
+  // Read content-type BEFORE consuming the body — Bun clears headers after arrayBuffer().
+  const contentType = tmpReq.headers.get("content-type") ?? "";
+  const rawBody = new Uint8Array(await tmpReq.arrayBuffer());
+  return { rawBody, headers: { "content-type": contentType } };
+}
+
 describe("handleMigrationValidate", () => {
-  test("POST with valid vbundle returns 200 with is_valid: true", async () => {
+  test("POST with valid vbundle returns is_valid: true", async () => {
     const vbundle = createValidVBundle();
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: toArrayBuffer(vbundle),
-    });
+    const body = (await handleMigrationValidate({
+      rawBody: vbundle,
+      headers: { "content-type": "application/octet-stream" },
+    })) as Record<string, unknown>;
 
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
     expect(body.is_valid).toBe(true);
     expect(body.errors).toEqual([]);
     expect(body.manifest).toBeDefined();
   });
 
-  test("POST with invalid gzip returns 200 with is_valid: false", async () => {
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: toArrayBuffer(new Uint8Array([0xde, 0xad, 0xbe, 0xef])),
-    });
+  test("POST with invalid gzip returns is_valid: false", async () => {
+    const body = (await handleMigrationValidate({
+      rawBody: new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
+      headers: { "content-type": "application/octet-stream" },
+    })) as { is_valid: boolean; errors: Array<{ code: string }> };
 
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as {
-      is_valid: boolean;
-      errors: Array<{ code: string }>;
-    };
-
-    expect(res.status).toBe(200);
     expect(body.is_valid).toBe(false);
     expect(body.errors.length).toBeGreaterThan(0);
     expect(body.errors[0].code).toBe("INVALID_GZIP");
   });
 
-  test("POST with empty body returns 400", async () => {
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: toArrayBuffer(new Uint8Array(0)),
-    });
-
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-
-    expect(res.status).toBe(400);
-    expect(body.error.code).toBe("BAD_REQUEST");
+  test("POST with empty body throws BadRequestError", async () => {
+    await expect(
+      handleMigrationValidate({
+        rawBody: new Uint8Array(0),
+        headers: { "content-type": "application/octet-stream" },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
   });
 
   test("POST with multipart form data containing valid vbundle", async () => {
@@ -534,32 +528,20 @@ describe("handleMigrationValidate", () => {
     const formData = new FormData();
     formData.append("file", new Blob([toArrayBuffer(vbundle)]), "test.vbundle");
 
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      body: formData,
-    });
+    const body = (await handleMigrationValidate(
+      await multipartArgs(formData),
+    )) as Record<string, unknown>;
 
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
     expect(body.is_valid).toBe(true);
   });
 
-  test("POST multipart without file field returns 400", async () => {
+  test("POST multipart without file field throws BadRequestError", async () => {
     const formData = new FormData();
     formData.append("notfile", "some text");
 
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      body: formData,
-    });
-
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as { error: { code: string } };
-
-    expect(res.status).toBe(400);
-    expect(body.error.code).toBe("BAD_REQUEST");
+    await expect(
+      handleMigrationValidate(await multipartArgs(formData)),
+    ).rejects.toBeInstanceOf(BadRequestError);
   });
 
   test("POST with missing manifest returns validation errors", async () => {
@@ -569,19 +551,11 @@ describe("handleMigrationValidate", () => {
     ]);
     const vbundle = gzipSync(tar);
 
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: toArrayBuffer(vbundle),
-    });
+    const body = (await handleMigrationValidate({
+      rawBody: vbundle,
+      headers: { "content-type": "application/octet-stream" },
+    })) as { is_valid: boolean; errors: Array<{ code: string; path?: string }> };
 
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as {
-      is_valid: boolean;
-      errors: Array<{ code: string; path?: string }>;
-    };
-
-    expect(res.status).toBe(200);
     expect(body.is_valid).toBe(false);
     expect(
       body.errors.some(
@@ -612,19 +586,11 @@ describe("handleMigrationValidate", () => {
     ]);
     const vbundle = gzipSync(tar);
 
-    const req = new Request("http://localhost/v1/migrations/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: toArrayBuffer(vbundle),
-    });
+    const body = (await handleMigrationValidate({
+      rawBody: vbundle,
+      headers: { "content-type": "application/octet-stream" },
+    })) as { is_valid: boolean; errors: Array<{ code: string }> };
 
-    const res = await handleMigrationValidate(req);
-    const body = (await res.json()) as {
-      is_valid: boolean;
-      errors: Array<{ code: string }>;
-    };
-
-    expect(res.status).toBe(200);
     expect(body.is_valid).toBe(false);
     expect(
       body.errors.some((e) => e.code === "MANIFEST_CHECKSUM_MISMATCH"),

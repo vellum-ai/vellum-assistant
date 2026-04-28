@@ -45,7 +45,9 @@ mock.module("../config/env.js", () => ({
 }));
 
 import { migrationJobs } from "../runtime/migrations/job-registry.js";
+import { NotFoundError } from "../runtime/routes/errors.js";
 import { handleMigrationJobStatus } from "../runtime/routes/migration-routes.js";
+import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 const kFetchBodyError = Symbol.for("vellum.migrationImport.fetchBodyError");
 
@@ -56,18 +58,17 @@ async function flushMicrotasks(n = 4): Promise<void> {
   }
 }
 
-function makeRequest(): Request {
-  return new Request("http://127.0.0.1/v1/migrations/jobs/any");
+function makeArgs(jobId: string): RouteHandlerArgs {
+  return { pathParams: { job_id: jobId } };
 }
 
 describe("GET /v1/migrations/jobs/:job_id", () => {
   test("404 job_not_found for unknown id", async () => {
-    const response = await handleMigrationJobStatus(makeRequest(), {
-      job_id: "00000000-0000-0000-0000-000000000000",
-    });
-    expect(response.status).toBe(404);
-    const body = (await response.json()) as { error?: { code?: string } };
-    expect(body.error?.code).toBe("job_not_found");
+    await expect(
+      handleMigrationJobStatus(
+        makeArgs("00000000-0000-0000-0000-000000000000"),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 
   test("processing status while the runner is still running", async () => {
@@ -85,11 +86,7 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
     await flushMicrotasks();
 
     try {
-      const response = await handleMigrationJobStatus(makeRequest(), {
-        job_id: job.id,
-      });
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
+      const body = (await handleMigrationJobStatus(makeArgs(job.id))) as {
         job_id: string;
         type: string;
         status: string;
@@ -98,8 +95,6 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
       expect(body.type).toBe("export");
       expect(body.status).toBe("processing");
     } finally {
-      // Release the runner so the registry's in-flight slot frees up for
-      // other tests (and the job transitions to complete cleanly).
       release();
       await flushMicrotasks();
     }
@@ -111,11 +106,7 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
     const job = migrationJobs.startJob("export", async () => resultPayload);
     await flushMicrotasks();
 
-    const response = await handleMigrationJobStatus(makeRequest(), {
-      job_id: job.id,
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = (await handleMigrationJobStatus(makeArgs(job.id))) as {
       job_id: string;
       type: string;
       status: string;
@@ -138,11 +129,7 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
     });
     await flushMicrotasks();
 
-    const response = await handleMigrationJobStatus(makeRequest(), {
-      job_id: job.id,
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
+    const body = (await handleMigrationJobStatus(makeArgs(job.id))) as {
       job_id: string;
       type: string;
       status: string;
@@ -166,11 +153,9 @@ describe("GET /v1/migrations/jobs/:job_id", () => {
     });
     await flushMicrotasks();
 
-    const response = await handleMigrationJobStatus(makeRequest(), {
-      job_id: job.id,
-    });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as Record<string, unknown>;
+    const body = (await handleMigrationJobStatus(
+      makeArgs(job.id),
+    )) as Record<string, unknown>;
     expect(body.status).toBe("failed");
     expect(body.error).toBe("invalid manifest");
     expect(body.error_code).toBe("invalid_manifest");

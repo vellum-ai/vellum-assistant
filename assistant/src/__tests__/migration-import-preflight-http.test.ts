@@ -69,6 +69,7 @@ import {
   DefaultPathResolver,
 } from "../runtime/migrations/vbundle-import-analyzer.js";
 import { handleMigrationImportPreflight } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // Test fixture data
 const EXISTING_DB_DATA = new Uint8Array([
@@ -284,7 +285,7 @@ describe("handleMigrationImportPreflight", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(res.status).toBe(200);
@@ -311,7 +312,7 @@ describe("handleMigrationImportPreflight", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(body.can_import).toBe(true);
@@ -342,7 +343,7 @@ describe("handleMigrationImportPreflight", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(body.can_import).toBe(true);
@@ -367,7 +368,7 @@ describe("handleMigrationImportPreflight", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(body.can_import).toBe(true);
@@ -388,7 +389,7 @@ describe("handleMigrationImportPreflight", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(body.manifest).toBeDefined();
@@ -407,7 +408,7 @@ describe("handleMigrationImportPreflight", () => {
       body: formData,
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(res.status).toBe(200);
@@ -427,7 +428,7 @@ describe("handleMigrationImportPreflight — validation failures", () => {
       body: toArrayBuffer(new Uint8Array([0xde, 0xad, 0xbe, 0xef])),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportValidationFailureResponse;
 
     expect(res.status).toBe(200);
@@ -451,7 +452,7 @@ describe("handleMigrationImportPreflight — validation failures", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportValidationFailureResponse;
 
     expect(res.status).toBe(200);
@@ -466,7 +467,7 @@ describe("handleMigrationImportPreflight — validation failures", () => {
       body: toArrayBuffer(new Uint8Array(0)),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
@@ -484,7 +485,7 @@ describe("handleMigrationImportPreflight — validation failures", () => {
       body: formData,
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as { error: { code: string } };
 
     expect(res.status).toBe(400);

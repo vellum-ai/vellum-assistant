@@ -84,6 +84,7 @@ mock.module("../config/env.js", () => ({
 import { DefaultPathResolver } from "../runtime/migrations/vbundle-import-analyzer.js";
 import { commitImport } from "../runtime/migrations/vbundle-importer.js";
 import { handleMigrationImport } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // Test fixture data
 const EXISTING_DB_DATA = new Uint8Array([
@@ -324,7 +325,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(res.status).toBe(200);
@@ -347,7 +348,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    await handleMigrationImport(req);
+    await callHandler(handleMigrationImport, req);
 
     // Verify the file was actually written to disk
     const writtenData = new Uint8Array(readFileSync(testDbPath));
@@ -368,7 +369,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(true);
@@ -396,7 +397,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(true);
@@ -426,7 +427,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(true);
@@ -454,7 +455,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.manifest).toBeDefined();
@@ -473,7 +474,7 @@ describe("handleMigrationImport", () => {
       body: formData,
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(res.status).toBe(200);
@@ -493,7 +494,7 @@ describe("handleMigrationImport", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(true);
@@ -520,7 +521,7 @@ describe("handleMigrationImport — validation failures", () => {
       body: toArrayBuffer(new Uint8Array([0xde, 0xad, 0xbe, 0xef])),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportValidationFailureResponse;
 
     expect(res.status).toBe(200);
@@ -543,7 +544,7 @@ describe("handleMigrationImport — validation failures", () => {
       body: toArrayBuffer(vbundle),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportValidationFailureResponse;
 
     expect(res.status).toBe(200);
@@ -558,7 +559,7 @@ describe("handleMigrationImport — validation failures", () => {
       body: toArrayBuffer(new Uint8Array(0)),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
@@ -576,7 +577,7 @@ describe("handleMigrationImport — validation failures", () => {
       body: formData,
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as { error: { code: string } };
 
     expect(res.status).toBe(400);
@@ -595,7 +596,7 @@ describe("handleMigrationImport — validation failures", () => {
       body: toArrayBuffer(new Uint8Array([0xde, 0xad, 0xbe, 0xef])),
     });
 
-    await handleMigrationImport(req);
+    await callHandler(handleMigrationImport, req);
 
     // Verify disk was not modified
     const currentDb = new Uint8Array(readFileSync(testDbPath));

@@ -124,6 +124,7 @@ import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImport,
 } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // ---------------------------------------------------------------------------
 // Local http fixture server
@@ -247,12 +248,6 @@ interface ImportCommitResponse {
   warnings: string[];
 }
 
-interface FetchFailedResponse {
-  success: false;
-  reason: "fetch_failed";
-  upstream_status?: number;
-}
-
 interface BadRequestResponse {
   error: { code: string; message: string };
 }
@@ -278,7 +273,7 @@ describe("handleMigrationImport — JSON {url} body", () => {
         body: JSON.stringify({ url: makeFakeSignedUrl(fixture.port) }),
       });
 
-      const res = await handleMigrationImport(req);
+      const res = await callHandler(handleMigrationImport, req);
       const body = (await res.json()) as ImportCommitResponse;
 
       expect(res.status).toBe(200);
@@ -311,13 +306,12 @@ describe("handleMigrationImport — JSON {url} body", () => {
         body: JSON.stringify({ url: makeFakeSignedUrl(fixture.port) }),
       });
 
-      const res = await handleMigrationImport(req);
-      const body = (await res.json()) as FetchFailedResponse;
+      const res = await callHandler(handleMigrationImport, req);
+      const body = (await res.json()) as { error: { code: string; message: string } };
 
       expect(res.status).toBe(502);
-      expect(body.success).toBe(false);
-      expect(body.reason).toBe("fetch_failed");
-      expect(body.upstream_status).toBe(500);
+      expect(body.error.code).toBe("BAD_GATEWAY");
+      expect(body.error.message).toContain("500");
     } finally {
       await fixture.close();
     }
@@ -330,7 +324,7 @@ describe("handleMigrationImport — JSON {url} body", () => {
       body: JSON.stringify({ url: "" }),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as BadRequestResponse;
 
     expect(res.status).toBe(400);
@@ -344,7 +338,7 @@ describe("handleMigrationImport — JSON {url} body", () => {
       body: JSON.stringify({}),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as BadRequestResponse;
 
     expect(res.status).toBe(400);
@@ -358,7 +352,7 @@ describe("handleMigrationImport — JSON {url} body", () => {
       body: "{not-json",
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as BadRequestResponse;
 
     expect(res.status).toBe(400);
@@ -373,7 +367,7 @@ describe("handleMigrationImport — JSON {url} body", () => {
       body: JSON.stringify({ url: rawUrl }),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const rawBody = await res.text();
 
     expect(res.status).toBe(400);
@@ -400,7 +394,7 @@ describe("handleMigrationImport — JSON {url} body", () => {
         }),
       });
 
-      const res = await handleMigrationImport(req);
+      const res = await callHandler(handleMigrationImport, req);
       const body = (await res.json()) as BadRequestResponse;
 
       expect(res.status).toBe(400);
@@ -480,7 +474,7 @@ describe("handleMigrationImport — no-swap path omits newer-migration warning",
         body: JSON.stringify({ url: makeFakeSignedUrl(fixture.port) }),
       });
 
-      const res = await handleMigrationImport(req);
+      const res = await callHandler(handleMigrationImport, req);
       const body = (await res.json()) as ImportCommitResponse;
 
       expect(res.status).toBe(200);
@@ -575,12 +569,11 @@ describe("handleMigrationImport — upstream body dropped mid-stream", () => {
         body: JSON.stringify({ url: makeFakeSignedUrl(fixture.port) }),
       });
 
-      const res = await handleMigrationImport(req);
-      const body = (await res.json()) as FetchFailedResponse;
+      const res = await callHandler(handleMigrationImport, req);
+      const body = (await res.json()) as { error: { code: string; message: string } };
 
       expect(res.status).toBe(502);
-      expect(body.success).toBe(false);
-      expect(body.reason).toBe("fetch_failed");
+      expect(body.error.code).toBe("BAD_GATEWAY");
     } finally {
       await fixture.close();
     }
@@ -611,7 +604,7 @@ describe("handleMigrationImport — raw-bytes regression", () => {
       ) as ArrayBuffer,
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(res.status).toBe(200);

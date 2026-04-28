@@ -100,6 +100,7 @@ import {
   handleMigrationImportPreflight,
   handleMigrationValidate,
 } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // ---------------------------------------------------------------------------
 // Test fixture data
@@ -713,7 +714,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     const exportReq = new Request("http://localhost/v1/migrations/export", {
       method: "POST",
     });
-    const exportRes = await handleMigrationExport(exportReq);
+    const exportRes = await callHandler(handleMigrationExport, exportReq);
     expect(exportRes.status).toBe(200);
 
     const archiveBuffer = await exportRes.arrayBuffer();
@@ -726,7 +727,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: toArrayBuffer(archiveData),
     });
-    const validateRes = await handleMigrationValidate(validateReq);
+    const validateRes = await callHandler(handleMigrationValidate, validateReq);
     const validateBody = (await validateRes.json()) as ValidationResponse;
 
     expect(validateRes.status).toBe(200);
@@ -743,7 +744,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
         body: toArrayBuffer(archiveData),
       },
     );
-    const preflightRes = await handleMigrationImportPreflight(preflightReq);
+    const preflightRes = await callHandler(handleMigrationImportPreflight, preflightReq);
     const preflightBody = (await preflightRes.json()) as ImportDryRunResponse;
 
     expect(preflightRes.status).toBe(200);
@@ -766,7 +767,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: toArrayBuffer(archiveData),
     });
-    const importRes = await handleMigrationImport(importReq);
+    const importRes = await callHandler(handleMigrationImport, importReq);
     const importBody = (await importRes.json()) as ImportCommitResponse;
 
     expect(importRes.status).toBe(200);
@@ -844,7 +845,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     const exportReq = new Request("http://localhost/v1/migrations/export", {
       method: "POST",
     });
-    const exportRes = await handleMigrationExport(exportReq);
+    const exportRes = await callHandler(handleMigrationExport, exportReq);
     const archiveData = new Uint8Array(await exportRes.arrayBuffer());
 
     // The X-Vbundle-Manifest-Sha256 response header should match
@@ -924,7 +925,7 @@ describe("partial failure scenarios", () => {
       body: toArrayBuffer(new Uint8Array([0xff, 0xfe, 0xfd])),
     });
 
-    const res = await handleMigrationImport(req);
+    const res = await callHandler(handleMigrationImport, req);
     const body = (await res.json()) as ImportCommitResponse;
 
     expect(body.success).toBe(false);
@@ -948,7 +949,7 @@ describe("partial failure scenarios", () => {
       body: toArrayBuffer(new Uint8Array([0xba, 0xdc, 0x0d, 0xe5])),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(res.status).toBe(200);
@@ -1431,7 +1432,7 @@ describe("diagnostic quality", () => {
       body: toArrayBuffer(new Uint8Array([0x00])),
     });
 
-    const res = await handleMigrationImportPreflight(req);
+    const res = await callHandler(handleMigrationImportPreflight, req);
     const body = (await res.json()) as ImportDryRunResponse;
 
     expect(body.can_import).toBe(false);
@@ -1755,7 +1756,7 @@ describe("HTTP endpoint error consistency", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: toArrayBuffer(invalidData),
     });
-    const validateRes = await handleMigrationValidate(validateReq);
+    const validateRes = await callHandler(handleMigrationValidate, validateReq);
     const validateBody = (await validateRes.json()) as ValidationResponse;
 
     const importReq = new Request("http://localhost/v1/migrations/import", {
@@ -1763,7 +1764,7 @@ describe("HTTP endpoint error consistency", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: toArrayBuffer(invalidData),
     });
-    const importRes = await handleMigrationImport(importReq);
+    const importRes = await callHandler(handleMigrationImport, importReq);
     const importBody = (await importRes.json()) as ImportCommitResponse;
 
     // Both should identify the same error type
@@ -1780,7 +1781,7 @@ describe("HTTP endpoint error consistency", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: toArrayBuffer(invalidData),
     });
-    const validateRes = await handleMigrationValidate(validateReq);
+    const validateRes = await callHandler(handleMigrationValidate, validateReq);
     const validateBody = (await validateRes.json()) as ValidationResponse;
 
     const preflightReq = new Request(
@@ -1791,7 +1792,7 @@ describe("HTTP endpoint error consistency", () => {
         body: toArrayBuffer(invalidData),
       },
     );
-    const preflightRes = await handleMigrationImportPreflight(preflightReq);
+    const preflightRes = await callHandler(handleMigrationImportPreflight, preflightReq);
     const preflightBody = (await preflightRes.json()) as ImportDryRunResponse;
 
     expect(validateBody.is_valid).toBe(false);
@@ -1820,7 +1821,7 @@ describe("HTTP endpoint error consistency", () => {
         body: toArrayBuffer(new Uint8Array(0)),
       });
 
-      const res = await handlers[i](req);
+      const res = await callHandler(handlers[i], req);
       expect(res.status).toBe(400);
 
       const body = (await res.json()) as {

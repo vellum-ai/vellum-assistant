@@ -118,6 +118,7 @@ import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImportFromGcs,
 } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // ---------------------------------------------------------------------------
 // Local http fixture server
@@ -312,7 +313,7 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         },
       );
 
-      const res = await handleMigrationImportFromGcs(req);
+      const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
       expect(body.type).toBe("import");
@@ -367,7 +368,7 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         },
       );
 
-      const res = await handleMigrationImportFromGcs(req);
+      const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -398,7 +399,7 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         },
       );
 
-      const res = await handleMigrationImportFromGcs(req);
+      const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -436,7 +437,7 @@ describe("POST /v1/migrations/import-from-gcs", () => {
           body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
         },
       );
-      const firstRes = await handleMigrationImportFromGcs(firstReq);
+      const firstRes = await callHandler(handleMigrationImportFromGcs, firstReq, undefined, 202);
       expect(firstRes.status).toBe(202);
       const firstBody = (await firstRes.json()) as AcceptedResponse;
       firstJobId = firstBody.job_id;
@@ -449,11 +450,11 @@ describe("POST /v1/migrations/import-from-gcs", () => {
           body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
         },
       );
-      const secondRes = await handleMigrationImportFromGcs(secondReq);
+      const secondRes = await callHandler(handleMigrationImportFromGcs, secondReq, undefined, 202);
       expect(secondRes.status).toBe(409);
       const secondBody = (await secondRes.json()) as ConflictResponse;
       expect(secondBody.error.code).toBe("import_in_progress");
-      expect(secondBody.error.job_id).toBe(firstBody.job_id);
+      expect(secondBody.error.message).toContain(firstBody.job_id);
     } finally {
       // Close the server — this destroys every tracked socket, which
       // unblocks the first job's `fetch` and lets the runner settle into
@@ -483,12 +484,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         }),
       },
     );
-    const badRes = await handleMigrationImportFromGcs(badReq);
+    const badRes = await callHandler(handleMigrationImportFromGcs, badReq, undefined, 202);
     expect(badRes.status).toBe(400);
     const badBody = (await badRes.json()) as InvalidBundleUrlResponse;
     expect(badBody.error.code).toBe("invalid_bundle_url");
-    expect(typeof badBody.error.reason).toBe("string");
-    expect(badBody.error.reason.length).toBeGreaterThan(0);
+    expect(typeof badBody.error.message).toBe("string");
+    expect(badBody.error.message.length).toBeGreaterThan(0);
 
     // A follow-up valid request must still be able to start a job — proving
     // the doomed request did not occupy the concurrency slot.
@@ -506,7 +507,7 @@ describe("POST /v1/migrations/import-from-gcs", () => {
           body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
         },
       );
-      const goodRes = await handleMigrationImportFromGcs(goodReq);
+      const goodRes = await callHandler(handleMigrationImportFromGcs, goodReq, undefined, 202);
       expect(goodRes.status).toBe(202);
       const goodBody = (await goodRes.json()) as AcceptedResponse;
       expect(goodBody.type).toBe("import");
@@ -524,7 +525,7 @@ describe("POST /v1/migrations/import-from-gcs", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    const res = await handleMigrationImportFromGcs(req);
+    const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
     expect(res.status).toBe(400);
     const body = (await res.json()) as BadRequestResponse;
     expect(body.error.code).toBe("BAD_REQUEST");

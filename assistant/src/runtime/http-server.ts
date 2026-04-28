@@ -128,7 +128,7 @@ import {
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
-import { migrationRouteDefinitions } from "./routes/migration-routes.js";
+
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
@@ -1702,8 +1702,6 @@ export class RuntimeHttpServer {
           return handleConnectAction(fakeReq);
         },
       },
-
-      ...migrationRouteDefinitions(),
 
       // User-defined routes under /x/* — must be LAST so built-in routes
       // always take priority.

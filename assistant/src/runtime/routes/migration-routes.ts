@@ -40,8 +40,6 @@ import {
   getWorkspaceDir,
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
@@ -63,6 +61,15 @@ import {
 } from "../migrations/vbundle-importer.js";
 import { streamCommitImport } from "../migrations/vbundle-streaming-importer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
+import {
+  BadGatewayError,
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+import { RouteResponse } from "./types.js";
 
 /**
  * CES account prefix for platform-identity (`vellum:*`) credentials. Entries
@@ -142,60 +149,24 @@ const log = getLogger("migration-routes");
  *   400: Standard error envelope for missing/empty body
  *   422: Standard error envelope for completely unparseable input
  */
-export async function handleMigrationValidate(req: Request): Promise<Response> {
-  let fileData: Uint8Array | null = null;
-
-  const contentType = req.headers.get("content-type") ?? "";
-
-  if (contentType.includes("multipart/form-data")) {
-    try {
-      const formData = await req.formData();
-      const file = formData.get("file");
-      if (!file || !(file instanceof Blob)) {
-        return httpError(
-          "BAD_REQUEST",
-          'Multipart upload requires a "file" field',
-          400,
-        );
-      }
-      fileData = new Uint8Array(await file.arrayBuffer());
-    } catch (err) {
-      log.error({ err }, "Failed to parse multipart form data");
-      return httpError("BAD_REQUEST", "Invalid multipart form data", 400);
-    }
-  } else {
-    // Treat as raw binary body
-    try {
-      const arrayBuffer = await req.arrayBuffer();
-      fileData = new Uint8Array(arrayBuffer);
-    } catch (err) {
-      log.error({ err }, "Failed to read request body");
-      return httpError("BAD_REQUEST", "Failed to read request body", 400);
-    }
-  }
-
-  if (!fileData || fileData.length === 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body is empty — a .vbundle file is required",
-      400,
-    );
-  }
+export async function handleMigrationValidate({
+  rawBody,
+  headers,
+}: RouteHandlerArgs) {
+  const fileData = await extractFileData(rawBody, headers);
 
   try {
     const result = validateVBundle(fileData);
 
-    return Response.json({
+    return {
       is_valid: result.is_valid,
       errors: result.errors,
       ...(result.manifest ? { manifest: result.manifest } : {}),
-    });
+    };
   } catch (err) {
     log.error({ err }, "Unexpected error during vbundle validation");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Unexpected validation error",
-      500,
     );
   }
 }
@@ -217,21 +188,11 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationExport(req: Request): Promise<Response> {
-  let description: string | undefined;
-
-  // Parse optional JSON body for export metadata
-  const contentType = req.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    try {
-      const body = (await req.json()) as Record<string, unknown>;
-      if (typeof body.description === "string") {
-        description = body.description;
-      }
-    } catch (err) {
-      log.warn({ err }, "Failed to parse export request body — using defaults");
-    }
-  }
+export async function handleMigrationExport({
+  body,
+}: RouteHandlerArgs): Promise<RouteResponse> {
+  const description =
+    typeof body?.description === "string" ? body.description : undefined;
 
   let cleanup: (() => Promise<void>) | undefined;
 
@@ -295,26 +256,21 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       cleanup = undefined;
     });
 
-    const body = Readable.toWeb(fileStream) as unknown as ReadableStream;
+    const streamBody = Readable.toWeb(fileStream) as unknown as ReadableStream;
 
-    return new Response(body, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Length": String(size),
-        "X-Vbundle-Schema-Version": manifest.schema_version,
-        "X-Vbundle-Manifest-Sha256": manifest.manifest_sha256,
-        "X-Vbundle-Credentials-Included": String(credentials.length),
-      },
+    return new RouteResponse(streamBody, {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Length": String(size),
+      "X-Vbundle-Schema-Version": manifest.schema_version,
+      "X-Vbundle-Manifest-Sha256": manifest.manifest_sha256,
+      "X-Vbundle-Credentials-Included": String(credentials.length),
     });
   } catch (err) {
     await cleanup?.();
     log.error({ err }, "Failed to build export bundle");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Unexpected export error",
-      500,
     );
   }
 }
@@ -399,27 +355,14 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
  *
  * Auth: settings.write scope (matches `migrations/export`).
  */
-export async function handleMigrationExportToGcs(
-  req: Request,
-): Promise<Response> {
+export async function handleMigrationExportToGcs({
+  body,
+}: RouteHandlerArgs) {
   // ── 1. Parse JSON body ────────────────────────────────────────────────
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Failed to parse JSON body on migration export-to-gcs request",
-    );
-    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-  }
-
-  const parsed = MigrationExportToGcsBody.safeParse(rawBody);
+  const parsed = MigrationExportToGcsBody.safeParse(body);
   if (!parsed.success) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "Request body must be { upload_url: string, description?: string } with a valid URL",
-      400,
     );
   }
 
@@ -433,14 +376,10 @@ export async function handleMigrationExportToGcs(
       { reason: validated.reason },
       "Rejected migration export-to-gcs upload URL",
     );
-    return Response.json(
-      {
-        error: {
-          code: "invalid_upload_url",
-          reason: validated.reason,
-        },
-      },
-      { status: 400 },
+    throw new RouteError(
+      `Invalid upload URL: ${validated.reason}`,
+      "invalid_upload_url",
+      400,
     );
   }
 
@@ -455,10 +394,8 @@ export async function handleMigrationExportToGcs(
     collected = await collectExportCredentials();
   } catch (err) {
     log.error({ err }, "Failed to collect credentials for export-to-gcs");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Failed to collect credentials",
-      500,
     );
   }
 
@@ -576,32 +513,23 @@ export async function handleMigrationExportToGcs(
     });
   } catch (err) {
     if (err instanceof JobAlreadyInProgressError) {
-      return Response.json(
-        {
-          error: {
-            code: "export_in_progress",
-            job_id: err.existingJobId,
-          },
-        },
-        { status: 409 },
+      throw new RouteError(
+        `Export already in progress: ${err.existingJobId}`,
+        "export_in_progress",
+        409,
       );
     }
     log.error({ err }, "Unexpected error while enqueueing export-to-gcs job");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Unexpected export-to-gcs error",
-      500,
     );
   }
 
-  return Response.json(
-    {
-      job_id: job.id,
-      status: "pending" as const,
-      type: "export" as const,
-    },
-    { status: 202 },
-  );
+  return {
+    job_id: job.id,
+    status: "pending" as const,
+    type: "export" as const,
+  };
 }
 
 /**
@@ -611,42 +539,43 @@ export async function handleMigrationExportToGcs(
  * Shared between validate and import-preflight handlers.
  */
 async function extractFileData(
-  req: Request,
-): Promise<{ data: Uint8Array } | { error: Response }> {
-  const contentType = req.headers.get("content-type") ?? "";
+  rawBody: Uint8Array | undefined,
+  headers: Record<string, string> | undefined,
+): Promise<Uint8Array> {
+  const contentType = headers?.["content-type"] ?? "";
 
   if (contentType.includes("multipart/form-data")) {
+    if (!rawBody) {
+      throw new BadRequestError("Request body is empty");
+    }
     try {
-      const formData = await req.formData();
+      const syntheticReq = new Request("http://localhost", {
+        method: "POST",
+        headers: { "content-type": contentType },
+        body: rawBody,
+      });
+      const formData = await syntheticReq.formData();
       const file = formData.get("file");
       if (!file || !(file instanceof Blob)) {
-        return {
-          error: httpError(
-            "BAD_REQUEST",
-            'Multipart upload requires a "file" field',
-            400,
-          ),
-        };
+        throw new BadRequestError(
+          'Multipart upload requires a "file" field',
+        );
       }
-      return { data: new Uint8Array(await file.arrayBuffer()) };
+      return new Uint8Array(await file.arrayBuffer());
     } catch (err) {
+      if (err instanceof BadRequestError) throw err;
       log.error({ err }, "Failed to parse multipart form data");
-      return {
-        error: httpError("BAD_REQUEST", "Invalid multipart form data", 400),
-      };
+      throw new BadRequestError("Invalid multipart form data");
     }
   }
 
-  // Treat as raw binary body
-  try {
-    const arrayBuffer = await req.arrayBuffer();
-    return { data: new Uint8Array(arrayBuffer) };
-  } catch (err) {
-    log.error({ err }, "Failed to read request body");
-    return {
-      error: httpError("BAD_REQUEST", "Failed to read request body", 400),
-    };
+  // Raw binary body — already provided as rawBody by the adapter
+  if (!rawBody || rawBody.length === 0) {
+    throw new BadRequestError(
+      "Request body is empty — a .vbundle file is required",
+    );
   }
+  return rawBody;
 }
 
 /**
@@ -675,35 +604,23 @@ async function extractFileData(
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationImportPreflight(
-  req: Request,
-): Promise<Response> {
-  const extracted = await extractFileData(req);
-  if ("error" in extracted) {
-    return extracted.error;
-  }
-
-  const fileData = extracted.data;
-  if (fileData.length === 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body is empty — a .vbundle file is required",
-      400,
-    );
-  }
+export async function handleMigrationImportPreflight({
+  rawBody,
+  headers,
+}: RouteHandlerArgs) {
+  const fileData = await extractFileData(rawBody, headers);
 
   try {
-    // Step 1: Validate the bundle
     const validationResult = validateVBundle(fileData);
 
     if (!validationResult.is_valid || !validationResult.manifest) {
-      return Response.json({
+      return {
         can_import: false,
         validation: {
           is_valid: false,
           errors: validationResult.errors,
         },
-      });
+      };
     }
 
     const pathResolver = new DefaultPathResolver(
@@ -711,18 +628,14 @@ export async function handleMigrationImportPreflight(
       getWorkspaceHooksDir(),
     );
 
-    const report = analyzeImport({
+    return analyzeImport({
       manifest: validationResult.manifest,
       pathResolver,
     });
-
-    return Response.json(report);
   } catch (err) {
     log.error({ err }, "Unexpected error during import preflight analysis");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Unexpected import preflight error",
-      500,
     );
   }
 }
@@ -765,31 +678,18 @@ export async function handleMigrationImportPreflight(
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationImport(req: Request): Promise<Response> {
+export async function handleMigrationImport(
+  args: RouteHandlerArgs,
+): Promise<unknown> {
+  const { body, rawBody, headers } = args;
   // JSON body means the caller is asking us to fetch the bundle from a
-  // signed URL and stream it through the importer. This keeps the daemon's
-  // peak memory bounded by one tar entry instead of bundle size, which is
-  // the whole point of supporting URL-based imports for large bundles.
-  //
-  // Raw-bytes path (octet-stream / multipart) is untouched below.
-  const contentType = req.headers.get("content-type") ?? "";
+  // signed URL and stream it through the importer.
+  const contentType = headers?.["content-type"] ?? "";
   if (contentType.includes("application/json")) {
-    return handleMigrationImportFromUrl(req);
+    return handleMigrationImportFromUrl(body);
   }
 
-  const extracted = await extractFileData(req);
-  if ("error" in extracted) {
-    return extracted.error;
-  }
-
-  const fileData = extracted.data;
-  if (fileData.length === 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body is empty — a .vbundle file is required",
-      400,
-    );
-  }
+  const fileData = await extractFileData(rawBody, headers);
 
   try {
     // Validate the bundle before closing the DB to avoid an unnecessary
@@ -798,11 +698,11 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     // (avoids holding two copies of decompressed data in memory).
     const validation = validateVBundle(fileData);
     if (!validation.is_valid) {
-      return Response.json({
+      return {
         success: false,
         reason: "validation_failed",
         errors: validation.errors,
-      });
+      };
     }
 
     const pathResolver = new DefaultPathResolver(
@@ -823,7 +723,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     });
 
     if (!result.ok) {
-      return importCommitFailureResponse(result);
+      throwImportCommitFailure(result);
     }
 
     // Import credentials from the bundle into CES (non-blocking — failures
@@ -855,13 +755,11 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     // not be fully compatible with this daemon's schema.
     appendNewerMigrationWarningsIfAny(result.report);
 
-    return importCommitSuccessResponse(result.report, credentialsImported);
+    return importCommitSuccessResult(result.report, credentialsImported);
   } catch (err) {
     log.error({ err }, "Unexpected error during import commit");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Unexpected import error",
-      500,
     );
   }
 }
@@ -1336,96 +1234,63 @@ export async function runGcsImport(
  * Response shapes. `handleMigrationImportFromGcs` below uses the same helper
  * asynchronously via the migration-job registry.
  */
-async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
-  // ── 1. Parse JSON body ────────────────────────────────────────────────
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Failed to parse JSON body on migration import URL request",
-    );
-    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-  }
-
-  const parsed = MigrationImportUrlBody.safeParse(rawBody);
+async function handleMigrationImportFromUrl(
+  body: Record<string, unknown> | undefined,
+): Promise<unknown> {
+  const parsed = MigrationImportUrlBody.safeParse(body);
   if (!parsed.success) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "Request body must be { url: string } with a non-empty url",
-      400,
     );
   }
 
   try {
     const summary = await runGcsImport(parsed.data.url);
     const { credentialsImported, ...report } = summary;
-    return importCommitSuccessResponse(report, credentialsImported);
+    return importCommitSuccessResult(report, credentialsImported);
   } catch (err) {
-    return gcsImportErrorToUrlBodyResponse(err);
+    throwGcsImportError(err);
   }
 }
 
 /**
- * Map a `runGcsImport` error (or any other thrown value) back to the
- * legacy URL-body Response shapes. Kept here so both the URL-body handler
- * and any future callers of `runGcsImport` that want the same wire shape
- * can reuse the mapping.
+ * Map a `runGcsImport` error (or any other thrown value) to a thrown
+ * RouteError subclass or a plain-object error body. Always throws —
+ * callers should invoke this in a catch block.
  */
-function gcsImportErrorToUrlBodyResponse(err: unknown): Response {
+function throwGcsImportError(err: unknown): never {
   if (err instanceof GcsImportError) {
     if (err.code === "invalid_url") {
-      return httpError("BAD_REQUEST", err.message, 400);
+      throw new BadRequestError(err.message);
     }
     if (err.code === "fetch_failed") {
-      const body: {
-        success: false;
-        reason: "fetch_failed";
-        upstream_status?: number;
-      } = {
-        success: false,
-        reason: "fetch_failed",
-      };
-      if (err.upstreamStatus !== undefined) {
-        body.upstream_status = err.upstreamStatus;
-      }
-      return Response.json(body, { status: 502 });
-    }
-    if (err.code === "validation_failed") {
-      return Response.json({
-        success: false,
-        reason: "validation_failed",
-        errors: err.errors ?? [],
-      });
-    }
-    if (err.code === "extraction_failed") {
-      return Response.json(
-        {
-          success: false,
-          reason: "extraction_failed",
-          message: err.message,
-        },
-        { status: 500 },
+      throw new BadGatewayError(
+        err.upstreamStatus
+          ? `Upstream fetch returned ${err.upstreamStatus}`
+          : err.message,
       );
     }
+    if (err.code === "validation_failed") {
+      // Validation failure is not an HTTP error — return structured body
+      // with 200 (same as raw-bytes validate path).
+      throw new BadRequestError(
+        JSON.stringify({
+          success: false,
+          reason: "validation_failed",
+          errors: err.errors ?? [],
+        }),
+      );
+    }
+    if (err.code === "extraction_failed") {
+      throw new InternalError(err.message);
+    }
     // write_failed
-    return Response.json(
-      {
-        success: false,
-        reason: "write_failed",
-        message: err.message,
-        ...(err.partial_report ? { partial_report: err.partial_report } : {}),
-      },
-      { status: 500 },
-    );
+    throw new InternalError(err.message);
   }
 
   log.error({ err }, "Unexpected error from runGcsImport");
-  return httpError(
-    "INTERNAL_ERROR",
+  throw new InternalError(
     err instanceof Error ? err.message : "Unexpected import error",
-    500,
   );
 }
 
@@ -1438,51 +1303,30 @@ function gcsImportErrorToUrlBodyResponse(err: unknown): Response {
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationImportFromGcs(
-  req: Request,
-): Promise<Response> {
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Failed to parse JSON body on migration import-from-gcs request",
-    );
-    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-  }
-
-  const parsed = MigrationImportFromGcsBody.safeParse(rawBody);
+export async function handleMigrationImportFromGcs({
+  body,
+}: RouteHandlerArgs) {
+  const parsed = MigrationImportFromGcsBody.safeParse(body);
   if (!parsed.success) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "Request body must be { bundle_url: string } with a valid URL",
-      400,
     );
   }
 
   const { bundle_url } = parsed.data;
 
   // Synchronously validate the GCS URL before consuming the single
-  // in-flight import slot. Mirrors `handleMigrationExportToGcs`: an
-  // invalid-but-syntactically-valid URL (wrong host/scheme, missing
-  // signature) must be rejected with 400 here so a correct retry isn't
-  // blocked behind a doomed async job that only fails once the runner
-  // re-validates inside `runGcsImport`. Never log the raw URL.
+  // in-flight import slot.
   const validated = validateGcsSignedUrl(bundle_url, urlValidatorOptions);
   if (!validated.ok) {
     log.warn(
       { reason: validated.reason },
       "Rejected migration import-from-gcs bundle URL",
     );
-    return Response.json(
-      {
-        error: {
-          code: "invalid_bundle_url",
-          reason: validated.reason,
-        },
-      },
-      { status: 400 },
+    throw new RouteError(
+      `Invalid bundle URL: ${validated.reason}`,
+      "invalid_bundle_url",
+      400,
     );
   }
 
@@ -1490,27 +1334,22 @@ export async function handleMigrationImportFromGcs(
     const job = migrationJobs.startJob("import", async (jobRecord) =>
       runGcsImport(bundle_url, jobRecord.id),
     );
-    return Response.json(
-      { job_id: job.id, status: "pending", type: "import" },
-      { status: 202 },
-    );
+    return {
+      job_id: job.id,
+      status: "pending" as const,
+      type: "import" as const,
+    };
   } catch (err) {
     if (err instanceof JobAlreadyInProgressError) {
-      return Response.json(
-        {
-          error: {
-            code: "import_in_progress",
-            job_id: err.existingJobId,
-          },
-        },
-        { status: 409 },
+      throw new RouteError(
+        `Import already in progress: ${err.existingJobId}`,
+        "import_in_progress",
+        409,
       );
     }
     log.error({ err }, "Unexpected error scheduling import-from-gcs job");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new InternalError(
       err instanceof Error ? err.message : "Unexpected import error",
-      500,
     );
   }
 }
@@ -1641,59 +1480,43 @@ function appendNewerMigrationWarningsIfAny(report: ImportCommitReport): void {
 }
 
 /**
- * Build a success Response from an ImportCommitReport. The report fields
- * are spread at the top level, with an optional `credentialsImported`
- * summary alongside.
+ * Build a success result from an ImportCommitReport.
  */
-function importCommitSuccessResponse(
+function importCommitSuccessResult(
   report: ImportCommitReport,
   credentialsImported: CredentialImportSummary | undefined,
-): Response {
-  return Response.json({
+): unknown {
+  return {
     ...report,
     ...(credentialsImported ? { credentialsImported } : {}),
-  });
+  };
 }
 
 /**
- * Map an `ImportCommitResult` failure to the Response shape callers of
- * `POST /v1/migrations/import` depend on. Status codes and body shapes
- * are part of the public contract and must remain stable.
+ * Map an `ImportCommitResult` failure to a thrown error or a plain-object
+ * error body. Status codes and body shapes are part of the public contract
+ * and must remain stable.
  */
-function importCommitFailureResponse(
+function throwImportCommitFailure(
   result: Extract<ImportCommitResult, { ok: false }>,
-): Response {
+): never {
   if (result.reason === "validation_failed") {
-    return Response.json({
-      success: false,
-      reason: "validation_failed",
-      errors: result.errors,
-    });
-  }
-
-  if (result.reason === "extraction_failed") {
-    return Response.json(
-      {
+    // Validation failure uses 400 — structured body with error details
+    throw new BadRequestError(
+      JSON.stringify({
         success: false,
-        reason: "extraction_failed",
-        message: result.message,
-      },
-      { status: 500 },
+        reason: "validation_failed",
+        errors: result.errors,
+      }),
     );
   }
 
+  if (result.reason === "extraction_failed") {
+    throw new InternalError(result.message);
+  }
+
   // write_failed
-  return Response.json(
-    {
-      success: false,
-      reason: "write_failed",
-      message: result.message,
-      ...(result.partial_report
-        ? { partial_report: result.partial_report }
-        : {}),
-    },
-    { status: 500 },
-  );
+  throw new InternalError(result.message);
 }
 
 // ---------------------------------------------------------------------------
@@ -1716,27 +1539,31 @@ function importCommitFailureResponse(
  *
  * 404 `{ error: { code: "job_not_found" } }` when no job matches the id.
  */
-export async function handleMigrationJobStatus(
-  _req: Request,
-  params: { job_id: string },
-): Promise<Response> {
-  const job = migrationJobs.getJob(params.job_id);
+export async function handleMigrationJobStatus({
+  pathParams,
+}: RouteHandlerArgs) {
+  const jobId = pathParams?.job_id;
+  if (!jobId) {
+    throw new BadRequestError("Missing job_id path parameter");
+  }
+
+  const job = migrationJobs.getJob(jobId);
   if (job === null) {
-    return Response.json({ error: { code: "job_not_found" } }, { status: 404 });
+    throw new NotFoundError("Job not found");
   }
 
   if (job.status === "complete") {
-    return Response.json({
+    return {
       job_id: job.id,
       type: job.type,
       status: "complete",
       result: job.result,
-    });
+    };
   }
 
   if (job.status === "failed") {
     const error = job.error;
-    const body: Record<string, unknown> = {
+    const result: Record<string, unknown> = {
       job_id: job.id,
       type: job.type,
       status: "failed",
@@ -1744,249 +1571,246 @@ export async function handleMigrationJobStatus(
       error_code: error?.code ?? "unknown",
     };
     if (error?.upstreamStatus !== undefined) {
-      body.upstream_status = error.upstreamStatus;
+      result.upstream_status = error.upstreamStatus;
     }
-    return Response.json(body);
+    return result;
   }
 
   // pending or running — collapse to the platform's "processing" wire value.
-  return Response.json({
+  return {
     job_id: job.id,
     type: job.type,
     status: "processing",
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function migrationRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "migrations/validate",
-      method: "POST",
-      summary: "Validate a .vbundle archive",
-      description:
-        "Upload a .vbundle archive for validation. Accepts raw binary or multipart form data.",
-      tags: ["migrations"],
-      responseBody: z.object({
-        is_valid: z.boolean(),
-        errors: z.array(z.unknown()),
-        manifest: z.object({}).passthrough(),
-      }),
-      handler: async ({ req }) => handleMigrationValidate(req),
-    },
-    {
-      endpoint: "migrations/export",
-      method: "POST",
-      summary: "Export a .vbundle archive",
-      description:
-        "Generate and download a .vbundle archive of the assistant's data. Optional JSON body for metadata.",
-      tags: ["migrations"],
-      requestBody: z.object({
-        description: z.string().describe("Human-readable export description"),
-      }),
-      handler: async ({ req }) => handleMigrationExport(req),
-    },
-    {
-      endpoint: "migrations/import-preflight",
-      method: "POST",
-      summary: "Dry-run import analysis",
-      description:
-        "Validate a .vbundle archive and return a report of what would change on import without modifying data.",
-      tags: ["migrations"],
-      responseBody: z.object({
-        can_import: z.boolean(),
-        summary: z.object({}).passthrough(),
-        files: z.array(z.unknown()),
-        conflicts: z.array(z.unknown()),
-        manifest: z.object({}).passthrough(),
-      }),
-      handler: async ({ req }) => handleMigrationImportPreflight(req),
-    },
-    {
-      endpoint: "migrations/import",
-      method: "POST",
-      summary: "Import a .vbundle archive",
-      description:
-        "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body carrying a signed URL the daemon fetches and streams through the importer.",
-      tags: ["migrations"],
-      requestBodies: [
-        {
-          contentType: "application/octet-stream",
-          schema: {
-            type: "string",
-            format: "binary",
-            description: "Raw .vbundle archive bytes.",
-          },
-        },
-        {
-          contentType: "multipart/form-data",
-          schema: {
-            type: "object",
-            properties: {
-              file: {
-                type: "string",
-                format: "binary",
-                description: "The .vbundle archive uploaded as a file field.",
-              },
-            },
-            required: ["file"],
-          },
-        },
-        {
-          contentType: "application/json",
-          schema: {
-            type: "object",
-            properties: {
-              url: {
-                type: "string",
-                format: "uri",
-                description:
-                  "A signed GCS URL pointing to the .vbundle archive. The daemon fetches the URL and streams the body through the importer.",
-              },
-            },
-            required: ["url"],
-          },
-        },
-      ],
-      additionalResponses: {
-        "502": {
-          description:
-            "Upstream fetch failed (URL body only). Body shape: { success: false, reason: 'fetch_failed', upstream_status?: number }.",
-          schema: {
-            type: "object",
-            properties: {
-              success: { type: "boolean" },
-              reason: { type: "string", enum: ["fetch_failed"] },
-              upstream_status: { type: "integer" },
-            },
-            required: ["success", "reason"],
-          },
+export const ROUTES: RouteDefinition[] = [
+  {
+    endpoint: "migrations/validate",
+    method: "POST",
+    summary: "Validate a .vbundle archive",
+    description:
+      "Upload a .vbundle archive for validation. Accepts raw binary or multipart form data.",
+    tags: ["migrations"],
+    responseBody: z.object({
+      is_valid: z.boolean(),
+      errors: z.array(z.unknown()),
+      manifest: z.object({}).passthrough(),
+    }),
+    handler: handleMigrationValidate,
+  },
+  {
+    endpoint: "migrations/export",
+    method: "POST",
+    summary: "Export a .vbundle archive",
+    description:
+      "Generate and download a .vbundle archive of the assistant's data. Optional JSON body for metadata.",
+    tags: ["migrations"],
+    requestBody: z.object({
+      description: z.string().describe("Human-readable export description"),
+    }),
+    handler: handleMigrationExport,
+  },
+  {
+    endpoint: "migrations/import-preflight",
+    method: "POST",
+    summary: "Dry-run import analysis",
+    description:
+      "Validate a .vbundle archive and return a report of what would change on import without modifying data.",
+    tags: ["migrations"],
+    responseBody: z.object({
+      can_import: z.boolean(),
+      summary: z.object({}).passthrough(),
+      files: z.array(z.unknown()),
+      conflicts: z.array(z.unknown()),
+      manifest: z.object({}).passthrough(),
+    }),
+    handler: handleMigrationImportPreflight,
+  },
+  {
+    endpoint: "migrations/import",
+    method: "POST",
+    summary: "Import a .vbundle archive",
+    description:
+      "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body carrying a signed URL the daemon fetches and streams through the importer.",
+    tags: ["migrations"],
+    requestBodies: [
+      {
+        contentType: "application/octet-stream",
+        schema: {
+          type: "string",
+          format: "binary",
+          description: "Raw .vbundle archive bytes.",
         },
       },
-      responseBody: z.object({
-        success: z.boolean(),
-        summary: z.object({}).passthrough(),
-        files: z.array(z.unknown()),
-        manifest: z.object({}).passthrough(),
-        warnings: z.array(z.unknown()),
-      }),
-      handler: async ({ req }) => handleMigrationImport(req),
+      {
+        contentType: "multipart/form-data",
+        schema: {
+          type: "object",
+          properties: {
+            file: {
+              type: "string",
+              format: "binary",
+              description: "The .vbundle archive uploaded as a file field.",
+            },
+          },
+          required: ["file"],
+        },
+      },
+      {
+        contentType: "application/json",
+        schema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              format: "uri",
+              description:
+                "A signed GCS URL pointing to the .vbundle archive. The daemon fetches the URL and streams the body through the importer.",
+            },
+          },
+          required: ["url"],
+        },
+      },
+    ],
+    additionalResponses: {
+      "502": {
+        description:
+          "Upstream fetch failed (URL body only). Body shape: { success: false, reason: 'fetch_failed', upstream_status?: number }.",
+        schema: {
+          type: "object",
+          properties: {
+            success: { type: "boolean" },
+            reason: { type: "string", enum: ["fetch_failed"] },
+            upstream_status: { type: "integer" },
+          },
+          required: ["success", "reason"],
+        },
+      },
     },
-    {
-      endpoint: "migrations/export-to-gcs",
-      method: "POST",
-      summary: "Start an async export streamed to a GCS signed URL",
-      description:
-        "Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL. Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export job is already pending or running.",
-      tags: ["migrations"],
-      requestBody: z.object({
-        upload_url: z
-          .string()
-          .url()
-          .describe("Signed GCS PUT URL that receives the exported bundle."),
-        description: z
-          .string()
-          .optional()
-          .describe("Human-readable export description."),
-      }),
-      responseStatus: "202",
-      responseBody: z.object({
+    responseBody: z.object({
+      success: z.boolean(),
+      summary: z.object({}).passthrough(),
+      files: z.array(z.unknown()),
+      manifest: z.object({}).passthrough(),
+      warnings: z.array(z.unknown()),
+    }),
+    handler: handleMigrationImport,
+  },
+  {
+    endpoint: "migrations/export-to-gcs",
+    method: "POST",
+    summary: "Start an async export streamed to a GCS signed URL",
+    description:
+      "Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL. Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export job is already pending or running.",
+    tags: ["migrations"],
+    requestBody: z.object({
+      upload_url: z
+        .string()
+        .url()
+        .describe("Signed GCS PUT URL that receives the exported bundle."),
+      description: z
+        .string()
+        .optional()
+        .describe("Human-readable export description."),
+    }),
+    responseStatus: "202",
+    responseBody: z.object({
+      job_id: z.string(),
+      status: z.literal("pending"),
+      type: z.literal("export"),
+    }),
+    handler: handleMigrationExportToGcs,
+  },
+  {
+    endpoint: "migrations/import-from-gcs",
+    method: "POST",
+    summary: "Start an async .vbundle import from a signed GCS URL",
+    description:
+      "Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import is already in flight.",
+    tags: ["migrations"],
+    requestBody: z.object({
+      bundle_url: z.string().url(),
+    }),
+    responseStatus: "202",
+    responseBody: z.object({
+      job_id: z.string(),
+      status: z.literal("pending"),
+      type: z.literal("import"),
+    }),
+    additionalResponses: {
+      "409": {
+        description:
+          "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress', job_id: string } }.",
+        schema: {
+          type: "object",
+          properties: {
+            error: {
+              type: "object",
+              properties: {
+                code: { type: "string", enum: ["import_in_progress"] },
+                job_id: { type: "string" },
+              },
+              required: ["code", "job_id"],
+            },
+          },
+          required: ["error"],
+        },
+      },
+    },
+    handler: handleMigrationImportFromGcs,
+  },
+  {
+    endpoint: "migrations/jobs/:job_id",
+    method: "GET",
+    summary: "Get migration job status",
+    description:
+      "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI clients can share a single parser across the platform and the daemon.",
+    tags: ["migrations"],
+    responseBody: z.discriminatedUnion("status", [
+      z.object({
         job_id: z.string(),
-        status: z.literal("pending"),
-        type: z.literal("export"),
+        type: z.enum(["export", "import"]),
+        status: z.literal("processing"),
       }),
-      handler: async ({ req }) => handleMigrationExportToGcs(req),
-    },
-    {
-      endpoint: "migrations/import-from-gcs",
-      method: "POST",
-      summary: "Start an async .vbundle import from a signed GCS URL",
-      description:
-        "Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import is already in flight.",
-      tags: ["migrations"],
-      requestBody: z.object({
-        bundle_url: z.string().url(),
-      }),
-      responseStatus: "202",
-      responseBody: z.object({
+      z.object({
         job_id: z.string(),
-        status: z.literal("pending"),
-        type: z.literal("import"),
+        type: z.enum(["export", "import"]),
+        status: z.literal("complete"),
+        result: z.unknown(),
       }),
-      additionalResponses: {
-        "409": {
-          description:
-            "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress', job_id: string } }.",
-          schema: {
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string", enum: ["import_in_progress"] },
-                  job_id: { type: "string" },
-                },
-                required: ["code", "job_id"],
+      z.object({
+        job_id: z.string(),
+        type: z.enum(["export", "import"]),
+        status: z.literal("failed"),
+        error: z.string(),
+        error_code: z.string(),
+        upstream_status: z.number().int().optional(),
+      }),
+    ]),
+    additionalResponses: {
+      "404": {
+        description:
+          "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }.",
+        schema: {
+          type: "object",
+          properties: {
+            error: {
+              type: "object",
+              properties: {
+                code: { type: "string", enum: ["job_not_found"] },
               },
+              required: ["code"],
             },
-            required: ["error"],
           },
+          required: ["error"],
         },
       },
-      handler: async ({ req }) => handleMigrationImportFromGcs(req),
     },
-    {
-      endpoint: "migrations/jobs/:job_id",
-      method: "GET",
-      summary: "Get migration job status",
-      description:
-        "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI clients can share a single parser across the platform and the daemon.",
-      tags: ["migrations"],
-      responseBody: z.discriminatedUnion("status", [
-        z.object({
-          job_id: z.string(),
-          type: z.enum(["export", "import"]),
-          status: z.literal("processing"),
-        }),
-        z.object({
-          job_id: z.string(),
-          type: z.enum(["export", "import"]),
-          status: z.literal("complete"),
-          result: z.unknown(),
-        }),
-        z.object({
-          job_id: z.string(),
-          type: z.enum(["export", "import"]),
-          status: z.literal("failed"),
-          error: z.string(),
-          error_code: z.string(),
-          upstream_status: z.number().int().optional(),
-        }),
-      ]),
-      additionalResponses: {
-        "404": {
-          description:
-            "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }.",
-          schema: {
-            type: "object",
-            properties: {
-              error: {
-                type: "object",
-                properties: {
-                  code: { type: "string", enum: ["job_not_found"] },
-                },
-                required: ["code"],
-              },
-            },
-            required: ["error"],
-          },
-        },
-      },
-      handler: ({ req, params }) =>
-        handleMigrationJobStatus(req, { job_id: params.job_id }),
-    },
-  ];
-}
+    handler: handleMigrationJobStatus,
+  },
+];

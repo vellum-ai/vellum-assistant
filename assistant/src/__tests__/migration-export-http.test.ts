@@ -62,6 +62,7 @@ import {
   handleMigrationExport,
   handleMigrationValidate,
 } from "../runtime/routes/migration-routes.js";
+import { callHandler } from "./helpers/call-route-handler.js";
 
 // Test fixture data: a minimal SQLite header to simulate a real database file
 const SQLITE_HEADER = new Uint8Array([
@@ -133,7 +134,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
@@ -152,7 +153,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const arrayBuffer = await res.arrayBuffer();
     const archiveData = new Uint8Array(arrayBuffer);
 
@@ -168,7 +169,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const arrayBuffer = await res.arrayBuffer();
     const archiveData = new Uint8Array(arrayBuffer);
 
@@ -200,7 +201,7 @@ describe("handleMigrationExport", () => {
       body: JSON.stringify({ description: "My custom export description" }),
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const arrayBuffer = await res.arrayBuffer();
     const archiveData = new Uint8Array(arrayBuffer);
 
@@ -217,7 +218,7 @@ describe("handleMigrationExport", () => {
       body: "not valid json{{{",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
@@ -234,7 +235,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
 
     expect(res.status).toBe(200);
 
@@ -250,7 +251,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const arrayBuffer = await res.arrayBuffer();
 
     expect(Number(res.headers.get("Content-Length"))).toBe(
@@ -269,7 +270,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -287,7 +288,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -305,7 +306,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
 
     const validationResult = validateVBundle(archiveData);
@@ -332,7 +333,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -351,7 +352,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
 
     const validationResult = validateVBundle(archiveData);
@@ -370,7 +371,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -460,7 +461,7 @@ describe("export config sanitization", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await callHandler(handleMigrationExport, req);
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 

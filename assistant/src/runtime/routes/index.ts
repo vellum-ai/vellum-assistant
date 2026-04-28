@@ -57,6 +57,7 @@ import { ROUTES as VERCEL_ROUTES } from "./integrations/vercel.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
+import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
@@ -133,6 +134,7 @@ export const ROUTES: RouteDefinition[] = [
   ...LOG_EXPORT_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
+  ...MIGRATION_ROUTES,
   ...NOTIFICATION_ROUTES,
   ...OAUTH_APPS_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
