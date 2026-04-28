@@ -66,6 +66,7 @@ import {
   migrateConversationsLastMessageAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
+  migrateCreateDocumentConversations,
   migrateCreateMemoryGraphNodeEdits,
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
@@ -390,6 +391,7 @@ export function initializeDb(): void {
     migrate230AcpSessionHistory,
     migrate231RepairMemoryGraphEventDates,
     migrateActivationState,
+    migrateCreateDocumentConversations,
   ];
 
   // Run each migration step, catching and logging individual failures so one
