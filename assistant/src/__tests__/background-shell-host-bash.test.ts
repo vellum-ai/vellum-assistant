@@ -18,10 +18,14 @@ const mockGenerateBackgroundToolId = mock(
   () => `bg-test-${String(++bgIdCounter).padStart(4, "0")}`,
 );
 
+const mockIsBackgroundToolLimitReached = mock(() => false);
+
 mock.module("../tools/background-tool-registry.js", () => ({
   registerBackgroundTool: mockRegisterBackgroundTool,
   removeBackgroundTool: mockRemoveBackgroundTool,
   generateBackgroundToolId: mockGenerateBackgroundToolId,
+  isBackgroundToolLimitReached: mockIsBackgroundToolLimitReached,
+  MAX_BACKGROUND_TOOLS: 20,
 }));
 
 // Stub child_process.spawn so we don't actually run commands. The test
@@ -151,6 +155,8 @@ beforeEach(() => {
   mockRegisterBackgroundTool.mockClear();
   mockRemoveBackgroundTool.mockClear();
   mockGenerateBackgroundToolId.mockClear();
+  mockIsBackgroundToolLimitReached.mockClear();
+  mockIsBackgroundToolLimitReached.mockReturnValue(false);
   latestChild = undefined;
 });
 

@@ -76,10 +76,14 @@ const mockRemoveBackgroundTool = mock((_id: string) => {
 });
 const mockGenerateBackgroundToolId = mock(() => "bg-test1234");
 
+const mockIsBackgroundToolLimitReached = mock(() => false);
+
 mock.module("../tools/background-tool-registry.js", () => ({
   registerBackgroundTool: mockRegisterBackgroundTool,
   removeBackgroundTool: mockRemoveBackgroundTool,
   generateBackgroundToolId: mockGenerateBackgroundToolId,
+  isBackgroundToolLimitReached: mockIsBackgroundToolLimitReached,
+  MAX_BACKGROUND_TOOLS: 20,
 }));
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
@@ -121,6 +125,8 @@ describe("bash tool background mode", () => {
     mockRemoveBackgroundTool.mockClear();
     mockGenerateBackgroundToolId.mockClear();
     mockGenerateBackgroundToolId.mockReturnValue("bg-test1234");
+    mockIsBackgroundToolLimitReached.mockClear();
+    mockIsBackgroundToolLimitReached.mockReturnValue(false);
     registeredTools.length = 0;
 
     const mod = await import("../tools/terminal/shell.js");
