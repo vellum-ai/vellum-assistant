@@ -9,17 +9,20 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  checkpointKey,
+  CK_ITEM_COUNT,
+  CK_LAST_GEN_AT,
+  countActiveMemoryNodes,
+  getCheckpointValue,
+  parseCheckpointInt,
+} from "../../memory/conversation-starter-checkpoints.js";
+import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
 import { getDb } from "../../memory/db-connection.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { rawGet } from "../../memory/raw-query.js";
-import {
-  conversationStarters,
-  memoryCheckpoints,
-  memoryJobs,
-} from "../../memory/schema.js";
+import { conversationStarters, memoryJobs } from "../../memory/schema.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -36,22 +39,10 @@ interface StarterItem {
   batch: number;
 }
 
-const CK_ITEM_COUNT = "conversation_starters:item_count_at_last_gen";
-const CK_LAST_GEN_AT = "conversation_starters:last_gen_at";
 export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** Minimum interval between re-enqueue attempts triggered by invalid items. */
 const REFRESH_COOLDOWN_MS = 60_000;
-
-function checkpointKey(base: string, scopeId: string): string {
-  return `${base}:${scopeId}`;
-}
-
-function parseCheckpointInt(value: string | undefined): number | null {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 function hasActiveConversationStarterJob(
   db: ReturnType<typeof getDb>,
@@ -193,26 +184,12 @@ function handleListConversationStarters({
   const total = validItems.length;
 
   if (allItems.length > 0) {
-    const totalActive =
-      rawGet<{ c: number }>(
-        `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
-        scopeId,
-      )?.c ?? 0;
+    const totalActive = countActiveMemoryNodes(scopeId);
     const lastCount = parseCheckpointInt(
-      db
-        .select({ value: memoryCheckpoints.value })
-        .from(memoryCheckpoints)
-        .where(eq(memoryCheckpoints.key, checkpointKey(CK_ITEM_COUNT, scopeId)))
-        .get()?.value,
+      getCheckpointValue(checkpointKey(CK_ITEM_COUNT, scopeId)),
     );
     const lastGenAt = parseCheckpointInt(
-      db
-        .select({ value: memoryCheckpoints.value })
-        .from(memoryCheckpoints)
-        .where(
-          eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)),
-        )
-        .get()?.value,
+      getCheckpointValue(checkpointKey(CK_LAST_GEN_AT, scopeId)),
     );
     const staleByAge =
       lastGenAt == null ||
@@ -240,12 +217,9 @@ function handleListConversationStarters({
     };
   }
 
-  const memoryCount = rawGet<{ c: number }>(
-    `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
-    scopeId,
-  );
+  const memoryCount = countActiveMemoryNodes(scopeId);
 
-  if (!memoryCount || memoryCount.c === 0) {
+  if (memoryCount === 0) {
     return { starters: [], total: 0, status: "empty" };
   }
 
