@@ -130,7 +130,15 @@ struct InferenceServiceCard: View {
                 : "Configure which LLM provider and model to use to power your assistant",
             draftMode: $draftMode,
             managedContent: {
-                if isLoggedIn {
+                if store.modelInfoLoading {
+                    HStack(spacing: VSpacing.xs) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading model…")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                } else if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         managedProviderPicker
                         if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
@@ -148,31 +156,41 @@ struct InferenceServiceCard: View {
                 }
             },
             yourOwnContent: {
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    providerPicker
-
-                    // API Key field
-                    apiKeyField
-
-                    // Active profile picker + Manage Profiles button
-                    if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
-                        activeProfilePicker
-                        manageProfilesButton
+                if store.modelInfoLoading {
+                    HStack(spacing: VSpacing.xs) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Loading model…")
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
+                } else {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        providerPicker
 
-                    // Action buttons
-                    ServiceCardActions(
-                        hasChanges: hasChanges,
-                        isSaving: store.apiKeySaving,
-                        onSave: { save() },
-                        savingLabel: "Validating...",
-                        onReset: {
-                            store.clearAPIKeyForProvider(effectiveProvider)
+                        // API Key field
+                        apiKeyField
+
+                        // Active profile picker + Manage Profiles button
+                        if assistantFeatureFlagStore?.isEnabled("inference-profiles") == true {
+                            activeProfilePicker
+                            manageProfilesButton
+                        }
+
+                        // Action buttons
+                        ServiceCardActions(
+                            hasChanges: hasChanges,
+                            isSaving: store.apiKeySaving,
+                            onSave: { save() },
+                            savingLabel: "Validating...",
+                            onReset: {
+                                store.clearAPIKeyForProvider(effectiveProvider)
                             providerHasKey = false
                             apiKeyText = ""
                         },
                         showReset: providerHasKey
                     )
+                }
                 }
             },
             footer: {

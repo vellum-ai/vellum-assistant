@@ -47,7 +47,12 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Selection
 
-    @Published var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
+    /// The daemon-resolved active model. Starts empty (loading state) until
+    /// the first `model_info` response arrives — UI should show a spinner
+    /// while this is empty rather than a stale hardcoded default.
+    @Published var selectedModel: String = ""
+    /// True until the first `model_info` response is applied.
+    @Published var modelInfoLoading: Bool = true
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
@@ -1089,6 +1094,7 @@ public final class SettingsStore: ObservableObject {
         self.lastDaemonProvider = response.provider
         self.selectedModel = response.model
         self.selectedInferenceProvider = response.provider
+        self.modelInfoLoading = false
         if let providers = response.configuredProviders {
             self.configuredProviders = Set(providers)
         }
