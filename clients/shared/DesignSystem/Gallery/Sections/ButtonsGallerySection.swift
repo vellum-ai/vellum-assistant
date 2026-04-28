@@ -390,17 +390,44 @@ struct ButtonsGallerySection: View {
                                 }
                             }
 
+                        }
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.xl) {
+                        Text("Menu Item Sizes")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HStack(spacing: VSpacing.lg) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Mini Items").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                Text("Mini").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
                                     VMenuItem(label: "Allow & Create Rule", size: .mini) {}
                                 }
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Compact Items").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                Text("Compact (default)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
-                                    VMenuItem(label: "Allow & Create Rule", size: .compact) {}
+                                    VMenuItem(label: "Allow & Create Rule") {}
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Compact (multiple)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
+                                    VMenuItem(label: "Allow once") {}
+                                    VMenuItem(label: "Allow & Create Rule") {}
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: VSpacing.md) {
+                                Text("Mini (multiple)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VSplitButton(label: "Allow", icon: VIcon.check.rawValue, style: .primary, action: {}) {
+                                    VMenuItem(label: "Allow once", size: .mini) {}
+                                    VMenuItem(label: "Allow & Create Rule", size: .mini) {}
                                 }
                             }
                         }
