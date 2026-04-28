@@ -54,6 +54,13 @@ export class NotFoundError extends RouteError {
   }
 }
 
+export class UnprocessableEntityError extends RouteError {
+  constructor(message: string) {
+    super(message, "UNPROCESSABLE_ENTITY", 422);
+    this.name = "UnprocessableEntityError";
+  }
+}
+
 export class ConflictError extends RouteError {
   constructor(message: string) {
     super(message, "CONFLICT", 409);

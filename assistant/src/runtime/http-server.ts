@@ -45,30 +45,15 @@ import {
   parseLiveVoiceClientTextFrame,
 } from "../live-voice/protocol.js";
 import {
-  type Confidence,
-  getAttentionStateByConversationIds,
-  markConversationUnread,
-  recordConversationSeenSignal,
-  type SignalType,
-} from "../memory/conversation-attention-store.js";
-import {
   addMessage,
-  type ConversationRow,
   createConversation,
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
-  getDisplayMetaForConversations,
 } from "../memory/conversation-crud.js";
-import { resolveConversationId } from "../memory/conversation-key-store.js";
 import {
-  countConversations,
-  listConversations,
   listConversationsByTitlePrefix,
-  listPinnedConversations,
 } from "../memory/conversation-queries.js";
-import { getBindingsForConversations } from "../memory/external-conversation-store.js";
-import { listGroups } from "../memory/group-crud.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
@@ -79,10 +64,7 @@ import {
   activeSttStreamSessions,
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
-import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { buildAssistantEvent } from "./assistant-event.js";
-import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import {
@@ -151,10 +133,7 @@ import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
 import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
-import {
-  buildConversationDetailResponse,
-  serializeConversationSummary,
-} from "./services/conversation-serializer.js";
+import { buildConversationDetailResponse } from "./services/conversation-serializer.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -1576,209 +1555,9 @@ export class RuntimeHttpServer {
       ...routeDefinitionsToHTTPRoutes(ROUTES),
       ...workspaceHttpOnlyRouteDefinitions(),
 
-      // Conversation list and seen signal — kept inline because they
-      // depend on multiple cross-cutting stores that aren't grouped
-      // into a single domain module.
-      {
-        endpoint: "conversations",
-        method: "GET",
-        handler: ({ url }) => {
-          const limit = Number(url.searchParams.get("limit") ?? 50);
-          const offset = Number(url.searchParams.get("offset") ?? 0);
-          const backgroundOnly =
-            url.searchParams.get("conversationType") === "background";
-          let rows = listConversations(limit, backgroundOnly, offset);
-          const totalCount = countConversations(backgroundOnly);
-          // On the first page, ensure all pinned conversations are included
-          // even if they fall outside the paginated window.
-          if (offset === 0 && !backgroundOnly) {
-            const pinned = listPinnedConversations();
-            const seen = new Set(rows.map((c) => c.id));
-            const missing = pinned.filter((c) => !seen.has(c.id));
-            if (missing.length > 0) {
-              rows = [...rows, ...missing];
-            }
-          }
-          const conversationIds = rows.map((c) => c.id);
-          const displayMeta = getDisplayMetaForConversations(conversationIds);
-          const bindings = getBindingsForConversations(conversationIds);
-          const attentionStates =
-            getAttentionStateByConversationIds(conversationIds);
-          const parentCache = new Map<string, ConversationRow | null>();
-          const nextOffset = offset + limit;
-          const response: Record<string, unknown> = {
-            conversations: rows.map((conversation) =>
-              serializeConversationSummary({
-                conversation,
-                binding: bindings.get(conversation.id),
-                attentionState: attentionStates.get(conversation.id),
-                displayMeta: displayMeta.get(conversation.id),
-                parentCache,
-              }),
-            ),
-            nextOffset,
-            hasMore: nextOffset < totalCount,
-          };
-          // Include groups array on first page only
-          if (offset === 0) {
-            const groups = listGroups();
-            response.groups = groups.map((g) => ({
-              id: g.id,
-              name: g.name,
-              sortPosition: g.sortPosition,
-              isSystemGroup: g.isSystemGroup,
-            }));
-          }
-          return Response.json(response);
-        },
-      },
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
-
-      {
-        endpoint: "conversations/seen",
-        method: "POST",
-        handler: async ({ req }) => {
-          const body = (await req.json()) as Record<string, unknown>;
-          const rawConversationId = body.conversationId as string | undefined;
-          if (!rawConversationId)
-            return httpError("BAD_REQUEST", "Missing conversationId", 400);
-          // The client may send a conversation key rather than the internal
-          // conversation ID. Resolve to the internal ID to satisfy FK constraints.
-          const conversationId = resolveConversationId(rawConversationId);
-          if (!conversationId)
-            return httpError(
-              "NOT_FOUND",
-              `Unknown conversation: ${rawConversationId}`,
-              404,
-            );
-          try {
-            // Snapshot current state to detect whether the seen cursor
-            // actually advances (avoids emitting on no-op signals).
-            // Only consider a conversation "unseen" when a latest assistant
-            // message exists and the seen cursor is behind it — matching
-            // the hasUnseenLatestAssistantMessage logic in buildAssistantAttention.
-            const priorState = getAttentionStateByConversationIds([
-              conversationId,
-            ]).get(conversationId);
-            const wasUnseen =
-              priorState != null &&
-              priorState.latestAssistantMessageAt != null &&
-              (priorState.lastSeenAssistantMessageAt == null ||
-                priorState.lastSeenAssistantMessageAt <
-                  priorState.latestAssistantMessageAt);
-
-            recordConversationSeenSignal({
-              conversationId,
-              sourceChannel: (body.sourceChannel as string) ?? "vellum",
-              signalType: ((body.signalType as string) ??
-                "macos_conversation_opened") as SignalType,
-              confidence: ((body.confidence as string) ??
-                "explicit") as Confidence,
-              source: (body.source as string) ?? "http-api",
-              evidenceText: body.evidenceText as string | undefined,
-              metadata: body.metadata as Record<string, unknown> | undefined,
-              observedAt: body.observedAt as number | undefined,
-            });
-            if (wasUnseen) {
-              assistantEventHub
-                .publish(
-                  buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-                    type: "conversation_list_invalidated",
-                    reason: "seen_changed",
-                  }),
-                )
-                .catch((err) => {
-                  log.warn(
-                    { err },
-                    "Failed to publish conversation_list_invalidated (seen_changed)",
-                  );
-                });
-            }
-            return Response.json({ ok: true });
-          } catch (err) {
-            log.error(
-              { err, conversationId },
-              "POST /v1/conversations/seen: failed",
-            );
-            return httpError(
-              "INTERNAL_ERROR",
-              "Failed to record seen signal",
-              500,
-            );
-          }
-        },
-      },
-
-      {
-        endpoint: "conversations/unread",
-        method: "POST",
-        handler: async ({ req }) => {
-          const body = (await req.json()) as Record<string, unknown>;
-          const rawConversationId = body.conversationId as string | undefined;
-          if (!rawConversationId)
-            return httpError("BAD_REQUEST", "Missing conversationId", 400);
-          const conversationId = resolveConversationId(rawConversationId);
-          if (!conversationId)
-            return httpError(
-              "NOT_FOUND",
-              `Unknown conversation: ${rawConversationId}`,
-              404,
-            );
-          try {
-            const changed = markConversationUnread(conversationId);
-            if (changed) {
-              assistantEventHub
-                .publish(
-                  buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-                    type: "conversation_list_invalidated",
-                    reason: "seen_changed",
-                  }),
-                )
-                .catch((err) => {
-                  log.warn(
-                    { err },
-                    "Failed to publish conversation_list_invalidated (seen_changed)",
-                  );
-                });
-            }
-            return Response.json({ ok: true });
-          } catch (err) {
-            if (err instanceof UserError) {
-              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
-            }
-            log.error(
-              { err, conversationId },
-              "POST /v1/conversations/unread: failed",
-            );
-            return httpError(
-              "INTERNAL_ERROR",
-              "Failed to mark conversation unread",
-              500,
-            );
-          }
-        },
-      },
-
-      // conversations/:id must be registered AFTER all literal conversations/<word>
-      // routes above (attention, seen, unread) so the parameterized :id does not
-      // shadow them.
-      {
-        endpoint: "conversations/:id",
-        method: "GET",
-        handler: ({ params }) => {
-          const detail = buildConversationDetailResponse(params.id);
-          if (!detail) {
-            return httpError(
-              "NOT_FOUND",
-              `Conversation ${params.id} not found`,
-              404,
-            );
-          }
-          return Response.json(detail);
-        },
-      },
 
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
