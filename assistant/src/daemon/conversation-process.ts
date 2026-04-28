@@ -12,7 +12,6 @@ import {
   createUserMessage,
 } from "../agent/message-types.js";
 import {
-  canServiceRegistryBrowser,
   parseChannelId,
   parseInterfaceId,
   supportsHostProxy,
@@ -47,7 +46,7 @@ import {
   type SlashContext,
 } from "./conversation-slash.js";
 import { getModelInfo } from "./handlers/config-model.js";
-import type { HostBrowserProxy } from "./host-browser-proxy.js";
+
 import type {
   ServerMessage,
   UsageStats,
@@ -148,24 +147,8 @@ export interface ProcessConversationContext {
   setTurnInterfaceContext(ctx: TurnInterfaceContext): void;
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void;
-  /**
-   * Restore host proxy availability based on whether a real client is connected.
-   * When `skipBrowser` is true, the browser proxy is left untouched — use this
-   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
-   * separately with the correct registry-routed sender.
-   */
-  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void;
-  /** Restore only the host browser proxy (used by chrome-extension and macOS drains). */
-  restoreBrowserProxyAvailability(): void;
-  /**
-   * Registry-routed sender override for the host browser proxy. When set,
-   * `restoreBrowserProxyAvailability()` uses this function instead of
-   * `sendToClient`. Set by the POST /messages handler when the guardian
-   * has an active extension connection (regardless of interface).
-   */
-  hostBrowserSenderOverride?: (msg: ServerMessage) => void;
-  /** Replace or clear the conversation's host browser proxy. */
-  setHostBrowserProxy(proxy: HostBrowserProxy | undefined): void;
+  /** Restore host proxy availability based on whether a real client is connected. */
+  restoreProxyAvailability(): void;
   emitActivityState(
     phase:
       | "idle"
@@ -442,83 +425,19 @@ async function drainSingleMessage(
   // Non-interactive queued messages (channel requests) must not execute tools
   // via the desktop host proxy. Clear proxy availability so isAvailable()
   // returns false and tool execution falls back to local.
+  // NOTE: host_browser proxy lifecycle management has been removed here.
+  // The browser execution layer now resolves the HostBrowserProxy singleton
+  // directly via getHostBrowserProxySingleton(). Only non-browser proxies
+  // (bash, file, CU) need per-conversation lifecycle management.
   if (next.isInteractive === false) {
     conversation.clearProxyAvailability();
-    // chrome-extension is non-interactive (no SSE prompter UI) but DOES have
-    // a connected client that can service host_browser_request events. The
-    // unconditional clear above turned its hostBrowserProxy off; restore it
-    // here so the queued turn can still drive the browser via CDP.
-    const drainInterfaceCtx =
-      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const drainInterface = drainInterfaceCtx?.userMessageInterface;
-    if (
-      drainInterface &&
-      !supportsHostProxy(drainInterface) &&
-      supportsHostProxy(drainInterface, "host_browser")
-    ) {
-      conversation.restoreBrowserProxyAvailability();
-    }
   } else {
-    // Restore proxy availability only for desktop-originating turns (macos)
-    // in case a prior non-interactive drain disabled it. Non-desktop interactive
-    // interfaces (CLI, Vellum) should not re-enable desktop host proxies. The
-    // chrome-extension interface only supports host_browser, not the desktop
-    // proxies or computer-use, so it is excluded by the no-arg form of
-    // supportsHostProxy (which returns false for chrome-extension).
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      // When hostBrowserSenderOverride is set, skip the browser proxy here
-      // — restoreBrowserProxyAvailability() below will handle it with the
-      // correct registry-routed sender instead of the SSE hub emitter.
-      // When no override is set (macOS without extension), restoring the
-      // browser proxy via restoreProxyAvailability is correct — it will
-      // use the SSE sender so host_browser_request frames reach the
-      // desktop client directly.
-      conversation.restoreProxyAvailability(
-        conversation.hostBrowserSenderOverride
-          ? { skipBrowser: true }
-          : undefined,
-      );
+      conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
-    }
-    // Tear down a stale hostBrowserProxy inherited from a prior turn on a
-    // different interface (e.g. chrome-extension or macOS installed one,
-    // then a CLI turn drains). Without this, restoreProxyAvailability()
-    // above would re-enable the proxy and getCdpClient() would route
-    // browser tools through host_browser_request and hang waiting for a
-    // client that this turn's interface can't service.
-    //
-    // Skip teardown only when BOTH conditions hold:
-    //   1. `hostBrowserSenderOverride` is set (live registry-routed sender)
-    //   2. The current turn's interface can service host_browser frames
-    //      (chrome-extension or macOS).
-    // Without the interface check, queued turns from CLI/iOS/Vellum would
-    // inherit a stale override left by a prior extension-connected turn
-    // and keep the proxy alive, causing cross-interface misrouting.
-    //
-    // macOS and chrome-extension both support host_browser natively, so
-    // this teardown only fires for interfaces that do not support
-    // host_browser at all (CLI, iOS, Vellum, channels).
-    const currentTurnCanServiceBrowser =
-      !!sourceInterface && canServiceRegistryBrowser(sourceInterface);
-    if (
-      sourceInterface &&
-      !supportsHostProxy(sourceInterface, "host_browser") &&
-      !(conversation.hostBrowserSenderOverride && currentTurnCanServiceBrowser)
-    ) {
-      conversation.setHostBrowserProxy(undefined);
-    }
-    // When a macOS turn has a registry-routed sender override (active
-    // extension connection), restore the browser proxy so host_browser
-    // tools route through the extension rather than cdp-inspect/local.
-    if (
-      sourceInterface &&
-      supportsHostProxy(sourceInterface) &&
-      conversation.hostBrowserSenderOverride
-    ) {
-      conversation.restoreBrowserProxyAvailability();
     }
   }
 
@@ -934,43 +853,13 @@ async function drainBatch(
   // single-message path exactly — sourced from `head`.
   if (head.isInteractive === false) {
     conversation.clearProxyAvailability();
-    const drainInterfaceCtx =
-      queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
-    const drainInterface = drainInterfaceCtx?.userMessageInterface;
-    if (
-      drainInterface &&
-      !supportsHostProxy(drainInterface) &&
-      supportsHostProxy(drainInterface, "host_browser")
-    ) {
-      conversation.restoreBrowserProxyAvailability();
-    }
   } else {
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
     if (sourceInterface && supportsHostProxy(sourceInterface)) {
-      conversation.restoreProxyAvailability(
-        conversation.hostBrowserSenderOverride
-          ? { skipBrowser: true }
-          : undefined,
-      );
+      conversation.restoreProxyAvailability();
       conversation.addPreactivatedSkillId("computer-use");
-    }
-    const currentTurnCanServiceBrowser =
-      !!sourceInterface && canServiceRegistryBrowser(sourceInterface);
-    if (
-      sourceInterface &&
-      !supportsHostProxy(sourceInterface, "host_browser") &&
-      !(conversation.hostBrowserSenderOverride && currentTurnCanServiceBrowser)
-    ) {
-      conversation.setHostBrowserProxy(undefined);
-    }
-    if (
-      sourceInterface &&
-      supportsHostProxy(sourceInterface) &&
-      conversation.hostBrowserSenderOverride
-    ) {
-      conversation.restoreBrowserProxyAvailability();
     }
   }
 

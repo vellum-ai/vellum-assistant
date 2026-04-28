@@ -774,25 +774,11 @@ export class DaemonServer {
           }
         }
       : registrar;
-    // Non-interactive interfaces that still have a connected client capable
-    // of handling host_browser_request events (e.g. chrome-extension) need
-    // their hostBrowserProxy explicitly marked connected. The proxy
-    // constructor defaults clientConnected = false, so without an explicit
-    // sender update the chrome-extension proxy would be created and
-    // immediately unavailable. We do NOT call updateClient(onEvent, false)
-    // for that case, because flipping hasNoClient false would also enable
-    // host_bash/host_file/host_cu tool gating for an interface that can't
-    // service them. Instead, provision just the browser proxy's sender.
-    const persistInterfaceCtx = conversation.getTurnInterfaceContext();
-    const persistInterface = persistInterfaceCtx?.userMessageInterface;
+    // NOTE: The per-conversation hostBrowserProxy sender update has been
+    // removed. The browser execution layer now uses a singleton proxy
+    // wired to the ChromeExtensionRegistry.
     if (options?.isInteractive === true) {
       conversation.updateClient(onEvent, false);
-    } else if (
-      persistInterface &&
-      !supportsHostProxy(persistInterface) &&
-      supportsHostProxy(persistInterface, "host_browser")
-    ) {
-      conversation.hostBrowserProxy?.updateSender(onEvent, true);
     }
 
     conversation

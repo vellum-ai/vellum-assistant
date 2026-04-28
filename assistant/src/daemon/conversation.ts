@@ -199,21 +199,19 @@ export class Conversation {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
+  /**
+   * @deprecated Browser proxy is now a singleton. This field is retained
+   * temporarily for backward compatibility but should not be used for new code.
+   * @see getHostBrowserProxySingleton()
+   */
   /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ hostTransferProxy?: HostTransferProxy;
   /**
-   * Optional override sender used by `restoreBrowserProxyAvailability` so
-   * registry-routed transports can preserve their sender across drain queue
-   * restores. When set, `restoreBrowserProxyAvailability()` uses this
-   * function instead of `sendToClient` so the drain-queue path doesn't
-   * clobber the registry-routed sender with the SSE hub emitter.
-   *
-   * Populated by the POST /messages handler when the guardian has an active
-   * extension connection in the `ChromeExtensionRegistry`, regardless of
-   * interface (chrome-extension, macOS, etc.). Cleared when a turn without
-   * an active extension connection takes over.
+   * @deprecated No longer needed — browser proxy is a singleton wired to
+   * the ChromeExtensionRegistry. Retained temporarily for backward
+   * compatibility.
    */
   /** @internal */ hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** @internal */ cesClient?: CesClient;
@@ -657,7 +655,7 @@ export class Conversation {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
-      this.hostBrowserProxy?.updateSender(sendToClient, !hasNoClient);
+      // hostBrowserProxy is now a singleton — no per-conversation sender update needed.
       this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostTransferProxy?.updateSender(sendToClient, !hasNoClient);
@@ -685,7 +683,7 @@ export class Conversation {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
-    this.hostBrowserProxy?.updateSender(this.sendToClient, false);
+    // hostBrowserProxy is now a singleton — no per-conversation clear needed.
     this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
     this.hostTransferProxy?.updateSender(this.sendToClient, false);
@@ -693,16 +691,13 @@ export class Conversation {
 
   /**
    * Restore host proxy availability based on whether a real client is connected.
-   * When `skipBrowser` is true, the browser proxy is left untouched — use this
-   * when `restoreBrowserProxyAvailability()` will handle the browser proxy
-   * separately with the correct registry-routed sender.
+   * Browser proxy is excluded — it is now a singleton resolved via
+   * `getHostBrowserProxySingleton()`.
    */
-  restoreProxyAvailability(options?: { skipBrowser?: boolean }): void {
+  restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
-      if (!options?.skipBrowser) {
-        this.hostBrowserProxy?.updateSender(this.sendToClient, true);
-      }
+      // hostBrowserProxy is now a singleton — no per-conversation restore needed.
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
       this.hostTransferProxy?.updateSender(this.sendToClient, true);
@@ -716,37 +711,7 @@ export class Conversation {
    *    desktop proxy set), so calling restoreProxyAvailability() would
    *    incorrectly re-enable bash/file/CU proxies.
    * 2. **macOS turns** — when called from queue-drain, the browser proxy
-   *    sender needs to be either the registry-routed sender (when an
-   *    extension connection is present) or the SSE hub sender (when no
-   *    extension is connected). This helper resolves the correct sender
-   *    via `hostBrowserSenderOverride ?? sendToClient`.
-   *
-   * Unlike `restoreProxyAvailability()`, this helper does NOT gate on
-   * `hasNoClient`. The chrome-extension interface is non-interactive (so
-   * `hasNoClient === true`), but it DOES have a connected client that can
-   * service `host_browser_request` events. Gating on `hasNoClient` would
-   * leave the just-constructed proxy unavailable and the only way to make
-   * it available would be to flip `hasNoClient` false, which would
-   * incorrectly enable host_bash/host_file/host_cu tool gating downstream.
-   *
-   * When `hostBrowserSenderOverride` is set, that function is used as the
-   * sender instead of `sendToClient`. This is required for any interface
-   * whose host_browser frames route through the ChromeExtensionRegistry
-   * WebSocket rather than the SSE hub: if the queue-drain path called this
-   * helper with `sendToClient`, the registry-routed sender established at
-   * turn-start would be clobbered by the SSE hub emitter and
-   * host_browser_request frames would stop reaching the extension. When
-   * no override is set (macOS without extension), `sendToClient` is used
-   * so frames reach the desktop client via SSE.
-   *
-   * Callers must only invoke this when they know the current interface
-   * supports host_browser (see `supportsHostProxy(id, "host_browser")`)
-   * or has an active extension connection with a registry-routed sender.
-   */
-  restoreBrowserProxyAvailability(): void {
-    const sender = this.hostBrowserSenderOverride ?? this.sendToClient;
-    this.hostBrowserProxy?.updateSender(sender, true);
-  }
+  // restoreBrowserProxyAvailability() removed — browser proxy is now a singleton.
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
@@ -1002,7 +967,6 @@ export class Conversation {
     } catch {
       // Canonical request tracking should not break the primary approval flow.
     }
-
   }
 
   handleSecretResponse(
@@ -1032,6 +996,12 @@ export class Conversation {
     this.hostBashProxy = proxy;
   }
 
+  /**
+   * @deprecated Browser proxy is now a singleton. This method is retained
+   * for backward compatibility with existing result resolution paths that
+   * go through `conversation.resolveHostBrowser()`. New code should use
+   * `getHostBrowserProxySingleton().resolve()` directly.
+   */
   resolveHostBrowser(
     requestId: string,
     response: { content: string; isError: boolean },
@@ -1039,6 +1009,7 @@ export class Conversation {
     this.hostBrowserProxy?.resolve(requestId, response);
   }
 
+  /** @deprecated Browser proxy is now a singleton. */
   setHostBrowserProxy(proxy: HostBrowserProxy | undefined): void {
     if (this.hostBrowserProxy && this.hostBrowserProxy !== proxy) {
       this.hostBrowserProxy.dispose();

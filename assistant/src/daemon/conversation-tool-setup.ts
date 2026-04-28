@@ -215,13 +215,13 @@ export function createToolExecutor(
       memoryScopeId: ctx.memoryPolicy.scopeId,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
-      hostBrowserProxy: ctx.hostBrowserProxy,
+      // hostBrowserProxy is now a singleton — omitted from ToolContext.
       hostFileProxy: ctx.hostFileProxy,
       hostTransferProxy: ctx.hostTransferProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
-      hostBrowserRegistryRouted: !!ctx.hostBrowserSenderOverride,
+      // hostBrowserRegistryRouted is now implicit (singleton is always registry-routed).
       overrideProfile: ctx.currentTurnOverrideProfile,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {

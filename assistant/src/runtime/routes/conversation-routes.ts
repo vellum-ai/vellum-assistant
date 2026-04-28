@@ -18,8 +18,6 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
-  canServiceRegistryBrowser,
-  canServiceSseBrowser,
   CHANNEL_IDS,
   INTERFACE_IDS,
   type InterfaceId,
@@ -48,7 +46,7 @@ import {
 } from "../../daemon/first-greeting.js";
 import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
-import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
+// HostBrowserProxy import removed — singleton now lives in host-browser-proxy-singleton.ts
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
@@ -109,7 +107,7 @@ import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
+
 import { getClientRegistry } from "../client-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
@@ -1287,83 +1285,6 @@ function registerHostProxyPendingInteraction(
 }
 
 /**
- * Resolve the host_browser sender function for a conversation turn.
- *
- * Transport selection:
- *   1. **WebSocket registry** — when the guardian has an active entry in
- *      ChromeExtensionRegistry (self-hosted direct WS connection), the
- *      registry-routed sender is returned. Frames go directly over the
- *      WebSocket to the extension.
- *   2. **SSE event hub** — when no WebSocket connection exists but a
- *      chrome-extension client is connected via SSE (cloud/platform mode),
- *      the SSE hub sender (`onEvent`) is returned. The extension receives
- *      `host_browser_request` frames as SSE events and POSTs results back
- *      to `/v1/host-browser-result`.
- *
- * When neither transport is available, `onEvent` is returned as the
- * default sender (used by macOS for its native host_browser path).
- * `hasSseExtension` is `false` in that case so the caller can avoid
- * provisioning a stale `HostBrowserProxy` for interfaces that don't
- * natively support host_browser.
- */
-function resolveHostBrowserSender(
-  conversation: Conversation,
-  conversationId: string,
-  actorPrincipalId: string | undefined,
-  onEvent: (msg: ServerMessage) => void,
-  sourceInterface: InterfaceId,
-): {
-  sender: (msg: ServerMessage) => void;
-  isRegistryRouted: boolean;
-  hasSseExtension: boolean;
-} {
-  const guardianId =
-    conversation.trustContext?.guardianPrincipalId ?? actorPrincipalId;
-  const hasExtensionConnection =
-    !!guardianId && !!getChromeExtensionRegistry().get(guardianId);
-
-  // Priority 1: WebSocket registry — direct WS to the extension.
-  if (hasExtensionConnection) {
-    const registrySender = (msg: ServerMessage): void => {
-      const requestId = registerHostProxyPendingInteraction(
-        msg,
-        conversation,
-        conversationId,
-      );
-      const gid =
-        conversation.trustContext?.guardianPrincipalId ?? actorPrincipalId;
-      if (!gid) {
-        if (requestId) pendingInteractions.resolve(requestId);
-        throw new Error(
-          "host_browser send skipped: no guardianId on AuthContext",
-        );
-      }
-      const ok = getChromeExtensionRegistry().send(gid, msg);
-      if (!ok) {
-        if (requestId) pendingInteractions.resolve(requestId);
-        throw new Error(
-          `host_browser send failed: no active connection for guardian ${gid}`,
-        );
-      }
-    };
-    return {
-      sender: registrySender,
-      isRegistryRouted: true,
-      hasSseExtension: false,
-    };
-  }
-
-  // Priority 2: SSE-connected chrome extension (cloud/platform mode).
-  // Check the ClientRegistry for a chrome-extension client specifically —
-  // getMostRecentByCapability("host_browser") would also match macOS
-  // clients, which handle browser frames through their own native path.
-  const hasSseExtension =
-    canServiceSseBrowser(sourceInterface) &&
-    !!getClientRegistry().getMostRecentByInterface("chrome-extension");
-
-  return { sender: onEvent, isRegistryRouted: false, hasSseExtension };
-}
-
 /**
  * Persist the pre-chat onboarding payload to disk.
  *
@@ -1781,59 +1702,11 @@ export async function handleSendMessage(
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
   }
-  // Resolve the host_browser sender — registry-routed when the guardian has
-  // an active WS extension connection, SSE hub when a chrome-extension is
-  // connected via SSE (cloud mode), or SSE hub as default for macOS.
-  const {
-    sender: browserProxySendToClient,
-    isRegistryRouted,
-    hasSseExtension,
-  } = resolveHostBrowserSender(
-    conversation,
-    mapping.conversationId,
-    actorPrincipalId,
-    onEvent,
-    sourceInterface,
-  );
+  // NOTE: host_browser proxy provisioning has been removed. The browser
+  // execution layer now resolves the HostBrowserProxy singleton directly
+  // via getHostBrowserProxySingleton(), which routes through the
+  // ChromeExtensionRegistry. No per-conversation proxy wiring needed.
 
-  // Stash the registry-routed sender on the conversation so queue-drain
-  // restores (which run outside of conversation-routes.ts and only have
-  // access to `sendToClient`) can preserve it when calling
-  // `restoreBrowserProxyAvailability()`. The override is set when the
-  // sender is registry-routed (regardless of interface) and cleared when
-  // the SSE hub sender is used, so the drain path always restores the
-  // correct transport.
-  if (isRegistryRouted) {
-    conversation.hostBrowserSenderOverride = browserProxySendToClient;
-  } else {
-    conversation.hostBrowserSenderOverride = undefined;
-  }
-
-  // Provision the host browser proxy when a viable transport exists:
-  //   - macOS: natively supports host_browser via its own SSE path
-  //   - WS registry: extension connected via direct WebSocket
-  //   - SSE extension: chrome extension connected via SSE (cloud mode)
-  //
-  // For chrome-extension, require an active transport (WS or SSE). Without
-  // one, host_browser_request frames would be emitted to the SSE hub with
-  // no consumer, causing a 30s proxy timeout instead of failing fast.
-  const shouldProvisionBrowserProxy =
-    supportsHostProxy(sourceInterface) ||
-    (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted) ||
-    hasSseExtension;
-  if (shouldProvisionBrowserProxy) {
-    if (!conversation.isProcessing() || !conversation.hostBrowserProxy) {
-      const browserProxy = new HostBrowserProxy(
-        browserProxySendToClient,
-        (requestId) => {
-          pendingInteractions.resolve(requestId);
-        },
-      );
-      conversation.setHostBrowserProxy(browserProxy);
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostBrowserProxy(undefined);
-  }
   if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {
@@ -1886,20 +1759,6 @@ export async function handleSendMessage(
   conversation.updateClient(onEvent, !isInteractive, {
     skipProxySenderUpdate: preservingProxies,
   });
-  // Re-enable the browser proxy for turns that provisioned one. This covers:
-  // - macOS: always provisioned (SSE sender or registry-routed when extension
-  //   is connected)
-  // - chrome-extension: natively supports host_browser (non-interactive but
-  //   has a connected client for host_browser_request events)
-  //
-  // The helper bypasses the `hasNoClient` gate so chrome-extension turns can
-  // drive the browser via CDP without leaking host_bash/host_file tool
-  // availability. It reads `hostBrowserSenderOverride` (set above when
-  // registry-routed) and applies the correct sender — including after
-  // queue-drain restores run from conversation-process.ts.
-  if (shouldProvisionBrowserProxy) {
-    conversation.restoreBrowserProxyAvailability?.();
-  }
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS

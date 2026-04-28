@@ -10,6 +10,7 @@ import {
 import { getConfig } from "../../../config/loader.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ToolContext } from "../../types.js";
+import { getHostBrowserProxySingleton } from "../host-browser-proxy-singleton.js";
 import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
@@ -183,13 +184,14 @@ export function buildPinnedCandidateList(
   context: ToolContext,
   mode: Exclude<BrowserMode, "auto">,
 ): BackendCandidate[] {
-  const { conversationId, hostBrowserProxy } = context;
+  const { conversationId } = context;
 
   switch (mode) {
     case "extension": {
+      const hostBrowserProxy = getHostBrowserProxySingleton();
       if (!hostBrowserProxy || !hostBrowserProxy.isAvailable()) {
         const reason = !hostBrowserProxy
-          ? "no host browser proxy provisioned for this conversation"
+          ? "no active extension connection in registry"
           : "host browser proxy exists but is not connected";
         throw new CdpError(
           "transport_error",
@@ -289,18 +291,17 @@ export function buildPinnedCandidateList(
  * Exported for testing.
  */
 export function buildCandidateList(context: ToolContext): BackendCandidate[] {
-  const { conversationId, hostBrowserProxy } = context;
+  const { conversationId } = context;
   const candidates: BackendCandidate[] = [];
+  const hostBrowserProxy = getHostBrowserProxySingleton();
 
-  // 1. Extension -- preferred when a chrome-extension is bound AND
-  //    the proxy reports it is connected. Checking isAvailable()
-  //    prevents selecting the extension transport when the proxy
-  //    object exists (e.g. it was provisioned at conversation start)
-  //    but the client has since disconnected.
+  // 1. Extension -- preferred when an active extension connection exists
+  //    in the ChromeExtensionRegistry and the singleton proxy reports it
+  //    is connected.
   if (hostBrowserProxy && hostBrowserProxy.isAvailable()) {
     candidates.push({
       kind: "extension",
-      reason: "hostBrowserProxy present and available",
+      reason: "extension connected via registry singleton",
       create() {
         const client = createExtensionCdpClient(
           hostBrowserProxy,
@@ -318,7 +319,7 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
   } else if (hostBrowserProxy) {
     log.debug(
       { conversationId },
-      "CDP factory: hostBrowserProxy present but not available, skipping extension candidate",
+      "CDP factory: singleton proxy present but not available, skipping extension candidate",
     );
   }
 
@@ -349,26 +350,15 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
     cdpInspectConfig.desktopAuto.enabled
   ) {
     // macOS desktop-auto: include cdp-inspect as a candidate unless:
-    // (a) the hostBrowserProxy is registry-routed (extension-backed) and
-    //     temporarily unavailable — the extension transport was explicitly
-    //     expected and the disconnection is transient, so inserting
-    //     cdp-inspect would cause a silent takeover. Only applies when
-    //     `hostBrowserRegistryRouted` is true (set when
-    //     `hostBrowserSenderOverride` was wired at turn-start).
-    //     SSE-backed proxies (macOS without an extension connection) that
-    //     report unavailable (e.g. non-interactive turns where
-    //     clientConnected=false) should NOT suppress cdp-inspect — the
-    //     SSE proxy was never expected to service browser requests.
+    // (a) the singleton proxy exists (extension is in the registry) but
+    //     is temporarily unavailable — the extension transport was
+    //     explicitly expected and the disconnection is transient, so
+    //     inserting cdp-inspect would cause a silent takeover.
     // (b) the cooldown from a recent failure is still active.
     //
-    // When no hostBrowserProxy is present at all (extension not
-    // provisioned for this conversation), cdp-inspect remains available
-    // as a fallback per the desktop-auto contract.
-    if (
-      hostBrowserProxy &&
-      !hostBrowserProxy.isAvailable() &&
-      context.hostBrowserRegistryRouted
-    ) {
+    // When no extension connection exists at all, cdp-inspect remains
+    // available as a fallback per the desktop-auto contract.
+    if (hostBrowserProxy && !hostBrowserProxy.isAvailable()) {
       log.debug(
         { conversationId },
         "CDP factory: desktop-auto cdp-inspect skipped (extension transport expected but temporarily unavailable)",

@@ -64,6 +64,7 @@ import {
   getCdpClient,
   isDesktopAutoCooldownActive,
 } from "./cdp-client/factory.js";
+import { getHostBrowserProxySingleton } from "./host-browser-proxy-singleton.js";
 import type {
   AttemptDiagnostic,
   CdpClient,
@@ -2283,82 +2284,34 @@ async function checkExtensionModeStatus(
   context: ToolContext,
   autoCandidate: boolean,
 ): Promise<BrowserStatusModeResult> {
-  const proxyBound = Boolean(context.hostBrowserProxy);
-  const proxyConnected = context.hostBrowserProxy?.isAvailable() ?? false;
-  const isMacOS = context.transportInterface === "macos";
-  const registryClients = context.connectedBrowserClients ?? [];
-  const extensionClients = registryClients.filter(
-    (c) => c.interfaceId === "chrome-extension",
-  );
+  const proxy = getHostBrowserProxySingleton();
+  const proxyAvailable = proxy?.isAvailable() ?? false;
 
-  if (!proxyBound) {
-    // No proxy bound to this conversation, but the client registry may
-    // show a connected chrome-extension client with host_browser capability.
-    // Report that so `assistant browser status` from the CLI is accurate.
-    if (extensionClients.length > 0) {
-      return {
-        mode: BROWSER_STATUS_MODE.EXTENSION,
-        available: false,
-        verified: "preflight",
-        autoCandidate,
-        summary:
-          "Extension mode: a Chrome extension client is connected but no host browser proxy is bound to this conversation. " +
-          "Extension browser operations will be available within a conversation turn initiated from the extension.",
-        userActions: [],
-        tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
-        details: {
-          proxyBound,
-          proxyConnected,
-          connectedExtensionClients: extensionClients,
-          transport: "extension-ws",
-        },
-      };
-    }
-
+  if (!proxy) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,
       verified: "preflight",
       autoCandidate,
-      summary: isMacOS
-        ? "Extension mode is unavailable: the macOS host browser proxy is not bound to this conversation. Ensure the desktop client is connected."
-        : "Extension mode is unavailable: no host browser proxy is bound to this conversation.",
-      userActions: isMacOS
-        ? macOSHostBrowserSetupActions()
-        : extensionSetupActions(),
+      summary:
+        "Extension mode is unavailable: no Chrome extension connection found in the registry.",
+      userActions: extensionSetupActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
-      details: {
-        proxyBound,
-        proxyConnected,
-        transport:
-          isMacOS && !context.hostBrowserRegistryRouted
-            ? "macos-sse"
-            : "extension-ws",
-      },
+      details: { transport: "extension-ws" },
     };
   }
 
-  if (!proxyConnected) {
+  if (!proxyAvailable) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,
       verified: "preflight",
       autoCandidate,
-      summary: isMacOS
-        ? "Extension mode is unavailable: the macOS host browser proxy is bound but the SSE transport is currently disconnected. Verify the desktop client is running and connected."
-        : "Extension mode is unavailable: the extension transport is currently disconnected.",
-      userActions: isMacOS
-        ? macOSHostBrowserReconnectActions()
-        : extensionSetupActions(),
+      summary:
+        "Extension mode is unavailable: the extension transport is currently disconnected.",
+      userActions: extensionSetupActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
-      details: {
-        proxyBound,
-        proxyConnected,
-        transport:
-          isMacOS && !context.hostBrowserRegistryRouted
-            ? "macos-sse"
-            : "extension-ws",
-      },
+      details: { transport: "extension-ws" },
     };
   }
 
@@ -2372,19 +2325,12 @@ async function checkExtensionModeStatus(
       available: true,
       verified: "active_probe",
       autoCandidate,
-      summary: isMacOS
-        ? "Extension mode is ready via macOS host browser proxy and responded to an active CDP probe."
-        : "Extension mode is ready and responded to an active CDP probe.",
+      summary: "Extension mode is ready and responded to an active CDP probe.",
       userActions: [],
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: {
-        proxyBound,
-        proxyConnected,
         backendKind: probe.backendKind,
-        transport:
-          isMacOS && !context.hostBrowserRegistryRouted
-            ? "macos-sse"
-            : "extension-ws",
+        transport: "extension-ws",
       },
     };
   }
@@ -2395,24 +2341,18 @@ async function checkExtensionModeStatus(
       available: true,
       verified: "active_probe",
       autoCandidate,
-      summary: isMacOS
-        ? "Extension mode transport is connected via macOS host browser proxy, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail."
-        : "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
+      summary:
+        "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
       userActions: [
         "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
       ],
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: {
-        proxyBound,
-        proxyConnected,
         restrictedActiveTab: true,
         errorCode: probe.error.code,
         diagnostic: probe.diagnostic,
         attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
-        transport:
-          isMacOS && !context.hostBrowserRegistryRouted
-            ? "macos-sse"
-            : "extension-ws",
+        transport: "extension-ws",
       },
     };
   }
@@ -2422,23 +2362,17 @@ async function checkExtensionModeStatus(
     available: false,
     verified: "active_probe",
     autoCandidate,
-    summary: isMacOS
-      ? `Extension mode probe failed via macOS host browser proxy: ${probe.error.message}`
-      : `Extension mode probe failed: ${probe.error.message}`,
-    userActions: isMacOS
-      ? macOSHostBrowserProbeFailureActions(probe.error)
-      : probeFailureActions(BROWSER_STATUS_MODE.EXTENSION, probe.error),
+    summary: `Extension mode probe failed: ${probe.error.message}`,
+    userActions: probeFailureActions(
+      BROWSER_STATUS_MODE.EXTENSION,
+      probe.error,
+    ),
     tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
     details: {
-      proxyBound,
-      proxyConnected,
       errorCode: probe.error.code,
       diagnostic: probe.diagnostic,
       attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
-      transport:
-        isMacOS && !context.hostBrowserRegistryRouted
-          ? "macos-sse"
-          : "extension-ws",
+      transport: "extension-ws",
     },
   };
 }
