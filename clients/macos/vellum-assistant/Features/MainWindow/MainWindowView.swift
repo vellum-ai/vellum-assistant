@@ -51,8 +51,6 @@ struct MainWindowView: View {
     /// and panel width calculations without a synchronous GeometryReader.
     @State private var windowSize: CGSize = CGSize(width: 800, height: 600)
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
-    @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
-    @AppStorage("homeShortcut") private var homeShortcut: String = "cmd+shift+h"
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     let sidebarExpandedWidth: CGFloat = 240
@@ -756,7 +754,7 @@ private struct PlatformURLMismatchInfo {
 /// own body, keeping `@Observable` reads of `hasNonEmptyMessage` and
 /// `latestPersistedTipDaemonMessageId` out of `MainWindowView`'s
 /// observation scope.
-private struct ConversationTitleOverlay: View {
+struct ConversationTitleOverlay: View {
     let conversationManager: ConversationManager
     let windowState: MainWindowState
     let sidebarExpanded: Bool
