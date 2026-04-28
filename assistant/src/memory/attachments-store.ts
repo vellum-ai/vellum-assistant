@@ -413,8 +413,14 @@ const ALLOWED_MIME_TYPES = new Set([
   // Archives
   "application/zip",
   "application/gzip",
+  "application/x-gzip",
+  "application/x-compressed-tar",
   "application/x-tar",
   "application/x-7z-compressed",
+  "application/x-bzip2",
+  "application/x-xz",
+  "application/vnd.rar",
+  "application/x-rar-compressed",
   // Office
   "application/msword",
   "application/vnd.ms-excel",
