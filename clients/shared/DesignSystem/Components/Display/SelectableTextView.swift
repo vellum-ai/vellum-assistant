@@ -32,6 +32,12 @@ private final class SelectableNSTextView: NSTextView {
 /// view during the layout pass. This avoids an O(N) layout measurement
 /// cascade through nested `StackLayout.sizeThatFits` calls.
 ///
+/// **Contract for `useExternalSizing: true`:** `maxWidth` MUST be non-nil
+/// and equal to the value passed to `measureSize`. The live text container
+/// is sized from `maxWidth`; if it diverges from the measurement width the
+/// rendered wrap geometry will not match the precomputed frame, producing
+/// horizontal clipping or stale heights.
+///
 /// For low-instance-count scenarios (e.g., a single thinking block),
 /// leave `useExternalSizing` at its default (`false`) and let
 /// `sizeThatFits` compute the size normally.
@@ -204,11 +210,30 @@ public struct VSelectableTextView: NSViewRepresentable {
         // VCodeView / HighlightedTextView still opt in to non-contiguous
         // layout independently for their own scroll-attachment perf fix.
         textStorage.addLayoutManager(layoutManager)
+
+        // Two container sizing modes:
+        //
+        // - `useExternalSizing: true` — the caller precomputes size via
+        //   `measureSize` and applies `.frame(width:height:)`. The container
+        //   is decoupled from the view frame so that `setFrameSize` cannot
+        //   forward a width change onto the layout manager and trigger
+        //   `_fillLayoutHoleForCharacterRange`, an O(glyph-count) main-thread
+        //   relayout. Container width is sized explicitly from `maxWidth`
+        //   here, and propagated in `updateNSView` when `maxWidth` changes.
+        //
+        // - `useExternalSizing: false` — `sizeThatFits` drives layout and
+        //   the container tracks the view frame, matching NSTextView's
+        //   default. Used by the design system gallery only.
+        //
+        // Reference: NSTextContainer.widthTracksTextView
+        // https://developer.apple.com/documentation/uikit/nstextcontainer/widthtrackstextview
+        let initialContainerWidth = useExternalSizing ? (maxWidth ?? CGFloat.greatestFiniteMagnitude) : 0
         let textContainer = NSTextContainer(size: NSSize(
-            width: 0,
+            width: initialContainerWidth,
             height: CGFloat.greatestFiniteMagnitude
         ))
-        textContainer.widthTracksTextView = true
+        textContainer.widthTracksTextView = !useExternalSizing
+        textContainer.heightTracksTextView = false
         textContainer.lineFragmentPadding = 0
         layoutManager.addTextContainer(textContainer)
 
@@ -220,8 +245,22 @@ public struct VSelectableTextView: NSViewRepresentable {
         textView.backgroundColor = .clear
         textView.drawsBackground = false
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
+        // Allow the text view to grow independently of its frame when
+        // `useExternalSizing` is true. This reinforces the container
+        // decoupling above: if `setFrameSize` is invoked with a width
+        // smaller than the current content, AppKit will not shrink the
+        // container and trigger a re-layout of all glyphs.
+        textView.isHorizontallyResizable = useExternalSizing
+        if useExternalSizing {
+            textView.maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        } else {
+            // Match NSTextView's default autoresizing so the container
+            // width tracks the view frame in the Gallery preview path.
+            textView.autoresizingMask = [.width]
+        }
         textView.textContainerInset = .zero
 
         textView.delegate = context.coordinator
@@ -232,12 +271,29 @@ public struct VSelectableTextView: NSViewRepresentable {
             .cursor: NSCursor.pointingHand,
         ]
 
+        context.coordinator.lastContainerWidth = useExternalSizing ? maxWidth : nil
         context.coordinator.applyAttributedString(attributedString, lineSpacing: lineSpacing, to: textView)
         return textView
     }
 
     public func updateNSView(_ textView: NSTextView, context: Context) {
         let coordinator = context.coordinator
+
+        // Propagate container width changes before applying any text update.
+        // On the external-sizing path, the container is decoupled from the
+        // view frame, so a new `maxWidth` (e.g. from a window resize) must
+        // be written onto the container explicitly. Skip when unchanged so
+        // we do not perturb the current layout.
+        if useExternalSizing,
+           let textContainer = textView.textContainer,
+           coordinator.lastContainerWidth != maxWidth {
+            textContainer.containerSize = NSSize(
+                width: maxWidth ?? CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            coordinator.lastContainerWidth = maxWidth
+        }
+
         guard coordinator.lastAttributedString != attributedString
             || coordinator.lastLineSpacing != lineSpacing else { return }
         if useExternalSizing {
@@ -326,6 +382,12 @@ public struct VSelectableTextView: NSViewRepresentable {
         var lastMeasuredWidth: CGFloat = -1
         var lastMeasuredSize: CGSize = .zero
 
+        // Width currently written onto the text container on the external-
+        // sizing path. `updateNSView` propagates changes when this drifts
+        // from the incoming `maxWidth`, so the container stays decoupled
+        // from the view frame without re-sizing on every SwiftUI update.
+        var lastContainerWidth: CGFloat?
+
         func reset() {
             lastAttributedString = nil
             lastLineSpacing = 0
@@ -333,6 +395,7 @@ public struct VSelectableTextView: NSViewRepresentable {
             pendingLineSpacing = nil
             pendingTextView = nil
             hasScheduledApply = false
+            lastContainerWidth = nil
             invalidateMeasurementCache()
         }
 

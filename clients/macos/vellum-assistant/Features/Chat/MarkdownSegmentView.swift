@@ -194,7 +194,7 @@ struct MarkdownSegmentView: View, Equatable {
 
             VSelectableTextView(
                 attributedString: measurement.nsAttributedString,
-                maxWidth: markdownView.maxContentWidth,
+                maxWidth: measurement.effectiveMaxWidth,
                 lineSpacing: 4,
                 tintColor: NSColor(markdownView.tintColor),
                 useExternalSizing: true
@@ -410,6 +410,11 @@ struct MarkdownSegmentView: View, Equatable {
         let nsAttributedString: NSAttributedString
         let size: CGSize
         let hasUnresolvedEmphasis: Bool
+        /// The wrap width used to produce `size`. Callers rendering with
+        /// `VSelectableTextView(useExternalSizing: true)` must pass this as
+        /// `maxWidth` so the live text container wraps at the same width
+        /// that measurement assumed.
+        let effectiveMaxWidth: CGFloat
     }
 
     /// Computes or retrieves from cache the `(NSAttributedString, CGSize)` pair
@@ -455,7 +460,8 @@ struct MarkdownSegmentView: View, Equatable {
             return SelectableRunMeasurementResult(
                 nsAttributedString: cached.nsAttributedString,
                 size: cached.size,
-                hasUnresolvedEmphasis: false
+                hasUnresolvedEmphasis: false,
+                effectiveMaxWidth: effectiveMaxWidth
             )
         }
 
@@ -500,7 +506,8 @@ struct MarkdownSegmentView: View, Equatable {
         return SelectableRunMeasurementResult(
             nsAttributedString: nsAttributed,
             size: size,
-            hasUnresolvedEmphasis: hasUnresolvedEmphasis
+            hasUnresolvedEmphasis: hasUnresolvedEmphasis,
+            effectiveMaxWidth: effectiveMaxWidth
         )
     }
 
