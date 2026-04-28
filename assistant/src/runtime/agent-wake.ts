@@ -166,8 +166,7 @@ export interface WakeResult {
 
 /**
  * Dependencies injected for testing. Production callers can omit this
- * argument entirely and rely on a process-wide default resolver registered
- * at daemon startup via {@link registerDefaultWakeResolver}.
+ * argument entirely and rely on the built-in default resolver.
  */
 export interface WakeDeps {
   /**
@@ -182,47 +181,44 @@ export interface WakeDeps {
   now?: () => number;
 }
 
-// ── Process-wide default resolver ────────────────────────────────────
+// ── Default resolution ────────────────────────────────────────────────
 //
-// PR 6 shipped `wakeAgentForOpportunity` with a required `deps` argument
-// carrying an explicit `resolveTarget`. PR 7 needs to call the helper
-// from code paths (e.g. `MeetSessionManager.join`) that don't know how
-// to build a `WakeTarget` — the adapter that wraps a live `Conversation`
-// lives in the daemon, not the skill. To avoid importing daemon code
-// into `runtime/agent-wake.ts` (and the skill bundle that wires
-// proactive-chat into the manager), we expose a module-level default
-// resolver that the daemon installs once at startup. Callers that don't
-// pass explicit `deps` fall back to it. Tests that pass explicit deps
-// are unaffected — the default is never consulted when deps are
-// supplied.
+// When `wakeAgentForOpportunity()` is called without explicit `deps`,
+// it resolves the target directly by importing `getConversation`,
+// `getOrCreateConversation`, and `conversationToWakeTarget`.
 
-let _defaultResolver:
-  | ((conversationId: string) => Promise<WakeTarget | null | "archived">)
-  | null = null;
-
-/**
- * Install the process-wide default resolver. Called once at daemon
- * startup (see `DaemonServer.start()`) with an adapter that looks up a
- * live {@link Conversation} and wraps it as a {@link WakeTarget}.
- *
- * Calling this more than once replaces the prior resolver — the daemon
- * startup path should call it exactly once, but tests that want to
- * exercise the default path can register a mock and reset via
- * {@link resetDefaultWakeResolverForTests}.
- */
-export function registerDefaultWakeResolver(
-  resolver: (conversationId: string) => Promise<WakeTarget | null | "archived">,
-): void {
-  _defaultResolver = resolver;
-}
-
-/**
- * Reset the process-wide default resolver. Test-only.
- *
- * @internal
- */
-export function resetDefaultWakeResolverForTests(): void {
-  _defaultResolver = null;
+async function defaultResolveTarget(
+  conversationId: string,
+): Promise<WakeTarget | null | "archived"> {
+  // Lazy-import daemon modules to avoid pulling heavyweight transitive
+  // deps (conversation store → config/loader → provider catalogs) at
+  // module-evaluation time.  Callers that only import agent-wake for
+  // the types or for explicit-deps usage (tests, shell tools) never
+  // trigger these imports.
+  const { getConversation } = await import("../memory/conversation-crud.js");
+  const { getOrCreateConversation } =
+    await import("../daemon/conversation-store.js");
+  const { conversationToWakeTarget } =
+    await import("../daemon/wake-target-adapter.js");
+  try {
+    const existing = getConversation(conversationId);
+    if (!existing) return null;
+    if (existing.archivedAt != null) {
+      log.info(
+        { conversationId },
+        "agent-wake: conversation is archived; rejecting wake",
+      );
+      return "archived";
+    }
+    const conversation = await getOrCreateConversation(conversationId);
+    return conversationToWakeTarget(conversation);
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "agent-wake: failed to hydrate conversation",
+    );
+    return null;
+  }
 }
 
 // ── Per-conversation single-flight lock ───────────────────────────────
@@ -330,8 +326,8 @@ function inspectWakeOutput(
  * are serialized per `conversationId`.
  *
  * The `deps` argument is optional in production — when omitted, the
- * process-wide resolver registered by
- * {@link registerDefaultWakeResolver} is used. Tests that want tight
+ * default resolver imports `getConversation`, `getOrCreateConversation`,
+ * and `conversationToWakeTarget` directly. Tests that want tight
  * control over resolution continue to pass explicit deps.
  */
 export async function wakeAgentForOpportunity(
@@ -339,14 +335,7 @@ export async function wakeAgentForOpportunity(
   deps?: WakeDeps,
 ): Promise<WakeResult> {
   const { conversationId, hint, source } = opts;
-  const resolveTarget = deps?.resolveTarget ?? _defaultResolver;
-  if (!resolveTarget) {
-    log.warn(
-      { conversationId, source },
-      "agent-wake: no resolver available (default resolver not registered and no deps passed); skipping",
-    );
-    return { invoked: false, producedToolCalls: false, reason: "no_resolver" };
-  }
+  const resolveTarget = deps?.resolveTarget ?? defaultResolveTarget;
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
 

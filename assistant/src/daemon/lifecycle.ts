@@ -629,12 +629,8 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
 
     // Kick off the update bulletin background job AFTER `server.start()`
-    // resolves. `server.start()` installs the default wake resolver (via
-    // `registerDefaultWakeResolver()`), which the job depends on to actually
-    // invoke the agent. Dispatching before that point races the resolver
-    // registration and causes `wakeAgentForOpportunity()` to silently return
-    // `{invoked: false}`, leaving an orphan background conversation and a
-    // wasted LLM title-generation call every startup.
+    // resolves. The conversation store must be initialized before wake
+    // calls can resolve targets.
     //
     // Kept fire-and-forget (`void import(...).then(...).catch(...)`) so the
     // daemon never blocks startup on it.

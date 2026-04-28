@@ -31,7 +31,6 @@ mock.module("../../runtime/agent-wake.js", () => ({
     mockWakeCalls.push(opts);
     return mockWakeResult;
   },
-  registerDefaultWakeResolver: () => {},
 }));
 
 mock.module("../../memory/conversation-crud.js", () => ({
