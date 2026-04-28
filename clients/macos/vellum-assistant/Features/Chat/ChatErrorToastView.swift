@@ -251,7 +251,7 @@ struct DiskPressureBanner: View {
     var body: some View {
         HStack(spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Disk space is running low")
+                Text(Self.title)
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
                 Text(Self.subtitle(for: alert))
@@ -278,6 +278,8 @@ struct DiskPressureBanner: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .layoutHangSignpost("chat.diskPressureBanner")
     }
+
+    static let title = "💾 Disk space is running low"
 
     static func subtitle(for alert: DiskPressureAlert) -> String {
         "Storage is \(alert.displayPercent)% full."

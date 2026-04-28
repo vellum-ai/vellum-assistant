@@ -4,6 +4,11 @@ import Testing
 @Suite("Chat disk-pressure banner")
 struct ChatDiskPressureBannerTests {
     @Test
+    func titleStartsWithDiskEmoji() {
+        #expect(DiskPressureBanner.title == "💾 Disk space is running low")
+    }
+
+    @Test
     func subtitleUsesMonitorDisplayPercent() {
         let alert = DiskPressureAlert(
             id: "disk-pressure:assistant-123:1",
