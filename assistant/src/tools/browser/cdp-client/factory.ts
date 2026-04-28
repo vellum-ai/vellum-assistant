@@ -8,9 +8,9 @@ import {
   createLocalBackend,
 } from "../../../browser-session/index.js";
 import { getConfig } from "../../../config/loader.js";
+import { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ToolContext } from "../../types.js";
-import { getHostBrowserProxySingleton } from "../host-browser-proxy-singleton.js";
 import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
@@ -104,11 +104,10 @@ export interface GetCdpClientOptions {
  * invocation based on the ToolContext and config. Three backends are
  * considered in priority order:
  *
- *  1. **Extension** -- When `context.hostBrowserProxy` is set AND
- *     `hostBrowserProxy.isAvailable()` returns `true` (i.e. the
- *     proxy exists and the client is actually connected). This
- *     prevents selecting the extension transport when the proxy
- *     object exists but the underlying WebSocket is disconnected.
+ *  1. **Extension** -- When `HostBrowserProxy.instance` is available
+ *     and `isAvailable()` returns `true` (i.e. a chrome extension
+ *     connection exists in the registry). This prevents selecting
+ *     the extension transport when no extension is connected.
  *  2. **cdp-inspect** -- When `hostBrowser.cdpInspect.enabled` is
  *     `true` in config, construct a `CdpInspectClient` that attaches
  *     to an already-running Chrome via the DevTools JSON protocol.
@@ -188,7 +187,7 @@ export function buildPinnedCandidateList(
 
   switch (mode) {
     case "extension": {
-      const hostBrowserProxy = getHostBrowserProxySingleton();
+      const hostBrowserProxy = HostBrowserProxy.instance;
       if (!hostBrowserProxy || !hostBrowserProxy.isAvailable()) {
         const reason = !hostBrowserProxy
           ? "no active extension connection in registry"
@@ -293,7 +292,7 @@ export function buildPinnedCandidateList(
 export function buildCandidateList(context: ToolContext): BackendCandidate[] {
   const { conversationId } = context;
   const candidates: BackendCandidate[] = [];
-  const hostBrowserProxy = getHostBrowserProxySingleton();
+  const hostBrowserProxy = HostBrowserProxy.instance;
 
   // 1. Extension -- preferred when an active extension connection exists
   //    in the ChromeExtensionRegistry and the singleton proxy reports it

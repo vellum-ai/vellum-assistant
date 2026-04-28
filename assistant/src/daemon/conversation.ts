@@ -108,7 +108,6 @@ import {
 } from "./conversation-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
-import { HostBrowserProxy } from "./host-browser-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
@@ -199,21 +198,9 @@ export class Conversation {
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
   /** @internal */ hostBashProxy?: HostBashProxy;
-  /**
-   * @deprecated Browser proxy is now a singleton. This field is retained
-   * temporarily for backward compatibility but should not be used for new code.
-   * @see getHostBrowserProxySingleton()
-   */
-  /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
   /** @internal */ hostTransferProxy?: HostTransferProxy;
-  /**
-   * @deprecated No longer needed — browser proxy is a singleton wired to
-   * the ChromeExtensionRegistry. Retained temporarily for backward
-   * compatibility.
-   */
-  /** @internal */ hostBrowserSenderOverride?: (msg: ServerMessage) => void;
   /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
@@ -655,7 +642,6 @@ export class Conversation {
     this.traceEmitter.updateSender(sendToClient);
     if (!opts?.skipProxySenderUpdate) {
       this.hostBashProxy?.updateSender(sendToClient, !hasNoClient);
-      // hostBrowserProxy is now a singleton — no per-conversation sender update needed.
       this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostTransferProxy?.updateSender(sendToClient, !hasNoClient);
@@ -683,35 +669,20 @@ export class Conversation {
   /** Mark host proxies as unavailable so tool execution uses local fallback. */
   clearProxyAvailability(): void {
     this.hostBashProxy?.updateSender(this.sendToClient, false);
-    // hostBrowserProxy is now a singleton — no per-conversation clear needed.
     this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
     this.hostTransferProxy?.updateSender(this.sendToClient, false);
   }
 
-  /**
-   * Restore host proxy availability based on whether a real client is connected.
-   * Browser proxy is excluded — it is now a singleton resolved via
-   * `getHostBrowserProxySingleton()`.
-   */
+  /** Restore host proxy availability based on whether a real client is connected. */
   restoreProxyAvailability(): void {
     if (!this.hasNoClient) {
       this.hostBashProxy?.updateSender(this.sendToClient, true);
-      // hostBrowserProxy is now a singleton — no per-conversation restore needed.
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
       this.hostTransferProxy?.updateSender(this.sendToClient, true);
     }
   }
-
-  /**
-   * Restore host browser proxy availability only. Used in two scenarios:
-   *
-   * 1. **Chrome-extension turns** — only support host_browser (not the full
-   *    desktop proxy set), so calling restoreProxyAvailability() would
-   *    incorrectly re-enable bash/file/CU proxies.
-   * 2. **macOS turns** — when called from queue-drain, the browser proxy
-  // restoreBrowserProxyAvailability() removed — browser proxy is now a singleton.
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
@@ -802,7 +773,6 @@ export class Conversation {
     }
     this.recentlyCompletedStandaloneSurfaces.clear();
     this.hostBashProxy?.dispose();
-    this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
     this.hostTransferProxy?.dispose();
@@ -994,27 +964,6 @@ export class Conversation {
       this.hostBashProxy.dispose();
     }
     this.hostBashProxy = proxy;
-  }
-
-  /**
-   * @deprecated Browser proxy is now a singleton. This method is retained
-   * for backward compatibility with existing result resolution paths that
-   * go through `conversation.resolveHostBrowser()`. New code should use
-   * `getHostBrowserProxySingleton().resolve()` directly.
-   */
-  resolveHostBrowser(
-    requestId: string,
-    response: { content: string; isError: boolean },
-  ): void {
-    this.hostBrowserProxy?.resolve(requestId, response);
-  }
-
-  /** @deprecated Browser proxy is now a singleton. */
-  setHostBrowserProxy(proxy: HostBrowserProxy | undefined): void {
-    if (this.hostBrowserProxy && this.hostBrowserProxy !== proxy) {
-      this.hostBrowserProxy.dispose();
-    }
-    this.hostBrowserProxy = proxy;
   }
 
   resolveHostFile(

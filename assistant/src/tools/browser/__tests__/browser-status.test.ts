@@ -82,14 +82,18 @@ mock.module("../browser-manager.js", () => ({
   },
 }));
 
-/** Mutable proxy returned by getHostBrowserProxySingleton. Set to null for "no extension". */
+/** Mutable proxy returned by HostBrowserProxy.instance. Set to null/undefined for "no extension". */
 let mockSingletonProxy: {
   isAvailable: () => boolean;
   request: unknown;
 } | null = null;
 
-mock.module("../host-browser-proxy-singleton.js", () => ({
-  getHostBrowserProxySingleton: () => mockSingletonProxy,
+mock.module("../../../daemon/host-browser-proxy.js", () => ({
+  HostBrowserProxy: {
+    get instance() {
+      return mockSingletonProxy ?? undefined;
+    },
+  },
 }));
 
 const { executeBrowserStatus } = await import("../browser-execution.js");

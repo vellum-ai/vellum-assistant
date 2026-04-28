@@ -101,8 +101,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client. */
   hostBashProxy?: import("./host-bash-proxy.js").HostBashProxy;
-  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
-  hostBrowserProxy?: import("./host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
   /** Optional proxy for delegating bidirectional file transfers between sandbox and host. */
@@ -111,17 +109,7 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
-  /**
-   * Registry-routed sender override for the host browser proxy. When set
-   * (non-undefined), indicates the browser proxy sender was replaced by a
-   * ChromeExtensionRegistry WebSocket sender — i.e., an extension connection
-   * was actively wired at turn-start. Propagated into ToolContext as
-   * `hostBrowserRegistryRouted` (boolean) so the CDP factory can distinguish
-   * SSE-backed proxies from extension-backed proxies.
-   */
-  hostBrowserSenderOverride?: (
-    msg: import("./message-protocol.js").ServerMessage,
-  ) => void;
+
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
   /**
@@ -215,13 +203,11 @@ export function createToolExecutor(
       memoryScopeId: ctx.memoryPolicy.scopeId,
       toolUseId,
       hostBashProxy: ctx.hostBashProxy,
-      // hostBrowserProxy is now a singleton — omitted from ToolContext.
       hostFileProxy: ctx.hostFileProxy,
       hostTransferProxy: ctx.hostTransferProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
-      // hostBrowserRegistryRouted is now implicit (singleton is always registry-routed).
       overrideProfile: ctx.currentTurnOverrideProfile,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {

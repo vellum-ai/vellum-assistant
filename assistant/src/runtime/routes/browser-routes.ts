@@ -78,10 +78,6 @@ async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
     ? conversationId!
     : browserCliConversationKey(sessionId);
 
-  // The host browser proxy is now a singleton resolved inside the
-  // browser execution layer via getHostBrowserProxySingleton().
-  // No need to pass it in — it checks the ChromeExtensionRegistry
-  // directly, so CLI browser commands work without a conversation.
   const result = await executeBrowserOperation(
     operation as BrowserOperation,
     input,

@@ -293,8 +293,6 @@ export async function prepareConversationForMessage(
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
   }
-  // NOTE: host_browser proxy is no longer per-conversation. The browser
-  // execution layer resolves it via getHostBrowserProxySingleton().
   if (supportsHostProxy(resolvedInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       conversation.setHostFileProxy(

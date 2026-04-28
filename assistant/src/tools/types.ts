@@ -16,7 +16,6 @@ import type {
 import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { HostBashProxy } from "../daemon/host-bash-proxy.js";
-import type { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import type { HostFileProxy } from "../daemon/host-file-proxy.js";
 import type { HostTransferProxy } from "../daemon/host-transfer-proxy.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
@@ -241,13 +240,6 @@ export interface ToolContext {
   toolUseId?: string;
   /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
   hostBashProxy?: HostBashProxy;
-  /**
-   * @deprecated The host browser proxy is now a singleton resolved via
-   * `getHostBrowserProxySingleton()`. This field is retained temporarily
-   * for backward compatibility but is no longer read by the browser
-   * execution layer.
-   */
-  hostBrowserProxy?: HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
   hostFileProxy?: HostFileProxy;
   /** Optional proxy for delegating bidirectional file transfers between sandbox and host (managed/cloud-hosted mode). */
@@ -264,12 +256,6 @@ export interface ToolContext {
    * to cdp-inspect or local Playwright.
    */
   transportInterface?: InterfaceId;
-  /**
-   * @deprecated The singleton proxy is always registry-routed. This field
-   * is retained temporarily for backward compatibility but is no longer
-   * read by the browser execution layer or CDP factory.
-   */
-  hostBrowserRegistryRouted?: boolean;
   /**
    * The per-turn inference-profile override the agent loop is currently
    * running under, propagated through tool context so subagent-spawn tools

@@ -1,4 +1,5 @@
 import { getConfig } from "../../config/loader.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
@@ -69,7 +70,6 @@ import type {
   CdpClient,
   CdpClientKind,
 } from "./cdp-client/types.js";
-import { getHostBrowserProxySingleton } from "./host-browser-proxy-singleton.js";
 import { checkBrowserRuntime } from "./runtime-check.js";
 
 const log = getLogger("headless-browser");
@@ -2247,7 +2247,7 @@ async function checkExtensionModeStatus(
   context: ToolContext,
   autoCandidate: boolean,
 ): Promise<BrowserStatusModeResult> {
-  const proxy = getHostBrowserProxySingleton();
+  const proxy = HostBrowserProxy.instance;
   const proxyAvailable = proxy?.isAvailable() ?? false;
 
   if (!proxy) {

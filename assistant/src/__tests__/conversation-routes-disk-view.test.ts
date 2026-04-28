@@ -146,7 +146,6 @@ function createFakeConversation(conversationId: string): Conversation {
     } | null,
     messages: [] as Array<unknown>,
     hostBashProxy: undefined as unknown,
-    hostBrowserProxy: undefined as unknown,
     hostFileProxy: undefined as unknown,
     hostCuProxy: undefined as unknown,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
@@ -209,9 +208,6 @@ function createFakeConversation(conversationId: string): Conversation {
     updateClient: () => {},
     setHostBashProxy(this: { hostBashProxy: unknown }, proxy: unknown) {
       this.hostBashProxy = proxy;
-    },
-    setHostBrowserProxy(this: { hostBrowserProxy: unknown }, proxy: unknown) {
-      this.hostBrowserProxy = proxy;
     },
     setHostFileProxy(this: { hostFileProxy: unknown }, proxy: unknown) {
       this.hostFileProxy = proxy;
@@ -439,10 +435,6 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     expect(interfaceCtx).not.toBeNull();
     expect(interfaceCtx!.userMessageInterface).toBe("macos");
     expect(interfaceCtx!.assistantMessageInterface).toBe("macos");
-
-    // NOTE: hostBrowserProxy is now a singleton (not per-conversation).
-    // The proxy is resolved inside the browser execution layer via
-    // getHostBrowserProxySingleton(), not provisioned on the conversation.
   });
 
   test("macOS turn correctly persists interface metadata through the agent loop", async () => {

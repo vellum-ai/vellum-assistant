@@ -773,9 +773,6 @@ export class DaemonServer {
           }
         }
       : registrar;
-    // NOTE: The per-conversation hostBrowserProxy sender update has been
-    // removed. The browser execution layer now uses a singleton proxy
-    // wired to the ChromeExtensionRegistry.
     if (options?.isInteractive === true) {
       conversation.updateClient(onEvent, false);
     }

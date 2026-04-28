@@ -14,7 +14,7 @@ mock.module("../util/logger.js", () => ({
 // Programmable send handler + call log shared across tests. Each test
 // resets these in `beforeEach` via `resetCdp()`. The mocked
 // `getCdpClient` mirrors the real factory's routing decision (local
-// vs extension is driven by `context.hostBrowserProxy`) so individual
+// vs extension is driven by `mockExtensionAvailable`) so individual
 // tests can exercise either transport without process-wide coupling.
 //
 // Note: bun's `mock.module` is process-global, but `scripts/test.sh`
@@ -46,13 +46,22 @@ function makeFakeCdp(kind: "local" | "extension", conversationId: string) {
   };
 }
 
+let mockExtensionAvailable = false;
+
+mock.module("../daemon/host-browser-proxy.js", () => ({
+  HostBrowserProxy: {
+    get instance() {
+      return mockExtensionAvailable
+        ? { isAvailable: () => true, request: mock(async () => ({})) }
+        : undefined;
+    },
+  },
+}));
+
 mock.module("../tools/browser/cdp-client/factory.js", () => ({
-  getCdpClient: (context: {
-    hostBrowserProxy?: unknown;
-    conversationId: string;
-  }) =>
+  getCdpClient: (context: { conversationId: string }) =>
     makeFakeCdp(
-      context.hostBrowserProxy ? "extension" : "local",
+      mockExtensionAvailable ? "extension" : "local",
       context.conversationId,
     ),
 }));
@@ -576,13 +585,8 @@ describe("executeBrowserNavigate", () => {
 
   test("extension path skips Playwright route interception", async () => {
     parseUrlResult = new URL("https://example.com/page");
-    // Supplying a non-null hostBrowserProxy on the context routes the
-    // mocked getCdpClient to the extension path (it mirrors the real
-    // factory's routing logic).
-    const extensionCtx: ToolContext = {
-      ...ctx,
-      hostBrowserProxy: {} as unknown as ToolContext["hostBrowserProxy"],
-    };
+    mockExtensionAvailable = true;
+    const extensionCtx: ToolContext = { ...ctx };
     // Reset page call trackers to verify they are not touched.
     const routeCallsBefore = mockPage.route.mock.calls.length;
     const unrouteCallsBefore = mockPage.unroute.mock.calls.length;
@@ -648,10 +652,8 @@ describe("executeBrowserNavigate", () => {
       return {};
     };
 
-    const extensionCtx: ToolContext = {
-      ...ctx,
-      hostBrowserProxy: {} as unknown as ToolContext["hostBrowserProxy"],
-    };
+    mockExtensionAvailable = true;
+    const extensionCtx: ToolContext = { ...ctx };
     const result = await executeBrowserNavigate(
       { url: "https://public.example.com/start" },
       extensionCtx,

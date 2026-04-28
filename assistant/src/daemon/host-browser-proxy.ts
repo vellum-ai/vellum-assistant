@@ -1,5 +1,7 @@
 import { v4 as uuid } from "uuid";
 
+import { getChromeExtensionRegistry } from "../runtime/chrome-extension-registry.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -28,6 +30,86 @@ interface PendingRequest {
 }
 
 export class HostBrowserProxy {
+  private static _instance: HostBrowserProxy | null = null;
+
+  /**
+   * Lazily-initialized singleton wired to the ChromeExtensionRegistry.
+   * Returns `undefined` when no extension connection is available.
+   */
+  static get instance(): HostBrowserProxy | undefined {
+    const conn = getChromeExtensionRegistry().getAny();
+    if (!conn) {
+      if (HostBrowserProxy._instance) {
+        HostBrowserProxy._instance.dispose();
+        HostBrowserProxy._instance = null;
+      }
+      return undefined;
+    }
+
+    if (!HostBrowserProxy._instance) {
+      log.info(
+        "Creating singleton HostBrowserProxy wired to extension registry",
+      );
+      const sender = HostBrowserProxy.createRegistrySender();
+      HostBrowserProxy._instance = new HostBrowserProxy(sender, (requestId) => {
+        pendingInteractions.resolve(requestId);
+      });
+      HostBrowserProxy._instance.updateSender(sender, true);
+    }
+
+    return HostBrowserProxy._instance;
+  }
+
+  /** Dispose the singleton. Called during graceful shutdown. */
+  static disposeInstance(): void {
+    if (HostBrowserProxy._instance) {
+      HostBrowserProxy._instance.dispose();
+      HostBrowserProxy._instance = null;
+    }
+  }
+
+  /** Test helper: reset the singleton so each test starts fresh. */
+  static resetInstanceForTests(): void {
+    HostBrowserProxy._instance = null;
+  }
+
+  private static createRegistrySender(): (msg: ServerMessage) => void {
+    return (msg: ServerMessage): void => {
+      const conn = getChromeExtensionRegistry().getAny();
+      if (!conn) {
+        throw new Error(
+          "host_browser send failed: no active extension connection in registry",
+        );
+      }
+
+      if (
+        msg.type === "host_browser_request" &&
+        "requestId" in msg &&
+        typeof msg.requestId === "string"
+      ) {
+        pendingInteractions.register(msg.requestId, {
+          conversation: null,
+          conversationId: "host-browser-singleton",
+          kind: "host_browser",
+        });
+      }
+
+      const ok = getChromeExtensionRegistry().send(conn.guardianId, msg);
+      if (!ok) {
+        if (
+          msg.type === "host_browser_request" &&
+          "requestId" in msg &&
+          typeof msg.requestId === "string"
+        ) {
+          pendingInteractions.resolve(msg.requestId);
+        }
+        throw new Error(
+          `host_browser send failed: extension connection for guardian ${conn.guardianId} went away`,
+        );
+      }
+    };
+  }
+
   private pending = new Map<string, PendingRequest>();
   private sendToClient: (msg: ServerMessage) => void;
   private onInternalResolve?: (requestId: string) => void;

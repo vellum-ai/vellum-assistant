@@ -1281,7 +1281,6 @@ function registerHostProxyPendingInteraction(
 }
 
 /**
-/**
  * Persist the pre-chat onboarding payload to disk.
  *
  * Runs only on the very first message of a fresh conversation. Three
@@ -1698,11 +1697,6 @@ export async function handleSendMessage(
   } else if (!conversation.isProcessing()) {
     conversation.setHostBashProxy(undefined);
   }
-  // NOTE: host_browser proxy provisioning has been removed. The browser
-  // execution layer now resolves the HostBrowserProxy singleton directly
-  // via getHostBrowserProxySingleton(), which routes through the
-  // ChromeExtensionRegistry. No per-conversation proxy wiring needed.
-
   if (supportsHostProxy(sourceInterface, "host_file")) {
     if (!conversation.isProcessing() || !conversation.hostFileProxy) {
       const fileProxy = new HostFileProxy(onEvent, (requestId) => {

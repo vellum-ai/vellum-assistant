@@ -424,10 +424,6 @@ async function drainSingleMessage(
   // Non-interactive queued messages (channel requests) must not execute tools
   // via the desktop host proxy. Clear proxy availability so isAvailable()
   // returns false and tool execution falls back to local.
-  // NOTE: host_browser proxy lifecycle management has been removed here.
-  // The browser execution layer now resolves the HostBrowserProxy singleton
-  // directly via getHostBrowserProxySingleton(). Only non-browser proxies
-  // (bash, file, CU) need per-conversation lifecycle management.
   if (next.isInteractive === false) {
     conversation.clearProxyAvailability();
   } else {

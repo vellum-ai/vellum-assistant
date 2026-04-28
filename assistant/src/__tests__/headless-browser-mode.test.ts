@@ -55,7 +55,7 @@ function makeFakeCdp(
 
 mock.module("../tools/browser/cdp-client/factory.js", () => ({
   getCdpClient: (
-    context: { hostBrowserProxy?: unknown; conversationId: string },
+    context: { conversationId: string },
     options?: { mode?: string },
   ) => {
     factoryModeCalls.push(options?.mode);
@@ -70,9 +70,7 @@ mock.module("../tools/browser/cdp-client/factory.js", () => ({
           ? "cdp-inspect"
           : mode === "local"
             ? "local"
-            : context.hostBrowserProxy
-              ? "extension"
-              : "local";
+            : "local";
     return makeFakeCdp(kind, context.conversationId);
   },
 }));
@@ -632,16 +630,13 @@ describe("browser_mode wiring through tool execution", () => {
     factoryModeCalls.length = 0;
     const overridden = await executeBrowserScreenshot(
       { browser_mode: "extension" },
-      { ...ctx, hostBrowserProxy: {} as never },
+      ctx,
     );
     expect(overridden.isError).toBe(false);
     expect(factoryModeCalls).toEqual(["extension"]);
 
     factoryModeCalls.length = 0;
-    const afterOverride = await executeBrowserScreenshot(
-      {},
-      { ...ctx, hostBrowserProxy: {} as never },
-    );
+    const afterOverride = await executeBrowserScreenshot({}, ctx);
     expect(afterOverride.isError).toBe(false);
     expect(factoryModeCalls).toEqual(["extension"]);
   });

@@ -10,6 +10,7 @@ import {
   markTargetInvalidated,
   publishCdpEvent,
 } from "../../browser-session/events.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -83,27 +84,23 @@ export function resolveHostBrowserResultByRequestId(frame: {
   }
 
   // Validation passed — consume the pending interaction.
-  const interaction = pendingInteractions.resolve(requestId)!;
+  pendingInteractions.resolve(requestId);
 
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
   const response = { content: normalizedContent, isError: normalizedIsError };
 
-  // Prefer the conversation path (standard per-conversation proxy).
-  // Fall back to the direct proxy reference for conversation-less
-  // requests (e.g. CLI `assistant browser navigate`).
-  if (interaction.conversation) {
-    interaction.conversation.resolveHostBrowser(requestId as string, response);
-  } else if (interaction.hostBrowserProxy) {
-    interaction.hostBrowserProxy.resolve(requestId as string, response);
+  const proxy = HostBrowserProxy.instance;
+  if (proxy) {
+    proxy.resolve(requestId as string, response);
   } else {
     return {
       ok: false,
       code: "BAD_REQUEST",
       status: 400,
       message:
-        "host_browser pending interaction has no associated conversation or proxy",
+        "host_browser pending interaction has no associated proxy (no extension connected)",
     };
   }
 
