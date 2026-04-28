@@ -285,6 +285,41 @@ function createTarArchive(
 // ---------------------------------------------------------------------------
 
 /**
+ * Build the manifest object and its serialized JSON bytes for a vbundle.
+ *
+ * Shared by the buffered (`buildVBundle`) and streaming
+ * (`streamExportVBundle`) emit sites so the manifest shape and self-checksum
+ * computation live in exactly one place.
+ */
+function buildManifestObject(input: {
+  fileEntries: ManifestFileEntryType[];
+  schemaVersion: string;
+  source: string;
+  description: string;
+  now: Date;
+}): { manifest: ManifestType; manifestData: Uint8Array } {
+  const { fileEntries, schemaVersion, source, description, now } = input;
+
+  const manifestWithoutChecksum = {
+    schema_version: schemaVersion,
+    created_at: now.toISOString(),
+    source,
+    description,
+    files: fileEntries,
+  };
+
+  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
+  const manifest: ManifestType = {
+    ...manifestWithoutChecksum,
+    manifest_sha256: manifestSha256,
+  };
+
+  const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
+
+  return { manifest, manifestData };
+}
+
+/**
  * Build a .vbundle archive from the given files and metadata.
  *
  * Generates a valid manifest with SHA-256 checksums for all files and
@@ -306,23 +341,13 @@ export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
     size: f.data.length,
   }));
 
-  // Build manifest without the self-checksum
-  const manifestWithoutChecksum = {
-    schema_version: schemaVersion,
-    created_at: new Date().toISOString(),
+  const { manifest, manifestData } = buildManifestObject({
+    fileEntries,
+    schemaVersion,
     source,
     description,
-    files: fileEntries,
-  };
-
-  // Compute the manifest self-checksum
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest: ManifestType = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
-
-  const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
+    now: new Date(),
+  });
 
   // Build tar entries: manifest first, then all files
   const tarEntries = [
@@ -900,21 +925,13 @@ export async function streamExportVBundle(
     });
   }
 
-  const manifestWithoutChecksum = {
-    schema_version: "1.0",
-    created_at: new Date().toISOString(),
+  const { manifest, manifestData } = buildManifestObject({
+    fileEntries,
+    schemaVersion: "1.0",
     source: source ?? "runtime-export",
     description: description ?? "Runtime export bundle",
-    files: fileEntries,
-  };
-
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest: ManifestType = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
-
-  const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
+    now: new Date(),
+  });
 
   // ------------------------------------------------------------------
   // Pass 2: Stream tar through gzip into a temp file
