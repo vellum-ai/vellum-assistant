@@ -32,8 +32,8 @@ import { createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema.js";
-import { BadRequestError } from "../runtime/routes/errors.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 
 initializeDb();
 
@@ -92,7 +92,10 @@ interface ListResponse {
 }
 
 function callList(query: Record<string, string>): ListResponse {
-  return handleListMessages({ queryParams: query }, null) as ListResponse;
+  return handleListMessages(
+    { queryParams: query },
+    null,
+  ) as unknown as ListResponse;
 }
 
 describe("handleListMessages page=latest", () => {
