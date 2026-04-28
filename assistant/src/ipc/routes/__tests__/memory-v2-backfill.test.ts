@@ -37,7 +37,7 @@ mock.module("../../../memory/jobs-store.js", () => ({
   },
 }));
 
-const { memoryV2BackfillRoute } = await import("../memory-v2-backfill.js");
+const { ROUTES: memoryV2Routes } = await import("../../../runtime/routes/memory-v2-routes.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,10 +45,12 @@ const { memoryV2BackfillRoute } = await import("../memory-v2-backfill.js");
 
 type BackfillResult = { jobId: string };
 
+const backfillRoute = memoryV2Routes.find(r => r.operationId === "memory_v2_backfill")!;
+
 async function runRoute(
   params: Record<string, unknown>,
 ): Promise<BackfillResult> {
-  return (await memoryV2BackfillRoute.handler(params)) as BackfillResult;
+  return (await backfillRoute.handler({ body: params })) as BackfillResult;
 }
 
 beforeEach(() => {
@@ -64,9 +66,9 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("memoryV2BackfillRoute", () => {
-  test("method is 'memory_v2/backfill'", () => {
-    expect(memoryV2BackfillRoute.method).toBe("memory_v2/backfill");
+describe("memory_v2_backfill route", () => {
+  test("operationId is 'memory_v2_backfill'", () => {
+    expect(backfillRoute.operationId).toBe("memory_v2_backfill");
   });
 
   test("rejects unknown op", async () => {
