@@ -1625,6 +1625,7 @@ describe("buildPinnedCandidateList", () => {
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    mockSingletonProxy = null;
   });
 
   test("extension mode produces single extension candidate", () => {
@@ -1976,6 +1977,7 @@ describe("no-fallback guarantees", () => {
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
     logWarnCalls.length = 0;
+    mockSingletonProxy = null;
   });
 
   test("pinned extension: only one candidate is ever constructed", async () => {
