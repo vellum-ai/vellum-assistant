@@ -25,6 +25,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import {
@@ -1330,8 +1331,11 @@ export async function runAgentLoopImpl(
     // and proactively invoke the reducer if already above budget. This avoids
     // a wasted provider round-trip that would just fail with context_too_large.
     const config = getConfig();
-    const overflowRecovery = config.llm.default.contextWindow.overflowRecovery;
-    const providerMaxTokens = config.llm.default.contextWindow.maxInputTokens;
+    const turnLlmConfig = resolveCallSiteConfig(turnCallSite, config.llm, {
+      overrideProfile: turnOverrideProfile,
+    });
+    const overflowRecovery = turnLlmConfig.contextWindow.overflowRecovery;
+    const providerMaxTokens = turnLlmConfig.contextWindow.maxInputTokens;
     // Widen safety margin for large conversations where estimation error
     // compounds across many messages with tool results.
     const baseSafetyMargin = overflowRecovery.safetyMarginRatio;

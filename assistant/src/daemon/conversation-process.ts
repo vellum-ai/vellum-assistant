@@ -18,7 +18,6 @@ import {
   type TurnChannelContext,
   type TurnInterfaceContext,
 } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
@@ -42,6 +41,7 @@ import type {
 import type { ChannelCapabilities } from "./conversation-runtime-assembly.js";
 import {
   classifySlash,
+  resolveMainAgentStatusConfig,
   resolveSlash,
   type SlashContext,
 } from "./conversation-slash.js";
@@ -233,15 +233,15 @@ function resolveQueuedTurnInterfaceContext(
 function buildSlashContext(
   conversation: ProcessConversationContext,
 ): SlashContext {
-  const config = getConfig();
   const turnInterface = conversation.getTurnInterfaceContext();
+  const statusConfig = resolveMainAgentStatusConfig();
   return {
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
-    model: config.llm.default.model,
-    provider: config.llm.default.provider,
+    maxInputTokens: statusConfig.maxInputTokens,
+    model: statusConfig.model,
+    provider: statusConfig.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: turnInterface?.userMessageInterface,
   };

@@ -2,6 +2,30 @@ import { describe, expect, test } from "bun:test";
 
 import { buildInitialConfig, buildNestedConfig } from "../lib/config-utils.js";
 
+const anthropicProfiles = {
+  "quality-optimized": {
+    provider: "anthropic",
+    model: "claude-opus-4-7",
+    maxTokens: 32000,
+    effort: "max",
+    thinking: { enabled: true, streamThinking: true },
+  },
+  balanced: {
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+  },
+  "cost-optimized": {
+    provider: "anthropic",
+    model: "claude-haiku-4-5-20251001",
+    maxTokens: 8192,
+    effort: "low",
+    thinking: { enabled: false, streamThinking: false },
+  },
+};
+
 describe("config-utils", () => {
   test("buildNestedConfig only converts dot-notation values", () => {
     expect(
@@ -31,10 +55,11 @@ describe("config-utils", () => {
           provider: "anthropic",
           model: "claude-sonnet-4-6",
         },
+        profiles: anthropicProfiles,
+        activeProfile: "balanced",
         callSites: {
           mainAgent: {
-            model: "claude-opus-4-7",
-            maxTokens: 32000,
+            profile: "quality-optimized",
           },
         },
       },
@@ -53,10 +78,11 @@ describe("config-utils", () => {
         },
       },
       llm: {
+        profiles: anthropicProfiles,
+        activeProfile: "balanced",
         callSites: {
           mainAgent: {
-            model: "claude-opus-4-7",
-            maxTokens: 32000,
+            profile: "quality-optimized",
           },
         },
       },
@@ -76,6 +102,8 @@ describe("config-utils", () => {
           provider: "anthropic",
           model: "claude-sonnet-4-6",
         },
+        profiles: anthropicProfiles,
+        activeProfile: "balanced",
         callSites: {
           mainAgent: {
             model: "claude-haiku-4-5-20251001",

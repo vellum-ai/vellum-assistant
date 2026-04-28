@@ -1,4 +1,5 @@
 import type { InterfaceId } from "../channels/types.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { getConfiguredProviders } from "../providers/provider-availability.js";
@@ -21,6 +22,20 @@ export interface SlashContext {
   userMessageInterface?: InterfaceId;
 }
 
+export function resolveMainAgentStatusConfig(): {
+  maxInputTokens: number;
+  model: string;
+  provider: string;
+} {
+  const config = getConfig();
+  const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+  return {
+    maxInputTokens: resolved.contextWindow.maxInputTokens,
+    model: resolved.model,
+    provider: resolved.provider,
+  };
+}
+
 // ── Deprecated model-switching shortcuts ─────────────────────────────
 
 /**
@@ -39,7 +54,7 @@ const DEPRECATED_MODEL_SHORTCUTS = new Set([
 // ── /models command ──────────────────────────────────────────────────
 
 async function resolveModelList(): Promise<SlashResolution> {
-  const config = getConfig();
+  const currentMainAgent = resolveMainAgentStatusConfig();
   const configuredProviders = new Set<string>(await getConfiguredProviders());
 
   const lines = ["Available models:\n"];
@@ -54,8 +69,7 @@ async function resolveModelList(): Promise<SlashResolution> {
     lines.push(`**${providerName}** ${status}`);
     for (const { id, displayName } of models) {
       const isCurrent =
-        config.llm.default.provider === provider &&
-        config.llm.default.model === id;
+        currentMainAgent.provider === provider && currentMainAgent.model === id;
       const current = isCurrent ? " **[current]**" : "";
       lines.push(`  - ${displayName} (\`${id}\`)${current}`);
     }
