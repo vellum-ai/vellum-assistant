@@ -295,6 +295,12 @@ describe("seedV2SkillEntries", () => {
       { summary: skillA, state: "enabled" },
       { summary: skillB, state: "enabled" },
     ];
+    // Remote catalog must be non-empty so catalogAvailable is true and
+    // pruning is not skipped.
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+      { id: "example-skill-b", name: "example-skill-b", description: "B" },
+    ];
     state.embedReturn = [
       [0.1, 0.2, 0.3],
       [0.4, 0.5, 0.6],
@@ -321,6 +327,12 @@ describe("seedV2SkillEntries", () => {
       { summary: unflagged, state: "enabled" },
     ];
     state.flagsEnabled = { "off-flag": false };
+    // Remote catalog must be non-empty so catalogAvailable is true and
+    // pruning is not skipped.
+    state.fullCatalog = [
+      { id: "example-skill-a", name: "example-skill-a", description: "A" },
+      { id: "example-skill-b", name: "example-skill-b", description: "B" },
+    ];
     state.embedReturn = [[0.4, 0.5, 0.6]];
 
     await seedV2SkillEntries();
@@ -391,16 +403,45 @@ describe("seedV2SkillEntries", () => {
     expect(after).toEqual(before);
   });
 
-  test("no enabled skills yields empty cache and a single empty prune call", async () => {
+  test("no enabled skills yields empty cache and no prune when catalog is empty", async () => {
     state.catalog = [];
     state.resolved = [];
+    // fullCatalog defaults to [] — catalog unavailable, so pruning is skipped.
 
     await seedV2SkillEntries();
 
     expect(state.upsertCalls).toHaveLength(0);
-    expect(state.pruneCalls).toHaveLength(1);
-    expect([...state.pruneCalls[0]]).toEqual([]);
+    expect(state.pruneCalls).toHaveLength(0);
     expect(getSkillCapability("anything")).toBeNull();
+  });
+
+  test("no enabled skills prunes when catalog is available", async () => {
+    state.catalog = [];
+    state.resolved = [];
+    state.fullCatalog = [
+      { id: "remote-only", name: "remote-only", description: "Remote skill" },
+    ];
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    expect(state.upsertCalls).toHaveLength(1);
+    expect(state.upsertCalls[0].id).toBe("remote-only");
+    expect(state.pruneCalls).toHaveLength(1);
+    expect([...state.pruneCalls[0]]).toEqual(["remote-only"]);
+  });
+
+  test("skips pruning when catalog fetch returns empty (network failure guard)", async () => {
+    const skillA = makeSummary({ id: "example-skill-a" });
+    state.catalog = [skillA];
+    state.resolved = [{ summary: skillA, state: "enabled" }];
+    state.fullCatalog = []; // Simulates cold cache / network failure
+    state.embedReturn = [[0.1, 0.2, 0.3]];
+
+    await seedV2SkillEntries();
+
+    expect(state.upsertCalls).toHaveLength(1);
+    expect(state.pruneCalls).toHaveLength(0);
   });
 });
 
