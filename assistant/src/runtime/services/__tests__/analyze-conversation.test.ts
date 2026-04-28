@@ -52,8 +52,36 @@ mock.module("../../../export/transcript-formatter.js", () => ({
   buildAnalysisTranscript: () => "user: hi",
 }));
 
+// Mock the direct imports the service now uses instead of DI deps.
+function makeConversation() {
+  return {
+    setTrustContext: mock(() => {}),
+    ensureActorScopedHistory: mock(() => Promise.resolve()),
+    setSubagentAllowedTools: mock(() => {}),
+    updateClient: mock(() => {}),
+    processing: false,
+    abortController: null as AbortController | null,
+    currentRequestId: null as string | null,
+    loadedHistoryTrustClass: undefined as string | undefined,
+    runAgentLoop: mock(() => Promise.resolve()),
+  };
+}
+
+let currentConversation = makeConversation();
+const mockGetOrCreateConversation = mock(async () => currentConversation);
+
+mock.module("../../../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: mockGetOrCreateConversation,
+}));
+
 import { AssistantEventHub } from "../../assistant-event-hub.js";
-import type { SendMessageDeps } from "../../http-types.js";
+
+const testHub = new AssistantEventHub();
+mock.module("../../assistant-event-hub.js", () => ({
+  AssistantEventHub,
+  assistantEventHub: testHub,
+}));
+
 import { analyzeConversation } from "../analyze-conversation.js";
 
 beforeEach(() => {
@@ -75,43 +103,18 @@ beforeEach(() => {
   mockFindAnalysisConversationFor.mockImplementation(() => null);
   mockGetConversationSource.mockReset();
   mockGetConversationSource.mockImplementation(() => null);
+  mockGetOrCreateConversation.mockReset();
+  currentConversation = makeConversation();
+  mockGetOrCreateConversation.mockImplementation(
+    async () => currentConversation,
+  );
 });
-
-function makeConversation() {
-  return {
-    setTrustContext: mock(() => {}),
-    ensureActorScopedHistory: mock(() => Promise.resolve()),
-    setSubagentAllowedTools: mock(() => {}),
-    updateClient: mock(() => {}),
-    processing: false,
-    abortController: null as AbortController | null,
-    currentRequestId: null as string | null,
-    loadedHistoryTrustClass: undefined as string | undefined,
-    runAgentLoop: mock(() => Promise.resolve()),
-  };
-}
-
-function makeDeps(conversation: ReturnType<typeof makeConversation>) {
-  const assistantEventHub = new AssistantEventHub();
-  const getOrCreateConversation = mock(async () => conversation);
-  const sendMessageDeps = {
-    getOrCreateConversation,
-    assistantEventHub,
-    resolveAttachments: () => [],
-  } as unknown as SendMessageDeps;
-  return {
-    sendMessageDeps,
-    buildConversationDetailResponse: (id: string) => ({ id }),
-    getOrCreateConversation,
-  };
-}
 
 describe("analyzeConversation", () => {
   test("returns NOT_FOUND when the source ID does not resolve", async () => {
     mockResolveConversationId.mockImplementation(() => null);
-    const deps = makeDeps(makeConversation());
 
-    const result = await analyzeConversation("missing", deps, {
+    const result = await analyzeConversation("missing", {
       trigger: "manual",
     });
 
@@ -124,9 +127,8 @@ describe("analyzeConversation", () => {
 
   test("returns NOT_FOUND when the conversation record is missing", async () => {
     mockGetConversation.mockImplementation(() => null);
-    const deps = makeDeps(makeConversation());
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "manual",
     });
 
@@ -138,9 +140,8 @@ describe("analyzeConversation", () => {
 
   test("returns BAD_REQUEST when the source conversation has no messages", async () => {
     mockGetMessages.mockImplementation(() => []);
-    const deps = makeDeps(makeConversation());
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "manual",
     });
 
@@ -151,10 +152,7 @@ describe("analyzeConversation", () => {
   });
 
   test("creates an analysis conversation with unknown trust, no tools, and returns the new ID", async () => {
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
-
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "manual",
     });
 
@@ -171,24 +169,25 @@ describe("analyzeConversation", () => {
     );
 
     // Sets trust context to unknown.
-    expect(conversation.setTrustContext).toHaveBeenCalledWith({
+    expect(currentConversation.setTrustContext).toHaveBeenCalledWith({
       trustClass: "unknown",
       sourceChannel: "vellum",
     });
 
     // Strips all tools.
-    expect(conversation.setSubagentAllowedTools).toHaveBeenCalledTimes(1);
+    expect(currentConversation.setSubagentAllowedTools).toHaveBeenCalledTimes(
+      1,
+    );
     const allowedTools = (
-      conversation.setSubagentAllowedTools.mock.calls as unknown as Array<
-        [Set<string> | undefined]
-      >
+      currentConversation.setSubagentAllowedTools.mock
+        .calls as unknown as Array<[Set<string> | undefined]>
     )[0]?.[0];
     expect(allowedTools).toBeInstanceOf(Set);
     expect(allowedTools?.size).toBe(0);
 
     // Fires the agent loop with the analyzeConversation call-site so the
     // per-call provider config flows through `resolveCallSiteConfig`.
-    expect(conversation.runAgentLoop).toHaveBeenCalledWith(
+    expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
       expect.any(Function),
@@ -204,10 +203,8 @@ describe("analyzeConversation", () => {
 
   test("auto: creates a new analysis conversation when none exists, with source=auto-analysis, dedicated groupId, and forkParentConversationId", async () => {
     mockFindAnalysisConversationFor.mockImplementation(() => null);
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
 
@@ -230,11 +227,9 @@ describe("analyzeConversation", () => {
   });
 
   test("auto: skips the run (no agent loop, no message persisted) when the rolling analysis conversation is already processing", async () => {
-    const conversation = makeConversation();
-    conversation.processing = true;
-    const deps = makeDeps(conversation);
+    currentConversation.processing = true;
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
 
@@ -247,17 +242,15 @@ describe("analyzeConversation", () => {
     // Critically, none of the mutating side effects should have run: no
     // message persisted, no trust context overwritten, no agent loop fired.
     expect(mockAddMessage).not.toHaveBeenCalled();
-    expect(conversation.setTrustContext).not.toHaveBeenCalled();
-    expect(conversation.runAgentLoop).not.toHaveBeenCalled();
-    expect(conversation.abortController).toBeNull();
+    expect(currentConversation.setTrustContext).not.toHaveBeenCalled();
+    expect(currentConversation.runAgentLoop).not.toHaveBeenCalled();
+    expect(currentConversation.abortController).toBeNull();
   });
 
   test("manual: does NOT skip when the conversation reports processing (guard is auto-only)", async () => {
-    const conversation = makeConversation();
-    conversation.processing = true;
-    const deps = makeDeps(conversation);
+    currentConversation.processing = true;
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "manual",
     });
 
@@ -268,17 +261,15 @@ describe("analyzeConversation", () => {
     // Manual trigger always proceeds — it creates a fresh conversation per
     // invocation, so there is no shared-state concurrency hazard.
     expect(mockAddMessage).toHaveBeenCalled();
-    expect(conversation.runAgentLoop).toHaveBeenCalled();
+    expect(currentConversation.runAgentLoop).toHaveBeenCalled();
   });
 
   test("auto: reuses an existing rolling analysis conversation (no new row)", async () => {
     mockFindAnalysisConversationFor.mockImplementation(() => ({
       id: "analysis-existing",
     }));
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
 
@@ -306,16 +297,14 @@ describe("analyzeConversation", () => {
     mockFindAnalysisConversationFor.mockImplementation(() => ({
       id: "analysis-existing",
     }));
-    const conversation = makeConversation();
-    conversation.loadedHistoryTrustClass = "guardian";
+    currentConversation.loadedHistoryTrustClass = "guardian";
     let trustClassWhenEnsured: string | undefined = "sentinel";
-    conversation.ensureActorScopedHistory.mockImplementation(() => {
-      trustClassWhenEnsured = conversation.loadedHistoryTrustClass;
+    currentConversation.ensureActorScopedHistory.mockImplementation(() => {
+      trustClassWhenEnsured = currentConversation.loadedHistoryTrustClass;
       return Promise.resolve();
     });
-    const deps = makeDeps(conversation);
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
 
@@ -323,44 +312,38 @@ describe("analyzeConversation", () => {
     // The invalidation must land before ensureActorScopedHistory runs so
     // the reload inside it pulls the freshly-persisted user prompt.
     expect(trustClassWhenEnsured).toBeUndefined();
-    expect(conversation.ensureActorScopedHistory).toHaveBeenCalledTimes(1);
+    expect(currentConversation.ensureActorScopedHistory).toHaveBeenCalledTimes(
+      1,
+    );
   });
 
   test("auto: sets trustClass to guardian", async () => {
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
-
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
     expect("error" in result).toBe(false);
 
-    expect(conversation.setTrustContext).toHaveBeenCalledWith({
+    expect(currentConversation.setTrustContext).toHaveBeenCalledWith({
       trustClass: "guardian",
       sourceChannel: "vellum",
     });
   });
 
   test("auto: does NOT strip the tool surface", async () => {
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
-
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
     expect("error" in result).toBe(false);
 
     // Manual mode calls this with an empty Set; auto mode must leave the
     // conversation's default tool surface intact.
-    expect(conversation.setSubagentAllowedTools).not.toHaveBeenCalled();
+    expect(currentConversation.setSubagentAllowedTools).not.toHaveBeenCalled();
   });
 
   test("auto: rejects when the source conversation is itself an auto-analysis conversation", async () => {
     mockGetConversationSource.mockImplementation(() => "auto-analysis");
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
 
-    const result = await analyzeConversation("conv-1", deps, {
+    const result = await analyzeConversation("conv-1", {
       trigger: "auto",
     });
 
@@ -376,12 +359,9 @@ describe("analyzeConversation", () => {
   });
 
   test("auto: routes the agent loop through callSite: 'analyzeConversation'", async () => {
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
+    await analyzeConversation("conv-1", { trigger: "auto" });
 
-    await analyzeConversation("conv-1", deps, { trigger: "auto" });
-
-    expect(conversation.runAgentLoop).toHaveBeenCalledWith(
+    expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
       expect.any(Function),
@@ -393,12 +373,9 @@ describe("analyzeConversation", () => {
     // Per-call model selection now happens via the call-site resolver against
     // `llm.callSites.analyzeConversation`, not via legacy modelIntent/
     // modelOverride keys on the conversation create options.
-    const conversation = makeConversation();
-    const deps = makeDeps(conversation);
+    await analyzeConversation("conv-1", { trigger: "auto" });
 
-    await analyzeConversation("conv-1", deps, { trigger: "auto" });
-
-    const calls = deps.getOrCreateConversation.mock.calls as unknown as Array<
+    const calls = mockGetOrCreateConversation.mock.calls as unknown as Array<
       [string, Record<string, unknown> | undefined]
     >;
     expect(calls.length).toBe(1);

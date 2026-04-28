@@ -6,61 +6,60 @@
  *
  * The heavy lifting lives in `services/analyze-conversation.ts`. This module
  * is thin glue: map the route params to the service, translate service
- * errors into HTTP errors, and build the success response.
+ * errors, and build the success response.
  */
 
-import { httpError, type HttpErrorCode } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
-import {
-  analyzeConversation,
-  type ConversationAnalysisDeps,
-} from "../services/analyze-conversation.js";
-
-// Re-export the dependency type so existing callers can continue importing it
-// from this module.
-export type { ConversationAnalysisDeps };
+import { analyzeConversation } from "../services/analyze-conversation.js";
+import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Handler
 // ---------------------------------------------------------------------------
 
-export function conversationAnalysisRouteDefinitions(
-  deps: ConversationAnalysisDeps,
-): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversations/:id/analyze",
-      method: "POST",
-      policyKey: "conversations/analyze",
-      summary: "Analyze a conversation",
-      description:
-        "Create a new conversation with a structured self-assessment of an existing conversation.",
-      tags: ["conversations"],
-      handler: async ({ params }) => {
-        const result = await analyzeConversation(params.id, deps, {
-          trigger: "manual",
-        });
+async function handleAnalyzeConversation({
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const conversationId = pathParams.id;
+  if (!conversationId) {
+    throw new BadRequestError("Conversation ID is required");
+  }
 
-        if ("error" in result) {
-          return httpError(
-            result.error.kind as HttpErrorCode,
-            result.error.message,
-            result.error.status,
-          );
-        }
+  const result = await analyzeConversation(conversationId, {
+    trigger: "manual",
+  });
 
-        const detail = deps.buildConversationDetailResponse(
-          result.analysisConversationId,
-        );
-        if (!detail) {
-          return httpError(
-            "INTERNAL_ERROR",
-            `Analysis conversation ${result.analysisConversationId} could not be loaded`,
-            500,
-          );
-        }
-        return Response.json(detail);
-      },
-    },
-  ];
+  if ("error" in result) {
+    const { kind, message } = result.error;
+    if (kind === "NOT_FOUND") throw new NotFoundError(message);
+    if (kind === "BAD_REQUEST") throw new BadRequestError(message);
+    throw new InternalError(message);
+  }
+
+  const detail = buildConversationDetailResponse(result.analysisConversationId);
+  if (!detail) {
+    throw new InternalError(
+      `Analysis conversation ${result.analysisConversationId} could not be loaded`,
+    );
+  }
+  return detail;
 }
+
+// ---------------------------------------------------------------------------
+// Transport-agnostic route definitions
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "analyzeConversation",
+    endpoint: "conversations/:id/analyze",
+    method: "POST",
+    policyKey: "conversations/analyze",
+    summary: "Analyze a conversation",
+    description:
+      "Create a new conversation with a structured self-assessment of an existing conversation.",
+    tags: ["conversations"],
+    handler: handleAnalyzeConversation,
+  },
+];
