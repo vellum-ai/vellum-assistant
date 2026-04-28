@@ -12,7 +12,6 @@ import type {
 } from "../../daemon/message-types/upgrades.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -50,9 +49,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       expectedDowntimeSeconds: downtime,
     };
 
-    await assistantEventHub.publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
-    );
+    await assistantEventHub.publish(buildAssistantEvent(message));
 
     return { ok: true };
   }
@@ -71,9 +68,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
       statusMessage,
     };
 
-    await assistantEventHub.publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
-    );
+    await assistantEventHub.publish(buildAssistantEvent(message));
 
     return { ok: true };
   }
@@ -114,9 +109,7 @@ async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
         : {}),
     };
 
-    await assistantEventHub.publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
-    );
+    await assistantEventHub.publish(buildAssistantEvent(message));
 
     return { ok: true };
   }

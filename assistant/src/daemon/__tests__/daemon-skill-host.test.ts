@@ -110,13 +110,8 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 }));
 
 mock.module("../../runtime/assistant-event.js", () => ({
-  buildAssistantEvent: (
-    assistantId: string,
-    message: unknown,
-    conversationId?: string,
-  ) => ({
+  buildAssistantEvent: (message: unknown, conversationId?: string) => ({
     id: "evt-1",
-    assistantId,
     conversationId,
     emittedAt: "2024-01-01T00:00:00.000Z",
     message,
@@ -195,7 +190,6 @@ describe("createDaemonSkillHost", () => {
 
   test("identity normalizes a null assistant name to undefined", () => {
     expect(host.identity.getAssistantName()).toBeUndefined();
-    expect(host.identity.internalAssistantId).toBe("self");
   });
 
   test("platform methods return the stubbed values", () => {
@@ -243,7 +237,6 @@ describe("createDaemonSkillHost", () => {
 
   test("events.publish, subscribe, and buildEvent plumb through the hub", async () => {
     const evt = host.events.buildEvent({ type: "ping" }, "c1");
-    expect(evt.assistantId).toBe("self");
     expect(evt.conversationId).toBe("c1");
     await host.events.publish(evt);
     expect(publishSpy).toHaveBeenCalled();

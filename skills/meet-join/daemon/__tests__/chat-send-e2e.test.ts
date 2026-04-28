@@ -48,7 +48,6 @@ import type { AssistantEvent } from "@vellumai/skill-host-contracts";
 import {
   buildTestHost,
   InMemoryEventHub,
-  TEST_INTERNAL_ASSISTANT_ID,
 } from "../../__tests__/build-test-host.js";
 import {
   _resetEventPublisherForTests,
@@ -154,7 +153,7 @@ function captureHub(): {
 } {
   const received: AssistantEvent[] = [];
   const sub = testHub.subscribe(
-    { assistantId: TEST_INTERNAL_ASSISTANT_ID },
+    {},
     (event) => {
       received.push(event);
     },
@@ -287,7 +286,6 @@ describe("MeetSessionManager.sendChat end-to-end (real HTTP + real event hub)", 
       };
       expect(message.meetingId).toBe("m-chat-e2e");
       expect(message.text).toBe(text);
-      expect(chatSent[0]!.assistantId).toBe(TEST_INTERNAL_ASSISTANT_ID);
 
       await manager.leave("m-chat-e2e", "cleanup");
     } finally {

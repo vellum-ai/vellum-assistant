@@ -92,12 +92,7 @@ import type {
 import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 import { mock } from "bun:test";
 
-/**
- * Internal assistant id used by the in-memory event hub below. Mirrors the
- * daemon's `DAEMON_INTERNAL_ASSISTANT_ID` literal so tests that filter on
- * that id keep working without reaching into `assistant/`.
- */
-export const TEST_INTERNAL_ASSISTANT_ID = "self";
+
 
 /**
  * Silent default logger. Every severity method is a `mock()` spy so
@@ -134,7 +129,6 @@ function defaultConfigFacet(): ConfigFacet {
 function defaultIdentityFacet(): IdentityFacet {
   return {
     getAssistantName: () => "TestAssistant",
-    internalAssistantId: "self",
   };
 }
 
@@ -347,18 +341,14 @@ export class InMemoryEventHub {
   }
 
   /**
-   * Build an `EventsFacet` backed by this hub. `assistantId` defaults to
-   * {@link TEST_INTERNAL_ASSISTANT_ID} — production code always constructs
-   * events under the daemon-internal scope, so matching that here keeps
-   * subscribers that filter on the internal id working without passing
-   * the id through at every call site.
+   * Build an `EventsFacet` backed by this hub.
    */
-  facet(assistantId: string = TEST_INTERNAL_ASSISTANT_ID): EventsFacet {
+  facet(): EventsFacet {
     return {
       publish: (event) => this.publish(event),
       subscribe: (filter, cb) => this.subscribe(filter, cb),
       buildEvent: (message: ServerMessage, conversationId?: string) =>
-        buildAssistantEvent(assistantId, message, conversationId),
+        buildAssistantEvent(message, conversationId),
     };
   }
 }

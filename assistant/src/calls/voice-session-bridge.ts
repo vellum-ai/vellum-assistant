@@ -428,11 +428,7 @@ export async function startVoiceTurn(
         ? (msg as { conversationId: string }).conversationId
         : undefined;
     const resolvedConversationId = msgConversationId ?? opts.conversationId;
-    const event = buildAssistantEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
-      msg,
-      resolvedConversationId,
-    );
+    const event = buildAssistantEvent(msg, resolvedConversationId);
     hubChain = (async () => {
       await hubChain;
       try {

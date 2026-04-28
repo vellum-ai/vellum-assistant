@@ -64,7 +64,7 @@
  * ### Sync-method bootstrap
  *
  * The `SkillHost` contract exposes a number of synchronous accessors
- * (`identity.internalAssistantId`, `platform.workspaceDir()`,
+ * (`identity.getAssistantName()`, `platform.workspaceDir()`,
  * `platform.runtimeMode()`, etc.) that naturally cannot round-trip an async
  * IPC call on every invocation. `connect()` prefetches the stable subset of
  * these values once, caches them locally, and every subsequent sync accessor
@@ -311,8 +311,8 @@ export class SkillHostClient implements SkillHost {
   >();
 
   // Prefetched sync state — populated by `connect()`.
-  private cachedInternalAssistantId: string | null = null;
   private cachedAssistantName: string | undefined = undefined;
+  private cachedPrefetchDone = false;
   private cachedWorkspaceDir: string | null = null;
   private cachedVellumRoot: string | null = null;
   private cachedRuntimeMode: DaemonRuntimeMode | null = null;
@@ -383,7 +383,7 @@ export class SkillHostClient implements SkillHost {
     // the caches are still null and sync accessors would throw — fall
     // through and re-run prefetch over the existing socket.
     const socketAlive = !!this.socket && !this.socket.destroyed;
-    const prefetchDone = this.cachedInternalAssistantId !== null;
+    const prefetchDone = this.cachedPrefetchDone;
     if (socketAlive && prefetchDone) return;
 
     const ensureSocket = socketAlive ? Promise.resolve() : this.doConnect();
@@ -774,15 +774,14 @@ export class SkillHostClient implements SkillHost {
   // ── Internal: bootstrap cache ───────────────────────────────────────────
 
   private async prefetchSyncState(): Promise<void> {
-    const [assistantId, workspaceDir, vellumRootValue, runtimeMode, name] =
+    const [workspaceDir, vellumRootValue, runtimeMode, name] =
       await Promise.all([
-        this.call<string>("host.identity.getInternalAssistantId"),
         this.call<string>("host.platform.workspaceDir"),
         this.call<string>("host.platform.vellumRoot"),
         this.call<DaemonRuntimeMode>("host.platform.runtimeMode"),
         this.call<string | null>("host.identity.getAssistantName"),
       ]);
-    this.cachedInternalAssistantId = assistantId;
+    this.cachedPrefetchDone = true;
     this.cachedWorkspaceDir = workspaceDir;
     this.cachedVellumRoot = vellumRootValue;
     this.cachedRuntimeMode = runtimeMode;
@@ -844,12 +843,8 @@ export class SkillHostClient implements SkillHost {
     const self = this;
     return {
       getAssistantName: () => {
-        if (self.cachedInternalAssistantId === null) throw notConnected();
+        if (!self.cachedPrefetchDone) throw notConnected();
         return self.cachedAssistantName;
-      },
-      get internalAssistantId(): string {
-        if (self.cachedInternalAssistantId === null) throw notConnected();
-        return self.cachedInternalAssistantId;
       },
     };
   }
@@ -1000,13 +995,12 @@ export class SkillHostClient implements SkillHost {
         // `buildEvent` is typed as sync on the contract (the daemon
         // allocates a uuid + timestamp and returns the envelope). A sync
         // round-trip isn't possible, so the client produces an envelope
-        // locally using the cached assistant id and the standard uuid /
-        // timestamp sources. This matches the observable shape of the
-        // daemon's `buildAssistantEvent` without the round-trip.
-        if (this.cachedInternalAssistantId === null) throw notConnected();
+        // locally using the standard uuid / timestamp sources. This matches
+        // the observable shape of the daemon's `buildAssistantEvent` without
+        // the round-trip.
+        if (!this.cachedPrefetchDone) throw notConnected();
         return {
           id: randomUUID(),
-          assistantId: this.cachedInternalAssistantId,
           conversationId,
           emittedAt: new Date().toISOString(),
           message,

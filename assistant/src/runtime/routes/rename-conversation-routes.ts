@@ -16,7 +16,6 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -46,9 +45,7 @@ export const ROUTES: RouteDefinition[] = [
 
       const conversation = getConversation(conversationId);
       if (!conversation) {
-        throw new NotFoundError(
-          `Conversation ${conversationId} not found`,
-        );
+        throw new NotFoundError(`Conversation ${conversationId} not found`);
       }
 
       updateConversationTitle(conversationId, title, 0);
@@ -56,7 +53,6 @@ export const ROUTES: RouteDefinition[] = [
       assistantEventHub
         .publish(
           buildAssistantEvent(
-            DAEMON_INTERNAL_ASSISTANT_ID,
             {
               type: "conversation_title_updated",
               conversationId,
@@ -71,7 +67,7 @@ export const ROUTES: RouteDefinition[] = [
 
       assistantEventHub
         .publish(
-          buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+          buildAssistantEvent({
             type: "conversation_list_invalidated",
             reason: "renamed",
           }),

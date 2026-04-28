@@ -9,7 +9,6 @@ import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
   BadRequestError,
   RouteError,
@@ -23,7 +22,7 @@ export function publishAvatarUpdated(): void {
   const avatarPath = getAvatarImagePath();
   assistantEventHub
     .publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+      buildAssistantEvent({
         type: "avatar_updated",
         avatarPath,
       }),
@@ -105,8 +104,7 @@ export const ROUTES: RouteDefinition[] = [
       return { ok: true };
     },
     summary: "Notify avatar updated",
-    description:
-      "Publish an avatar_updated SSE event to connected clients.",
+    description: "Publish an avatar_updated SSE event to connected clients.",
     tags: ["avatar"],
     responseBody: z.object({
       ok: z.boolean(),

@@ -23,7 +23,6 @@ import type { AssistantEvent } from "@vellumai/skill-host-contracts";
 import {
   buildTestHost,
   InMemoryEventHub,
-  TEST_INTERNAL_ASSISTANT_ID,
 } from "../../__tests__/build-test-host.js";
 import type {
   ChatOpportunityDecision,
@@ -726,7 +725,7 @@ describe("MeetSessionManager container-exit watcher", () => {
   function captureHub() {
     const received: AssistantEvent[] = [];
     const sub = testHub.subscribe(
-      { assistantId: TEST_INTERNAL_ASSISTANT_ID },
+      {},
       (event) => {
         received.push(event);
       },
@@ -1080,7 +1079,7 @@ describe("MeetSessionManager event-hub lifecycle publication", () => {
   function captureHub() {
     const received: AssistantEvent[] = [];
     const sub = testHub.subscribe(
-      { assistantId: TEST_INTERNAL_ASSISTANT_ID },
+      {},
       (event) => {
         received.push(event);
       },

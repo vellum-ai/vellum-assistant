@@ -23,7 +23,6 @@ import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -277,7 +276,7 @@ export class DaemonServer {
     msg: ServerMessage,
     conversationId?: string,
   ): void {
-    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg, conversationId);
+    const event = buildAssistantEvent(msg, conversationId);
     this._hubChain = this._hubChain
       .then(() => assistantEventHub.publish(event))
       .catch((err: unknown) => {

@@ -46,7 +46,6 @@ import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 
 import {
   InMemoryEventHub,
-  TEST_INTERNAL_ASSISTANT_ID,
 } from "../../__tests__/build-test-host.js";
 import {
   BARGE_IN_DEBOUNCE_MS,
@@ -338,7 +337,7 @@ const testHub = new InMemoryEventHub();
 
 function publishToHub(message: ServerMessage): Promise<void> {
   return testHub.publish(
-    buildAssistantEvent(TEST_INTERNAL_ASSISTANT_ID, message),
+    buildAssistantEvent(message),
   );
 }
 
@@ -377,7 +376,7 @@ function captureHub(): CapturedHub {
     resolve: (m: ServerMessage) => void;
   }> = [];
   const sub = testHub.subscribe(
-    { assistantId: TEST_INTERNAL_ASSISTANT_ID },
+    {},
     (event) => {
       events.push(event.message);
       // Snapshot so a resolver removing itself mid-iteration doesn't
@@ -563,7 +562,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       sessionManager: session,
       subscribe: dispatcher.subscribe,
       subscribeAssistantEvents: (cb) =>
-        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
+        testHub.subscribe({}, cb),
     });
     watcher.start();
 
@@ -668,7 +667,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       sessionManager: session,
       subscribe: dispatcher.subscribe,
       subscribeAssistantEvents: (cb) =>
-        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
+        testHub.subscribe({}, cb),
     });
     watcher.start();
 
@@ -781,7 +780,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       sessionManager: session,
       subscribe: dispatcher.subscribe,
       subscribeAssistantEvents: (cb) =>
-        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
+        testHub.subscribe({}, cb),
     });
     watcher.start();
 

@@ -99,7 +99,6 @@ export interface IdentityFacet {
    * Skills use this as the `assistantId` field on events they publish and
    * as the subject of memory writes.
    */
-  readonly internalAssistantId: string;
 }
 
 // ---------------------------------------------------------------------------

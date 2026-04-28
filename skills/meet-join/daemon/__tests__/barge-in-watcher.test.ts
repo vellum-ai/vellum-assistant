@@ -30,7 +30,6 @@ import type {
 import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 import { describe, expect, mock, test } from "bun:test";
 
-import { TEST_INTERNAL_ASSISTANT_ID } from "../../__tests__/build-test-host.js";
 import type { MeetBotEvent } from "../../contracts/index.js";
 
 import {
@@ -104,10 +103,7 @@ function makeFakeAssistantEventHub(): {
       };
     },
     publish(message) {
-      const event: AssistantEvent = buildAssistantEvent(
-        TEST_INTERNAL_ASSISTANT_ID,
-        message,
-      );
+      const event: AssistantEvent = buildAssistantEvent(message);
       for (const cb of Array.from(subs)) {
         void cb(event);
       }

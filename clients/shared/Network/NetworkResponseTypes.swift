@@ -5,7 +5,6 @@ import Foundation
 /// Envelope around `ServerMessage` for SSE events from the gateway.
 struct AssistantEvent: Decodable, Sendable {
     let id: String
-    let assistantId: String
     let conversationId: String?
     let emittedAt: String
     let message: ServerMessage

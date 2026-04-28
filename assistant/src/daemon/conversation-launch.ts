@@ -18,7 +18,6 @@ import { updateConversationTitle } from "../memory/conversation-crud.js";
 import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ConversationCreateOptions } from "./handlers/shared.js";
@@ -166,7 +165,6 @@ export async function launchConversation(
   // from the origin.
   await assistantEventHub.publish(
     buildAssistantEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
       {
         type: "open_conversation",
         conversationId,

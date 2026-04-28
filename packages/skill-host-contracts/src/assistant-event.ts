@@ -28,8 +28,6 @@ import { randomUUID } from "node:crypto";
 export interface AssistantEvent<TMessage = unknown> {
   /** Globally unique event identifier (UUID). */
   id: string;
-  /** The assistant this event belongs to. */
-  assistantId: string;
   /** Resolved conversation id when available. */
   conversationId?: string;
   /** ISO-8601 timestamp of when the event was emitted. */
@@ -43,18 +41,15 @@ export interface AssistantEvent<TMessage = unknown> {
 /**
  * Construct an `AssistantEvent` envelope around a message payload.
  *
- * @param assistantId     The logical assistant identifier (e.g. from the daemon or HTTP route).
  * @param message         The outbound message payload.
  * @param conversationId  Optional conversation id -- pass when known.
  */
 export function buildAssistantEvent<TMessage>(
-  assistantId: string,
   message: TMessage,
   conversationId?: string,
 ): AssistantEvent<TMessage> {
   return {
     id: randomUUID(),
-    assistantId,
     conversationId,
     emittedAt: new Date().toISOString(),
     message,

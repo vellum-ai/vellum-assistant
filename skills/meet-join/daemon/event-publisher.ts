@@ -149,7 +149,6 @@ class MeetEventDispatcher {
 export interface EventPublisher {
   readonly dispatcher: MeetEventDispatcher;
   publishMeetEvent(
-    assistantId: string,
     meetingId: string,
     kind: MeetEventKind,
     payload: Record<string, unknown>,
@@ -161,7 +160,6 @@ export interface EventPublisher {
   registerMeetingDispatcher(meetingId: string): void;
   unregisterMeetingDispatcher(meetingId: string): void;
   subscribeEventHubPublisher(
-    assistantId: string,
     meetingId: string,
   ): MeetEventUnsubscribe;
 }
@@ -181,11 +179,6 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
     dispatcher,
 
     publishMeetEvent(
-      // The assistantId is retained in the signature to preserve the API
-      // callers (session-manager) use today, but the host's `buildEvent`
-      // curries `DAEMON_INTERNAL_ASSISTANT_ID` so the argument no longer
-      // influences the emitted event. Callers always pass the internal id.
-      _assistantId: string,
       meetingId: string,
       kind: MeetEventKind,
       payload: Record<string, unknown>,
@@ -220,14 +213,12 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
     },
 
     subscribeEventHubPublisher(
-      assistantId: string,
       meetingId: string,
     ): MeetEventUnsubscribe {
       return publisher.subscribeToMeetingEvents(meetingId, (event) => {
         switch (event.type) {
           case "participant.change":
             void publisher.publishMeetEvent(
-              assistantId,
               meetingId,
               "meet.participant_changed",
               {
@@ -238,7 +229,6 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
             return;
           case "speaker.change":
             void publisher.publishMeetEvent(
-              assistantId,
               meetingId,
               "meet.speaker_changed",
               {
@@ -248,9 +238,6 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
             );
             return;
           case "transcript.chunk": {
-            // Interim chunks are noisy and may be superseded by a later
-            // final chunk covering the same time range. Clients only want
-            // stable text.
             if (!event.isFinal) return;
             const payload: Record<string, unknown> = { text: event.text };
             if (event.speakerLabel !== undefined)
@@ -260,7 +247,6 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
             if (event.confidence !== undefined)
               payload.confidence = event.confidence;
             void publisher.publishMeetEvent(
-              assistantId,
               meetingId,
               "meet.transcript_chunk",
               payload,
@@ -315,13 +301,11 @@ function requirePublisher(): EventPublisher {
  * consumer on the SSE side must not break the active meeting.
  */
 export function publishMeetEvent(
-  assistantId: string,
   meetingId: string,
   kind: MeetEventKind,
   payload: Record<string, unknown>,
 ): Promise<void> {
   return requirePublisher().publishMeetEvent(
-    assistantId,
     meetingId,
     kind,
     payload,
@@ -391,10 +375,9 @@ export function unregisterMeetingDispatcher(meetingId: string): void {
  * directly at the points it controls.
  */
 export function subscribeEventHubPublisher(
-  assistantId: string,
   meetingId: string,
 ): MeetEventUnsubscribe {
-  return requirePublisher().subscribeEventHubPublisher(assistantId, meetingId);
+  return requirePublisher().subscribeEventHubPublisher(meetingId);
 }
 
 /**

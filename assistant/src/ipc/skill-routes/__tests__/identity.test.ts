@@ -1,8 +1,7 @@
 /**
  * Unit tests for the `host.identity.*` skill IPC routes. Mocks
  * `getAssistantName()` so we can assert both the resolved-name and
- * missing-name paths, and pins the internal assistant ID to the
- * canonical "self" constant.
+ * missing-name paths.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -17,11 +16,8 @@ mock.module("../../../daemon/identity-helpers.js", () => ({
   getAssistantName: () => mockName,
 }));
 
-const {
-  hostIdentityGetAssistantNameRoute,
-  hostIdentityGetInternalAssistantIdRoute,
-  identityRoutes,
-} = await import("../identity.js");
+const { hostIdentityGetAssistantNameRoute, identityRoutes } =
+  await import("../identity.js");
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -59,23 +55,8 @@ describe("host.identity.getAssistantName IPC route", () => {
   });
 });
 
-describe("host.identity.getInternalAssistantId IPC route", () => {
-  test("method is host.identity.getInternalAssistantId", () => {
-    expect(hostIdentityGetInternalAssistantIdRoute.method).toBe(
-      "host.identity.getInternalAssistantId",
-    );
-  });
-
-  test("returns the daemon internal assistant id constant", async () => {
-    const result = await hostIdentityGetInternalAssistantIdRoute.handler();
-
-    expect(result).toBe("self");
-  });
-});
-
 describe("identityRoutes", () => {
-  test("exports both identity routes", () => {
+  test("exports the identity route", () => {
     expect(identityRoutes).toContain(hostIdentityGetAssistantNameRoute);
-    expect(identityRoutes).toContain(hostIdentityGetInternalAssistantIdRoute);
   });
 });

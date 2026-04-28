@@ -38,7 +38,6 @@ import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
   buildAutoAnalysisPrompt,
   neutralizeTranscriptSentinel,
@@ -248,13 +247,7 @@ export async function analyzeConversation(
 
   // j. Build onEvent using inline hub publisher
   const onEvent = (msg: ServerMessage) => {
-    assistantEventHub.publish(
-      buildAssistantEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
-        msg,
-        analysisConversationId,
-      ),
-    );
+    assistantEventHub.publish(buildAssistantEvent(msg, analysisConversationId));
   };
   analysisConversation.updateClient(onEvent, !hasLiveSubscriber);
 

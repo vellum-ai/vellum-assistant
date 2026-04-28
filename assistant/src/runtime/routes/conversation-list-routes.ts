@@ -30,7 +30,6 @@ import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import {
   buildConversationDetailResponse,
   serializeConversationSummary,
@@ -58,7 +57,7 @@ function resolveOrThrow(rawId: string): string {
 function publishListInvalidated(): void {
   assistantEventHub
     .publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+      buildAssistantEvent({
         type: "conversation_list_invalidated",
         reason: "seen_changed",
       }),
@@ -75,9 +74,7 @@ function publishListInvalidated(): void {
 // Handlers
 // ---------------------------------------------------------------------------
 
-function handleListConversations({
-  queryParams = {},
-}: RouteHandlerArgs) {
+function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   const backgroundOnly = queryParams.conversationType === "background";
@@ -99,8 +96,7 @@ function handleListConversations({
   const conversationIds = rows.map((c) => c.id);
   const displayMeta = getDisplayMetaForConversations(conversationIds);
   const bindings = getBindingsForConversations(conversationIds);
-  const attentionStates =
-    getAttentionStateByConversationIds(conversationIds);
+  const attentionStates = getAttentionStateByConversationIds(conversationIds);
   const parentCache = new Map<string, ConversationRow | null>();
   const nextOffset = offset + limit;
 
@@ -140,9 +136,9 @@ function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
   const conversationId = resolveOrThrow(rawConversationId);
 
   try {
-    const priorState = getAttentionStateByConversationIds([
+    const priorState = getAttentionStateByConversationIds([conversationId]).get(
       conversationId,
-    ]).get(conversationId);
+    );
     const wasUnseen =
       priorState != null &&
       priorState.latestAssistantMessageAt != null &&
@@ -155,8 +151,7 @@ function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
       sourceChannel: (body.sourceChannel as string) ?? "vellum",
       signalType: ((body.signalType as string) ??
         "macos_conversation_opened") as SignalType,
-      confidence: ((body.confidence as string) ??
-        "explicit") as Confidence,
+      confidence: ((body.confidence as string) ?? "explicit") as Confidence,
       source: (body.source as string) ?? "http-api",
       evidenceText: body.evidenceText as string | undefined,
       metadata: body.metadata as Record<string, unknown> | undefined,
@@ -169,10 +164,7 @@ function handleRecordSeen({ body = {} }: RouteHandlerArgs) {
 
     return { ok: true };
   } catch (err) {
-    log.error(
-      { err, conversationId },
-      "POST /v1/conversations/seen: failed",
-    );
+    log.error({ err, conversationId }, "POST /v1/conversations/seen: failed");
     throw new InternalError("Failed to record seen signal");
   }
 }
@@ -194,22 +186,15 @@ function handleMarkUnread({ body = {} }: RouteHandlerArgs) {
     if (err instanceof UserError) {
       throw new UnprocessableEntityError(err.message);
     }
-    log.error(
-      { err, conversationId },
-      "POST /v1/conversations/unread: failed",
-    );
+    log.error({ err, conversationId }, "POST /v1/conversations/unread: failed");
     throw new InternalError("Failed to mark conversation unread");
   }
 }
 
-function handleGetConversation({
-  pathParams = {},
-}: RouteHandlerArgs) {
+function handleGetConversation({ pathParams = {} }: RouteHandlerArgs) {
   const detail = buildConversationDetailResponse(pathParams.id!);
   if (!detail) {
-    throw new NotFoundError(
-      `Conversation ${pathParams.id} not found`,
-    );
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }
   return detail;
 }
@@ -236,8 +221,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policyKey: "conversations/seen",
     summary: "Record a seen signal",
-    description:
-      "Mark a conversation as seen, advancing the attention cursor.",
+    description: "Mark a conversation as seen, advancing the attention cursor.",
     tags: ["conversations"],
     handler: handleRecordSeen,
   },
@@ -247,8 +231,7 @@ export const ROUTES: RouteDefinition[] = [
     method: "POST",
     policyKey: "conversations/unread",
     summary: "Mark conversation unread",
-    description:
-      "Reset the seen cursor so the conversation appears unread.",
+    description: "Reset the seen cursor so the conversation appears unread.",
     tags: ["conversations"],
     handler: handleMarkUnread,
   },

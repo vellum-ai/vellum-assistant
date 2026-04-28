@@ -14,7 +14,7 @@
  *
  *   2. Construct `SkillHostClient({ socketPath, skillId })` and `await
  *      client.connect()`. The client prefetches sync state
- *      (`identity.internalAssistantId`, `platform.workspaceDir()`, etc.)
+ *      (`identity.getAssistantName()`, `platform.workspaceDir()`, etc.)
  *      so subsequent in-skill code reads cache hits, not RPC round-trips.
  *
  *   3. Import the skill's `register(host)` from `./register.js` and

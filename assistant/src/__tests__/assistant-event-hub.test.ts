@@ -6,7 +6,6 @@ import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
   return {
     id: "evt_test",
-    assistantId: "ast_1",
     conversationId: "sess_1",
     emittedAt: "2026-02-18T00:00:00.000Z",
     message: {

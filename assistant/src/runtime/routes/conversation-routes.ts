@@ -1187,11 +1187,7 @@ function makeHubPublisher(
       msg.type === "conversation_list_invalidated"
         ? undefined
         : (msgConversationId ?? conversationId);
-    const event = buildAssistantEvent(
-      DAEMON_INTERNAL_ASSISTANT_ID,
-      msg,
-      resolvedConversationId,
-    );
+    const event = buildAssistantEvent(msg, resolvedConversationId);
     hubChain = (async () => {
       await hubChain;
       try {
@@ -1213,7 +1209,7 @@ function makeHubPublisher(
       if (msg.type === "conversation_title_updated") {
         try {
           await deps.assistantEventHub.publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+            buildAssistantEvent({
               type: "conversation_list_invalidated",
               reason: "renamed",
             }),
@@ -1568,7 +1564,7 @@ export async function handleSendMessage(
     if (!hasMessages(mapping.conversationId)) {
       smDeps.assistantEventHub
         .publish(
-          buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+          buildAssistantEvent({
             type: "conversation_list_invalidated",
             reason: "created",
           }),

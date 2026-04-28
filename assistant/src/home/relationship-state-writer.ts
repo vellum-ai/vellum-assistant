@@ -32,7 +32,6 @@ import { listConnections } from "../oauth/oauth-store.js";
 import { resolveGuardianPersonaPath } from "../prompts/persona-resolver.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -318,7 +317,7 @@ export async function writeRelationshipState(): Promise<void> {
 function publishRelationshipStateUpdated(updatedAt: string): void {
   assistantEventHub
     .publish(
-      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+      buildAssistantEvent({
         type: "relationship_state_updated",
         updatedAt,
       }),

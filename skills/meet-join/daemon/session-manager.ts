@@ -829,12 +829,11 @@ class MeetSessionManagerImpl {
   private deps: Required<MeetSessionManagerDeps>;
   private host: SkillHost;
   private log: Logger;
-  private internalAssistantId: string;
+
 
   constructor(host: SkillHost, deps: MeetSessionManagerDeps = {}) {
     this.host = host;
     this.log = host.logger.get("meet-session-manager");
-    this.internalAssistantId = host.identity.internalAssistantId;
     // The contract's `addMessage` returns `Promise<unknown>`; the bridge's
     // `InsertMessageFn` expects the narrower `{ id: string }` shape.
     // `DaemonSkillHost` wires the concrete `addMessage` (which returns the
@@ -1135,7 +1134,6 @@ class MeetSessionManagerImpl {
     // subscriber errors surface into the log stream before the container
     // spin-up (which takes seconds) begins.
     await publishMeetEvent(
-      this.internalAssistantId,
       meetingId,
       "meet.joining",
       { url },
@@ -1175,7 +1173,6 @@ class MeetSessionManagerImpl {
       // set() line was never reached (e.g. getMeetConfig/mkdirSync threw).
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1188,7 +1185,6 @@ class MeetSessionManagerImpl {
       ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
     } catch (err) {
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1229,7 +1225,6 @@ class MeetSessionManagerImpl {
     } catch (err) {
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1272,7 +1267,6 @@ class MeetSessionManagerImpl {
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1399,7 +1393,6 @@ class MeetSessionManagerImpl {
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1420,7 +1413,6 @@ class MeetSessionManagerImpl {
       this.pendingBotTokens.delete(meetingId);
       const detail = `meet-bot container ${runResult.containerId} did not publish a host port for ${MEET_BOT_INTERNAL_PORT}/tcp`;
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail },
@@ -1444,7 +1436,6 @@ class MeetSessionManagerImpl {
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1460,7 +1451,6 @@ class MeetSessionManagerImpl {
     // `start()` below, after the session is in the map.
     const consentMonitor = this.deps.consentMonitorFactory({
       meetingId,
-      assistantId: this.internalAssistantId,
       sessionManager: this,
       config: {
         autoLeaveOnObjection: meet.autoLeaveOnObjection,
@@ -1593,7 +1583,7 @@ class MeetSessionManagerImpl {
     // Fan `participant.change` / `speaker.change` / final transcript chunks
     // out as `meet.*` events on the assistant event hub.
     session.eventUnsubscribes.push(
-      subscribeEventHubPublisher(this.internalAssistantId, meetingId),
+      subscribeEventHubPublisher(meetingId),
     );
 
     // Watch for the bot's first `lifecycle: joined` so we can emit a
@@ -1605,7 +1595,6 @@ class MeetSessionManagerImpl {
         if (event.state === "joined" && !session.joinedPublished) {
           session.joinedPublished = true;
           void publishMeetEvent(
-            this.internalAssistantId,
             meetingId,
             "meet.joined",
             {},
@@ -1614,7 +1603,6 @@ class MeetSessionManagerImpl {
         }
         if (event.state === "error") {
           void publishMeetEvent(
-            this.internalAssistantId,
             meetingId,
             "meet.error",
             { detail: event.detail ?? "unknown error" },
@@ -1650,7 +1638,6 @@ class MeetSessionManagerImpl {
       await captureBotLogs(runner, runResult.containerId, meetingDir, this.log);
       await runner.remove(runResult.containerId).catch(() => {});
       void publishMeetEvent(
-        this.internalAssistantId,
         meetingId,
         "meet.error",
         { detail: errorDetail(err) },
@@ -1908,7 +1895,6 @@ class MeetSessionManagerImpl {
       session.chatOpportunityDetector?.getStats();
 
     void publishMeetEvent(
-      this.internalAssistantId,
       meetingId,
       "meet.left",
       { reason },
@@ -1979,7 +1965,6 @@ class MeetSessionManagerImpl {
     this.log.info("Meet bot container exited unexpectedly — tearing session down", { meetingId, containerId, exitCode, engineError });
 
     void publishMeetEvent(
-      this.internalAssistantId,
       meetingId,
       "meet.error",
       { detail },
@@ -2121,7 +2106,6 @@ class MeetSessionManagerImpl {
     );
 
     void publishMeetEvent(
-      this.internalAssistantId,
       meetingId,
       "meet.chat_sent",
       { text },
@@ -2153,7 +2137,6 @@ class MeetSessionManagerImpl {
     const streamId = result.streamId;
 
     void publishMeetEvent(
-      this.internalAssistantId,
       meetingId,
       "meet.speaking_started",
       { streamId },
@@ -2166,7 +2149,6 @@ class MeetSessionManagerImpl {
     void result.completion
       .then(() => {
         void publishMeetEvent(
-          this.internalAssistantId,
           meetingId,
           "meet.speaking_ended",
           { streamId, reason: "completed" as const },
@@ -2188,7 +2170,6 @@ class MeetSessionManagerImpl {
           this.log.warn("MeetTtsBridge speak completion rejected", { err, meetingId, streamId, reason });
         }
         void publishMeetEvent(
-          this.internalAssistantId,
           meetingId,
           "meet.speaking_ended",
           { streamId, reason },
@@ -2626,7 +2607,6 @@ function buildSessionManagerTestHost(): SkillHost {
     },
     identity: {
       getAssistantName: () => undefined,
-      internalAssistantId: "self",
     },
     platform: {
       workspaceDir: () => "/tmp/session-manager-test-workspace",

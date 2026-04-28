@@ -63,7 +63,6 @@ import type { AssistantEvent } from "@vellumai/skill-host-contracts";
 import {
   buildTestHost,
   InMemoryEventHub,
-  TEST_INTERNAL_ASSISTANT_ID,
 } from "../../__tests__/build-test-host.js";
 import { MeetConsentMonitor } from "../consent-monitor.js";
 import {
@@ -236,12 +235,12 @@ function makeSpawnMock(): {
   };
 }
 
-function captureHub(assistantId: string): {
+function captureHub(): {
   received: AssistantEvent[];
   dispose: () => void;
 } {
   const received: AssistantEvent[] = [];
-  const sub = testHub.subscribe({ assistantId }, (event) => {
+  const sub = testHub.subscribe({}, (event) => {
     received.push(event);
   });
   return { received, dispose: () => sub.dispose() };
@@ -409,10 +408,9 @@ describe("Meet pipeline end-to-end", () => {
       botLeaveFetch: async () => {}, // graceful bot /leave
       audioIngestFactory: audioIngestFactory.factory,
       resolveDaemonUrl: () => "http://host.docker.internal:7821",
-      consentMonitorFactory: ({ meetingId, assistantId, sessionManager }) =>
+      consentMonitorFactory: ({ meetingId, sessionManager }) =>
         new MeetConsentMonitor({
           meetingId,
-          assistantId,
           sessionManager,
           config: {
             autoLeaveOnObjection: true,
@@ -427,7 +425,6 @@ describe("Meet pipeline end-to-end", () => {
           conversationId,
           insertMessage: insert.fn,
           assistantEventHub: { publish: (e) => testHub.publish(e) },
-          assistantId: TEST_INTERNAL_ASSISTANT_ID,
         }),
       storageWriterFactory: ({ meetingId }) =>
         new MeetStorageWriter(meetingId, {
@@ -438,7 +435,7 @@ describe("Meet pipeline end-to-end", () => {
 
     // Capture every `meet.*` event emitted by the pipeline on the daemon
     // assistant id — that's what the session manager publishes to.
-    const hub = captureHub(TEST_INTERNAL_ASSISTANT_ID);
+    const hub = captureHub();
 
     try {
       // ── 1/2: `join()` publishes `meet.joining`. Then, once we dispatch
@@ -770,7 +767,7 @@ describe("MeetSessionManager.shutdownAll", () => {
     });
     expect(manager.activeSessions()).toHaveLength(2);
 
-    const hub = captureHub(TEST_INTERNAL_ASSISTANT_ID);
+    const hub = captureHub();
     try {
       await manager.shutdownAll("daemon-shutdown");
       expect(manager.activeSessions()).toHaveLength(0);

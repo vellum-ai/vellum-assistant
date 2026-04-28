@@ -28,7 +28,6 @@ import {
 import { getDb, resetDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 
@@ -61,31 +60,25 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     const conversation = createConversation("inference-profile-route");
 
     const received: Array<{
-      assistantId: string;
       type: string;
       conversationId?: string;
       profile?: string | null;
     }> = [];
-    const subscription = assistantEventHub.subscribe(
-      {},
-      (event) => {
-        received.push({
-          assistantId: event.assistantId,
-          type: event.message.type,
-          conversationId: event.conversationId,
-          profile:
-            event.message.type === "conversation_inference_profile_updated"
-              ? event.message.profile
-              : undefined,
-        });
-      },
-    );
+    const subscription = assistantEventHub.subscribe({}, (event) => {
+      received.push({
+        type: event.message.type,
+        conversationId: event.conversationId,
+        profile:
+          event.message.type === "conversation_inference_profile_updated"
+            ? event.message.profile
+            : undefined,
+      });
+    });
 
     const result = profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "quality-optimized" },
       headers: {},
-
     });
 
     await Promise.resolve();
@@ -99,7 +92,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
     );
     expect(received).toEqual([
       {
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         type: "conversation_inference_profile_updated",
         conversationId: conversation.id,
         profile: "quality-optimized",
@@ -117,7 +109,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
         pathParams: { id: conversation.id },
         body: { profile: "does-not-exist" },
         headers: {},
-  
       }),
     ).toThrow(BadRequestError);
     expect(getConversation(conversation.id)?.inferenceProfile).toBeNull();
@@ -130,25 +121,20 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
-
     });
     expect(getConversation(conversation.id)?.inferenceProfile).toBe("balanced");
 
     const received: Array<{ profile?: string | null }> = [];
-    const subscription = assistantEventHub.subscribe(
-      {},
-      (event) => {
-        if (event.message.type === "conversation_inference_profile_updated") {
-          received.push({ profile: event.message.profile });
-        }
-      },
-    );
+    const subscription = assistantEventHub.subscribe({}, (event) => {
+      if (event.message.type === "conversation_inference_profile_updated") {
+        received.push({ profile: event.message.profile });
+      }
+    });
 
     const result = profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: null },
       headers: {},
-
     });
 
     await Promise.resolve();
@@ -170,25 +156,20 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
-
     });
     const updatedAtAfterSet = getConversation(conversation.id)?.updatedAt;
 
     const received: Array<{ profile?: string | null }> = [];
-    const subscription = assistantEventHub.subscribe(
-      {},
-      (event) => {
-        if (event.message.type === "conversation_inference_profile_updated") {
-          received.push({ profile: event.message.profile });
-        }
-      },
-    );
+    const subscription = assistantEventHub.subscribe({}, (event) => {
+      if (event.message.type === "conversation_inference_profile_updated") {
+        received.push({ profile: event.message.profile });
+      }
+    });
 
     const result = profileRoute.handler({
       pathParams: { id: conversation.id },
       body: { profile: "balanced" },
       headers: {},
-
     });
 
     await Promise.resolve();
@@ -209,7 +190,6 @@ describe("PUT /v1/conversations/:id/inference-profile", () => {
         pathParams: { id: "missing" },
         body: { profile: "balanced" },
         headers: {},
-  
       }),
     ).toThrow(NotFoundError);
   });

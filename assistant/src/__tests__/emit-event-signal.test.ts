@@ -13,7 +13,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { getSignalsDir } from "../util/platform.js";
 
@@ -48,13 +47,10 @@ describe("handleEmitEventSignal", () => {
     });
 
     subscriptions.push(
-      assistantEventHub.subscribe(
-        {},
-        (event) => {
-          received.push(event);
-          resolveDelivered?.();
-        },
-      ),
+      assistantEventHub.subscribe({}, (event) => {
+        received.push(event);
+        resolveDelivered?.();
+      }),
     );
 
     handleEmitEventSignal();
@@ -63,7 +59,6 @@ describe("handleEmitEventSignal", () => {
 
     expect(received).toHaveLength(1);
     const event = received[0];
-    expect(event.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
     expect(event.message).toEqual(payload);
     expect(typeof event.id).toBe("string");
     expect(typeof event.emittedAt).toBe("string");

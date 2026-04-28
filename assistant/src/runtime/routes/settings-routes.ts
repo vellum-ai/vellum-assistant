@@ -51,12 +51,7 @@ import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
 
@@ -101,7 +96,7 @@ async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
 
     assistantEventHub
       .publish(
-        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+        buildAssistantEvent({
           type: "avatar_updated",
           avatarPath,
         }),
@@ -112,7 +107,8 @@ async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
 
     return { ok: true, avatarPath };
   } catch (err) {
-    if (err instanceof InternalError || err instanceof BadRequestError) throw err;
+    if (err instanceof InternalError || err instanceof BadRequestError)
+      throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ error: message }, "Avatar generation failed unexpectedly");
     throw new InternalError(message);
@@ -236,7 +232,7 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
 
         assistantEventHub
           .publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+            buildAssistantEvent({
               type: "oauth_connect_result",
               success: deferredResult.success,
               service: deferredResult.service,
@@ -296,7 +292,8 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
       ...(authorizeUrl ? { authUrl: authorizeUrl } : {}),
     };
   } catch (err) {
-    if (err instanceof InternalError || err instanceof BadRequestError) throw err;
+    if (err instanceof InternalError || err instanceof BadRequestError)
+      throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, service }, "OAuth connect flow failed");
     throw new InternalError(sanitizeOAuthError(message));
@@ -344,7 +341,8 @@ function handleWorkspaceFileRead({ queryParams = {} }: RouteHandlerArgs) {
     const content = readFileSync(resolved, "utf-8");
     return { path: filePath, content };
   } catch (err) {
-    if (err instanceof NotFoundError || err instanceof BadRequestError) throw err;
+    if (err instanceof NotFoundError || err instanceof BadRequestError)
+      throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, path: filePath }, "Failed to read workspace file");
     throw new InternalError(message);
@@ -431,13 +429,17 @@ function handleToolNamesList() {
 }
 
 async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
-  const { toolName, input, workingDir: rawWorkingDir, isInteractive } =
-    body as {
-      toolName?: string;
-      input?: Record<string, unknown>;
-      workingDir?: string;
-      isInteractive?: boolean;
-    };
+  const {
+    toolName,
+    input,
+    workingDir: rawWorkingDir,
+    isInteractive,
+  } = body as {
+    toolName?: string;
+    input?: Record<string, unknown>;
+    workingDir?: string;
+    isInteractive?: boolean;
+  };
 
   if (!toolName || typeof toolName !== "string") {
     throw new BadRequestError("toolName is required");
@@ -450,10 +452,7 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
 
   try {
     const manifestOverride = resolveManifestOverride(toolName);
-    const executionTarget = resolveExecutionTarget(
-      toolName,
-      manifestOverride,
-    );
+    const executionTarget = resolveExecutionTarget(toolName, manifestOverride);
     const executionContext =
       isInteractive === false ? "headless" : "conversation";
     const policyContext = { executionTarget, executionContext } as const;
@@ -491,10 +490,7 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
       | undefined;
 
     if (result.decision === "prompt") {
-      const allowlistOptions = await generateAllowlistOptions(
-        toolName,
-        input,
-      );
+      const allowlistOptions = await generateAllowlistOptions(toolName, input);
       const scopeOptions = generateScopeOptions(workingDir, toolName);
       promptPayload = {
         allowlistOptions,
@@ -733,7 +729,12 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["workspace"],
     requirePolicyEnforcement: true,
     queryParams: [
-      { name: "path", type: "string", required: true, description: "File path to read" },
+      {
+        name: "path",
+        type: "string",
+        required: true,
+        description: "File path to read",
+      },
     ],
     handler: handleWorkspaceFileRead,
   },

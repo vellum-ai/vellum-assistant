@@ -112,7 +112,6 @@ function buildCollectorHost(captured: Captured): SkillHost {
     },
     identity: {
       getAssistantName: () => undefined,
-      internalAssistantId: "manifest-emitter",
     },
     platform: {
       workspaceDir: () => "/manifest-emitter/workspace",

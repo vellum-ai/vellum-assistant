@@ -13,7 +13,7 @@
  * — pino's `(meta, msg)` log methods vs the contract's `(msg, meta)`,
  * `getAssistantName()` returning `null` vs the contract's `undefined`,
  * `getProviderKeyAsync()` returning `undefined` vs the contract's `null`,
- * `buildAssistantEvent()` taking an assistantId first arg, etc. — the
+ * `buildAssistantEvent()` signature differences, etc. — the
  * adaptation happens inside this file so the contract stays narrow and the
  * underlying daemon APIs stay unchanged.
  */
@@ -69,7 +69,6 @@ import { resolveStreamingTranscriber as sttResolveStreamingTranscriber } from ".
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDaemonRuntimeMode } from "../runtime/runtime-mode.js";
 import { registerSkillRoute } from "../runtime/skill-route-registry.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
@@ -118,7 +117,6 @@ function buildIdentityFacet(): IdentityFacet {
   return {
     // Contract uses `undefined`; delegate returns `null`. Normalize here.
     getAssistantName: () => getAssistantName() ?? undefined,
-    internalAssistantId: DAEMON_INTERNAL_ASSISTANT_ID,
   };
 }
 
@@ -205,14 +203,9 @@ function buildEventsFacet(): EventsFacet {
       assistantEventHub.publish(event as never),
     subscribe: (filter: Filter, cb: AssistantEventCallback): Subscription =>
       assistantEventHub.subscribe(filter, cb as never),
-    // `buildAssistantEvent` takes `(assistantId, message, conversationId?)`.
-    // Skills always publish as the internal assistant, so curry that arg.
+    // `buildAssistantEvent` takes `(message, conversationId?)`.
     buildEvent: (message: ServerMessage, conversationId?: string) =>
-      buildAssistantEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
-        message as never,
-        conversationId,
-      ) as AssistantEvent,
+      buildAssistantEvent(message as never, conversationId) as AssistantEvent,
   };
 }
 

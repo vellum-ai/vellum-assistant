@@ -168,7 +168,6 @@ export interface MeetConsentMonitorConfig {
 
 export interface MeetConsentMonitorDeps {
   meetingId: string;
-  assistantId: string;
   sessionManager: MeetSessionLeaver;
   config: MeetConsentMonitorConfig;
   /**
@@ -222,7 +221,6 @@ interface ChatEntry {
 
 export class MeetConsentMonitor {
   private readonly meetingId: string;
-  private readonly assistantId: string;
   private readonly sessionManager: MeetSessionLeaver;
   private readonly config: MeetConsentMonitorConfig;
   private readonly llmAsk: ObjectionLLMAsk;
@@ -317,7 +315,6 @@ export class MeetConsentMonitor {
 
   constructor(deps: MeetConsentMonitorDeps) {
     this.meetingId = deps.meetingId;
-    this.assistantId = deps.assistantId;
     this.sessionManager = deps.sessionManager;
     this.config = deps.config;
     // With the default-LLM binding removed, production callers wire
@@ -653,7 +650,6 @@ export class MeetConsentMonitor {
       this.decided = true;
       this.log.info("MeetConsentMonitor: objection detected", {
         meetingId: this.meetingId,
-        assistantId: this.assistantId,
         trigger,
         reason: decision.reason,
         autoLeave: this.config.autoLeaveOnObjection,
@@ -823,16 +819,12 @@ function createDefaultLlmAsk(host: SkillHost): ObjectionLLMAsk {
  */
 export function createConsentMonitor(
   host: SkillHost,
-): (
-  deps: Omit<MeetConsentMonitorDeps, "assistantId"> & { assistantId?: string },
-) => MeetConsentMonitor {
+): (deps: MeetConsentMonitorDeps) => MeetConsentMonitor {
   const logger = host.logger.get("meet-consent-monitor");
   const defaultLlmAsk = createDefaultLlmAsk(host);
-  const defaultAssistantId = host.identity.internalAssistantId;
   return (deps) =>
     new MeetConsentMonitor({
       ...deps,
-      assistantId: deps.assistantId ?? defaultAssistantId,
       llmAsk: deps.llmAsk ?? defaultLlmAsk,
       logger: deps.logger ?? logger,
     });
