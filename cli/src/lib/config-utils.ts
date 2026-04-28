@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 const ANTHROPIC_PROVIDER = "anthropic";
+const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-6";
 const MAIN_AGENT_OPUS_MODEL = "claude-opus-4-7";
 const MAIN_AGENT_OPUS_MAX_TOKENS = 32000;
 
@@ -82,6 +83,15 @@ function seedAnthropicMainAgentCallSite(config: Record<string, unknown>): void {
   const defaultBlock = readObject(llm.default);
   const provider = readString(defaultBlock?.provider) ?? ANTHROPIC_PROVIDER;
   if (provider !== ANTHROPIC_PROVIDER) return;
+
+  const model = readString(defaultBlock?.model);
+  if (
+    model !== undefined &&
+    model !== ANTHROPIC_DEFAULT_MODEL &&
+    model !== MAIN_AGENT_OPUS_MODEL
+  ) {
+    return;
+  }
 
   const callSites = ensureObject(llm, "callSites");
   if ("mainAgent" in callSites) return;

@@ -85,6 +85,22 @@ describe("config-utils", () => {
     });
   });
 
+  test("buildInitialConfig respects explicit non-default Anthropic models", () => {
+    expect(
+      buildInitialConfig({
+        "llm.default.provider": "anthropic",
+        "llm.default.model": "claude-haiku-4-5-20251001",
+      }),
+    ).toEqual({
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+        },
+      },
+    });
+  });
+
   test("buildInitialConfig does not seed Opus for non-Anthropic providers", () => {
     expect(
       buildInitialConfig({
