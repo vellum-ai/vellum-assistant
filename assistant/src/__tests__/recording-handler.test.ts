@@ -192,7 +192,6 @@ function createCtx(): {
     broadcast: (msg) => {
       sent.push(msg as { type: string; [k: string]: unknown });
     },
-    clearAllConversations: () => 0,
     getOrCreateConversation: () => {
       throw new Error("not implemented");
     },
