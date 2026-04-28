@@ -21,7 +21,7 @@ import {
   type InteractiveUiAction,
   type InteractiveUiResult,
   RESERVED_ACTION_IDS,
-} from "../../runtime/interactive-ui.js";
+} from "../../runtime/interactive-ui-types.js";
 import { log } from "../logger.js";
 
 // ── Constants ─────────────────────────────────────────────────────────

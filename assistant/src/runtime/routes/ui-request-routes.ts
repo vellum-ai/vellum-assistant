@@ -4,10 +4,8 @@
 
 import { z } from "zod";
 
-import {
-  requestInteractiveUi,
-  RESERVED_ACTION_IDS,
-} from "../../runtime/interactive-ui.js";
+import { requestInteractiveUi } from "../interactive-ui.js";
+import { RESERVED_ACTION_IDS } from "../interactive-ui-types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param schema ──────────────────────────────────────────────────────

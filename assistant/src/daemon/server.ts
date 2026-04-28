@@ -38,7 +38,6 @@ import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
-import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { registerCancelCallback } from "../signals/cancel.js";
@@ -73,10 +72,7 @@ import {
   initConversationLifecycle,
   setCesClientPromise,
 } from "./conversation-store.js";
-import {
-  refreshSurfacesForApp,
-  showStandaloneSurface,
-} from "./conversation-surfaces.js";
+import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import {
@@ -605,42 +601,6 @@ export class DaemonServer {
         );
         return null;
       }
-    });
-
-    // Install the interactive UI resolver so skills and IPC handlers can
-    // present ad-hoc UI surfaces (confirmations, forms) to the user via
-    // `requestInteractiveUi()`. Interactive UI requires a client to be
-    // actively connected to the conversation (via SSE), which means the
-    // conversation must be in the in-memory map. If the conversation was
-    // evicted from memory the client is definitely disconnected, so
-    // hydration from persistent storage is pointless — the hydrated
-    // conversation would have hasNoClient=true, causing
-    // canShowInteractiveUi() to return false and the surface to be
-    // cancelled with no_interactive_surface. We skip that wasted work
-    // and return conversation_not_found directly.
-    registerInteractiveUiResolver(async (request) => {
-      const conversation = findConversation(request.conversationId);
-
-      if (!conversation) {
-        log.warn(
-          {
-            conversationId: request.conversationId,
-            surfaceType: request.surfaceType,
-          },
-          "interactive-ui resolver: conversation not in memory (client not connected); failing closed",
-        );
-        return {
-          status: "cancelled" as const,
-          surfaceId: `ui-resolver-${Date.now()}`,
-          cancellationReason: "conversation_not_found" as const,
-        };
-      }
-
-      // Generate a unique surface ID and delegate to the conversation's
-      // standalone surface lifecycle. The returned Promise blocks until
-      // the user submits, cancels, or the timeout elapses.
-      const surfaceId = `ui-standalone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      return showStandaloneSurface(conversation, request, surfaceId);
     });
 
     await this.cliIpc.start();
