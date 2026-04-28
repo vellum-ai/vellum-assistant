@@ -9,6 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppsC
 /// version history for both local and shared apps.
 public protocol AppsClientProtocol {
     func fetchAppsList() async -> AppsListResponse?
+    func fetchAppsList(conversationId: String?) async -> AppsListResponse?
     func openApp(id: String) async -> AppOpenResult?
     func deleteApp(id: String) async -> AppDeleteResponse?
     func fetchAppPreview(appId: String) async -> AppPreviewResponse?
@@ -23,6 +24,13 @@ public protocol AppsClientProtocol {
     func forkSharedApp(uuid: String) async -> ForkSharedAppResponseMessage?
     func shareAppCloud(appId: String) async -> ShareAppCloudResponse?
     func fetchAppData(appId: String, method: String, recordId: String?, data: [String: AnyCodable]?, surfaceId: String, callId: String) async -> AppDataResponse?
+}
+
+/// Default implementation so existing conformances only need the no-arg variant.
+public extension AppsClientProtocol {
+    func fetchAppsList(conversationId: String?) async -> AppsListResponse? {
+        return await fetchAppsList()
+    }
 }
 
 /// REST shape returned by `/v1/apps/:id/open`.
@@ -122,9 +130,18 @@ public struct AppsClient: AppsClientProtocol {
     // MARK: - Local Apps
 
     public func fetchAppsList() async -> AppsListResponse? {
+        return await fetchAppsList(conversationId: nil)
+    }
+
+    public func fetchAppsList(conversationId: String?) async -> AppsListResponse? {
         do {
+            var params: [String: String] = [:]
+            if let conversationId { params["conversationId"] = conversationId }
+
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/apps", timeout: 10
+                path: "assistants/{assistantId}/apps",
+                params: params.isEmpty ? nil : params,
+                timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchAppsList failed (HTTP \(response.statusCode))")
