@@ -374,15 +374,51 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     }>;
 
     const userMessages = sent.filter((m) => m.role === "user");
-    // Only the last user message (turn-starting) gets cache_control
-    for (const user of userMessages.slice(0, -1)) {
-      for (const block of user.content) {
-        expect(block.cache_control).toBeUndefined();
-      }
+    // Oldest user message (Turn 1) has no cache_control
+    for (const block of userMessages[0].content) {
+      expect(block.cache_control).toBeUndefined();
     }
+    // Previous-turn anchor (Turn 2) gets 1h cache on its last block to
+    // preserve the cached prefix across turn transitions
+    const prevTurn = userMessages[userMessages.length - 2];
+    const prevTurnLast = prevTurn.content[prevTurn.content.length - 1];
+    expect(prevTurnLast.cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+    // Current-turn anchor (Turn 3) gets 1h cache on its last block
     const lastUser = userMessages[userMessages.length - 1];
     const lastBlock = lastUser.content[lastUser.content.length - 1];
     expect(lastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("previous-turn anchor is NOT applied during a tool-use loop", async () => {
+    // When the request is mid tool-use (last msg is a tool_result), the
+    // turn-start anchor already covers the long prefix, so we must not
+    // place a second anchor on the prior turn — that would push us over
+    // the 4-breakpoint budget without adding cache value.
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2"),
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    // Turn 1 user message must have no cache_control (would be the
+    // prev-turn-anchor if we applied it, which we shouldn't here)
+    const turn1 = sent[0];
+    for (const block of turn1.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
   });
 
   // -----------------------------------------------------------------------

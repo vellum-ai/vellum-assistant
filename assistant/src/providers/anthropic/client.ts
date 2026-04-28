@@ -991,24 +991,48 @@ export class AnthropicProvider implements Provider {
       // TTL is appropriate. Walk backwards to find the last user message
       // with a real text block (skipping tool_result-only messages and
       // synthetic continuation placeholders injected by ensureToolPairing).
-      let turnStartIdx = -1;
-      for (let i = sentMessages.length - 1; i >= 0; i--) {
-        const msg = sentMessages[i];
-        if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
-        const hasText = msg.content.some(
-          (b) =>
-            typeof b !== "string" &&
-            b.type === "text" &&
-            b.text !== SYNTHETIC_CONTINUATION_TEXT,
-        );
-        if (!hasText) continue;
-        const lastBlock = msg.content[msg.content.length - 1];
+      const msgs = sentMessages;
+      const findUserTextMsgIdx = (startIdx: number): number => {
+        for (let i = startIdx; i >= 0; i--) {
+          const msg = msgs[i];
+          if (msg.role !== "user" || !Array.isArray(msg.content)) continue;
+          const hasText = msg.content.some(
+            (b) =>
+              typeof b !== "string" &&
+              b.type === "text" &&
+              b.text !== SYNTHETIC_CONTINUATION_TEXT,
+          );
+          if (hasText) return i;
+        }
+        return -1;
+      };
+      const applyCacheControlToLastBlock = (msgIdx: number): void => {
+        const content = msgs[msgIdx].content;
+        if (!Array.isArray(content) || content.length === 0) return;
+        const lastBlock = content[content.length - 1];
         if (typeof lastBlock !== "string") {
           (lastBlock as unknown as Record<string, unknown>).cache_control =
             cacheControl;
         }
-        turnStartIdx = i;
-        break;
+      };
+      const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
+      if (turnStartIdx >= 0) applyCacheControlToLastBlock(turnStartIdx);
+
+      // Previous-turn anchor: when this request is the first of a new turn
+      // (turn-start is the very last message — no tool-use loop yet), also
+      // place a 1h breakpoint on the *previous* turn-starting user message.
+      // Anthropic only matches the cache at cache_control points present in
+      // the current request, so without this anchor the breakpoint slides
+      // forward each new user turn and the prior cached prefix becomes
+      // unreachable — forcing a full re-creation of history (200K+
+      // cache_creation tokens per new turn). Skipped during tool-use loops
+      // where the current turn-start already covers the same prefix and a
+      // second anchor would blow the 4-breakpoint budget.
+      let prevTurnAnchorIdx = -1;
+      if (turnStartIdx === msgs.length - 1 && turnStartIdx > 0) {
+        prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
+        if (prevTurnAnchorIdx >= 0)
+          applyCacheControlToLastBlock(prevTurnAnchorIdx);
       }
 
       // Advancing tail: place a short-lived 5m cache breakpoint on the last
@@ -1045,19 +1069,21 @@ export class AnthropicProvider implements Provider {
       }
 
       // Enforce Anthropic API maximum of 4 cache_control blocks.
-      // When the system prompt boundary splits into 2 cached blocks AND
-      // tools + turn-start + advancing-tail breakpoints are all present,
-      // we'd have 5.  Drop the static system block's breakpoint — it's
-      // small (<1K tokens) so the re-read cost is negligible, while the
-      // dynamic block (workspace context) rarely changes mid-session and
-      // benefits more from caching.
-      const hasTailBreakpoint = tailBreakpointApplied;
+      // With the system prompt boundary split into 2 cached blocks AND
+      // tools + turn-start + (tail OR prev-turn-anchor), we'd have 5.
+      // Drop the static system block's breakpoint — it's small (<1K
+      // tokens) so the re-read cost is negligible, while the dynamic
+      // block (workspace context) rarely changes mid-session and
+      // benefits more from caching. Tail and prev-turn-anchor are
+      // mutually exclusive (prev-turn-anchor only fires when turn-start
+      // is the last message, which is the exact condition that suppresses
+      // the tail), so we never exceed 5.
       const hasToolCacheBreakpoint =
         params.tools?.some(
           (t) => "cache_control" in t && t.cache_control != null,
         ) ?? false;
       if (
-        hasTailBreakpoint &&
+        (tailBreakpointApplied || prevTurnAnchorIdx >= 0) &&
         Array.isArray(params.system) &&
         params.system.length === 2 &&
         hasToolCacheBreakpoint
