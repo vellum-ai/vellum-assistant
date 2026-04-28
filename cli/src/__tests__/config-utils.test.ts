@@ -1,19 +1,6 @@
-import { readFileSync, rmSync } from "fs";
 import { describe, expect, test } from "bun:test";
 
-import { buildNestedConfig, writeInitialConfig } from "../lib/config-utils.js";
-
-function readInitialConfig(
-  configValues: Record<string, string>,
-): Record<string, unknown> {
-  const path = writeInitialConfig(configValues);
-  expect(path).toBeDefined();
-  try {
-    return JSON.parse(readFileSync(path!, "utf-8")) as Record<string, unknown>;
-  } finally {
-    if (path !== undefined) rmSync(path, { force: true });
-  }
-}
+import { buildInitialConfig, buildNestedConfig } from "../lib/config-utils.js";
 
 describe("config-utils", () => {
   test("buildNestedConfig only converts dot-notation values", () => {
@@ -32,56 +19,62 @@ describe("config-utils", () => {
     });
   });
 
-  test("writeInitialConfig does not add a mainAgent callSite for Anthropic defaults", () => {
+  test("buildInitialConfig seeds Opus for the Anthropic main thread", () => {
     expect(
-      readInitialConfig({
+      buildInitialConfig({
         "llm.default.provider": "anthropic",
-        "llm.default.model": "claude-opus-4-7",
+        "llm.default.model": "claude-sonnet-4-6",
       }),
     ).toEqual({
       llm: {
         default: {
           provider: "anthropic",
-          model: "claude-opus-4-7",
+          model: "claude-sonnet-4-6",
         },
-      },
-    });
-  });
-
-  test("writeInitialConfig preserves profile-based Anthropic model selection", () => {
-    expect(
-      readInitialConfig({
-        "llm.activeProfile": "quality-optimized",
-        "llm.profiles.quality-optimized.provider": "anthropic",
-        "llm.profiles.quality-optimized.model": "claude-opus-4-7",
-        "llm.profiles.quality-optimized.maxTokens": "32000",
-      }),
-    ).toEqual({
-      llm: {
-        activeProfile: "quality-optimized",
-        profiles: {
-          "quality-optimized": {
-            provider: "anthropic",
+        callSites: {
+          mainAgent: {
             model: "claude-opus-4-7",
-            maxTokens: "32000",
+            maxTokens: 32000,
           },
         },
       },
     });
   });
 
-  test("writeInitialConfig preserves explicit mainAgent overrides without rewriting them", () => {
+  test("buildInitialConfig seeds Opus when provider falls back to Anthropic", () => {
     expect(
-      readInitialConfig({
+      buildInitialConfig({
+        "services.inference.mode": "managed",
+      }),
+    ).toEqual({
+      services: {
+        inference: {
+          mode: "managed",
+        },
+      },
+      llm: {
+        callSites: {
+          mainAgent: {
+            model: "claude-opus-4-7",
+            maxTokens: 32000,
+          },
+        },
+      },
+    });
+  });
+
+  test("buildInitialConfig preserves explicit mainAgent overrides", () => {
+    expect(
+      buildInitialConfig({
         "llm.default.provider": "anthropic",
-        "llm.default.model": "claude-opus-4-7",
+        "llm.default.model": "claude-sonnet-4-6",
         "llm.callSites.mainAgent.model": "claude-haiku-4-5-20251001",
       }),
     ).toEqual({
       llm: {
         default: {
           provider: "anthropic",
-          model: "claude-opus-4-7",
+          model: "claude-sonnet-4-6",
         },
         callSites: {
           mainAgent: {
@@ -92,9 +85,9 @@ describe("config-utils", () => {
     });
   });
 
-  test("writeInitialConfig respects explicit non-default Anthropic models", () => {
+  test("buildInitialConfig respects explicit non-default Anthropic models", () => {
     expect(
-      readInitialConfig({
+      buildInitialConfig({
         "llm.default.provider": "anthropic",
         "llm.default.model": "claude-haiku-4-5-20251001",
       }),
@@ -108,9 +101,9 @@ describe("config-utils", () => {
     });
   });
 
-  test("writeInitialConfig leaves active OpenAI profile config unchanged", () => {
+  test("buildInitialConfig respects active profile provider overrides", () => {
     expect(
-      readInitialConfig({
+      buildInitialConfig({
         "llm.activeProfile": "fast",
         "llm.profiles.fast.provider": "openai",
         "llm.profiles.fast.model": "gpt-5.5",
@@ -128,9 +121,29 @@ describe("config-utils", () => {
     });
   });
 
-  test("writeInitialConfig does not add Opus for non-Anthropic providers", () => {
+  test("buildInitialConfig uses active profile model when deciding to seed", () => {
     expect(
-      readInitialConfig({
+      buildInitialConfig({
+        "llm.activeProfile": "fast",
+        "llm.profiles.fast.provider": "anthropic",
+        "llm.profiles.fast.model": "claude-haiku-4-5-20251001",
+      }),
+    ).toEqual({
+      llm: {
+        activeProfile: "fast",
+        profiles: {
+          fast: {
+            provider: "anthropic",
+            model: "claude-haiku-4-5-20251001",
+          },
+        },
+      },
+    });
+  });
+
+  test("buildInitialConfig does not seed Opus for non-Anthropic providers", () => {
+    expect(
+      buildInitialConfig({
         "llm.default.provider": "openai",
         "llm.default.model": "gpt-5.5",
       }),
