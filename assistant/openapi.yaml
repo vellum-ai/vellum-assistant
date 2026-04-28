@@ -11224,10 +11224,12 @@ paths:
       responses:
         "200":
           description: Successful response
+        "416":
+          description: Range Not Satisfiable
       parameters:
         - name: path
           in: query
-          required: false
+          required: true
           schema:
             type: string
           description: Relative file path (required)

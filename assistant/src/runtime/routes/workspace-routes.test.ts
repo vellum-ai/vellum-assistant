@@ -15,12 +15,15 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
-import type { RouteDefinition } from "./types.js";
 import {
-  ROUTES,
-  workspaceHttpOnlyRouteDefinitions,
-} from "./workspace-routes.js";
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  RangeNotSatisfiableError,
+} from "./errors.js";
+import type { RouteDefinition } from "./types.js";
+import { RouteResponse } from "./types.js";
+import { ROUTES } from "./workspace-routes.js";
 import { isTextMimeType, resolveWorkspacePath } from "./workspace-utils.js";
 
 // ---------------------------------------------------------------------------
@@ -61,23 +64,7 @@ function getRoute(operationId: string): RouteDefinition {
   return route;
 }
 
-/** Build a RouteContext-like object for HTTP-only handler testing. */
-function makeCtx(
-  searchParams: Record<string, string>,
-  headers?: Record<string, string>,
-) {
-  const url = new URL("http://localhost/v1/workspace/file/content");
-  for (const [k, v] of Object.entries(searchParams)) {
-    url.searchParams.set(k, v);
-  }
-  return {
-    url,
-    req: new Request(url, { headers: headers ?? {} }),
-    server: {} as ReturnType<typeof Bun.serve>,
-    authContext: {} as never,
-    params: {},
-  };
-}
+
 
 // ===========================================================================
 // resolveWorkspacePath
@@ -357,75 +344,76 @@ describe("GET /v1/workspace/file", () => {
 });
 
 // ===========================================================================
-// GET /v1/workspace/file/content (HTTP-only — range support)
+// GET /v1/workspace/file/content — range support
 // ===========================================================================
 
 describe("GET /v1/workspace/file/content", () => {
-  function getHttpHandler() {
-    const routes = workspaceHttpOnlyRouteDefinitions();
-    const route = routes.find((r) => r.endpoint === "workspace/file/content");
-    if (!route) throw new Error("workspace/file/content HTTP route not found");
-    return route.handler;
-  }
+  const { handler } = getRoute("workspace_file_content");
 
-  const handler = getHttpHandler();
-
-  test("returns raw bytes with correct Content-Type", async () => {
-    const ctx = makeCtx({ path: "hello.txt" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(200);
-    const contentType = res.headers.get("Content-Type");
-    expect(contentType).toContain("text/plain");
-    const text = await res.text();
-    expect(text).toBe("Hello, world!");
+  test("returns RouteResponse with correct Content-Type", () => {
+    const result = handler({
+      queryParams: { path: "hello.txt" },
+    }) as RouteResponse;
+    expect(result).toBeInstanceOf(RouteResponse);
+    expect(result.headers["Content-Type"]).toContain("text/plain");
   });
 
-  test("range header produces 206 response", async () => {
-    const ctx = makeCtx({ path: "hello.txt" }, { Range: "bytes=0-4" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(206);
-    const contentRange = res.headers.get("Content-Range");
-    expect(contentRange).toBe("bytes 0-4/13");
-    const text = await res.text();
+  test("range header produces partial content with Content-Range", async () => {
+    const result = handler({
+      queryParams: { path: "hello.txt" },
+      headers: { range: "bytes=0-4" },
+    }) as RouteResponse;
+    expect(result.headers["Content-Range"]).toBe("bytes 0-4/13");
+    const text = await new Response(result.body).text();
     expect(text).toBe("Hello");
   });
 
-  test("non-existent file returns 404", async () => {
-    const ctx = makeCtx({ path: "missing.txt" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(404);
+  test("non-existent file throws NotFoundError", () => {
+    expect(() =>
+      handler({ queryParams: { path: "missing.txt" } }),
+    ).toThrow(NotFoundError);
   });
 
-  test("missing path param returns 400", async () => {
-    const ctx = makeCtx({});
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("missing path param throws BadRequestError", () => {
+    expect(() => handler({ queryParams: {} })).toThrow(BadRequestError);
   });
 
-  test("path traversal attempt returns 400", async () => {
-    const ctx = makeCtx({ path: "../../../etc/passwd" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("path traversal attempt throws BadRequestError", () => {
+    expect(() =>
+      handler({ queryParams: { path: "../../../etc/passwd" } }),
+    ).toThrow(BadRequestError);
   });
 
   test("suffix range (bytes=-N) works", async () => {
-    const ctx = makeCtx({ path: "hello.txt" }, { Range: "bytes=-5" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(206);
-    const text = await res.text();
+    const result = handler({
+      queryParams: { path: "hello.txt" },
+      headers: { range: "bytes=-5" },
+    }) as RouteResponse;
+    expect(result.headers["Content-Range"]).toMatch(/bytes 8-12\/13/);
+    const text = await new Response(result.body).text();
     expect(text).toBe("orld!");
   });
 
-  test("directory path returns 400", async () => {
-    const ctx = makeCtx({ path: "subdir" });
-    const res = await handler(ctx);
-    expect(res.status).toBe(400);
+  test("invalid range throws RangeNotSatisfiableError", () => {
+    expect(() =>
+      handler({
+        queryParams: { path: "hello.txt" },
+        headers: { range: "bytes=100-200" },
+      }),
+    ).toThrow(RangeNotSatisfiableError);
   });
 
-  test("Accept-Ranges header is present", async () => {
-    const ctx = makeCtx({ path: "hello.txt" });
-    const res = await handler(ctx);
-    expect(res.headers.get("Accept-Ranges")).toBe("bytes");
+  test("directory path throws BadRequestError", () => {
+    expect(() =>
+      handler({ queryParams: { path: "subdir" } }),
+    ).toThrow(BadRequestError);
+  });
+
+  test("Accept-Ranges header is present", () => {
+    const result = handler({
+      queryParams: { path: "hello.txt" },
+    }) as RouteResponse;
+    expect(result.headers["Accept-Ranges"]).toBe("bytes");
   });
 });
 
