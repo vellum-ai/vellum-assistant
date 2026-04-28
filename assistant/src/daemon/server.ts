@@ -26,7 +26,6 @@ import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
-import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import {
@@ -838,24 +837,6 @@ export class DaemonServer {
       // the user submits, cancels, or the timeout elapses.
       const surfaceId = `ui-standalone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       return showStandaloneSurface(conversation, request, surfaceId);
-    });
-
-    // Allow `browser_execute` IPC calls to reuse live conversation browser
-    // proxy wiring (when a caller passes a conversationId from
-    // __CONVERSATION_ID / __SKILL_CONTEXT_JSON). This keeps nested
-    // `assistant browser status` checks consistent with the parent turn's
-    // extension connectivity instead of always falling back to a synthetic
-    // browser-cli session that has no hostBrowserProxy.
-    registerBrowserIpcContextResolver((conversationId) => {
-      const conversation = findConversation(conversationId);
-      if (!conversation) return null;
-      return {
-        conversationId,
-        trustClass: conversation.trustContext?.trustClass ?? "unknown",
-        hostBrowserProxy: conversation.hostBrowserProxy,
-        transportInterface: conversation.transportInterface,
-        hostBrowserRegistryRouted: !!conversation.hostBrowserSenderOverride,
-      };
     });
 
     await this.cliIpc.start();

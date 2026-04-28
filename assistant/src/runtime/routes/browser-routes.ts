@@ -16,7 +16,7 @@ import {
   BROWSER_OPERATIONS,
   type BrowserOperation,
 } from "../../browser/types.js";
-import { resolveBrowserIpcContext } from "../../ipc/routes/browser-context.js";
+import { findConversation } from "../../daemon/conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -66,21 +66,29 @@ function extractScreenshots(
 async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
   const { operation, input, sessionId, conversationId } =
     BrowserExecuteParams.parse(body);
-  const resolvedContext = resolveBrowserIpcContext({
-    requestedConversationId: conversationId,
-    fallbackConversationId: browserCliConversationKey(sessionId),
-  });
+
+  // When the caller passes a live conversation ID (e.g. from
+  // __CONVERSATION_ID in a nested bash invocation), reuse that
+  // conversation's browser proxy wiring so operations like `status`
+  // see extension connectivity from the parent turn.
+  const conversation = conversationId
+    ? findConversation(conversationId)
+    : undefined;
+
+  const resolvedConversationId = conversation
+    ? conversationId!
+    : browserCliConversationKey(sessionId);
 
   const result = await executeBrowserOperation(
     operation as BrowserOperation,
     input,
     {
       workingDir: process.cwd(),
-      conversationId: resolvedContext.conversationId,
-      trustClass: resolvedContext.trustClass,
-      hostBrowserProxy: resolvedContext.hostBrowserProxy,
-      transportInterface: resolvedContext.transportInterface,
-      hostBrowserRegistryRouted: resolvedContext.hostBrowserRegistryRouted,
+      conversationId: resolvedConversationId,
+      trustClass: conversation?.trustContext?.trustClass ?? "unknown",
+      hostBrowserProxy: conversation?.hostBrowserProxy,
+      transportInterface: conversation?.transportInterface,
+      hostBrowserRegistryRouted: !!conversation?.hostBrowserSenderOverride,
     },
   );
 
