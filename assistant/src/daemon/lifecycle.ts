@@ -117,6 +117,7 @@ import {
 } from "./guardian-action-generators.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
+import { maybeSeedMemoryV2Skills } from "./memory-v2-startup.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
@@ -768,6 +769,7 @@ export async function runDaemon(): Promise<void> {
           seedUninstalledCatalogSkillMemories,
         } = await import("../memory/graph/capability-seed.js");
         seedSkillGraphNodes();
+        maybeSeedMemoryV2Skills(config);
         await seedCliGraphNodes();
         void seedUninstalledCatalogSkillMemories().catch((err) =>
           log.warn(
