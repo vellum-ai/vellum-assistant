@@ -35,7 +35,14 @@ export type MemoryJobType =
   | "graph_pattern_scan"
   | "graph_narrative_refine"
   | "graph_trigger_embed"
-  | "graph_bootstrap";
+  | "graph_bootstrap"
+  | "embed_concept_page"
+  | "memory_v2_sweep"
+  | "memory_v2_consolidate"
+  | "memory_v2_migrate"
+  | "memory_v2_rebuild_edges"
+  | "memory_v2_reembed"
+  | "memory_v2_activation_recompute";
 
 const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_segment",

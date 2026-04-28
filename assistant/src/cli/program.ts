@@ -32,6 +32,7 @@ import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
+import { registerMemoryV2Command } from "./commands/memory-v2.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
@@ -99,6 +100,7 @@ Examples:
   registerKeysCommand(program);
   registerMcpCommand(program);
   registerMemoryCommand(program);
+  registerMemoryV2Command(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
   registerPlatformCommand(program);

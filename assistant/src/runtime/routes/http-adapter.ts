@@ -79,11 +79,14 @@ export function routeDefinitionsToHTTPRoutes(
           headers[key] = value;
         });
 
-        // Inject the authenticated actor principal ID so transport-agnostic
-        // handlers can resolve trust context without importing auth internals.
+        // Inject auth context fields so transport-agnostic handlers can
+        // resolve trust context without importing auth internals.
         if (authContext?.actorPrincipalId) {
           headers["x-vellum-actor-principal-id"] =
             authContext.actorPrincipalId;
+        }
+        if (authContext?.principalType) {
+          headers["x-vellum-principal-type"] = authContext.principalType;
         }
 
         const result = await r.handler({
@@ -94,6 +97,12 @@ export function routeDefinitionsToHTTPRoutes(
           headers,
           abortSignal: req.signal,
         });
+
+        // Handlers that need full HTTP control (e.g. Range/206 responses)
+        // may return a Response directly — pass it through unchanged.
+        if (result instanceof Response) {
+          return result;
+        }
 
         const responseHeaders = resolveResponseHeaders(r.responseHeaders, {
           pathParams,

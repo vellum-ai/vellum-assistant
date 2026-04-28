@@ -15,6 +15,7 @@ import {
   MemorySegmentationConfigSchema,
   QdrantConfigSchema,
 } from "./memory-storage.js";
+import { MemoryV2ConfigSchema } from "./memory-v2.js";
 
 export const MemoryConfigSchema = z
   .object({
@@ -45,6 +46,7 @@ export const MemoryConfigSchema = z
     summarization: MemorySummarizationConfigSchema.default(
       MemorySummarizationConfigSchema.parse({}),
     ),
+    v2: MemoryV2ConfigSchema.default(MemoryV2ConfigSchema.parse({})),
   })
   .describe(
     "Long-term memory system — stores, retrieves, and manages persistent knowledge across conversations",

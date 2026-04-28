@@ -8,8 +8,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { loadConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/schema.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
@@ -333,12 +335,49 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const integrationSection = buildIntegrationSection();
   if (integrationSection) dynamicParts.push(integrationSection);
 
+  const memoryV2Section = buildMemoryV2Section();
+  if (memoryV2Section) dynamicParts.push(memoryV2Section);
+
   // Journal entries are extracted into graph nodes by the memory pipeline.
   // Journal files remain writable on disk.
 
   const dynamic = dynamicParts.join("\n\n");
 
   return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
+}
+
+/**
+ * When the `memory-v2-enabled` feature flag is on, autoload the four
+ * top-level memory files into the dynamic suffix so the model always sees
+ * the freshest activation/recall context. Each file is wrapped in a
+ * Markdown header so the structure is explicit. Empty/missing files are
+ * skipped so the prompt stays terse on a fresh workspace.
+ */
+function buildMemoryV2Section(): string | null {
+  let config: AssistantConfig;
+  try {
+    config = loadConfig();
+  } catch {
+    return null;
+  }
+  if (!isAssistantFeatureFlagEnabled("memory-v2-enabled", config)) {
+    return null;
+  }
+
+  const blocks = [
+    ["## Essentials", "memory/essentials.md"],
+    ["## Threads", "memory/threads.md"],
+    ["## Recent", "memory/recent.md"],
+    ["## Buffer", "memory/buffer.md"],
+  ] as const;
+
+  const sections: string[] = [];
+  for (const [heading, file] of blocks) {
+    const content = readPromptFile(getWorkspacePromptPath(file));
+    if (!content) continue;
+    sections.push(`${heading}\n\n${content}`);
+  }
+  return sections.length > 0 ? sections.join("\n\n") : null;
 }
 
 function buildAttachmentSection(): string {

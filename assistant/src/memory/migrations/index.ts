@@ -178,6 +178,10 @@ export { migrateDeletePrivateConversations } from "./229-delete-private-conversa
 export { migrate230AcpSessionHistory } from "./230-acp-session-history.js";
 export { migrate231RepairMemoryGraphEventDates } from "./231-repair-memory-graph-event-dates.js";
 export {
+  downActivationState,
+  migrateActivationState,
+} from "./232-activation-state.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

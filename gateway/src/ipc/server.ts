@@ -61,7 +61,7 @@ export type IpcRoute = {
 
 export class GatewayIpcServer {
   private server: Server | null = null;
-  private client: Socket | null = null;
+  private clients = new Set<Socket>();
   private methods = new Map<string, IpcMethodHandler>();
   private schemas = new Map<string, z.ZodType>();
   private socketPath: string;
@@ -102,12 +102,11 @@ export class GatewayIpcServer {
     }
 
     this.server = createServer((socket) => {
-      // Only one assistant daemon is expected; replace any stale connection.
-      if (this.client && !this.client.destroyed) {
-        log.warn("New IPC client connected, replacing previous connection");
-        this.client.destroy();
-      }
-      this.client = socket;
+      // The assistant maintains a persistent connection for hot-path RPCs
+      // (classify_risk) alongside short-lived one-shot connections for other
+      // calls. Track all of them so a new one-shot connection does not tear
+      // down the persistent socket and reject its in-flight requests.
+      this.clients.add(socket);
       log.debug("IPC client connected");
 
       let buffer = "";
@@ -126,17 +125,13 @@ export class GatewayIpcServer {
       });
 
       socket.on("close", () => {
-        if (this.client === socket) {
-          this.client = null;
-        }
+        this.clients.delete(socket);
         log.debug("IPC client disconnected");
       });
 
       socket.on("error", (err) => {
         log.warn({ err }, "IPC client socket error");
-        if (this.client === socket) {
-          this.client = null;
-        }
+        this.clients.delete(socket);
       });
     });
 
@@ -149,12 +144,14 @@ export class GatewayIpcServer {
     });
   }
 
-  /** Stop the server and disconnect the client. */
+  /** Stop the server and disconnect all clients. */
   stop(): void {
-    if (this.client && !this.client.destroyed) {
-      this.client.destroy();
+    for (const socket of this.clients) {
+      if (!socket.destroyed) {
+        socket.destroy();
+      }
     }
-    this.client = null;
+    this.clients.clear();
 
     if (this.server) {
       this.server.close();
@@ -171,11 +168,14 @@ export class GatewayIpcServer {
     }
   }
 
-  /** Push an event to the connected client. */
+  /** Push an event to all connected clients. */
   emit(event: string, data?: unknown): void {
-    if (this.client && !this.client.destroyed) {
-      const msg: IpcEvent = { event, data };
-      this.client.write(JSON.stringify(msg) + "\n");
+    if (this.clients.size === 0) return;
+    const payload = JSON.stringify({ event, data } satisfies IpcEvent) + "\n";
+    for (const socket of this.clients) {
+      if (!socket.destroyed) {
+        socket.write(payload);
+      }
     }
   }
 

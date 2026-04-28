@@ -8,6 +8,7 @@
 
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -17,10 +18,16 @@ import type {
   Message,
 } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { getDb } from "../db-connection.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
+import {
+  injectMemoryV2Block,
+  type InjectMemoryV2Mode,
+} from "../v2/injection.js";
+import { loadNowText } from "../v2/now-text.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -389,6 +396,40 @@ export class ConversationGraphMemory {
     this.initialized = true;
     this.needsReload = false;
 
+    // v2 routing: when the feature flag and workspace config are both on,
+    // replace v1's injection with the activation-pipeline output. v1
+    // retrieval still runs above so its tracker stays warm — keeps the
+    // off→on→off flag flip cheap and avoids invalidating cached metrics.
+    // assistantMessage is empty: context-load fires on turn 1 / post-
+    // compaction, so there is no immediately-prior assistant turn to
+    // weight the activation against.
+    const v2 = await this.maybeRouteV2Injection(
+      messages,
+      config,
+      "context-load",
+      userQuery ?? "",
+      "",
+    );
+    if (v2.routed) {
+      this.lastInjectedBlock = v2.injectedBlockText;
+      this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
+      return {
+        runMessages: v2.runMessages,
+        injectedTokens: v2.injectedBlockText
+          ? estimateTextTokens(v2.injectedBlockText)
+          : 0,
+        latencyMs: result.latencyMs,
+        mode: "context-load" as const,
+        injectedBlockText: v2.injectedBlockText,
+        metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
+        userQueryVector: result.userQueryVector,
+        userQuerySparseVector: result.userQuerySparseVector,
+      };
+    }
+
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
@@ -506,6 +547,36 @@ export class ConversationGraphMemory {
       signal,
     });
 
+    // v2 routing: same gating as `runContextLoad` — when the flag and config
+    // are both on, the v2 activation pipeline produces the injection block
+    // (or `null` for the cache-stable empty path). v1 retrieval above runs
+    // unconditionally so the tracker stays in sync with the v1 nodes —
+    // cheap insurance for an off→on→off flag flip mid-conversation.
+    const v2 = await this.maybeRouteV2Injection(
+      messages,
+      config,
+      "per-turn",
+      userLast,
+      assistantLast,
+    );
+    if (v2.routed) {
+      this.lastInjectedBlock = v2.injectedBlockText;
+      this.lastInjectedNodeIds = [];
+      this.lastInjectedImages = new Map();
+      return {
+        runMessages: v2.runMessages,
+        injectedTokens: v2.injectedBlockText
+          ? estimateTextTokens(v2.injectedBlockText)
+          : 0,
+        latencyMs: result.latencyMs,
+        mode: "per-turn" as const,
+        injectedBlockText: v2.injectedBlockText,
+        metrics: result.metrics,
+        queryVector: result.queryVector,
+        sparseVector: result.sparseVector,
+      };
+    }
+
     if (result.nodes.length === 0) {
       this.lastInjectedBlock = null;
       this.lastInjectedNodeIds = [];
@@ -560,6 +631,62 @@ export class ConversationGraphMemory {
       metrics: result.metrics,
       queryVector: result.queryVector,
       sparseVector: result.sparseVector,
+    };
+  }
+
+  /**
+   * Route the v1 retrieval's injection step through the v2 activation
+   * pipeline when the `memory-v2-enabled` feature flag *and* the workspace
+   * config (`memory.v2.enabled`) are both on.
+   *
+   * The two outcomes the caller distinguishes via `routed`:
+   *   - `routed: false` — v2 disabled; caller runs the existing v1 injection.
+   *   - `routed: true`  — v2 ran. `runMessages` is either the v2-prepended
+   *                        message list (block was non-null) or the input
+   *                        messages unchanged (cache-stable empty path).
+   *                        Caller does NOT fall through to v1 in either case.
+   */
+  private async maybeRouteV2Injection(
+    messages: Message[],
+    config: AssistantConfig,
+    mode: InjectMemoryV2Mode,
+    userMessage: string,
+    assistantMessage: string,
+  ): Promise<{
+    routed: boolean;
+    runMessages: Message[];
+    injectedBlockText: string | null;
+  }> {
+    if (
+      !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
+      !config.memory.v2.enabled
+    ) {
+      return { routed: false, runMessages: messages, injectedBlockText: null };
+    }
+
+    const nowText = await loadNowText(getWorkspaceDir());
+    const currentTurn = this.tracker.getTurn();
+
+    const result = await injectMemoryV2Block({
+      database: getDb(),
+      conversationId: this.conversationId,
+      currentTurn,
+      userMessage,
+      assistantMessage,
+      nowText,
+      messageId: `${this.conversationId}:turn:${currentTurn}`,
+      mode,
+      config,
+    });
+
+    if (!result.block) {
+      return { routed: true, runMessages: messages, injectedBlockText: null };
+    }
+
+    return {
+      routed: true,
+      runMessages: prependMemoryV2Block(messages, result.block),
+      injectedBlockText: result.block,
     };
   }
 }
@@ -731,4 +858,27 @@ function extractUserText(message: Message): string | null {
   const joined = texts.join(" ");
   // Skip very short messages ("hi", "yes") — they produce vague embeddings
   return joined.length > 10 ? joined : null;
+}
+
+/**
+ * Prepend a pre-rendered `<memory __injected>` block (produced by
+ * `injectMemoryV2Block`) to the last user message. Unlike v1's
+ * {@link injectMemoryBlock}, the input here is already wrapped — we
+ * just need to attach it as a leading text block. We still strip any
+ * pre-existing memory injections first so the layer is idempotent
+ * across compaction-driven re-injection.
+ */
+function prependMemoryV2Block(messages: Message[], block: string): Message[] {
+  if (block.trim().length === 0) return messages;
+  if (messages.length === 0) return messages;
+  const cleaned = stripExistingMemoryInjections(messages);
+  const userTail = cleaned[cleaned.length - 1];
+  if (!userTail || userTail.role !== "user") return messages;
+  return [
+    ...cleaned.slice(0, -1),
+    {
+      ...userTail,
+      content: [{ type: "text" as const, text: block }, ...userTail.content],
+    },
+  ];
 }

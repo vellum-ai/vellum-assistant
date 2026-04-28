@@ -155,6 +155,11 @@ export interface EventHandlerState {
     string,
     { decision: string; label: string }
   >;
+  /** Stores risk metadata keyed by tool_use_id (populated in handleToolResult). */
+  readonly toolRiskOutcomes: Map<
+    string,
+    { riskLevel: string; riskReason?: string; autoApproved: boolean }
+  >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
   /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
@@ -211,6 +216,7 @@ export function createEventHandlerState(): EventHandlerState {
     currentToolUseId: undefined,
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
+    toolRiskOutcomes: new Map(),
     currentTurnToolUseIds: [],
     turnStartedAt: Date.now(),
   };
@@ -502,6 +508,23 @@ export function handleToolResult(
   if (ts) ts.completedAt = Date.now();
   state.currentToolUseId = undefined;
 
+  // Capture risk metadata when present. autoApproved is true when the tool
+  // was NOT prompted for confirmation (no entry in toolConfirmationOutcomes).
+  // Confirmation outcomes are set BEFORE handleToolResult fires, so the map
+  // is fully populated at this point.
+  //
+  // Known limitation: non-interactive sessions that auto-deny a tool without
+  // prompting also have no confirmation outcome entry, so those denials are
+  // recorded as autoApproved=true. This field is for DB/log analytics only
+  // and has no UI impact; consult _confirmationDecision for denial signal.
+  if (event.riskLevel) {
+    state.toolRiskOutcomes.set(event.toolUseId, {
+      riskLevel: event.riskLevel,
+      riskReason: event.riskReason,
+      autoApproved: !state.toolConfirmationOutcomes.has(event.toolUseId),
+    });
+  }
+
   const toolName = state.toolUseIdToName.get(event.toolUseId);
   if (toolName === "file_write" || toolName === "bash") {
     deps.ctx.markWorkspaceTopLevelDirty();
@@ -623,6 +646,13 @@ function annotatePersistedAssistantMessage(
       if (confirmation) {
         rec._confirmationDecision = confirmation.decision;
         rec._confirmationLabel = confirmation.label;
+        modified = true;
+      }
+      const risk = state.toolRiskOutcomes.get(id);
+      if (risk) {
+        rec._riskLevel = risk.riskLevel;
+        if (risk.riskReason) rec._riskReason = risk.riskReason;
+        rec._autoApproved = risk.autoApproved;
         modified = true;
       }
     }

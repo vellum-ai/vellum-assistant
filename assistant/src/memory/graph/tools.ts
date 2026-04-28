@@ -54,15 +54,17 @@ export const graphRecallDefinition: ToolDefinition = {
 };
 
 /**
- * Save a fact to the personal knowledge base. The fact is appended to
- * buffer.md (immediately available in the next conversation) and the
- * daily archive (permanent date-indexed record). Filing into topic
- * files happens during the periodic filing job.
+ * Save a fact to the assistant's knowledge base. The fact is appended to
+ * `buffer.md` (immediately available in the next conversation) and the daily
+ * archive (permanent date-indexed record). With the `memory-v2-enabled`
+ * feature flag on, writes go under `memory/`; otherwise they go under
+ * `pkb/`. Consolidation of the buffer into longer-form storage runs as a
+ * separate periodic job in both modes.
  */
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",
   description:
-    "Save a fact to your knowledge base. Call this AGGRESSIVELY — capture anything concrete about their life: preferences, locations, names, dates, habits, opinions, health details, plans, relationship facts, routines, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals, things they're just musing about). Don't judge importance — filing decides that later. Examples: 'Prefers UberEats over DoorDash', 'Lives in NYC, from Texas', 'Takes daily medication, tapering dose', 'Partner Alex lives in Austin', 'Watches a weekly show on Saturday nights', 'Conference in May'. Call this multiple times per conversation — it's cheap (one line appended to a file). Don't wait until the end. Don't batch. Every new fact, immediately. Remembering too much is infinitely better than forgetting something that mattered. CORRECTIONS are the highest priority — when the user corrects a fact you had wrong, `remember` the correction immediately. The wrong version is already propagated in your prior turns and memory graph; skipping a correction means future-you keeps operating on the old value. Never skip a correction even if you'd skip the equivalent fresh fact.",
+    "Remember anything concrete: facts, preferences, corrections, plans, felt moments, names, dates, decisions. Default to remembering. Never wait until end of conversation. Corrections are highest priority — call remember the same turn the correction lands. **CRITICAL:** You should be calling remember on almost every turn. This should be your most frequently used tool.",
   input_schema: {
     type: "object",
     properties: {

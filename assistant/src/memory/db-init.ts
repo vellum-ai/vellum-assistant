@@ -37,6 +37,7 @@ import {
   createWatchersAndLogsTables,
   migrate230AcpSessionHistory,
   migrate231RepairMemoryGraphEventDates,
+  migrateActivationState,
   migrateAddConversationInferenceProfile,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
@@ -388,6 +389,7 @@ export function initializeDb(): void {
     migrateDeletePrivateConversations,
     migrate230AcpSessionHistory,
     migrate231RepairMemoryGraphEventDates,
+    migrateActivationState,
   ];
 
   // Run each migration step, catching and logging individual failures so one

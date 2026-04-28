@@ -1,3 +1,4 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
@@ -44,6 +45,7 @@ import {
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
 } from "./job-utils.js";
+import { embedConceptPageJob } from "./jobs/embed-concept-page.js";
 import { embedPkbFileJob } from "./jobs/embed-pkb-file.js";
 import {
   claimMemoryJobs,
@@ -59,6 +61,14 @@ import {
   resetRunningJobsToPending,
 } from "./jobs-store.js";
 import { QdrantCircuitOpenError } from "./qdrant-circuit-breaker.js";
+import {
+  memoryV2ActivationRecomputeJob,
+  memoryV2MigrateJob,
+  memoryV2RebuildEdgesJob,
+  memoryV2ReembedJob,
+} from "./v2/backfill-jobs.js";
+import { memoryV2ConsolidateJob } from "./v2/consolidation-job.js";
+import { memoryV2SweepJob } from "./v2/sweep-job.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -167,7 +177,7 @@ async function runMemoryJobsOnce(
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
     }
-    maybeEnqueueGraphMaintenanceJobs();
+    maybeEnqueueGraphMaintenanceJobs(config);
     maybeRunDbMaintenance();
     return 0;
   }
@@ -264,7 +274,7 @@ async function runMemoryJobsOnce(
   if (enableScheduledCleanup) {
     maybeEnqueueScheduledCleanupJobs(config);
   }
-  maybeEnqueueGraphMaintenanceJobs();
+  maybeEnqueueGraphMaintenanceJobs(config);
   maybeRunDbMaintenance();
   return processed;
 }
@@ -451,6 +461,27 @@ async function processJob(
     case "graph_bootstrap":
       await bootstrapFromHistory();
       return;
+    case "embed_concept_page":
+      await embedConceptPageJob(job, config);
+      return;
+    case "memory_v2_sweep":
+      await memoryV2SweepJob(job, config);
+      return;
+    case "memory_v2_consolidate":
+      await memoryV2ConsolidateJob(job, config);
+      return;
+    case "memory_v2_migrate":
+      await memoryV2MigrateJob(job, config);
+      return;
+    case "memory_v2_rebuild_edges":
+      await memoryV2RebuildEdgesJob(job, config);
+      return;
+    case "memory_v2_reembed":
+      await memoryV2ReembedJob(job, config);
+      return;
+    case "memory_v2_activation_recompute":
+      await memoryV2ActivationRecomputeJob(job, config);
+      return;
 
     default: {
       const rawType = (job as { type: string }).type;
@@ -520,14 +551,24 @@ const GRAPH_MAINTENANCE_CHECKPOINTS = {
   consolidate: "graph_maintenance:consolidate:last_run",
   patternScan: "graph_maintenance:pattern_scan:last_run",
   narrative: "graph_maintenance:narrative:last_run",
+  memoryV2Consolidate: "memory_v2_consolidate_last_run",
 } as const;
 
 /**
  * Enqueue periodic graph maintenance jobs (decay, consolidation, pattern scan, narrative).
  * Uses durable checkpoints so intervals survive daemon restarts — jobs only fire
  * when the actual elapsed time since last run exceeds the interval.
+ *
+ * The v2 consolidation entry is gated on both the `memory-v2-enabled` feature
+ * flag and the `memory.v2.enabled` config — both must be true for the cron
+ * to fire. Sweep is intentionally not on this schedule: it is debounced from
+ * the live `graph_extract` trigger path (see `indexMessageNow` in
+ * `indexer.ts`) so it runs on the same idle/message-count cadence.
  */
-function maybeEnqueueGraphMaintenanceJobs(nowMs = Date.now()): void {
+export function maybeEnqueueGraphMaintenanceJobs(
+  config: AssistantConfig,
+  nowMs = Date.now(),
+): void {
   const schedule: Array<{
     key: string;
     intervalMs: number;
@@ -554,6 +595,18 @@ function maybeEnqueueGraphMaintenanceJobs(nowMs = Date.now()): void {
       jobType: "graph_narrative_refine",
     },
   ];
+
+  if (
+    isAssistantFeatureFlagEnabled("memory-v2-enabled", config) &&
+    config.memory.v2.enabled
+  ) {
+    schedule.push({
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
+      intervalMs:
+        config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
+      jobType: "memory_v2_consolidate",
+    });
+  }
 
   for (const { key, intervalMs, jobType } of schedule) {
     const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);

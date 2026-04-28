@@ -122,7 +122,6 @@ import {
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
 import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
-import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import {
   startCanonicalGuardianExpirySweep,

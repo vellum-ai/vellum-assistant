@@ -1057,7 +1057,7 @@ paths:
       tags:
         - attachments
       responses:
-        "200":
+        "204":
           description: Successful response
       requestBody:
         required: true
@@ -1157,8 +1157,10 @@ paths:
                   kind:
                     type: string
                   data:
-                    type: string
-                    description: Base64-encoded content
+                    anyOf:
+                      - type: string
+                        description: Base64-encoded content
+                      - type: "null"
                   fileBacked:
                     type: boolean
                 required:
@@ -1168,7 +1170,6 @@ paths:
                   - sizeBytes
                   - kind
                   - data
-                  - fileBacked
                 additionalProperties: false
       parameters:
         - name: id
