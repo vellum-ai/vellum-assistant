@@ -19,17 +19,17 @@ describe("config-utils", () => {
     });
   });
 
-  test("buildInitialConfig seeds Opus for the Anthropic main thread", () => {
+  test("buildInitialConfig seeds mainAgent callSite for Anthropic default", () => {
     expect(
       buildInitialConfig({
         "llm.default.provider": "anthropic",
-        "llm.default.model": "claude-sonnet-4-6",
+        "llm.default.model": "claude-opus-4-7",
       }),
     ).toEqual({
       llm: {
         default: {
           provider: "anthropic",
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-4-7",
         },
         callSites: {
           mainAgent: {
@@ -67,14 +67,14 @@ describe("config-utils", () => {
     expect(
       buildInitialConfig({
         "llm.default.provider": "anthropic",
-        "llm.default.model": "claude-sonnet-4-6",
+        "llm.default.model": "claude-opus-4-7",
         "llm.callSites.mainAgent.model": "claude-haiku-4-5-20251001",
       }),
     ).toEqual({
       llm: {
         default: {
           provider: "anthropic",
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-4-7",
         },
         callSites: {
           mainAgent: {
