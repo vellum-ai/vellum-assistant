@@ -585,18 +585,18 @@ extension AppDelegate {
             // Don't steal shortcuts from text views (e.g. Cmd+Up/Down for caret movement)
             if NSApp.mainWindow?.firstResponder is NSTextView { return event }
 
-            // Arrow keys include .numericPad and .function in modifierFlags — strip both
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                .subtracting([.numericPad, .function])
+            // Strip .numericPad always; strip .function only when comparing against arrow-key shortcuts
+            let baseMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .subtracting(.numericPad)
 
             if !prevShortcut.isEmpty,
-               mods == prevMods,
+               (isArrowKey(prevKey) ? baseMods.subtracting(.function) : baseMods) == prevMods,
                event.charactersIgnoringModifiers?.lowercased() == prevKey.lowercased() {
                 Task { @MainActor in self?.selectPreviousConversation() }
                 return nil
             }
             if !nextShortcut.isEmpty,
-               mods == nextMods,
+               (isArrowKey(nextKey) ? baseMods.subtracting(.function) : baseMods) == nextMods,
                event.charactersIgnoringModifiers?.lowercased() == nextKey.lowercased() {
                 Task { @MainActor in self?.selectNextConversation() }
                 return nil
