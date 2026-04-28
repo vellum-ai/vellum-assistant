@@ -345,7 +345,7 @@ export async function ipcSuggestTrustRule(
 ): Promise<SuggestTrustRuleResponse> {
   const result = await ipcCallAssistant(
     "suggest_trust_rule",
-    params as unknown as Record<string, unknown>,
+    { body: params } as unknown as Record<string, unknown>,
   );
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     throw new Error("ipcSuggestTrustRule: unexpected response shape");

@@ -191,6 +191,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "sequence guardrails show",
   "sequence guardrails set",
   "skills",
+  "skills inspect",
   "skills list",
   "skills search",
   "skills install",

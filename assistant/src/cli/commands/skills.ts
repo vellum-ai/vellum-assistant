@@ -16,6 +16,7 @@ import {
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import { clawhubSearch } from "../../skills/clawhub.js";
+import { readInstallMeta } from "../../skills/install-meta.js";
 import type {
   AuditResponse,
   SkillsShSearchResult,
@@ -48,6 +49,8 @@ capabilities with pre-built workflows and tools.
 Examples:
   $ assistant skills list
   $ assistant skills list --json
+  $ assistant skills inspect slack
+  $ assistant skills inspect resend-setup --json
   $ assistant skills search react
   $ assistant skills search react --limit 5 --json
   $ assistant skills install weather
@@ -65,7 +68,8 @@ Examples:
       "after",
       `
 Lists all bundled and installed skills with their source, state, and
-description. Use 'assistant skills search' to discover catalog skills.
+description. Use 'assistant skills inspect <id>' for detailed metadata
+or 'assistant skills search' to discover catalog skills.
 
 Examples:
   $ assistant skills list
@@ -115,6 +119,161 @@ Examples:
           ];
           log.info(`  ${emoji}${s.id} [${tags.join(", ")}]`);
           log.info(`    ${s.name} — ${s.description}`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (opts.json) {
+          console.log(JSON.stringify({ ok: false, error: msg }));
+        } else {
+          log.error(`Error: ${msg}`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  skills
+    .command("inspect <skill-id>")
+    .description("Show detailed information about a skill")
+    .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  skill-id   Skill identifier. Run 'assistant skills list' to see available IDs.
+
+Displays detailed metadata about a skill including its source, state,
+description, install metadata (origin, version, content hash), config
+entries, tool manifest, activation hints, and feature flags.
+
+Examples:
+  $ assistant skills inspect slack
+  $ assistant skills inspect resend-setup --json`,
+    )
+    .action(async (skillId: string, opts: { json?: boolean }) => {
+      try {
+        const localCatalog = loadSkillCatalog();
+        const config = getConfig();
+        const resolved = resolveSkillStates(localCatalog, config);
+
+        const match = resolved.find((r) => r.summary.id === skillId);
+        if (!match) {
+          throw new Error(
+            `Skill "${skillId}" not found. Run 'assistant skills list' to see available skills.`,
+          );
+        }
+
+        const { summary, state, configEntry } = match;
+        const installMeta = readInstallMeta(summary.directoryPath);
+
+        const detail: Record<string, unknown> = {
+          id: summary.id,
+          name: summary.displayName,
+          description: summary.description,
+          emoji: summary.emoji ?? null,
+          source: summary.source,
+          state,
+          directoryPath: summary.directoryPath,
+          featureFlag: summary.featureFlag ?? null,
+          activationHints: summary.activationHints ?? null,
+          avoidWhen: summary.avoidWhen ?? null,
+          includes: summary.includes ?? null,
+          toolManifest: summary.toolManifest
+            ? {
+                valid: summary.toolManifest.valid,
+                toolCount: summary.toolManifest.toolCount,
+                toolNames: summary.toolManifest.toolNames,
+              }
+            : null,
+          installMeta: installMeta ?? null,
+          config: configEntry
+            ? {
+                enabled: configEntry.enabled !== false,
+                envKeys: configEntry.env
+                  ? Object.keys(configEntry.env)
+                  : [],
+                configKeys: configEntry.config
+                  ? Object.keys(configEntry.config)
+                  : [],
+              }
+            : null,
+        };
+
+        if (opts.json) {
+          console.log(JSON.stringify({ ok: true, skill: detail }));
+          return;
+        }
+
+        const emoji = summary.emoji ? `${summary.emoji} ` : "";
+        log.info(`${emoji}${summary.displayName} (${summary.id})`);
+        log.info(`  ${summary.description}\n`);
+        log.info(`  Source:    ${summary.source}`);
+        log.info(`  State:     ${state}`);
+        log.info(`  Path:      ${summary.directoryPath}`);
+        if (summary.featureFlag) {
+          log.info(`  Flag:      ${summary.featureFlag}`);
+        }
+        if (summary.includes?.length) {
+          log.info(`  Includes:  ${summary.includes.join(", ")}`);
+        }
+        if (summary.activationHints?.length) {
+          log.info(`  Hints:     ${summary.activationHints.join("; ")}`);
+        }
+        if (summary.avoidWhen?.length) {
+          log.info(`  Avoid:     ${summary.avoidWhen.join("; ")}`);
+        }
+
+        if (summary.toolManifest) {
+          const tm = summary.toolManifest;
+          log.info(
+            `\n  Tools:     ${tm.valid ? `${tm.toolCount} tool(s)` : "invalid manifest"}`,
+          );
+          if (tm.toolNames.length > 0) {
+            for (const name of tm.toolNames) {
+              log.info(`    - ${name}`);
+            }
+          }
+        }
+
+        if (installMeta) {
+          log.info(`\n  Install metadata:`);
+          log.info(`    Origin:      ${installMeta.origin}`);
+          log.info(`    Installed:   ${installMeta.installedAt}`);
+          if (installMeta.installedBy) {
+            log.info(`    Installed by: ${installMeta.installedBy}`);
+          }
+          if (installMeta.version) {
+            log.info(`    Version:     ${installMeta.version}`);
+          }
+          if (installMeta.slug) {
+            log.info(`    Slug:        ${installMeta.slug}`);
+          }
+          if (installMeta.sourceRepo) {
+            log.info(`    Source repo:  ${installMeta.sourceRepo}`);
+          }
+          if (installMeta.contentHash) {
+            log.info(`    Hash:        ${installMeta.contentHash}`);
+          }
+          if (installMeta.backfilledBy) {
+            log.info(`    Backfilled:  ${installMeta.backfilledBy}`);
+          }
+        }
+
+        if (configEntry) {
+          log.info(`\n  Config:`);
+          log.info(
+            `    Enabled:     ${configEntry.enabled !== false ? "yes" : "no"}`,
+          );
+          if (configEntry.env && Object.keys(configEntry.env).length > 0) {
+            log.info(`    Env vars:    ${Object.keys(configEntry.env).join(", ")}`);
+          }
+          if (
+            configEntry.config &&
+            Object.keys(configEntry.config).length > 0
+          ) {
+            log.info(
+              `    Config keys: ${Object.keys(configEntry.config).join(", ")}`,
+            );
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

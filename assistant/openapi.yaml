@@ -10162,6 +10162,378 @@ paths:
           schema:
             type: string
           description: Conversation that owns the surface
+  /v1/tasks/delete:
+    post:
+      operationId: tasks_delete_post
+      summary: Delete task templates
+      description: Delete one or more task templates by ID.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  content:
+                    type: string
+                required:
+                  - ok
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_ids:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+              required:
+                - task_ids
+              additionalProperties: false
+  /v1/tasks/list:
+    post:
+      operationId: tasks_list_post
+      summary: List task templates
+      description: List all saved task templates.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  content:
+                    type: string
+                required:
+                  - ok
+                  - content
+                additionalProperties: false
+  /v1/tasks/queue/add:
+    post:
+      operationId: tasks_queue_add_post
+      summary: Add to task queue
+      description: Add a new work item to the task queue.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                required:
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                task_name:
+                  type: string
+                title:
+                  type: string
+                execution_prompt:
+                  type: string
+                notes:
+                  type: string
+                priority_tier:
+                  type: number
+                sort_index:
+                  type: number
+                if_exists:
+                  type: string
+                  enum:
+                    - create_duplicate
+                    - reuse_existing
+                    - update_existing
+                required_tools:
+                  type: array
+                  items:
+                    type: string
+              additionalProperties: false
+  /v1/tasks/queue/remove:
+    post:
+      operationId: tasks_queue_remove_post
+      summary: Remove from task queue
+      description: Remove a work item from the task queue.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                required:
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_item_id:
+                  type: string
+                task_id:
+                  type: string
+                task_name:
+                  type: string
+                title:
+                  type: string
+                priority_tier:
+                  type: number
+                status:
+                  type: string
+                created_order:
+                  type: number
+              additionalProperties: false
+  /v1/tasks/queue/run:
+    post:
+      operationId: tasks_queue_run_post
+      summary: Run next task queue item
+      description: Pick up and execute the next work item from the queue.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                required:
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_item_id:
+                  type: string
+                task_name:
+                  type: string
+                title:
+                  type: string
+              additionalProperties: false
+  /v1/tasks/queue/show:
+    post:
+      operationId: tasks_queue_show_post
+      summary: Show task queue
+      description: List work items in the task queue, optionally filtered by status.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                required:
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  anyOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: string
+              additionalProperties: false
+  /v1/tasks/queue/update:
+    post:
+      operationId: tasks_queue_update_post
+      summary: Update a task queue item
+      description: Update an existing work item in the task queue.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                required:
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                work_item_id:
+                  type: string
+                task_id:
+                  type: string
+                task_name:
+                  type: string
+                title:
+                  type: string
+                priority_tier:
+                  type: number
+                notes:
+                  type: string
+                status:
+                  type: string
+                  enum:
+                    - queued
+                    - running
+                    - awaiting_review
+                    - done
+                    - failed
+                    - cancelled
+                    - archived
+                sort_index:
+                  type: number
+                filter_priority_tier:
+                  type: number
+                filter_status:
+                  type: string
+                created_order:
+                  type: number
+              additionalProperties: false
+  /v1/tasks/run:
+    post:
+      operationId: tasks_run_post
+      summary: Run a task template
+      description: Execute a saved task template by name or ID.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  content:
+                    type: string
+                required:
+                  - ok
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_name:
+                  type: string
+                  minLength: 1
+                task_id:
+                  type: string
+                  minLength: 1
+                inputs:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: string
+              additionalProperties: false
+  /v1/tasks/save:
+    post:
+      operationId: tasks_save_post
+      summary: Save a task template
+      description: Save the current conversation as a reusable task template.
+      tags:
+        - tasks
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  content:
+                    type: string
+                required:
+                  - ok
+                  - content
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversation_id:
+                  type: string
+                  minLength: 1
+                title:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
   /v1/telemetry/lifecycle:
     post:
       operationId: telemetry_lifecycle_post
@@ -10324,6 +10696,129 @@ paths:
           required: true
           schema:
             type: string
+  /v1/trust-rules/suggest:
+    post:
+      operationId: trustrules_suggest_post
+      summary: Suggest a trust rule
+      description: Use an LLM to suggest a trust rule pattern, risk level, and scope for a given action.
+      tags:
+        - trust
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pattern:
+                    type: string
+                  risk:
+                    type: string
+                  scope:
+                    type: string
+                  description:
+                    type: string
+                  scopeOptions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pattern:
+                          type: string
+                        label:
+                          type: string
+                      required:
+                        - pattern
+                        - label
+                      additionalProperties: false
+                  directoryScopeOptions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope:
+                          type: string
+                        label:
+                          type: string
+                      required:
+                        - scope
+                        - label
+                      additionalProperties: false
+                required:
+                  - pattern
+                  - risk
+                  - description
+                  - scopeOptions
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                  minLength: 1
+                command:
+                  type: string
+                  minLength: 1
+                riskAssessment:
+                  type: object
+                  properties:
+                    risk:
+                      type: string
+                    reasoning:
+                      type: string
+                    reasonDescription:
+                      type: string
+                  required:
+                    - risk
+                    - reasoning
+                    - reasonDescription
+                  additionalProperties: false
+                scopeOptions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      pattern:
+                        type: string
+                      label:
+                        type: string
+                    required:
+                      - pattern
+                      - label
+                    additionalProperties: false
+                directoryScopeOptions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      scope:
+                        type: string
+                      label:
+                        type: string
+                    required:
+                      - scope
+                      - label
+                    additionalProperties: false
+                currentThreshold:
+                  type: string
+                intent:
+                  type: string
+                  enum:
+                    - auto_approve
+                    - escalate
+              required:
+                - tool
+                - command
+                - riskAssessment
+                - scopeOptions
+                - currentThreshold
+                - intent
+              additionalProperties: false
   /v1/tts/synthesize:
     post:
       operationId: tts_synthesize_post

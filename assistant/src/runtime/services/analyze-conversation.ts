@@ -20,6 +20,7 @@
  * against `llm.callSites.analyzeConversation` (falling back to `llm.default`
  * when no override is set).
  */
+import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import {
   AUTO_ANALYSIS_GROUP_ID,
@@ -36,25 +37,14 @@ import {
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
+import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import type { SendMessageDeps } from "../http-types.js";
 import {
   buildAutoAnalysisPrompt,
   neutralizeTranscriptSentinel,
 } from "./auto-analysis-prompt.js";
 
 const log = getLogger("analyze-conversation-service");
-
-// ---------------------------------------------------------------------------
-// Dependency types — injected by the caller (route handler / future triggers)
-// ---------------------------------------------------------------------------
-
-export interface ConversationAnalysisDeps {
-  sendMessageDeps: SendMessageDeps;
-  buildConversationDetailResponse: (
-    id: string,
-  ) => Record<string, unknown> | null;
-}
 
 // ---------------------------------------------------------------------------
 // Request/response shapes
@@ -91,7 +81,6 @@ export interface AnalyzeError {
 
 export async function analyzeConversation(
   sourceConversationId: string,
-  deps: ConversationAnalysisDeps,
   opts: AnalyzeOptions,
 ): Promise<AnalyzeResult | AnalyzeError> {
   // a. Resolve conversation ID
@@ -202,8 +191,9 @@ export async function analyzeConversation(
   // still-running prior agent loop on the rolling conversation and bail out
   // before mutating any state. See concurrency guard below.
   //
-  const analysisConversation =
-    await deps.sendMessageDeps.getOrCreateConversation(analysisConversationId);
+  const analysisConversation = await getOrCreateConversation(
+    analysisConversationId,
+  );
 
   // h.1. Concurrency guard (auto trigger only). The rolling analysis
   // conversation is reused across runs; if a prior agent loop is still in
@@ -252,15 +242,14 @@ export async function analyzeConversation(
     analysisConversation.setSubagentAllowedTools(new Set<string>());
   }
 
-  const hasLiveSubscriber =
-    deps.sendMessageDeps.assistantEventHub.hasSubscribersForEvent({
-      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      conversationId: analysisConversationId,
-    });
+  const hasLiveSubscriber = assistantEventHub.hasSubscribersForEvent({
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    conversationId: analysisConversationId,
+  });
 
   // j. Build onEvent using inline hub publisher
   const onEvent = (msg: ServerMessage) => {
-    deps.sendMessageDeps.assistantEventHub.publish(
+    assistantEventHub.publish(
       buildAssistantEvent(
         DAEMON_INTERNAL_ASSISTANT_ID,
         msg,

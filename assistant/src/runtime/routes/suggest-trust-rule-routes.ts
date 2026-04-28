@@ -1,14 +1,22 @@
+/**
+ * Transport-agnostic route for LLM-powered trust rule suggestion.
+ *
+ * The gateway calls this when a user wants to auto-approve or escalate
+ * a particular action class. An LLM picks the best pattern, risk level,
+ * and scope from pre-generated options.
+ */
+
+import { z } from "zod";
+
 import {
   createTimeout,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Request / response interfaces
-// ---------------------------------------------------------------------------
+// ── Request / response shapes ─────────────────────────────────────────
 
 interface ScopeOption {
   pattern: string;
@@ -23,7 +31,11 @@ interface DirectoryScopeOption {
 interface SuggestTrustRuleRequest {
   tool: string;
   command: string;
-  riskAssessment: { risk: string; reasoning: string; reasonDescription: string };
+  riskAssessment: {
+    risk: string;
+    reasoning: string;
+    reasonDescription: string;
+  };
   scopeOptions: ScopeOption[];
   directoryScopeOptions?: DirectoryScopeOption[];
   currentThreshold: string;
@@ -39,9 +51,7 @@ interface SuggestTrustRuleResponse {
   directoryScopeOptions?: DirectoryScopeOption[];
 }
 
-// ---------------------------------------------------------------------------
-// Structured-output LLM tool definition
-// ---------------------------------------------------------------------------
+// ── LLM tool definition ──────────────────────────────────────────────
 
 const SUGGEST_RULE_TOOL = {
   name: "suggest_trust_rule",
@@ -73,9 +83,7 @@ const SUGGEST_RULE_TOOL = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// System prompt
-// ---------------------------------------------------------------------------
+// ── System prompt ────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are helping a user configure trust rules for their AI assistant.
 
@@ -101,9 +109,7 @@ broad enough to cover similar future invocations.
 
 Respond using the suggest_trust_rule tool only.`;
 
-// ---------------------------------------------------------------------------
-// User message builder
-// ---------------------------------------------------------------------------
+// ── User message builder ─────────────────────────────────────────────
 
 function buildUserMessage(req: SuggestTrustRuleRequest): string {
   const lines: string[] = [];
@@ -137,14 +143,12 @@ function buildUserMessage(req: SuggestTrustRuleRequest): string {
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Handler
-// ---------------------------------------------------------------------------
+// ── Handler ──────────────────────────────────────────────────────────
 
-async function suggestTrustRuleHandler(
-  params?: Record<string, unknown>,
-): Promise<SuggestTrustRuleResponse> {
-  const req = params as unknown as SuggestTrustRuleRequest;
+async function handleSuggestTrustRule({
+  body = {},
+}: RouteHandlerArgs): Promise<SuggestTrustRuleResponse> {
+  const req = body as unknown as SuggestTrustRuleRequest;
 
   const provider = await getConfiguredProvider("trustRuleSuggestion");
   if (!provider) {
@@ -170,9 +174,7 @@ async function suggestTrustRuleHandler(
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) {
-      throw new Error(
-        "No tool_use block in trust rule suggestion response",
-      );
+      throw new Error("No tool_use block in trust rule suggestion response");
     }
 
     const input = toolBlock.input as Record<string, unknown>;
@@ -189,11 +191,54 @@ async function suggestTrustRuleHandler(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Route export
-// ---------------------------------------------------------------------------
+// ── Zod schemas for OpenAPI ──────────────────────────────────────────
 
-export const suggestTrustRuleRoute: IpcRoute = {
-  method: "suggest_trust_rule",
-  handler: suggestTrustRuleHandler,
-};
+const ScopeOptionSchema = z.object({
+  pattern: z.string(),
+  label: z.string(),
+});
+
+const DirectoryScopeOptionSchema = z.object({
+  scope: z.string(),
+  label: z.string(),
+});
+
+const RequestSchema = z.object({
+  tool: z.string().min(1),
+  command: z.string().min(1),
+  riskAssessment: z.object({
+    risk: z.string(),
+    reasoning: z.string(),
+    reasonDescription: z.string(),
+  }),
+  scopeOptions: z.array(ScopeOptionSchema),
+  directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
+  currentThreshold: z.string(),
+  intent: z.enum(["auto_approve", "escalate"]),
+});
+
+const ResponseSchema = z.object({
+  pattern: z.string(),
+  risk: z.string(),
+  scope: z.string().optional(),
+  description: z.string(),
+  scopeOptions: z.array(ScopeOptionSchema),
+  directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
+});
+
+// ── Route ────────────────────────────────────────────────────────────
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "suggest_trust_rule",
+    endpoint: "trust-rules/suggest",
+    method: "POST",
+    handler: handleSuggestTrustRule,
+    summary: "Suggest a trust rule",
+    description:
+      "Use an LLM to suggest a trust rule pattern, risk level, and scope for a given action.",
+    tags: ["trust"],
+    requestBody: RequestSchema,
+    responseBody: ResponseSchema,
+  },
+];
