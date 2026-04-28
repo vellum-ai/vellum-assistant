@@ -100,8 +100,11 @@ export async function seedV2SkillEntries(): Promise<void> {
 
     // Seed uninstalled catalog skills so their activation hints are
     // discoverable by intent (mirrors v1's seedUninstalledCatalogSkillMemories).
+    // Track whether the catalog was available so we can guard pruning below.
+    let catalogAvailable = false;
     try {
       const fullCatalog = await getCatalog();
+      catalogAvailable = fullCatalog.length > 0;
       for (const entry of fullCatalog) {
         if (installedIds.has(entry.id)) continue;
         const flagKey = entry.metadata?.vellum?.["feature-flag"];
@@ -137,8 +140,18 @@ export async function seedV2SkillEntries(): Promise<void> {
       nextEntries.set(seed.id, seed);
     }
 
-    // Prune any points whose id is no longer in the active set.
-    await pruneSkillsExcept(seeds.map((s) => s.id));
+    // Prune stale points. When the catalog is unavailable (empty array from
+    // network failure or cold cache), we cannot enumerate which uninstalled
+    // catalog skills should exist, so skip pruning entirely to avoid
+    // aggressively removing previously-seeded catalog skill embeddings.
+    // Mirrors v1's safeguard in capability-seed.ts (lines 124–143).
+    if (catalogAvailable) {
+      await pruneSkillsExcept(seeds.map((s) => s.id));
+    } else {
+      log.info(
+        "Catalog unavailable — skipping skill pruning to preserve prior catalog embeddings",
+      );
+    }
 
     // Atomically replace the cache only after every step above succeeds.
     entries = nextEntries;
