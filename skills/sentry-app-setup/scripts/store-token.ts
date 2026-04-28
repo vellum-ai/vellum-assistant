@@ -5,13 +5,11 @@
  * Species-gated: delegates to a species-specific implementation.
  */
 
-const species = process.env.SPECIES;
-
 // ---------------------------------------------------------------------------
 // Vellum — secure UI prompt via `assistant credentials prompt`
 // ---------------------------------------------------------------------------
 
-async function storeVellum(): Promise<void> {
+async function storeTokenVellum(): Promise<void> {
   const args = [
     "credentials",
     "prompt",
@@ -53,7 +51,7 @@ async function storeVellum(): Promise<void> {
 // OpenClaw — writes to ~/.openclaw/credentials.json
 // ---------------------------------------------------------------------------
 
-async function storeOpenClaw(): Promise<void> {
+async function storeTokenOpenClaw(): Promise<void> {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
   const credDir = `${home}/.openclaw`;
   const credPath = `${credDir}/credentials.json`;
@@ -98,7 +96,7 @@ async function storeOpenClaw(): Promise<void> {
 // Hermes — stores in the Hermes keyring via `hermes secret set`
 // ---------------------------------------------------------------------------
 
-async function storeHermes(): Promise<void> {
+async function storeTokenHermes(): Promise<void> {
   const proc = Bun.spawn(
     [
       "hermes",
@@ -125,19 +123,19 @@ async function storeHermes(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  switch (species) {
+  switch (process.env.SPECIES) {
     case "vellum":
-      await storeVellum();
+      await storeTokenVellum();
       break;
     case "openclaw":
-      await storeOpenClaw();
+      await storeTokenOpenClaw();
       break;
     case "hermes":
-      await storeHermes();
+      await storeTokenHermes();
       break;
     default:
       console.error(
-        `Unsupported species: ${species ?? "(not set)"}. Supported: vellum, openclaw, hermes.`,
+        `Unsupported species: ${process.env.SPECIES ?? "(not set)"}. Supported: vellum, openclaw, hermes.`,
       );
       process.exitCode = 1;
   }

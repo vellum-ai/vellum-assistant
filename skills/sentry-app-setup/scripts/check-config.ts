@@ -7,13 +7,11 @@
  * Species-gated: delegates to a species-specific implementation.
  */
 
-const species = process.env.SPECIES;
-
 // ---------------------------------------------------------------------------
 // Vellum — checks the encrypted credential vault via `assistant credentials`
 // ---------------------------------------------------------------------------
 
-async function checkVellum(): Promise<void> {
+async function checkConfigVellum(): Promise<void> {
   const proc = Bun.spawn(["assistant", "credentials", "list", "--json"], {
     stdout: "pipe",
     stderr: "pipe",
@@ -62,7 +60,7 @@ async function checkVellum(): Promise<void> {
 // OpenClaw — checks ~/.openclaw/credentials.json
 // ---------------------------------------------------------------------------
 
-async function checkOpenClaw(): Promise<void> {
+async function checkConfigOpenClaw(): Promise<void> {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
   const credPath = `${home}/.openclaw/credentials.json`;
 
@@ -102,7 +100,7 @@ async function checkOpenClaw(): Promise<void> {
 // Hermes — checks the Hermes keyring via `hermes secret get`
 // ---------------------------------------------------------------------------
 
-async function checkHermes(): Promise<void> {
+async function checkConfigHermes(): Promise<void> {
   const proc = Bun.spawn(
     ["hermes", "secret", "get", "sentry/auth_token", "--quiet"],
     { stdout: "pipe", stderr: "pipe" },
@@ -123,19 +121,19 @@ async function checkHermes(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  switch (species) {
+  switch (process.env.SPECIES) {
     case "vellum":
-      await checkVellum();
+      await checkConfigVellum();
       break;
     case "openclaw":
-      await checkOpenClaw();
+      await checkConfigOpenClaw();
       break;
     case "hermes":
-      await checkHermes();
+      await checkConfigHermes();
       break;
     default:
       console.error(
-        `Unsupported species: ${species ?? "(not set)"}. Supported: vellum, openclaw, hermes.`,
+        `Unsupported species: ${process.env.SPECIES ?? "(not set)"}. Supported: vellum, openclaw, hermes.`,
       );
       process.exitCode = 1;
   }
