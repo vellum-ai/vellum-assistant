@@ -31,6 +31,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
@@ -50,7 +51,6 @@ import {
   upsertSkillsIndex,
 } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
-import type { SkillCategory } from "../../skills/category-inference.js";
 import { inferCategory } from "../../skills/category-inference.js";
 import {
   clawhubCheckUpdates,
@@ -81,18 +81,13 @@ import {
   type SkillAuditData,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import { getConfigWatcher } from "../config-watcher.js";
 import { maybeSeedMemoryV2Skills } from "../memory-v2-startup.js";
 import type {
   SkillDetailResponse,
   SkillFileContentResponse,
   SlimSkillResponse,
 } from "../message-types/skills.js";
-
-// Re-export for use by route layer and future consumers.
-export type { SkillCategory };
-export { inferCategory };
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import { getConfigWatcher } from "../config-watcher.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, ensureSkillEntry, log } from "./shared.js";
 
 // ─── Provider chain for uninstalled skill file preview ───────────────────────
@@ -241,9 +236,7 @@ const LLM_DRAFT_TIMEOUT_MS = 15_000;
 // These are consumed by both the handlers below and the HTTP route layer.
 
 /** Helper: suppress config reload, save, debounce, and update fingerprint. */
-function saveConfigWithSuppression(
-  raw: Record<string, unknown>,
-): void {
+function saveConfigWithSuppression(raw: Record<string, unknown>): void {
   getConfigWatcher().suppressConfigReload = true;
   try {
     saveRawConfig(raw);
@@ -278,10 +271,7 @@ function saveConfigWithSuppression(
  * NOT used for bundled skills — those have a simpler inline path in
  * `installSkill()` that only auto-enables, broadcasts, and seeds memories.
  */
-function postInstallSkill(
-  skillId: string,
-  _skillDir: string,
-): void {
+function postInstallSkill(skillId: string, _skillDir: string): void {
   // Reload skill catalog so the newly installed skill is picked up
   loadSkillCatalog();
 
@@ -412,8 +402,7 @@ export function listSkills(): SlimSkillResponse[] {
  * List installed skills merged with available catalog skills.
  * Installed skills take precedence when deduplicating by ID.
  */
-async function listSkillsWithCatalog(
-): Promise<SlimSkillResponse[]> {
+async function listSkillsWithCatalog(): Promise<SlimSkillResponse[]> {
   const installed = listSkills();
   const installedIds = new Set(installed.map((s) => s.id));
 
@@ -483,9 +472,7 @@ function originMatchesQuery(origin: string, query: string): boolean {
  * List skills with filtering, category counts, and sorting.
  * Calls listSkillsWithCatalog for the full merged list, then applies filters.
  */
-export async function listSkillsFiltered(
-  filter: SkillListFilter,
-): Promise<{
+export async function listSkillsFiltered(filter: SkillListFilter): Promise<{
   skills: SlimSkillResponse[];
   categoryCounts: Record<string, number>;
   totalCount: number;
@@ -1027,14 +1014,12 @@ function looksLikeSkillsShSlug(slug: string): boolean {
   return slug.split("/").length >= 3;
 }
 
-export async function installSkill(
-  spec: {
-    slug: string;
-    version?: string;
-    origin?: "clawhub" | "skillssh";
-    contactId?: string;
-  },
-): Promise<
+export async function installSkill(spec: {
+  slug: string;
+  version?: string;
+  origin?: "clawhub" | "skillssh";
+  contactId?: string;
+}): Promise<
   { success: true; skillId: string } | { success: false; error: string }
 > {
   try {
@@ -1251,8 +1236,7 @@ export async function updateSkill(
   }
 }
 
-export async function checkSkillUpdates(
-): Promise<
+export async function checkSkillUpdates(): Promise<
   { success: true; data: unknown } | { success: false; error: string }
 > {
   try {
@@ -1457,9 +1441,9 @@ export interface DraftResult {
   error?: string;
 }
 
-export async function draftSkill(
-  params: { sourceText: string },
-): Promise<DraftResult> {
+export async function draftSkill(params: {
+  sourceText: string;
+}): Promise<DraftResult> {
   try {
     const warnings: string[] = [];
     const parsed = parseFrontmatter(params.sourceText);

@@ -132,12 +132,6 @@ export function asString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export function asPositiveMs(value: unknown): number | null {
-  if (typeof value !== "number") return null;
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return Math.floor(value);
-}
-
 export function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 3)}...`;

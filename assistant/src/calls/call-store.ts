@@ -2,7 +2,7 @@ import { and, desc, eq, notInArray, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
-import { rawChanges, rawGet, rawRun } from "../memory/raw-query.js";
+import { rawChanges, rawRun } from "../memory/raw-query.js";
 import {
   callEvents,
   callPendingQuestions,
@@ -377,39 +377,6 @@ export function buildCallbackDedupeKey(
 ): string {
   const discriminator = sequenceNumber ?? timestamp ?? "";
   return `${callSid}:${callStatus}:${discriminator}`;
-}
-
-/**
- * Check whether a callback dedupe key has already been processed (read-only).
- * Returns true if the key already exists, false otherwise.
- */
-export function isCallbackProcessed(dedupeKey: string): boolean {
-  return (
-    rawGet<{ 1: number }>(
-      `SELECT 1 FROM processed_callbacks WHERE dedupe_key = ?`,
-      dedupeKey,
-    ) != null
-  );
-}
-
-/**
- * Record a callback as processed. Should be called AFTER downstream writes
- * (session updates, event recording) have succeeded so that Twilio retries
- * are not silently dropped if those writes fail.
- *
- * Uses INSERT OR IGNORE so concurrent calls for the same key are safe.
- */
-export function recordProcessedCallback(
-  dedupeKey: string,
-  callSessionId: string,
-): void {
-  rawRun(
-    `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-    uuid(),
-    dedupeKey,
-    callSessionId,
-    Date.now(),
-  );
 }
 
 /**

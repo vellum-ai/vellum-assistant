@@ -14,19 +14,12 @@ import type { OAuthConnection } from "../../../oauth/connection.js";
 import type {
   SlackApiResponse,
   SlackAuthTestResponse,
-  SlackChatDeleteResponse,
-  SlackChatUpdateResponse,
   SlackConversationHistoryResponse,
-  SlackConversationInfoResponse,
-  SlackConversationJoinResponse,
-  SlackConversationLeaveResponse,
   SlackConversationMarkResponse,
   SlackConversationRepliesResponse,
   SlackConversationsListResponse,
   SlackConversationsOpenResponse,
-  SlackPostEphemeralResponse,
   SlackPostMessageResponse,
-  SlackReactionAddResponse,
   SlackSearchMessagesResponse,
   SlackUserInfoResponse,
 } from "./types.js";
@@ -310,19 +303,6 @@ export async function listConversations(
   );
 }
 
-export async function conversationInfo(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-): Promise<SlackConversationInfoResponse> {
-  return request<SlackConversationInfoResponse>(
-    connectionOrToken,
-    "conversations.info",
-    {
-      channel,
-    },
-  );
-}
-
 export async function conversationHistory(
   connectionOrToken: OAuthConnection | string,
   channel: string,
@@ -426,29 +406,6 @@ export async function postMessage(
   );
 }
 
-/**
- * Post an ephemeral message visible only to the specified user.
- *
- * Ephemeral messages are fire-and-forget: they cannot be edited or deleted
- * after posting, and they disappear when the user reloads the Slack client.
- */
-export async function postEphemeral(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-  user: string,
-  text: string,
-  threadTs?: string,
-): Promise<SlackPostEphemeralResponse> {
-  const body: Record<string, unknown> = { channel, user, text };
-  if (threadTs) body.thread_ts = threadTs;
-  return request<SlackPostEphemeralResponse>(
-    connectionOrToken,
-    "chat.postEphemeral",
-    undefined,
-    body,
-  );
-}
-
 export async function searchMessages(
   connectionOrToken: OAuthConnection | string,
   query: string,
@@ -465,84 +422,3 @@ export async function searchMessages(
     },
   );
 }
-
-export async function addReaction(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-  timestamp: string,
-  name: string,
-): Promise<SlackReactionAddResponse> {
-  return request<SlackReactionAddResponse>(
-    connectionOrToken,
-    "reactions.add",
-    undefined,
-    {
-      channel,
-      timestamp,
-      name,
-    },
-  );
-}
-
-export async function updateMessage(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-  ts: string,
-  text: string,
-): Promise<SlackChatUpdateResponse> {
-  return request<SlackChatUpdateResponse>(
-    connectionOrToken,
-    "chat.update",
-    undefined,
-    {
-      channel,
-      ts,
-      text,
-    },
-  );
-}
-
-export async function deleteMessage(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-  ts: string,
-): Promise<SlackChatDeleteResponse> {
-  return request<SlackChatDeleteResponse>(
-    connectionOrToken,
-    "chat.delete",
-    undefined,
-    {
-      channel,
-      ts,
-    },
-  );
-}
-
-export async function joinConversation(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-): Promise<SlackConversationJoinResponse> {
-  return request<SlackConversationJoinResponse>(
-    connectionOrToken,
-    "conversations.join",
-    undefined,
-    {
-      channel,
-    },
-  );
-}
-
-export async function leaveConversation(
-  connectionOrToken: OAuthConnection | string,
-  channel: string,
-): Promise<SlackConversationLeaveResponse> {
-  return request<SlackConversationLeaveResponse>(
-    connectionOrToken,
-    "conversations.leave",
-    undefined,
-    {
-      channel,
-    },
-  );
-}
-

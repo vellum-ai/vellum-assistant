@@ -43,32 +43,6 @@ export function recordRequestLog(
   return id;
 }
 
-export function queryRequestLogs(
-  conversationId: string,
-  startTime: number,
-  endTime: number,
-): Array<{
-  id: string;
-  conversationId: string;
-  requestPayload: string;
-  responsePayload: string;
-  createdAt: number;
-}> {
-  const db = getDb();
-  return db
-    .select()
-    .from(llmRequestLogs)
-    .where(
-      and(
-        eq(llmRequestLogs.conversationId, conversationId),
-        gte(llmRequestLogs.createdAt, startTime),
-        lte(llmRequestLogs.createdAt, endTime),
-      ),
-    )
-    .orderBy(llmRequestLogs.createdAt)
-    .all();
-}
-
 export function backfillMessageIdOnLogs(
   conversationId: string,
   messageId: string,
@@ -82,21 +56,6 @@ export function backfillMessageIdOnLogs(
         isNull(llmRequestLogs.messageId),
       ),
     )
-    .run();
-}
-
-/**
- * Set `messageId` on specific log rows identified by their IDs.
- * Unlike `backfillMessageIdOnLogs` (which updates all null-messageId rows
- * for a conversation), this targets only the given log rows — safe for
- * concurrent watch/assistant turns.
- */
-export function setMessageIdOnLogs(logIds: string[], messageId: string): void {
-  if (logIds.length === 0) return;
-  const db = getDb();
-  db.update(llmRequestLogs)
-    .set({ messageId })
-    .where(inArray(llmRequestLogs.id, logIds))
     .run();
 }
 

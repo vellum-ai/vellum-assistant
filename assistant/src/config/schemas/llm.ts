@@ -306,7 +306,7 @@ export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
  * The resolver merges in the named profile (if any) before applying
  * call-site-level overrides.
  */
-export const LLMCallSiteConfig = LLMConfigFragment.extend({
+const LLMCallSiteConfig = LLMConfigFragment.extend({
   profile: z.string().min(1).optional(),
 });
 export type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;

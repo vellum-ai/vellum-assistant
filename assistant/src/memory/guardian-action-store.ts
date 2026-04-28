@@ -222,18 +222,6 @@ export function getGuardianActionRequest(
   return row ? rowToRequest(row) : null;
 }
 
-export function getByPendingQuestionId(
-  questionId: string,
-): GuardianActionRequest | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(guardianActionRequests)
-    .where(eq(guardianActionRequests.pendingQuestionId, questionId))
-    .get();
-  return row ? rowToRequest(row) : null;
-}
-
 /**
  * Find the most recent pending guardian action request for a given call session.
  * Used by the consultation timeout handler to mark the linked request as timed out.
@@ -380,37 +368,6 @@ export function supersedeGuardianActionRequest(
     .run();
 
   return getGuardianActionRequest(id);
-}
-
-/**
- * Backfill supersession metadata on an already-expired request.
- * Used when the superseding request ID is not known at the time the
- * original request is expired (e.g., the new request is created
- * asynchronously via dispatchGuardianQuestion).
- *
- * Only updates requests that are already in 'expired' status with
- * expired_reason='superseded'.
- */
-export function backfillSupersessionMetadata(
-  id: string,
-  supersededByRequestId: string,
-): void {
-  const db = getDb();
-  const now = Date.now();
-
-  db.update(guardianActionRequests)
-    .set({
-      supersededByRequestId,
-      supersededAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(guardianActionRequests.id, id),
-        eq(guardianActionRequests.status, "expired"),
-      ),
-    )
-    .run();
 }
 
 /**
@@ -681,46 +638,6 @@ export function createGuardianActionDelivery(params: {
 
   db.insert(guardianActionDeliveries).values(row).run();
   return rowToDelivery(row);
-}
-
-/**
- * Look up sent deliveries for a specific destination.
- * Used by inbound message routing to match incoming answers to deliveries.
- */
-export function getPendingDeliveriesByDestination(
-  channel: string,
-  chatId: string,
-): GuardianActionDelivery[] {
-  try {
-    const db = getDb();
-
-    const rows = db
-      .select({
-        delivery: guardianActionDeliveries,
-      })
-      .from(guardianActionDeliveries)
-      .innerJoin(
-        guardianActionRequests,
-        eq(guardianActionDeliveries.requestId, guardianActionRequests.id),
-      )
-      .where(
-        and(
-          eq(guardianActionRequests.status, "pending"),
-          eq(guardianActionDeliveries.destinationChannel, channel),
-          eq(guardianActionDeliveries.destinationChatId, chatId),
-          eq(guardianActionDeliveries.status, "sent"),
-        ),
-      )
-      .all();
-
-    return rows.map((r) => rowToDelivery(r.delivery));
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("no such table")) {
-      log.warn({ err }, "guardian tables not yet created");
-      return [];
-    }
-    throw err;
-  }
 }
 
 /**

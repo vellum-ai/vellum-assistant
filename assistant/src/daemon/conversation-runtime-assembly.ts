@@ -499,11 +499,6 @@ function injectVoiceCallControlContext(
   };
 }
 
-/** Strip `<voice_call_control>` blocks injected by `injectVoiceCallControlContext`. */
-export function stripVoiceCallControlContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<voice_call_control>"]);
-}
-
 // ---------------------------------------------------------------------------
 // NOW.md scratchpad injection
 // ---------------------------------------------------------------------------
@@ -635,19 +630,6 @@ export function readPkbContext(): string | null {
   }
 
   return parts.length > 0 ? parts.join("\n\n") : null;
-}
-
-// The `<knowledge_base>` block is emitted by the `pkb-context` default
-// injector (`plugins/defaults/injectors.ts`) as an `after-memory-prefix`
-// placement, splicing immediately after any leading memory-prefix blocks.
-// Use {@link applyRuntimeInjections} with `options.pkbContext` set.
-
-/** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
-export function stripPkbContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    "<knowledge_base>",
-    "<pkb>", // backward-compat: strip legacy blocks from pre-rename history
-  ]);
 }
 
 /**
@@ -1010,31 +992,6 @@ export function stripChannelCapabilityContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<channel_capabilities>"]);
 }
 
-// The workspace top-level context block is emitted by the
-// `workspace-context` default injector (`plugins/defaults/injectors.ts`)
-// as a `prepend-user-tail` placement. Use {@link applyRuntimeInjections}
-// with `options.workspaceTopLevelContext` set.
-
-/**
- * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
- * injected by `injectActiveSurfaceContext`.
- */
-export function stripActiveSurfaceContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    "<active_workspace>",
-    "<active_dynamic_page>",
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// Declarative strip pipeline
-// ---------------------------------------------------------------------------
-
-/** Strip `<channel_command_context>` blocks injected by `injectChannelCommandContext`. */
-export function stripChannelCommandContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<channel_command_context>"]);
-}
-
 // ---------------------------------------------------------------------------
 // Transport hints injection (e.g. Slack thread context from the gateway)
 // ---------------------------------------------------------------------------
@@ -1045,11 +1002,6 @@ function injectTransportHints(message: Message, hints: string[]): Message {
     ...message,
     content: [{ type: "text", text: block }, ...message.content],
   };
-}
-
-/** Strip `<transport_hints>` blocks injected by `injectTransportHints`. */
-export function stripTransportHints(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<transport_hints>"]);
 }
 
 // ---------------------------------------------------------------------------

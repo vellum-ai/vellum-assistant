@@ -1,29 +1,18 @@
-import {
-  getTwilioCredentials,
-  hasTwilioCredentials,
-  updatePhoneNumberWebhooks,
-} from "../../calls/twilio-rest.js";
+import { updatePhoneNumberWebhooks } from "../../calls/twilio-rest.js";
 import {
   getGatewayInternalBaseUrl,
   getPlatformAssistantId,
   getPlatformBaseUrl,
-  setIngressPublicBaseUrl,
 } from "../../config/env.js";
 import { getIsPlatform } from "../../config/env-registry.js";
-import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import {
-  registerCallbackRoute,
-  resolveCallbackUrl,
-} from "../../inbound/platform-callback-registration.js";
+import { loadRawConfig } from "../../config/loader.js";
+import { resolveCallbackUrl } from "../../inbound/platform-callback-registration.js";
 import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import { getConfigWatcher } from "../config-watcher.js";
-import type { IngressConfigRequest } from "../message-protocol.js";
-import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
+import { log } from "./shared.js";
 
 export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
@@ -113,153 +102,5 @@ export async function syncTwilioWebhooks(
       success: false,
       warning: `Webhook configuration skipped: ${message}`,
     };
-  }
-}
-
-export async function handleIngressConfig(
-  msg: IngressConfigRequest,
-): Promise<void> {
-  const cw = getConfigWatcher();
-  const localGatewayTarget = computeGatewayTarget();
-  try {
-    if (msg.action === "get") {
-      const result = getIngressConfigResult();
-      broadcastMessage({
-        type: "ingress_config_response",
-        ...result,
-      });
-    } else if (msg.action === "set") {
-      const value = (msg.publicBaseUrl ?? "").trim().replace(/\/+$/, "");
-      const raw = loadRawConfig();
-
-      // Update ingress.publicBaseUrl — this is the single source of truth for
-      // the canonical public ingress URL. The gateway reads this value from
-      // the workspace config file via ConfigFileCache.
-      // The gateway also validates Twilio signatures against forwarded public
-      // URL headers, so local tunnel updates generally apply without restarts.
-      const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-      ingress.publicBaseUrl = value || undefined;
-      if (msg.enabled !== undefined) {
-        ingress.enabled = msg.enabled;
-      }
-
-      const wasSuppressed = cw.suppressConfigReload;
-      cw.suppressConfigReload = true;
-      try {
-        saveRawConfig({ ...raw, ingress });
-      } catch (err) {
-        cw.suppressConfigReload = wasSuppressed;
-        throw err;
-      }
-      cw.timers.schedule(
-        "__suppress_reset__",
-        () => {
-          cw.suppressConfigReload = false;
-        },
-        CONFIG_RELOAD_DEBOUNCE_MS,
-      );
-
-      // Propagate to module-level state so the assistant's in-process URL
-      // resolution stays in sync. The gateway reads from the workspace config
-      // file directly via ConfigFileCache, so no env var propagation is needed.
-      // Only set the URL when ingress is enabled; clearing it when
-      // disabled ensures the gateway stops accepting inbound webhooks.
-      const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
-      if (value && isEnabled) {
-        setIngressPublicBaseUrl(value);
-      } else {
-        // Ingress is disabled or no URL is configured — clear the module-level
-        // URL so the gateway stops accepting webhooks.
-        setIngressPublicBaseUrl(undefined);
-      }
-
-      broadcastMessage({
-        type: "ingress_config_response",
-        enabled: isEnabled,
-        publicBaseUrl: value,
-        localGatewayTarget,
-        success: true,
-      });
-
-      // When containerized with a platform, register the Telegram callback
-      // route so the platform knows how to forward Telegram webhooks.
-      // This must happen independently of ingress URL — in containerized
-      // deployments without ingress.publicBaseUrl, platform callbacks are the
-      // only way to receive Telegram webhooks.
-      if (getIsPlatform()) {
-        registerCallbackRoute("webhooks/telegram", "telegram").catch((err) => {
-          log.warn(
-            { err },
-            "Failed to register Telegram platform callback route",
-          );
-        });
-      }
-
-      // Best-effort Twilio webhook reconciliation: when ingress is being
-      // enabled/updated and Twilio numbers are assigned with valid credentials,
-      // push the new webhook URLs to Twilio so calls route correctly.
-      if (isEnabled && (await hasTwilioCredentials())) {
-        const currentConfig = loadRawConfig();
-        const twilioConfig = (currentConfig?.twilio ?? {}) as Record<
-          string,
-          unknown
-        >;
-        const assignedNumbers = new Set<string>();
-        const primaryNumber = (twilioConfig.phoneNumber as string) ?? "";
-        if (primaryNumber) assignedNumbers.add(primaryNumber);
-
-        const assistantPhoneNumbers = twilioConfig.assistantPhoneNumbers;
-        if (
-          assistantPhoneNumbers &&
-          typeof assistantPhoneNumbers === "object" &&
-          !Array.isArray(assistantPhoneNumbers)
-        ) {
-          for (const number of Object.values(
-            assistantPhoneNumbers as Record<string, unknown>,
-          )) {
-            if (typeof number === "string" && number) {
-              assignedNumbers.add(number);
-            }
-          }
-        }
-
-        if (assignedNumbers.size > 0) {
-          const { accountSid: acctSid, authToken: acctToken } =
-            await getTwilioCredentials();
-          // Fire-and-forget: webhook sync failure must not block the ingress save.
-          // Reconcile every assigned number so assistant-scoped mappings do not
-          // retain stale Twilio webhook URLs after ingress URL changes.
-          for (const assignedNumber of assignedNumbers) {
-            syncTwilioWebhooks(
-              assignedNumber,
-              acctSid,
-              acctToken,
-              currentConfig as IngressConfig,
-            ).catch(() => {
-              // Already logged inside syncTwilioWebhooks
-            });
-          }
-        }
-      }
-    } else {
-      broadcastMessage({
-        type: "ingress_config_response",
-        enabled: false,
-        publicBaseUrl: "",
-        localGatewayTarget,
-        success: false,
-        error: `Unknown action: ${String(msg.action)}`,
-      });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    broadcastMessage({
-      type: "ingress_config_response",
-      enabled: false,
-      publicBaseUrl: "",
-      localGatewayTarget,
-      success: false,
-      error: message,
-    });
   }
 }

@@ -1,4 +1,3 @@
-export { AcpSessionManager } from "./session-manager.js";
 export type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 import { getConfig } from "../config/loader.js";
@@ -28,4 +27,3 @@ export function disposeAcpSessionManager(): void {
     manager = null;
   }
 }
-

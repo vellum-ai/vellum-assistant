@@ -210,44 +210,6 @@ export async function provisionPhoneNumber(
   };
 }
 
-/** Fetch the current status of a Twilio message by SID. */
-export async function fetchMessageStatus(
-  accountSid: string,
-  authToken: string,
-  messageSid: string,
-): Promise<{ status: string; errorCode?: string; errorMessage?: string }> {
-  const res = await fetch(
-    `${twilioBaseUrl(accountSid)}/Messages/${encodeURIComponent(
-      messageSid,
-    )}.json`,
-    {
-      method: "GET",
-      headers: { Authorization: twilioAuthHeader(accountSid, authToken) },
-    },
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new ProviderError(
-      `Twilio API error ${res.status}: ${text}`,
-      "twilio",
-      res.status,
-    );
-  }
-
-  const data = (await res.json()) as {
-    status?: string;
-    error_code?: number | null;
-    error_message?: string | null;
-  };
-
-  return {
-    status: data.status ?? "unknown",
-    errorCode: data.error_code != null ? String(data.error_code) : undefined,
-    errorMessage: data.error_message ?? undefined,
-  };
-}
-
 export interface WebhookUrls {
   voiceUrl: string;
   statusCallbackUrl: string;

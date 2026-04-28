@@ -5,7 +5,7 @@ export const VALID_CALLER_IDENTITY_MODES = [
   "assistant_number",
   "user_number",
 ] as const;
-export const CallsDisclosureConfigSchema = z
+const CallsDisclosureConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "calls.disclosure.enabled must be a boolean" })
@@ -26,7 +26,7 @@ export const CallsDisclosureConfigSchema = z
     "Controls whether and how the assistant discloses its nature at the start of a phone call",
   );
 
-export const CallsSafetyConfigSchema = z
+const CallsSafetyConfigSchema = z
   .object({
     denyCategories: z
       .array(
@@ -41,7 +41,7 @@ export const CallsSafetyConfigSchema = z
   })
   .describe("Safety guardrails for phone calls");
 
-export const CallsVoiceConfigSchema = z
+const CallsVoiceConfigSchema = z
   .object({
     language: z
       .string({ error: "calls.voice.language must be a string" })
@@ -65,7 +65,7 @@ export const CallsVoiceConfigSchema = z
   })
   .describe("Voice and speech settings for phone calls");
 
-export const CallerIdentityConfigSchema = z
+const CallerIdentityConfigSchema = z
   .object({
     allowPerCallOverride: z
       .boolean({
@@ -82,7 +82,7 @@ export const CallerIdentityConfigSchema = z
   })
   .describe("Controls which phone number is shown as the caller ID");
 
-export const CallsVerificationConfigSchema = z
+const CallsVerificationConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "calls.verification.enabled must be a boolean" })

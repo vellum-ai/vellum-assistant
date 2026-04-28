@@ -39,7 +39,7 @@ const IngressWebhookConfigSchema = z
   })
   .describe("Webhook configuration for ingress event delivery");
 
-export const IngressRateLimitConfigSchema = z
+const IngressRateLimitConfigSchema = z
   .object({
     maxRequestsPerMinute: z
       .number({

@@ -169,8 +169,3 @@ export function getMcpServerManager(): McpServerManager {
   }
   return instance;
 }
-
-/** Reset singleton for testing. */
-export function __resetMcpManagerForTesting(): void {
-  instance = null;
-}

@@ -201,115 +201,6 @@ export function handleRecordingStop(
   return recordingId;
 }
 
-// ─── Restart ─────────────────────────────────────────────────────────────────
-
-export interface RecordingRestartResult {
-  /** Whether the restart was initiated. false if no recording was active to stop. */
-  initiated: boolean;
-  /** The operation token threaded through the stop+start cycle. */
-  operationToken?: string;
-  /** Response text for the user. */
-  responseText: string;
-  /** When initiated is false, explains why the restart could not proceed. */
-  reason?: "no_active_recording" | "restart_in_progress";
-}
-
-/**
- * Restart the active recording: stop the current one, then defer starting a
- * new one until the client acknowledges the stop via a 'stopped' status
- * callback.
- *
- * This prevents a race condition where the macOS client processes
- * recording_stop asynchronously — if recording_start arrives before the
- * async stop completes, RecordingManager.start() rejects because state is
- * still active.
- *
- * Uses an operation token to guard against stale async completions from
- * a previous restart cycle. The token is:
- * 1. Generated here and stored as `activeRestartToken`
- * 2. Stored in `deferredRestartByConversation` for later use
- * 3. Threaded through to the new `recording_start` message when the stop ack arrives
- * 4. Validated when `recording_status` callbacks arrive
- *
- * If the stop fails or times out, the deferred restart state is cleaned up.
- */
-export function handleRecordingRestart(
-  conversationId: string,
-): RecordingRestartResult {
-  // Generate a restart operation token for race hardening
-  const operationToken = uuid();
-
-  // Stop current recording (if any)
-  const stoppedRecordingId = handleRecordingStop(conversationId);
-
-  if (!stoppedRecordingId) {
-    // No active recording — check if mid-restart (state is not truly idle)
-    if (pendingRestartByConversation.has(conversationId)) {
-      log.info(
-        { conversationId },
-        "Restart requested while another restart is pending",
-      );
-      return {
-        initiated: false,
-        reason: "restart_in_progress",
-        responseText: "A restart is already in progress.",
-      };
-    }
-
-    log.info(
-      { conversationId },
-      "Restart requested but no active recording to stop",
-    );
-    return {
-      initiated: false,
-      reason: "no_active_recording",
-      responseText: "No active recording to restart.",
-    };
-  }
-
-  // Resolve the actual owner conversation ID. When conversation B requests
-  // a restart but the recording is owned by conversation A (cross-conversation
-  // restart via global fallback), the deferred restart must be keyed by A's
-  // conversationId because the stopped callback resolves the conversationId
-  // from standaloneRecordingConversationId (which maps to A, the owner).
-  // This lookup must happen BEFORE cleanupMaps removes the entry.
-  const ownerConversationId =
-    standaloneRecordingConversationId.get(stoppedRecordingId) ?? conversationId;
-  if (ownerConversationId !== conversationId) {
-    log.info(
-      { conversationId, ownerConversationId, stoppedRecordingId },
-      "Cross-conversation restart: keying deferred restart by owner conversation",
-    );
-  }
-
-  // Atomically set the restart token and pending state so that:
-  // 1. Stale completions from a previous cycle are rejected
-  // 2. "no active recording" checks know we're mid-restart
-  activeRestartToken = operationToken;
-  pendingRestartByConversation.set(ownerConversationId, operationToken);
-
-  // Store the deferred restart parameters. The actual recording_start will
-  // be sent when the 'stopped' status callback arrives in handleRecordingStatus,
-  // ensuring the client has fully completed the async stop before we start.
-  // Keyed by ownerConversationId so the stopped handler (which resolves
-  // conversationId from the recording's owner) can find this entry.
-  deferredRestartByConversation.set(ownerConversationId, {
-    conversationId,
-    operationToken,
-  });
-
-  log.info(
-    { conversationId, ownerConversationId, operationToken, stoppedRecordingId },
-    "Recording restart initiated — start deferred until stop-ack",
-  );
-
-  return {
-    initiated: true,
-    operationToken,
-    responseText: "Restarting screen recording.",
-  };
-}
-
 // ─── Pause ───────────────────────────────────────────────────────────────────
 
 /**
@@ -1013,18 +904,6 @@ export async function handleRecordingStatusCore(
 }
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
-
-/**
- * Inject a recording owner entry. Only for use in tests.
- * This allows tests to simulate a second active recording that blocks
- * handleRecordingStart's global single-active guard.
- */
-export function __injectRecordingOwner(
-  conversationId: string,
-  recordingId: string,
-): void {
-  recordingOwnerByConversation.set(conversationId, recordingId);
-}
 
 /** Reset module-level state. Only for use in tests. */
 export function __resetRecordingState(): void {

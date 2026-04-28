@@ -1,6 +1,5 @@
 import { inArray } from "drizzle-orm";
 
-import { getLogger } from "../../util/logger.js";
 import { getDb } from "../db-connection.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import type {
@@ -45,8 +44,6 @@ function computeRecencyScore(createdAt: number): number {
   return 1 / (1 + Math.log2(1 + ageDays));
 }
 
-const _log = getLogger("semantic-search");
-
 export async function semanticSearch(
   queryVector: number[],
   _provider: string,
@@ -54,7 +51,7 @@ export async function semanticSearch(
   limit: number,
   excludedMessageIds: string[] = [],
   scopeIds?: string[],
-  sparseVector?: QdrantSparseVector
+  sparseVector?: QdrantSparseVector,
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
@@ -79,7 +76,7 @@ export async function semanticSearch(
         filter,
         limit: fetchLimit,
         prefetchLimit: fetchLimit,
-      })
+      }),
     );
   } else {
     results = await withQdrantBreaker(() =>
@@ -88,8 +85,8 @@ export async function semanticSearch(
         fetchLimit,
         ["summary", "segment", "media"],
         excludedMessageIds,
-        scopeIds
-      )
+        scopeIds,
+      ),
     );
   }
 
@@ -144,7 +141,6 @@ export async function semanticSearch(
       .all();
     for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
-
 
   const candidates: Candidate[] = [];
   for (const result of results) {
@@ -258,7 +254,7 @@ export async function semanticSearch(
  */
 function buildHybridFilter(
   excludeMessageIds: string[],
-  scopeIds?: string[]
+  scopeIds?: string[],
 ): Record<string, unknown> {
   const mustConditions: Array<Record<string, unknown>> = [
     {
@@ -297,11 +293,4 @@ function buildHybridFilter(
 
 function mapCosineToUnit(value: number): number {
   return Math.max(0, Math.min(1, (value + 1) / 2));
-}
-
-export function isQdrantConnectionError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(
-    err.message
-  );
 }

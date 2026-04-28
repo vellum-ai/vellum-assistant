@@ -30,9 +30,9 @@
  * filtering, ordering, pagination — use Drizzle.
  */
 
-import type { Database, SQLQueryBindings } from "bun:sqlite";
+import type { SQLQueryBindings } from "bun:sqlite";
 
-import { type DrizzleDb, getSqlite, getSqliteFrom } from "./db-connection.js";
+import { getSqlite } from "./db-connection.js";
 
 type SqlParam = SQLQueryBindings;
 
@@ -80,72 +80,6 @@ export function rawExec(sql: string): void {
  */
 export function rawChanges(): number {
   return (getSqlite().query("SELECT changes() AS c").get() as { c: number }).c;
-}
-
-// ---------------------------------------------------------------------------
-// Typed query helpers (explicit Drizzle instance)
-//
-// Used by migrations and tests that receive the Drizzle instance as a
-// parameter rather than using the global singleton.
-// ---------------------------------------------------------------------------
-
-/** Execute a raw SQL query against a specific Drizzle instance and return a single typed row. */
-export function rawGetFrom<T>(
-  db: DrizzleDb,
-  sql: string,
-  ...params: SqlParam[]
-): T | null {
-  return (
-    (getSqliteFrom(db)
-      .query(sql)
-      .get(...params) as T) ?? null
-  );
-}
-
-/** Execute a raw SQL query against a specific Drizzle instance and return all matching rows. */
-export function rawAllFrom<T>(
-  db: DrizzleDb,
-  sql: string,
-  ...params: SqlParam[]
-): T[] {
-  return getSqliteFrom(db)
-    .query(sql)
-    .all(...params) as T[];
-}
-
-/**
- * Execute a raw SQL statement against a specific Drizzle instance and return
- * affected row count.
- */
-export function rawRunFrom(
-  db: DrizzleDb,
-  sql: string,
-  ...params: SqlParam[]
-): number {
-  const sqlite = getSqliteFrom(db);
-  sqlite.query(sql).run(...params);
-  return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
-}
-
-/** Execute batch SQL against a specific Drizzle instance. */
-export function rawExecFrom(db: DrizzleDb, sql: string): void {
-  getSqliteFrom(db).exec(sql);
-}
-
-/**
- * Create a prepared statement from the raw SQLite client.
- * Useful when you need to execute the same parameterized query in a loop.
- */
-export function rawPrepare(sql: string): ReturnType<Database["prepare"]> {
-  return getSqlite().prepare(sql);
-}
-
-/** Create a prepared statement from a specific Drizzle instance. */
-export function rawPrepareFrom(
-  db: DrizzleDb,
-  sql: string,
-): ReturnType<Database["prepare"]> {
-  return getSqliteFrom(db).prepare(sql);
 }
 
 /**

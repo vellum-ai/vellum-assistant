@@ -292,54 +292,6 @@ export function updateApprovalDecision(
     .run();
 }
 
-// ---------------------------------------------------------------------------
-// Escalation Query Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * List approval requests optionally filtered by channel, conversation, and
- * status. Returns a paginated list of escalations.
- */
-export function listPendingApprovalRequests(params: {
-  channel?: string;
-  conversationId?: string;
-  status?: ApprovalRequestStatus;
-  limit?: number;
-  offset?: number;
-}): GuardianApprovalRequest[] {
-  const db = getDb();
-
-  const conditions: ReturnType<typeof eq>[] = [];
-  if (params.channel) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.channel, params.channel),
-    );
-  }
-  if (params.conversationId) {
-    conditions.push(
-      eq(channelGuardianApprovalRequests.conversationId, params.conversationId),
-    );
-  }
-  conditions.push(
-    eq(channelGuardianApprovalRequests.status, params.status ?? "pending"),
-  );
-
-  let query = db
-    .select()
-    .from(channelGuardianApprovalRequests)
-    .where(and(...conditions))
-    .orderBy(desc(channelGuardianApprovalRequests.createdAt));
-
-  if (params.limit !== undefined) {
-    query = query.limit(params.limit) as typeof query;
-  }
-  if (params.offset !== undefined) {
-    query = query.offset(params.offset) as typeof query;
-  }
-
-  return query.all().map(rowToApprovalRequest);
-}
-
 /**
  * Fetch a single approval request by its primary key.
  */

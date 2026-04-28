@@ -825,7 +825,6 @@ export function redactSecrets(
 export {
   hasSecretContext as _hasSecretContext,
   isPlaceholder as _isPlaceholder,
-  PATTERNS as _PATTERNS,
   redact as _redact,
   tryDecodeBase64 as _tryDecodeBase64,
   tryDecodeContinuousHex as _tryDecodeContinuousHex,

@@ -40,14 +40,6 @@ export function getProviderRoutingSource(
   return routingSources.get(name);
 }
 
-/**
- * Return the default model for a given provider name.
- * Falls back to the Anthropic default if the provider name is unknown.
- */
-export function getDefaultModel(providerName: string): string {
-  return getProviderDefaultModel(providerName);
-}
-
 export interface ProvidersConfig {
   services: {
     inference: {

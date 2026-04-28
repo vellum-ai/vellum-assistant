@@ -355,9 +355,7 @@ async function collectExportCredentials(): Promise<CollectedCredentials> {
  *
  * Auth: settings.write scope (matches `migrations/export`).
  */
-export async function handleMigrationExportToGcs({
-  body,
-}: RouteHandlerArgs) {
+export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
   // ── 1. Parse JSON body ────────────────────────────────────────────────
   const parsed = MigrationExportToGcsBody.safeParse(body);
   if (!parsed.success) {
@@ -557,9 +555,7 @@ async function extractFileData(
       const formData = await syntheticReq.formData();
       const file = formData.get("file");
       if (!file || !(file instanceof Blob)) {
-        throw new BadRequestError(
-          'Multipart upload requires a "file" field',
-        );
+        throw new BadRequestError('Multipart upload requires a "file" field');
       }
       return new Uint8Array(await file.arrayBuffer());
     } catch (err) {
@@ -910,7 +906,7 @@ class GcsImportError extends Error {
  * The signed URL is never echoed into errors or logs — only the extracted
  * `host`/`path` are.
  */
-export async function runGcsImport(
+async function runGcsImport(
   url: string,
   _correlationId?: string,
 ): Promise<ImportSummary> {
@@ -1303,9 +1299,7 @@ function throwGcsImportError(err: unknown): never {
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
-export async function handleMigrationImportFromGcs({
-  body,
-}: RouteHandlerArgs) {
+export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
   const parsed = MigrationImportFromGcsBody.safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(
@@ -1652,8 +1646,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       "502": {
-        description:
-          "Upstream fetch failed (URL body only).",
+        description: "Upstream fetch failed (URL body only).",
       },
     },
     responseBody: z.object({
@@ -1710,8 +1703,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
     additionalResponses: {
       "409": {
-        description:
-          "Another import job is already pending or running.",
+        description: "Another import job is already pending or running.",
       },
     },
     handler: handleMigrationImportFromGcs,
