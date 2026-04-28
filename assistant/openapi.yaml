@@ -3216,6 +3216,10 @@ paths:
           description: Successful response
     get:
       operationId: conversations_get
+      summary: List conversations
+      description: Paginated list of conversations with attention state and display metadata.
+      tags:
+        - conversations
       responses:
         "200":
           description: Successful response
@@ -3282,6 +3286,10 @@ paths:
             type: string
     get:
       operationId: conversations_by_id_get
+      summary: Get conversation detail
+      description: Retrieve a single conversation with full metadata.
+      tags:
+        - conversations
       responses:
         "200":
           description: Successful response
@@ -3770,6 +3778,10 @@ paths:
   /v1/conversations/seen:
     post:
       operationId: conversations_seen_post
+      summary: Record a seen signal
+      description: Mark a conversation as seen, advancing the attention cursor.
+      tags:
+        - conversations
       responses:
         "200":
           description: Successful response
@@ -3819,6 +3831,10 @@ paths:
   /v1/conversations/unread:
     post:
       operationId: conversations_unread_post
+      summary: Mark conversation unread
+      description: Reset the seen cursor so the conversation appears unread.
+      tags:
+        - conversations
       responses:
         "200":
           description: Successful response
@@ -6211,6 +6227,9 @@ paths:
   /v1/interfaces/{path}:
     get:
       operationId: interfaces_by_path_get
+      summary: Serve an interface definition file
+      tags:
+        - interfaces
       responses:
         "200":
           description: Successful response
@@ -6223,24 +6242,58 @@ paths:
   /v1/internal/oauth/callback:
     post:
       operationId: internal_oauth_callback_post
+      summary: Internal OAuth callback
+      description:
+        Receives forwarded OAuth callback results (code or error) from the gateway and resolves the pending
+        callback in the runtime.
+      tags:
+        - internal
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state:
+                  type: string
+                code:
+                  type: string
+                error:
+                  type: string
+              required:
+                - state
+              additionalProperties: false
   /v1/internal/twilio/connect-action:
     post:
       operationId: internal_twilio_connectaction_post
+      summary: Internal Twilio connect-action
+      description: Gateway-to-runtime forwarding for ConversationRelay connect-action callback.
+      tags:
+        - internal
       responses:
         "200":
           description: Successful response
   /v1/internal/twilio/status:
     post:
       operationId: internal_twilio_status_post
+      summary: Internal Twilio status callback
+      description: Gateway-to-runtime forwarding for Twilio call status updates. Accepts pre-parsed form params as JSON.
+      tags:
+        - internal
       responses:
         "200":
           description: Successful response
   /v1/internal/twilio/voice-webhook:
     post:
       operationId: internal_twilio_voicewebhook_post
+      summary: Internal Twilio voice webhook
+      description: Gateway-to-runtime forwarding for Twilio voice webhook. Accepts pre-parsed form params as JSON.
+      tags:
+        - internal
       responses:
         "200":
           description: Successful response
@@ -7512,18 +7565,6 @@ paths:
           required: true
           schema:
             type: string
-  /v1/pairing/request:
-    post:
-      operationId: pairing_request_post
-      responses:
-        "200":
-          description: Successful response
-  /v1/pairing/status:
-    get:
-      operationId: pairing_status_get
-      responses:
-        "200":
-          description: Successful response
   /v1/pending-interactions:
     get:
       operationId: pendinginteractions_get

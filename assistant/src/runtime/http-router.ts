@@ -16,6 +16,8 @@ import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
+import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
+import { ROUTES } from "./routes/index.js";
 import type { RoutePathParam } from "./routes/types.js";
 
 // ---------------------------------------------------------------------------
@@ -147,8 +149,8 @@ interface CompiledRoute {
 export class HttpRouter {
   private compiledRoutes: CompiledRoute[] = [];
 
-  constructor(routes: HTTPRouteDefinition[]) {
-    for (const def of routes) {
+  constructor() {
+    for (const def of routeDefinitionsToHTTPRoutes(ROUTES)) {
       this.compiledRoutes.push(compileRoute(def));
     }
   }
@@ -219,7 +221,8 @@ export class HttpRouter {
 // Path-param type → regex fragment
 // ---------------------------------------------------------------------------
 
-const UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const UUID_PATTERN =
+  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 
 /** Map of param type → regex capture group (without the surrounding parens). */
 const PARAM_TYPE_PATTERNS: Record<string, string> = {

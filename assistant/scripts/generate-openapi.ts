@@ -4,10 +4,9 @@
  * HTTP route definitions.
  *
  * Pipeline:
- *   1. Programmatically import and invoke all *RouteDefinitions() exports
- *      from src/runtime/routes/ — no regex, no source-text parsing.
- *   2. Combine with inline routes (defined in buildRouteTable()) and
- *      pre-auth / non-v1 routes.
+ *   1. Programmatically import every route module under src/runtime/routes/
+ *      and collect all exported ROUTES arrays — no regex, no source-text parsing.
+ *   2. Combine with pre-auth / non-v1 routes.
  *   3. Convert to OpenAPI path items.
  *   4. Write to openapi.yaml.
  *
@@ -132,40 +131,12 @@ function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a recursive proxy that stands in for any dependency object.
+ * Dynamically import every route module under `src/runtime/routes/`
+ * and collect all exported `ROUTES` arrays.
  *
- * Route definition functions capture deps in handler closures but never
- * access them during array construction, so this stub is never actually
- * invoked at runtime — it just needs to be truthy and not throw when
- * properties are read or the value is called as a function.
- */
-function createDeepStub(): unknown {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stub: any = new Proxy(function () {}, {
-    get(_target, prop) {
-      // Prevent the stub from being treated as a Promise (await-able).
-      if (prop === "then") return undefined;
-      // Prevent infinite iteration.
-      if (prop === Symbol.iterator) return undefined;
-      // String coercion.
-      if (prop === Symbol.toPrimitive) return () => "";
-      return createDeepStub();
-    },
-    apply() {
-      return createDeepStub();
-    },
-  });
-  return stub;
-}
-
-/**
- * Dynamically import every route module under `src/runtime/routes/`,
- * find all exported functions whose names end with `RouteDefinitions`,
- * invoke each with a deep stub as its first argument, and collect the
- * `{ endpoint, method }` pairs from the returned arrays.
- *
- * This replaces the previous regex + balanced-brace scanning approach
- * and automatically picks up new route modules without manual updates.
+ * Each route module is expected to export a `ROUTES: RouteDefinition[]`
+ * constant. The function automatically picks up new route modules
+ * without manual updates.
  */
 async function collectRoutesFromModules(): Promise<RouteEntry[]> {
   const routes: RouteEntry[] = [];
@@ -191,81 +162,19 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
       continue;
     }
 
-    for (const [exportName, exportValue] of Object.entries(mod)) {
-      if (exportName === "ROUTES" && Array.isArray(exportValue)) {
-        for (const raw of exportValue) {
-          const result = RouteEntrySchema.safeParse({
-            ...(typeof raw === "object" && raw !== null ? raw : {}),
-            sourceModule: file,
-          });
-          if (result.success) routes.push(result.data);
-        }
-        continue;
-      }
-
-      if (
-        !exportName.endsWith("RouteDefinitions") ||
-        typeof exportValue !== "function"
-      ) {
-        continue;
-      }
-
-      try {
-        const rawDefs = exportValue(createDeepStub());
-        if (!Array.isArray(rawDefs)) continue;
-        for (const raw of rawDefs) {
-          const result = RouteEntrySchema.safeParse({
-            ...(typeof raw === "object" && raw !== null ? raw : {}),
-            sourceModule: file,
-          });
-          if (result.success) {
-            routes.push(result.data);
-          }
-        }
-      } catch (err) {
-        console.warn(
-          `Warning: ${exportName}() in ${file} threw: ${err instanceof Error ? err.message : err}`,
-        );
+    if ("ROUTES" in mod && Array.isArray(mod.ROUTES)) {
+      for (const raw of mod.ROUTES) {
+        const result = RouteEntrySchema.safeParse({
+          ...(typeof raw === "object" && raw !== null ? raw : {}),
+          sourceModule: file,
+        });
+        if (result.success) routes.push(result.data);
       }
     }
   }
 
   return routes;
 }
-
-/**
- * Routes defined inline in RuntimeHttpServer.buildRouteTable() that are
- * not exported from any route module. These are kept here because they
- * depend on cross-cutting concerns specific to the RuntimeHttpServer
- * instance (see B2 in the improvement plan for the recommendation to
- * extract these into modules).
- *
- * Whenever buildRouteTable() gains or loses an inline route, this list
- * must be updated manually. Note: `--check` only compares the generated
- * YAML against the committed YAML, so it will NOT catch a missing entry
- * here if openapi.yaml is also stale. Plan items B2/C2 address this gap.
- */
-const INLINE_ROUTES: RouteEntry[] = [
-  { endpoint: "conversations", method: "GET" },
-  { endpoint: "conversations/seen", method: "POST" },
-  { endpoint: "conversations/unread", method: "POST" },
-  { endpoint: "conversations/:id", method: "GET" },
-  { endpoint: "interfaces/:path*", method: "GET" },
-  { endpoint: "internal/twilio/voice-webhook", method: "POST" },
-  { endpoint: "internal/twilio/status", method: "POST" },
-  { endpoint: "internal/twilio/connect-action", method: "POST" },
-  { endpoint: "internal/oauth/callback", method: "POST" },
-];
-
-/**
- * Pre-auth routes handled directly in routeRequest() before the router.
- * These are a small, stable set that bypass JWT authentication and are
- * not part of the declarative route table.
- */
-const PRE_AUTH_ROUTES: RouteEntry[] = [
-  { method: "POST", endpoint: "pairing/request" },
-  { method: "GET", endpoint: "pairing/status" },
-];
 
 /**
  * Top-level routes outside the /v1/ namespace.
@@ -551,11 +460,7 @@ async function main() {
   const moduleRoutes = await collectRoutesFromModules();
 
   // Combine all route sources
-  const allRoutes: RouteEntry[] = [
-    ...PRE_AUTH_ROUTES,
-    ...INLINE_ROUTES,
-    ...moduleRoutes,
-  ];
+  const allRoutes: RouteEntry[] = moduleRoutes;
 
   // Build the spec
   const spec = buildSpec(allRoutes, version);

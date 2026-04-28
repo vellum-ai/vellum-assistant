@@ -63,42 +63,28 @@ function synthesizeRequest(method: string, args: RouteHandlerArgs): Request {
 }
 
 /**
- * Decompose a Web API `Response` into the return types the route adapters
- * understand: plain objects for JSON, `RouteResponse` for everything else.
+ * Collect response headers into a plain record.
  */
-async function decomposeResponse(
-  response: Response,
-): Promise<RouteResponse | Record<string, unknown>> {
-  const contentType = response.headers.get("content-type") ?? "";
-
-  // JSON responses → return as plain object so both HTTP and IPC adapters
-  // can serialize natively.
-  if (contentType.includes("application/json")) {
-    const json = (await response.json()) as Record<string, unknown>;
-
-    // If the status is non-200, wrap in a RouteResponse so the adapter
-    // preserves the status code (plain object returns default to 200).
-    if (response.status !== 200) {
-      const headers: Record<string, string> = {};
-      response.headers.forEach((v, k) => {
-        headers[k] = v;
-      });
-      return new RouteResponse(JSON.stringify(json), headers, response.status);
-    }
-
-    return json;
-  }
-
-  // Non-JSON responses → wrap body + headers in a RouteResponse.
+function collectHeaders(response: Response): Record<string, string> {
   const headers: Record<string, string> = {};
   response.headers.forEach((v, k) => {
     headers[k] = v;
   });
-  return new RouteResponse(
-    response.body ?? new Uint8Array(0),
-    headers,
-    response.status,
-  );
+  return headers;
+}
+
+/**
+ * Decompose a Web API `Response` into a `RouteResponse` that the route
+ * adapters (HTTP and IPC) can handle.
+ *
+ * Always wraps in `RouteResponse` so that status codes, custom headers
+ * (CORS, Cache-Control, etc.), and null bodies (204/304) are preserved
+ * faithfully. The body stream is passed through as-is — no
+ * parse/stringify round-trip.
+ */
+function decomposeResponse(response: Response): RouteResponse {
+  const headers = collectHeaders(response);
+  return new RouteResponse(response.body, headers, response.status);
 }
 
 /**

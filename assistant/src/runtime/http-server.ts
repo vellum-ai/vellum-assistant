@@ -59,7 +59,6 @@ import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
-import type { HTTPRouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
 import {
@@ -101,9 +100,7 @@ import {
   resolveHostBrowserResultByRequestId,
   resolveHostBrowserSessionInvalidated,
 } from "./routes/host-browser-routes.js";
-import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
-import { ROUTES } from "./routes/index.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
 // Re-export for consumers
@@ -243,7 +240,7 @@ export class RuntimeHttpServer {
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
-    this.router = new HttpRouter(this.buildRouteTable());
+    this.router = new HttpRouter();
   }
 
   /** The port the server is actually listening on (resolved after start). */
@@ -1447,20 +1444,4 @@ export class RuntimeHttpServer {
     return null;
   }
 
-  // ---------------------------------------------------------------------------
-  // Declarative route table
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Build the full set of route definitions. Routes are matched in order,
-   * so more specific patterns (e.g. `calls/:id/cancel`) must precede
-   * more general ones (e.g. `calls/:id`).
-   *
-   * Each domain's routes are defined in their own module under
-   * `./routes/` and composed here via spread. The composition order
-   * preserves the original top-to-bottom matching semantics.
-   */
-  private buildRouteTable(): HTTPRouteDefinition[] {
-    return [...routeDefinitionsToHTTPRoutes(ROUTES)];
-  }
 }
