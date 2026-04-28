@@ -6,8 +6,8 @@
  *   - Client is registered in ClientRegistry on SSE connect
  *   - Client is unregistered on SSE disconnect (abort)
  *   - Client is touched on heartbeat interval
- *   - Missing interfaceId with clientId returns 400
- *   - Invalid interfaceId returns 400
+ *   - Missing interfaceId with clientId throws BadRequestError
+ *   - Invalid interfaceId throws BadRequestError
  *   - Missing both headers skips registration (backwards compat)
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -36,6 +36,10 @@ import {
   __resetClientRegistryForTests,
   getClientRegistry,
 } from "../runtime/client-registry.js";
+import {
+  BadRequestError,
+  ServiceUnavailableError,
+} from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
 initializeDb();
@@ -45,37 +49,24 @@ describe("events client registration", () => {
     __resetClientRegistryForTests();
   });
 
-  function makeRequest(
-    headers: Record<string, string> = {},
-    signal?: AbortSignal,
-  ): { req: Request; url: URL } {
-    const urlStr = "http://localhost/v1/events";
-    const req = new Request(urlStr, {
-      headers,
-      signal,
-    });
-    return { req, url: new URL(urlStr) };
-  }
-
   // ── Registration on connect ───────────────────────────────────────────────
 
   test("registers client when both headers are provided", () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest(
+
+    const stream = handleSubscribeAssistantEvents(
       {
-        "x-vellum-client-id": "test-mac-001",
-        "x-vellum-interface-id": "macos",
+        headers: {
+          "x-vellum-client-id": "test-mac-001",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac.signal,
       },
-      ac.signal,
+      { hub },
     );
 
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(200);
+    expect(stream).toBeInstanceOf(ReadableStream);
 
     const registry = getClientRegistry();
     const entry = registry.get("test-mac-001");
@@ -89,14 +80,9 @@ describe("events client registration", () => {
   test("skips registration when no headers are provided (backwards compat)", () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest({}, ac.signal);
 
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
+    handleSubscribeAssistantEvents({ abortSignal: ac.signal }, { hub });
 
-    expect(response.status).toBe(200);
     expect(getClientRegistry().size).toBe(0);
 
     ac.abort();
@@ -105,17 +91,15 @@ describe("events client registration", () => {
   test("skips registration when only interface header is provided", () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest(
-      { "x-vellum-interface-id": "macos" },
-      ac.signal,
+
+    handleSubscribeAssistantEvents(
+      {
+        headers: { "x-vellum-interface-id": "macos" },
+        abortSignal: ac.signal,
+      },
+      { hub },
     );
 
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(200);
     expect(getClientRegistry().size).toBe(0);
 
     ac.abort();
@@ -123,34 +107,34 @@ describe("events client registration", () => {
 
   // ── Validation ────────────────────────────────────────────────────────────
 
-  test("returns 400 when clientId is provided without interfaceId", () => {
+  test("throws BadRequestError when clientId is provided without interfaceId", () => {
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest({
-      "x-vellum-client-id": "test-mac-001",
-    });
 
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(400);
+    expect(() =>
+      handleSubscribeAssistantEvents(
+        {
+          headers: { "x-vellum-client-id": "test-mac-001" },
+        },
+        { hub },
+      ),
+    ).toThrow(BadRequestError);
     expect(getClientRegistry().size).toBe(0);
   });
 
-  test("returns 400 when interfaceId is invalid", () => {
+  test("throws BadRequestError when interfaceId is invalid", () => {
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest({
-      "x-vellum-client-id": "test-bad-001",
-      "x-vellum-interface-id": "not-a-valid-interface",
-    });
 
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(400);
+    expect(() =>
+      handleSubscribeAssistantEvents(
+        {
+          headers: {
+            "x-vellum-client-id": "test-bad-001",
+            "x-vellum-interface-id": "not-a-valid-interface",
+          },
+        },
+        { hub },
+      ),
+    ).toThrow(BadRequestError);
     expect(getClientRegistry().size).toBe(0);
   });
 
@@ -159,26 +143,23 @@ describe("events client registration", () => {
   test("unregisters client when SSE stream is aborted", async () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest(
+
+    const stream = handleSubscribeAssistantEvents(
       {
-        "x-vellum-client-id": "test-mac-002",
-        "x-vellum-interface-id": "macos",
+        headers: {
+          "x-vellum-client-id": "test-mac-002",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac.signal,
       },
-      ac.signal,
+      { hub },
     );
-
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(200);
 
     const registry = getClientRegistry();
     expect(registry.get("test-mac-002")).toBeDefined();
 
     // Start reading so start() runs and the abort listener is installed
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
     // Consume the initial heartbeat
     await reader.read();
 
@@ -194,24 +175,23 @@ describe("events client registration", () => {
   test("unregisters client when stream is cancelled", async () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest(
-      {
-        "x-vellum-client-id": "test-mac-003",
-        "x-vellum-interface-id": "macos",
-      },
-      ac.signal,
-    );
 
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
+    const stream = handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "test-mac-003",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
 
     const registry = getClientRegistry();
     expect(registry.get("test-mac-003")).toBeDefined();
 
-    // Cancel the body stream directly
-    await response.body?.cancel();
+    // Cancel the stream directly
+    await stream.cancel();
 
     expect(registry.get("test-mac-003")).toBeUndefined();
   });
@@ -221,22 +201,18 @@ describe("events client registration", () => {
   test("touches client registry on heartbeat", async () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
-    const { req, url } = makeRequest(
-      {
-        "x-vellum-client-id": "test-mac-004",
-        "x-vellum-interface-id": "macos",
-      },
-      ac.signal,
-    );
 
     // Use a very short heartbeat interval for testing
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      heartbeatIntervalMs: 50,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(200);
+    const stream = handleSubscribeAssistantEvents(
+      {
+        headers: {
+          "x-vellum-client-id": "test-mac-004",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac.signal,
+      },
+      { hub, heartbeatIntervalMs: 50 },
+    );
 
     const registry = getClientRegistry();
     const entry = registry.get("test-mac-004");
@@ -244,7 +220,7 @@ describe("events client registration", () => {
     const initialActive = entry!.lastActiveAt;
 
     // Read the initial heartbeat to ensure start() has run
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
     await reader.read();
 
     // Wait for at least one heartbeat cycle
@@ -264,36 +240,32 @@ describe("events client registration", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
 
     const ac1 = new AbortController();
-    const { req: req1, url: url1 } = makeRequest(
+    handleSubscribeAssistantEvents(
       {
-        "x-vellum-client-id": "evict-me",
-        "x-vellum-interface-id": "macos",
+        headers: {
+          "x-vellum-client-id": "evict-me",
+          "x-vellum-interface-id": "macos",
+        },
+        abortSignal: ac1.signal,
       },
-      ac1.signal,
+      { hub },
     );
-
-    handleSubscribeAssistantEvents(req1, url1, {
-      hub,
-      skipActorVerification: true,
-    });
 
     const registry = getClientRegistry();
     expect(registry.get("evict-me")).toBeDefined();
 
     // Second subscriber evicts the first
     const ac2 = new AbortController();
-    const { req: req2, url: url2 } = makeRequest(
+    handleSubscribeAssistantEvents(
       {
-        "x-vellum-client-id": "i-stay",
-        "x-vellum-interface-id": "ios",
+        headers: {
+          "x-vellum-client-id": "i-stay",
+          "x-vellum-interface-id": "ios",
+        },
+        abortSignal: ac2.signal,
       },
-      ac2.signal,
+      { hub },
     );
-
-    handleSubscribeAssistantEvents(req2, url2, {
-      hub,
-      skipActorVerification: true,
-    });
 
     expect(registry.get("evict-me")).toBeUndefined();
     expect(registry.get("i-stay")).toBeDefined();
@@ -308,17 +280,17 @@ describe("events client registration", () => {
     // A hub with 0 capacity cannot accept any subscribers.
     const hub = new AssistantEventHub({ maxSubscribers: 0 });
 
-    const { req, url } = makeRequest({
-      "x-vellum-client-id": "no-room",
-      "x-vellum-interface-id": "macos",
-    });
-
-    const response = handleSubscribeAssistantEvents(req, url, {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(503);
+    expect(() =>
+      handleSubscribeAssistantEvents(
+        {
+          headers: {
+            "x-vellum-client-id": "no-room",
+            "x-vellum-interface-id": "macos",
+          },
+        },
+        { hub },
+      ),
+    ).toThrow(ServiceUnavailableError);
     // Should have been cleaned up
     expect(getClientRegistry().get("no-room")).toBeUndefined();
   });

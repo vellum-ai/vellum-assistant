@@ -32,6 +32,9 @@ mock.module("../config/loader.js", () => ({
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  ServiceUnavailableError,
+} from "../runtime/routes/errors.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
 initializeDb();
@@ -137,33 +140,33 @@ describe("AssistantEventHub — subscriber cap", () => {
 describe("SSE route — capacity limit", () => {
   beforeEach(clearTables);
 
-  test("new connection evicts oldest and returns 200", async () => {
+  test("new connection evicts oldest and returns stream", async () => {
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
-    const opts = {
-      hub,
-      heartbeatIntervalMs: 60_000,
-      skipActorVerification: true as const,
-    };
+    const opts = { hub, heartbeatIntervalMs: 60_000 };
 
     const ac1 = new AbortController();
-    const req1 = new Request(
-      "http://localhost/v1/events?conversationKey=evict-a",
-      { signal: ac1.signal },
+    const stream1 = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "evict-a" },
+        abortSignal: ac1.signal,
+      },
+      opts,
     );
-    const res1 = handleSubscribeAssistantEvents(req1, new URL(req1.url), opts);
-    expect(res1.status).toBe(200);
+    expect(stream1).toBeInstanceOf(ReadableStream);
     expect(hub.subscriberCount()).toBe(1);
 
-    const reader1 = res1.body!.getReader();
+    const reader1 = stream1.getReader();
 
     // Second connection evicts first.
     const ac2 = new AbortController();
-    const req2 = new Request(
-      "http://localhost/v1/events?conversationKey=evict-b",
-      { signal: ac2.signal },
+    const stream2 = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "evict-b" },
+        abortSignal: ac2.signal,
+      },
+      opts,
     );
-    const res2 = handleSubscribeAssistantEvents(req2, new URL(req2.url), opts);
-    expect(res2.status).toBe(200);
+    expect(stream2).toBeInstanceOf(ReadableStream);
     expect(hub.subscriberCount()).toBe(1); // evicted 1, added 1
 
     // First stream: the immediate heartbeat was enqueued during start(),
@@ -179,39 +182,34 @@ describe("SSE route — capacity limit", () => {
     ac2.abort();
   });
 
-  test("returns 503 only when maxSubscribers is 0", async () => {
+  test("throws ServiceUnavailableError when maxSubscribers is 0", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 0 });
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=cap-zero-test",
-      { signal: new AbortController().signal },
-    );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub,
-      skipActorVerification: true,
-    });
-    expect(response.status).toBe(503);
-    const body = (await response.json()) as {
-      error: { message: string; code?: string };
-    };
-    expect(body.error.message).toMatch(/Too many concurrent connections/);
+    expect(() =>
+      handleSubscribeAssistantEvents(
+        {
+          queryParams: { conversationKey: "cap-zero-test" },
+          abortSignal: new AbortController().signal,
+        },
+        { hub },
+      ),
+    ).toThrow(ServiceUnavailableError);
   });
 
-  test("returns 200 when hub has remaining capacity", () => {
+  test("returns stream when hub has remaining capacity", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 2 });
     const ac = new AbortController();
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=cap-ok-test",
-      { signal: ac.signal },
+
+    const stream = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "cap-ok-test" },
+        abortSignal: ac.signal,
+      },
+      { hub },
     );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub,
-      skipActorVerification: true,
-    });
-
-    expect(response.status).toBe(200);
-    ac.abort(); // clean up the subscription
+    expect(stream).toBeInstanceOf(ReadableStream);
+    ac.abort();
   });
 });
 
@@ -223,21 +221,19 @@ describe("SSE route — heartbeat", () => {
   test("emits SSE comment frames on the configured interval", async () => {
     const hub = new AssistantEventHub();
     const ac = new AbortController();
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=hb-emit-test",
-      { signal: ac.signal },
-    );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub,
-      heartbeatIntervalMs: 10,
-      skipActorVerification: true,
-    });
+    const stream = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "hb-emit-test" },
+        abortSignal: ac.signal,
+      },
+      { hub, heartbeatIntervalMs: 10 },
+    );
 
     // Wait for at least one heartbeat interval to fire.
     await new Promise((r) => setTimeout(r, 30));
 
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
     const { value } = await reader.read();
     ac.abort();
     reader.cancel();
@@ -249,22 +245,20 @@ describe("SSE route — heartbeat", () => {
   test("emits multiple heartbeats over time", async () => {
     const hub = new AssistantEventHub();
     const ac = new AbortController();
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=hb-multi-test",
-      { signal: ac.signal },
-    );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub,
-      heartbeatIntervalMs: 10,
-      skipActorVerification: true,
-    });
+    const stream = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "hb-multi-test" },
+        abortSignal: ac.signal,
+      },
+      { hub, heartbeatIntervalMs: 10 },
+    );
 
     // Wait for several intervals.
     await new Promise((r) => setTimeout(r, 50));
 
     const chunks: string[] = [];
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
     // Drain without blocking by reading with a short deadline.
     for (let i = 0; i < 3; i++) {
       const { value, done } = await Promise.race([
@@ -293,15 +287,14 @@ describe("SSE route — disconnect cleanup", () => {
   test("aborting the request disposes the subscription", async () => {
     const hub = new AssistantEventHub();
     const ac = new AbortController();
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=abort-cleanup-test",
-      { signal: ac.signal },
-    );
 
-    handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub,
-      skipActorVerification: true,
-    });
+    handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "abort-cleanup-test" },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
 
     expect(hub.subscriberCount()).toBe(1);
 
@@ -316,19 +309,18 @@ describe("SSE route — disconnect cleanup", () => {
   test("cancelling the reader disposes the subscription", async () => {
     const hub = new AssistantEventHub();
     const ac = new AbortController();
-    const req = new Request(
-      "http://localhost/v1/events?conversationKey=cancel-cleanup-test",
-      { signal: ac.signal },
-    );
 
-    const response = handleSubscribeAssistantEvents(req, new URL(req.url), {
-      hub,
-      skipActorVerification: true,
-    });
+    const stream = handleSubscribeAssistantEvents(
+      {
+        queryParams: { conversationKey: "cancel-cleanup-test" },
+        abortSignal: ac.signal,
+      },
+      { hub },
+    );
 
     expect(hub.subscriberCount()).toBe(1);
 
-    const reader = response.body!.getReader();
+    const reader = stream.getReader();
     await reader.cancel();
 
     await new Promise((r) => setTimeout(r, 0));
