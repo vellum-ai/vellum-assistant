@@ -255,9 +255,13 @@ final class ChatActionHandler {
 
         case .uiSurfaceShow(let msg):
             vm.handleSurfaceShow(msg)
-            // Refresh artifacts when a new dynamic_page or document_preview surface appears.
+            // Refresh artifacts when a new dynamic_page or document_preview surface appears,
+            // but only if the surface belongs to this conversation. In multi-window setups,
+            // foreign-conversation surfaces would otherwise trigger redundant fetches.
             if msg.surfaceType == "dynamic_page" || msg.surfaceType == "document_preview" {
-                vm.fetchConversationArtifacts()
+                if belongsToConversation(msg.conversationId) {
+                    vm.fetchConversationArtifacts()
+                }
             }
 
         case .uiSurfaceUndoResult(let msg):

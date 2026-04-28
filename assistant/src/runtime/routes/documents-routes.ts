@@ -71,11 +71,24 @@ function saveDocument(params: {
       now,
       now,
     );
-    addDocumentConversation(params.surfaceId, params.conversationId);
     log.info(
       { surfaceId: params.surfaceId, title: params.title },
       "Saved document",
     );
+
+    // Best-effort: associate the document with the conversation.
+    // Failures (e.g. migration not yet applied, table missing) must not
+    // cause the save response to report failure — the document itself is
+    // already persisted at this point.
+    try {
+      addDocumentConversation(params.surfaceId, params.conversationId);
+    } catch (err) {
+      log.warn(
+        { err, surfaceId: params.surfaceId },
+        "Failed to record document–conversation association",
+      );
+    }
+
     return { success: true, surfaceId: params.surfaceId };
   } catch (error) {
     log.error({ err: error, surfaceId: params.surfaceId }, "Save error");
