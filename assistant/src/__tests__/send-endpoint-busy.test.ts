@@ -356,9 +356,8 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     conversationFactory: () => Conversation,
     options?: { approvalConversationGenerator?: ApprovalConversationGenerator },
   ): Promise<void> {
-    port = 19000 + Math.floor(Math.random() * 1000);
     server = new RuntimeHttpServer({
-      port,
+      port: 0,
       approvalConversationGenerator: options?.approvalConversationGenerator,
       sendMessageDeps: {
         getOrCreateConversation: async () => conversationFactory(),
@@ -367,6 +366,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       },
     });
     await server.start();
+    port = server.actualPort;
   }
 
   async function stopServer(): Promise<void> {
