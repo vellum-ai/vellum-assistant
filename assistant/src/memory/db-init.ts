@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
+import { backfillAppConversationIds } from "./app-store.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import { migrateToolCreatedItems } from "./graph/bootstrap.js";
 import {
@@ -392,6 +393,9 @@ export function initializeDb(): void {
     migrate231RepairMemoryGraphEventDates,
     migrateActivationState,
     migrateCreateDocumentConversations,
+    function migrateBackfillAppConversationIds() {
+      backfillAppConversationIds();
+    },
   ];
 
   // Run each migration step, catching and logging individual failures so one
