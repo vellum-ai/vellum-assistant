@@ -1657,7 +1657,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(sent[4].content[0].text).toBe("Follow-up question");
   });
 
-  test("multi-turn with workspace injection: only last user message gets 1h cache", async () => {
+  test("multi-turn with workspace injection: prev-turn + last user message get 1h cache", async () => {
     const messages: Message[] = [
       {
         role: "user",
@@ -1705,14 +1705,21 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const userMsgs = sent.filter((m) => m.role === "user");
     expect(userMsgs).toHaveLength(3);
 
-    // Earlier user messages: no cache_control
-    for (const user of userMsgs.slice(0, -1)) {
-      for (const block of user.content) {
-        expect(block.cache_control).toBeUndefined();
-      }
+    // Oldest user message (turn 1): no cache_control
+    for (const block of userMsgs[0].content) {
+      expect(block.cache_control).toBeUndefined();
     }
 
-    // Last user message (turn 3): 1h cache on last block only
+    // Previous-turn anchor (turn 2): 1h cache on last block to preserve the
+    // cached prefix across turn transitions
+    const prevTurn = userMsgs[userMsgs.length - 2];
+    expect(prevTurn.content[0].cache_control).toBeUndefined();
+    expect(prevTurn.content[1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
+    });
+
+    // Current-turn anchor (turn 3): 1h cache on last block
     const lastUser = userMsgs[userMsgs.length - 1];
     expect(lastUser.content[0].cache_control).toBeUndefined();
     expect(lastUser.content[1].cache_control).toEqual({

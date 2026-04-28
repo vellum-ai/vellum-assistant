@@ -11,13 +11,20 @@
  *   - JSON output shape and exit-code behavior on IPC errors
  */
 
-import {
-  existsSync as actualExistsSync,
-  readFileSync as actualReadFileSync,
-} from "node:fs";
+import * as nodeFs from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
+
+// Snapshot the real fs functions into local constants BEFORE the
+// `mock.module("node:fs", ...)` below replaces the module's live bindings.
+// A bare `import { readFileSync as actualReadFileSync }` is an ESM live
+// binding — once the module is mocked the binding resolves to the mock,
+// so the fall-through call inside the mock recurses into itself and hangs.
+// Storing the function in a local variable captures the value at this
+// point and is unaffected by the later module replacement.
+const actualReadFileSync = nodeFs.readFileSync;
+const actualExistsSync = nodeFs.existsSync;
 
 // ---------------------------------------------------------------------------
 // Mock state

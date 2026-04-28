@@ -17,6 +17,8 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import * as realJobsStore from "../../../memory/jobs-store.js";
+
 // ---------------------------------------------------------------------------
 // Module-level mock — capture every enqueue call so each test can assert the
 // route forwarded the correct (type, payload) tuple. The route file is
@@ -29,7 +31,14 @@ const enqueueCalls: Array<{
 }> = [];
 let nextJobId = 0;
 
+// Spread the real module's exports so transitive importers (e.g.
+// memory/auto-analysis-enqueue.ts pulled in via the CLI program → memory
+// indexer chain) get every named export they bind to at module-load time;
+// only `enqueueMemoryJob` is overridden so the route under test forwards
+// to the test stub. jobs-store.ts has no side-effecting top-level
+// statements, so loading it for the spread is safe.
 mock.module("../../../memory/jobs-store.js", () => ({
+  ...realJobsStore,
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     enqueueCalls.push({ type, payload });
     nextJobId += 1;
@@ -37,7 +46,8 @@ mock.module("../../../memory/jobs-store.js", () => ({
   },
 }));
 
-const { ROUTES: memoryV2Routes } = await import("../../../runtime/routes/memory-v2-routes.js");
+const { ROUTES: memoryV2Routes } =
+  await import("../../../runtime/routes/memory-v2-routes.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,7 +55,9 @@ const { ROUTES: memoryV2Routes } = await import("../../../runtime/routes/memory-
 
 type BackfillResult = { jobId: string };
 
-const backfillRoute = memoryV2Routes.find(r => r.operationId === "memory_v2_backfill")!;
+const backfillRoute = memoryV2Routes.find(
+  (r) => r.operationId === "memory_v2_backfill",
+)!;
 
 async function runRoute(
   params: Record<string, unknown>,
