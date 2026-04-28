@@ -8,7 +8,6 @@ import {
   loadLatestAssistant,
   loadAllAssistants,
   removeAssistantEntry,
-  saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
@@ -26,6 +25,7 @@ import {
   reprovisionAssistantApiKey,
   savePlatformToken,
 } from "../lib/platform-client";
+import { syncCloudAssistants } from "../lib/sync-cloud-assistants";
 
 const LOGIN_TIMEOUT_MS = 120_000; // 2 minutes
 
@@ -282,36 +282,22 @@ export async function login(): Promise<void> {
     // This ensures `vellum ps` shows managed assistants immediately
     // after login (e.g. after a retire-and-rehatch cycle).
     try {
-      const platformAssistants = await fetchPlatformAssistants(token);
-      const existingIds = new Set(
-        loadAllAssistants()
-          .filter((a) => a.cloud === "vellum")
-          .map((a) => a.assistantId),
-      );
-
-      let synced = 0;
-      for (const pa of platformAssistants) {
-        if (!existingIds.has(pa.id)) {
-          saveAssistantEntry({
-            assistantId: pa.id,
-            runtimeUrl: getPlatformUrl(),
-            cloud: "vellum",
-            species: "vellum",
-            hatchedAt: new Date().toISOString(),
-          });
-          synced++;
+      const result = await syncCloudAssistants();
+      if (result) {
+        const total = result.added + result.removed;
+        if (total > 0) {
+          console.log(
+            `Synced cloud assistants (${result.added} added, ${result.removed} removed).`,
+          );
         }
       }
 
-      if (synced > 0) {
-        console.log(
-          `Synced ${synced} cloud assistant${synced > 1 ? "s" : ""} to local lockfile.`,
-        );
-      }
-
       // If no active assistant is set, activate the first cloud one.
-      if (!getActiveAssistant() && platformAssistants.length > 0) {
-        setActiveAssistant(platformAssistants[0].id);
+      if (!getActiveAssistant()) {
+        const platformAssistants = await fetchPlatformAssistants(token);
+        if (platformAssistants.length > 0) {
+          setActiveAssistant(platformAssistants[0].id);
+        }
       }
     } catch {
       // Non-fatal — login succeeded even if sync fails
