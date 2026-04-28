@@ -110,19 +110,18 @@ export async function handleMeetInternalEvents(
   // ── Auth ─────────────────────────────────────────────────────────────
   const expectedToken = router.resolveBotApiToken(meetingId);
   if (!expectedToken) {
-    log.warn(
-      "meet-internal: no active session for meetingId; rejecting",
-      { meetingId },
-    );
+    log.warn("meet-internal: no active session for meetingId; rejecting", {
+      meetingId,
+    });
     return meetRouteError("UNAUTHORIZED", "unauthorized", 401);
   }
 
   const presented = parseBearerToken(req.headers.get("authorization"));
   if (!presented || !tokensMatch(presented, expectedToken)) {
-    log.warn(
-      "meet-internal: bearer token mismatch; rejecting",
-      { meetingId, tokenPresented: presented !== null },
-    );
+    log.warn("meet-internal: bearer token mismatch; rejecting", {
+      meetingId,
+      tokenPresented: presented !== null,
+    });
     return meetRouteError("UNAUTHORIZED", "unauthorized", 401);
   }
 
@@ -136,10 +135,10 @@ export async function handleMeetInternalEvents(
 
   const parsed = MeetIngressBatchSchema.safeParse(rawBody);
   if (!parsed.success) {
-    log.warn(
-      "meet-internal: invalid event batch",
-      { meetingId, issues: parsed.error.issues },
-    );
+    log.warn("meet-internal: invalid event batch", {
+      meetingId,
+      issues: parsed.error.issues,
+    });
     return meetRouteError(
       "BAD_REQUEST",
       "invalid event batch",
@@ -157,14 +156,11 @@ export async function handleMeetInternalEvents(
   // mismatch is a protocol violation.
   for (const event of parsed.data) {
     if (event.meetingId !== meetingId) {
-      log.warn(
-        "meet-internal: event meetingId does not match path",
-        {
-          pathMeetingId: meetingId,
-          eventMeetingId: event.meetingId,
-          eventType: event.type,
-        },
-      );
+      log.warn("meet-internal: event meetingId does not match path", {
+        pathMeetingId: meetingId,
+        eventMeetingId: event.meetingId,
+        eventType: event.type,
+      });
       return meetRouteError(
         "BAD_REQUEST",
         "event meetingId does not match path",

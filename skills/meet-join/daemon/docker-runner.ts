@@ -387,10 +387,7 @@ export function resetSocketReachabilityCacheForTests(): void {
   socketReachabilityCache.clear();
 }
 
-async function probePing(
-  socketPath: string,
-  logger: Logger,
-): Promise<true> {
+async function probePing(socketPath: string, logger: Logger): Promise<true> {
   // `/_ping` returns the literal text `"OK"` (not JSON), so we go straight
   // to the raw-response helper rather than a JSON-decoding request helper
   // which would choke on the non-JSON body.

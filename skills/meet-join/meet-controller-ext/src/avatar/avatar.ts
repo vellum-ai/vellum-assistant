@@ -365,13 +365,7 @@ function startCaptureLoop(ctx: AvatarContext): () => void {
       const live = ctx.container.querySelector("canvas");
       if (live) {
         try {
-          captureCtx.drawImage(
-            live,
-            0,
-            0,
-            ctx.canvas.width,
-            ctx.canvas.height,
-          );
+          captureCtx.drawImage(live, 0, 0, ctx.canvas.width, ctx.canvas.height);
         } catch (err) {
           console.warn("[avatar-tab] drawImage from talkinghead failed:", err);
         }

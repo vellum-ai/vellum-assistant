@@ -18,10 +18,7 @@
 
 import type { SkillHost } from "@vellumai/skill-host-contracts";
 
-import {
-  createDockerRunner,
-  DOCKER_RUNNER_MODULE,
-} from "./docker-runner.js";
+import { createDockerRunner, DOCKER_RUNNER_MODULE } from "./docker-runner.js";
 
 /**
  * Factory signature for a meet-join sub-module. Every sub-module
@@ -63,9 +60,7 @@ export function registerSubModule<T>(
  * configuration error because every sub-module it depends on is
  * mandatory).
  */
-export function getSubModule<T>(
-  name: string,
-): SubModuleFactory<T> | undefined {
+export function getSubModule<T>(name: string): SubModuleFactory<T> | undefined {
   return factories.get(name) as SubModuleFactory<T> | undefined;
 }
 

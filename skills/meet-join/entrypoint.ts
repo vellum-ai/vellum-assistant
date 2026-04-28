@@ -265,7 +265,9 @@ async function watchSocketHealth(
       t.unref();
     });
     try {
-      await client.rawCall<string | undefined>("host.identity.getAssistantName");
+      await client.rawCall<string | undefined>(
+        "host.identity.getAssistantName",
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (isConnectionClosureError(message)) {

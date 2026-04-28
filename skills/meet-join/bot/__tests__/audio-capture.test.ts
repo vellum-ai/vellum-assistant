@@ -328,7 +328,7 @@ describe("startAudioCapture — argv + defaults", () => {
       await startAudioCapture({
         daemonHost: "127.0.0.1",
         daemonPort: 9000,
-      authToken: "test-token",
+        authToken: "test-token",
         frameBytes: 0,
         spawn: () => proc,
         connect: () => sock,

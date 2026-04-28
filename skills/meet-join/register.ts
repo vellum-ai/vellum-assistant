@@ -47,10 +47,7 @@ import {
   createMeetDisableAvatarTool,
   createMeetEnableAvatarTool,
 } from "./tools/meet-avatar-tool.js";
-import {
-  MEET_FLAG_KEY,
-  createMeetJoinTool,
-} from "./tools/meet-join-tool.js";
+import { MEET_FLAG_KEY, createMeetJoinTool } from "./tools/meet-join-tool.js";
 import { createMeetLeaveTool } from "./tools/meet-leave-tool.js";
 import { createMeetSendChatTool } from "./tools/meet-send-chat-tool.js";
 import {

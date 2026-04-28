@@ -327,9 +327,9 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
     if (!fromName || !text) return null;
 
     const timestamp =
-      msg.querySelector(chatSelectors.MESSAGE_TIMESTAMP)?.getAttribute(
-        "datetime",
-      ) ?? "";
+      msg
+        .querySelector(chatSelectors.MESSAGE_TIMESTAMP)
+        ?.getAttribute("datetime") ?? "";
 
     return { fromName, text, timestamp };
   };

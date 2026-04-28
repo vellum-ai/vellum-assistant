@@ -227,7 +227,8 @@ export function createMeetDisableAvatarTool(host: SkillHost): Tool {
       const parsed = MeetAvatarInputSchema.safeParse(input);
       if (!parsed.success) {
         const message =
-          parsed.error.issues[0]?.message ?? "invalid meet_disable_avatar input";
+          parsed.error.issues[0]?.message ??
+          "invalid meet_disable_avatar input";
         return { content: `Error: ${message}`, isError: true };
       }
       const { meetingId: explicitId } = parsed.data;

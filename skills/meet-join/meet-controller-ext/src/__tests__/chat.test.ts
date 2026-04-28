@@ -826,7 +826,9 @@ describe("sendChat", () => {
       "value",
     );
     if (!protoDesc || !protoDesc.set || !protoDesc.get) {
-      throw new Error("jsdom HTMLTextAreaElement.prototype has no value descriptor");
+      throw new Error(
+        "jsdom HTMLTextAreaElement.prototype has no value descriptor",
+      );
     }
     const protoSetter = protoDesc.set;
     const protoGetter = protoDesc.get;

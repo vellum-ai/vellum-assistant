@@ -236,7 +236,9 @@ export function __resetMeetSessionEventRouterForTests(): void {
 export function createSessionEventRouter(
   host: SkillHost,
 ): MeetSessionEventRouter {
-  return new MeetSessionEventRouter(host.logger.get("meet-session-event-router"));
+  return new MeetSessionEventRouter(
+    host.logger.get("meet-session-event-router"),
+  );
 }
 
 registerSubModule("session-event-router", createSessionEventRouter);

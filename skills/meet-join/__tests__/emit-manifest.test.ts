@@ -58,14 +58,12 @@ interface EmitResult {
 }
 
 function runEmit(outputPath: string): EmitResult {
-  const result = spawnSync(
-    "bun",
-    ["run", scriptPath, "--output", outputPath],
-    { cwd: repoRoot, encoding: "utf8" },
-  );
-  const manifest = result.status === 0
-    ? JSON.parse(readFileSync(outputPath, "utf8"))
-    : null;
+  const result = spawnSync("bun", ["run", scriptPath, "--output", outputPath], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const manifest =
+    result.status === 0 ? JSON.parse(readFileSync(outputPath, "utf8")) : null;
   return {
     status: result.status,
     stdout: result.stdout,
@@ -109,7 +107,9 @@ describe("emit-manifest", () => {
       );
     }
 
-    const manifest = result.manifest as { tools: Array<Record<string, unknown>> };
+    const manifest = result.manifest as {
+      tools: Array<Record<string, unknown>>;
+    };
     expect(manifest.tools.length).toBe(EXPECTED_TOOL_NAMES.length);
 
     const manifestNames = manifest.tools.map((t) => t.name as string).sort();

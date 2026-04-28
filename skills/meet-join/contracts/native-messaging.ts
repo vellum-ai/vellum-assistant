@@ -275,7 +275,9 @@ export function trustedTypeKillTimeoutMs(
   textLength: number,
   delayMs?: number,
 ): number {
-  return trustedTypeDurationMs(textLength, delayMs) + TRUSTED_TYPE_KILL_SLACK_MS;
+  return (
+    trustedTypeDurationMs(textLength, delayMs) + TRUSTED_TYPE_KILL_SLACK_MS
+  );
 }
 
 /**

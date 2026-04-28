@@ -790,10 +790,7 @@ export class MeetAudioIngest {
  * Both inputs are treated as UTF-8 — the token is hex-encoded in
  * practice, so UTF-8 and ASCII are identical.
  */
-function constantTimeTokenEqual(
-  presented: string,
-  expected: string,
-): boolean {
+function constantTimeTokenEqual(presented: string, expected: string): boolean {
   if (presented.length !== expected.length) return false;
   const a = Buffer.from(presented, "utf8");
   const b = Buffer.from(expected, "utf8");
