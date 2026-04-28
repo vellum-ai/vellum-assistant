@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Top-level sidebar view whose body re-evaluates only when
@@ -333,7 +332,7 @@ struct SidebarView: View {
     // MARK: - Pinned App Helpers
 
     /// A pinned app row — delegates layout to `SidebarPrimaryRow` for both
-    /// expanded and collapsed modes, then adds app-specific context menu and drag.
+    /// expanded and collapsed modes, then adds app-specific context menu.
     @ViewBuilder
     private func sidebarPinnedAppRow(_ app: AppListManager.AppItem, isExpanded: Bool = true) -> some View {
         SidebarPrimaryRow(
@@ -360,7 +359,6 @@ struct SidebarView: View {
                 appListManager.removeApp(id: app.id)
             }
         }
-        .draggable(app.id)
     }
 
     /// Check if a given appId matches the currently active workspace surface.

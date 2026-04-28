@@ -173,17 +173,6 @@ final class AppListManager {
         save()
     }
 
-    func reorderPinnedApps(from source: IndexSet, to destination: Int) {
-        var pinned = displayApps.filter(\.isPinned)
-        pinned.move(fromOffsets: source, toOffset: destination)
-        for (order, item) in pinned.enumerated() {
-            if let idx = apps.firstIndex(where: { $0.id == item.id }) {
-                apps[idx].pinnedOrder = order
-            }
-        }
-        save()
-    }
-
     /// Sync apps from the daemon's authoritative list into the local sidebar list.
     /// Adds any apps that don't already exist locally, using their daemon createdAt timestamp.
     /// Removes local apps the daemon no longer reports.
@@ -271,32 +260,6 @@ final class AppListManager {
         guard let index = apps.firstIndex(where: { $0.id == id }) else { return }
         apps[index].lucideIcon = icon.rawValue
         save()
-    }
-
-    /// Move an app to a new position (for drag-and-drop reorder).
-    /// Returns `true` if the reorder was actually performed.
-    @discardableResult
-    func moveApp(sourceId: String, beforeId: String) -> Bool {
-        guard let sourceIdx = apps.firstIndex(where: { $0.id == sourceId }),
-              let targetIdx = apps.firstIndex(where: { $0.id == beforeId }) else { return false }
-        let targetApp = apps[targetIdx]
-
-        // Only reorder when the drop target is pinned
-        guard targetApp.isPinned else { return false }
-
-        if !apps[sourceIdx].isPinned {
-            apps[sourceIdx].isPinned = true
-        }
-        let targetOrder = targetApp.pinnedOrder ?? 0
-        apps[sourceIdx].pinnedOrder = targetOrder
-        for i in apps.indices where apps[i].isPinned && apps[i].id != sourceId {
-            if let order = apps[i].pinnedOrder, order >= targetOrder {
-                apps[i].pinnedOrder = order + 1
-            }
-        }
-        recompactPinnedOrders()
-        save()
-        return true
     }
 
     // MARK: - Persistence
