@@ -132,6 +132,17 @@ public class VMenuPanel: NSPanel {
             height: max(fittingSize.height, 1)
         )
 
+        // Disable intrinsic-content-size-based resizing now that we have the
+        // correct size. On macOS 13.3+, NSHostingView re-advertises its
+        // SwiftUI content's intrinsic size to the containing window on every
+        // layout pass. If SwiftUI re-lays out (e.g. focus changes via .task),
+        // the intrinsic size can temporarily diverge from fittingSize, causing
+        // the panel to shrink to near-zero — producing a ghost shadow artifact
+        // with no visible content. Setting sizingOptions to empty makes our
+        // explicit setFrame the single source of truth for panel geometry.
+        // Reference: https://mjtsai.com/blog/2023/08/03/how-nshostingview-determines-its-sizing/
+        hostingView.sizingOptions = []
+
         let origin = clampedOrigin(for: menuSize, cursorAt: screenPoint, anchor: anchor)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
 
@@ -229,6 +240,9 @@ public class VMenuPanel: NSPanel {
             width: max(fittingSize.width, 1),
             height: max(fittingSize.height, 1)
         )
+
+        // Lock panel geometry — see comment in show() for rationale.
+        hostingView.sizingOptions = []
 
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)

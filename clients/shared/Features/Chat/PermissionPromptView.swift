@@ -227,7 +227,7 @@ public struct PermissionPromptView: View {
                         .allowsHitTesting(false)
                 )
             } else {
-                VButton(label: "Allow", style: .primary, size: .compact) {
+                VButton(label: "Allow", style: .primary, size: .compact, buttonShape: .capsule) {
                     if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
                         let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
                         onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
@@ -242,7 +242,7 @@ public struct PermissionPromptView: View {
                 )
             }
 
-            VButton(label: "Deny", style: .danger, size: .compact) {
+            VButton(label: "Deny", style: .danger, size: .compact, buttonShape: .capsule) {
                 onDeny()
             }
             .overlay(
