@@ -409,26 +409,6 @@ struct FeedbackGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "vInlineMessage" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - VInlineMessage
-                GallerySectionHeader(
-                    title: "VInlineMessage",
-                    description: "Compact inline banner for form status, warnings, and errors."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.md) {
-                        VInlineMessage("This setting will sync the next time the assistant reconnects.", tone: .info)
-                        VInlineMessage("Your Twilio configuration is incomplete.", tone: .warning)
-                        VInlineMessage("This Telegram token was rejected by the provider.", tone: .error)
-                        VInlineMessage("Phone verification is complete.", tone: .success)
-                    }
-                }
-            }
-
             if filter == nil || filter == "vShortcutTag" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -726,7 +706,6 @@ extension FeedbackGallerySection {
         case "vLoadingIndicator": FeedbackGallerySection(filter: "vLoadingIndicator")
         case "vToast": FeedbackGallerySection(filter: "vToast")
         case "vNotification": FeedbackGallerySection(filter: "vNotification")
-        case "vInlineMessage": FeedbackGallerySection(filter: "vInlineMessage")
         case "vShortcutTag": FeedbackGallerySection(filter: "vShortcutTag")
         case "vCopyButton": FeedbackGallerySection(filter: "vCopyButton")
         case "vBusyIndicator": FeedbackGallerySection(filter: "vBusyIndicator")

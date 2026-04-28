@@ -25,7 +25,7 @@ struct ContactCreateView: View {
             formFields
             Spacer()
             if let errorMessage {
-                VInlineMessage(errorMessage)
+                VNotification(errorMessage, tone: .negative)
             }
             actionButtons
         }

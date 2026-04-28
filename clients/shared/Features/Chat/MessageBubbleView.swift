@@ -120,7 +120,7 @@ public struct MessageBubbleView: View {
                 if !message.attachmentWarnings.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(Array(message.attachmentWarnings.enumerated()), id: \.offset) { _, warning in
-                            VInlineMessage(warning, tone: .warning)
+                            VNotification(warning, tone: .warning)
                         }
                     }
                 }

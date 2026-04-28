@@ -126,7 +126,7 @@ struct TTSServiceCard: View {
                 }
 
                 if let testError = testPlayer.error {
-                    VInlineMessage(testError, tone: .error)
+                    VNotification(testError, tone: .negative)
                 }
             }
         }

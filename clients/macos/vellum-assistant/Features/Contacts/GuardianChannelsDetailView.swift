@@ -255,7 +255,7 @@ struct GuardianChannelsDetailView: View {
         }
 
         if errorChannelType == type, let errorMessage {
-            VInlineMessage(errorMessage)
+            VNotification(errorMessage, tone: .negative)
         }
     }
 

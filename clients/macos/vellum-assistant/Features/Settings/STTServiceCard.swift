@@ -90,7 +90,7 @@ struct STTServiceCard: View {
                 )
 
                 if let sttSaveError {
-                    VInlineMessage(sttSaveError, tone: .error)
+                    VNotification(sttSaveError, tone: .negative)
                 }
             }
         }

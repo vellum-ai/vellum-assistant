@@ -461,7 +461,7 @@ struct ChannelVerificationFlowView: View {
         let leadingPadding: CGFloat = showLabel ? labelColumnWidth + VSpacing.sm : 0
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            VInlineMessage(error)
+            VNotification(error, tone: .negative)
             if state.alreadyBound {
                 VButton(label: "Replace", style: .outlined) {
                     onStartSession(true)

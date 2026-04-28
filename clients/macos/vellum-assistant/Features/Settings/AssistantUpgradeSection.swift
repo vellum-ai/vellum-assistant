@@ -197,12 +197,12 @@ struct AssistantUpgradeSection: View {
             // Version mismatch warning (non-local topologies only)
             if isVersionIncompatible && topology != .local {
                 if isServiceGroupBehind {
-                    VInlineMessage(
+                    VNotification(
                         "Your assistant is on an older version and may not work correctly with this app. Upgrade to match.",
                         tone: .warning
                     )
                 } else {
-                    VInlineMessage(
+                    VNotification(
                         "Your app is older than the assistant. Upgrade the app to ensure compatibility.",
                         tone: .warning
                     )

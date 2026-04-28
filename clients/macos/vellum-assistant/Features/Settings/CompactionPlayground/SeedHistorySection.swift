@@ -58,7 +58,7 @@ struct SeedHistorySection: View {
             )
 
             if let validationError {
-                VInlineMessage(validationError, tone: .error)
+                VNotification(validationError, tone: .negative)
             }
 
             VButton(

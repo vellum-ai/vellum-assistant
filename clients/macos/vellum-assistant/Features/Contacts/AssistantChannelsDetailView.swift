@@ -208,7 +208,7 @@ struct AssistantChannelsDetailView: View {
             .padding(.vertical, VSpacing.sm)
 
             if let error = store.telegramError {
-                VInlineMessage(error)
+                VNotification(error, tone: .negative)
                     .padding(.bottom, VSpacing.sm)
             }
         }
@@ -247,7 +247,7 @@ struct AssistantChannelsDetailView: View {
             .padding(.vertical, VSpacing.sm)
 
             if let error = store.slackChannelError {
-                VInlineMessage(error)
+                VNotification(error, tone: .negative)
                     .padding(.bottom, VSpacing.sm)
             }
         }
@@ -306,11 +306,11 @@ struct AssistantChannelsDetailView: View {
             .padding(.vertical, VSpacing.sm)
 
             if let warning = store.twilioWarning {
-                VInlineMessage(warning, tone: .warning)
+                VNotification(warning, tone: .warning)
                     .padding(.bottom, VSpacing.sm)
             }
             if let error = store.twilioError {
-                VInlineMessage(error)
+                VNotification(error, tone: .negative)
                     .padding(.bottom, VSpacing.sm)
             }
         }
@@ -510,7 +510,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.telegramError {
-                VInlineMessage(error)
+                VNotification(error, tone: .negative)
             }
 
         }
@@ -610,7 +610,7 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let error = store.slackChannelError {
-                VInlineMessage(error)
+                VNotification(error, tone: .negative)
             }
 
         }
@@ -719,11 +719,11 @@ struct AssistantChannelsDetailView: View {
             }
 
             if let warning = store.twilioWarning {
-                VInlineMessage(warning, tone: .warning)
+                VNotification(warning, tone: .warning)
             }
 
             if let error = store.twilioError {
-                VInlineMessage(error)
+                VNotification(error, tone: .negative)
             }
 
         }

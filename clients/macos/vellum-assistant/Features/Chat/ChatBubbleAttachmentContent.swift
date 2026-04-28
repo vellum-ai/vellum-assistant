@@ -592,7 +592,7 @@ extension ChatBubble {
         if !warnings.isEmpty {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in
-                    VInlineMessage(warning, tone: .warning)
+                    VNotification(warning, tone: .warning)
                 }
             }
         }

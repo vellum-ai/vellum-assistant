@@ -42,7 +42,7 @@ struct ContactsContainerView: View {
                 .frame(maxHeight: .infinity, alignment: .top)
 
                 if let createContactError {
-                    VInlineMessage(createContactError)
+                    VNotification(createContactError, tone: .negative)
                 }
             }
             .frame(width: 320)
@@ -229,7 +229,7 @@ struct ContactsContainerView: View {
                     }
 
                     if let guardianErrorMessage {
-                        VInlineMessage(guardianErrorMessage)
+                        VNotification(guardianErrorMessage, tone: .negative)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
