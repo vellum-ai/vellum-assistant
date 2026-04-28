@@ -1,3 +1,4 @@
+import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,6 +8,7 @@ import { isCesShellLockdownEnabled } from "../../credential-execution/feature-ga
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
+import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -14,6 +16,11 @@ import {
   getProtectedDir,
   getWorkspaceDir,
 } from "../../util/platform.js";
+import {
+  generateBackgroundToolId,
+  registerBackgroundTool,
+  removeBackgroundTool,
+} from "../background-tool-registry.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -135,6 +142,11 @@ class ShellTool implements Tool {
             items: { type: "string" },
             description:
               'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
+          },
+          background: {
+            type: "boolean",
+            description:
+              "Run the command in the background. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
           },
         },
         required: ["command", "activity"],
@@ -323,21 +335,28 @@ class ShellTool implements Tool {
       env.VELLUM_UNTRUSTED_SHELL = "1";
     }
 
-    const result = await new Promise<ToolExecutionResult>((resolve) => {
+    // CES shell lockdown: build deny-read paths for protected credential
+    // data, the protected dir, and data sub-dirs that contain secrets.
+    const denyReadPaths: string[] | undefined = shellLockdownActive
+      ? buildCesProtectedPaths()
+      : undefined;
+
+    const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
+      networkMode,
+      denyReadPaths,
+    });
+
+    // -----------------------------------------------------------------------
+    // Background mode: spawn and return immediately. The process output is
+    // delivered to the conversation as a wake when the process exits.
+    // -----------------------------------------------------------------------
+    const background = input.background === true;
+    if (background) {
+      const bgId = generateBackgroundToolId();
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
 
-      // CES shell lockdown: build deny-read paths for protected credential
-      // data, the protected dir, and data sub-dirs that contain secrets.
-      const denyReadPaths: string[] | undefined = shellLockdownActive
-        ? buildCesProtectedPaths()
-        : undefined;
-
-      const wrapped = wrapCommand(command, context.workingDir, sandboxConfig, {
-        networkMode,
-        denyReadPaths,
-      });
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
         env,
@@ -345,24 +364,86 @@ class ShellTool implements Tool {
         detached: true,
       });
 
-      // Kill the entire process tree. Tries the process group first
-      // (negative PID), then falls back to killing the direct child if the
-      // PID is unavailable or the group kill fails.
-      const killTree = () => {
-        if (child.pid != null) {
-          try {
-            process.kill(-child.pid, "SIGKILL");
-            return;
-          } catch {
-            // Process group may have already exited — fall through.
-          }
-        }
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // Child may have already exited.
-        }
+      const killTree = buildKillTree(child);
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        killTree();
+      }, timeoutMs);
+
+      child.stdout.on("data", (data: Buffer) => {
+        stdoutChunks.push(data);
+      });
+
+      child.stderr.on("data", (data: Buffer) => {
+        stderrChunks.push(data);
+      });
+
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        removeBackgroundTool(bgId);
+
+        const stdout = Buffer.concat(stdoutChunks).toString();
+        const stderr = Buffer.concat(stderrChunks).toString();
+        const fmtResult = formatShellOutput(
+          stdout,
+          stderr,
+          code,
+          timedOut,
+          timeoutSec,
+        );
+
+        const hint = `Background command completed (id=${bgId}, exit=${code ?? "unknown"}):\n${fmtResult.content}`;
+        void wakeAgentForOpportunity({
+          conversationId: context.conversationId,
+          hint,
+          source: "background-tool",
+        });
+      });
+
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        removeBackgroundTool(bgId);
+
+        const hint = `Background command failed (id=${bgId}): ${err.message}`;
+        void wakeAgentForOpportunity({
+          conversationId: context.conversationId,
+          hint,
+          source: "background-tool",
+        });
+      });
+
+      registerBackgroundTool({
+        id: bgId,
+        toolName: "bash",
+        conversationId: context.conversationId,
+        command,
+        startedAt: Date.now(),
+        cancel: killTree,
+      });
+
+      return {
+        content: JSON.stringify({ backgrounded: true, id: bgId }),
+        isError: false,
       };
+    }
+
+    // -----------------------------------------------------------------------
+    // Foreground mode: await the process and return its output.
+    // -----------------------------------------------------------------------
+    const result = await new Promise<ToolExecutionResult>((resolve) => {
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let timedOut = false;
+
+      const child = spawn(wrapped.command, wrapped.args, {
+        cwd: context.workingDir,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+
+      const killTree = buildKillTree(child);
 
       const timer = setTimeout(() => {
         timedOut = true;
@@ -426,6 +507,29 @@ class ShellTool implements Tool {
 
     return result;
   }
+}
+
+/**
+ * Kill the entire process tree of a child process. Tries the process group
+ * first (negative PID), then falls back to killing the direct child if the
+ * PID is unavailable or the group kill fails.
+ */
+function buildKillTree(child: ChildProcess): () => void {
+  return () => {
+    if (child.pid != null) {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+        return;
+      } catch {
+        // Process group may have already exited — fall through.
+      }
+    }
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Child may have already exited.
+    }
+  };
 }
 
 export const shellTool: Tool = new ShellTool();
