@@ -268,6 +268,14 @@ public struct VSplitButton<MenuContent: View>: View {
 
     // MARK: - Divider
 
+    private var isDividerVisible: Bool {
+        if isPrimaryHovered || isDropdownHovered { return true }
+        #if os(macOS)
+        if isMenuOpen { return true }
+        #endif
+        return false
+    }
+
     @ViewBuilder
     private var divider: some View {
         switch style {
@@ -277,20 +285,20 @@ public struct VSplitButton<MenuContent: View>: View {
                     .fill(filledBaseColor)
                     .frame(width: 1 + 2, height: zoneHeight)
                 Rectangle()
-                    .fill(VColor.auxWhite.opacity(0.3))
+                    .fill(VColor.auxWhite.opacity(isDividerVisible ? 0.3 : 0))
                     .frame(width: 1, height: zoneHeight)
             }
         case .outlined, .dangerOutline:
             Rectangle()
-                .fill(borderColor)
+                .fill(borderColor.opacity(isDividerVisible ? 1 : 0))
                 .frame(width: 1, height: zoneHeight)
         case .ghost, .dangerGhost:
             Rectangle()
-                .fill(VColor.borderBase)
+                .fill(VColor.borderBase.opacity(isDividerVisible ? 1 : 0))
                 .frame(width: 1, height: zoneHeight)
         case .contrast:
             Rectangle()
-                .fill(VColor.auxWhite.opacity(0.3))
+                .fill(VColor.auxWhite.opacity(isDividerVisible ? 0.3 : 0))
                 .frame(width: 1, height: zoneHeight)
         }
     }
