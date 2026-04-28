@@ -4,7 +4,6 @@
  * GET    /v1/integrations/slack/channel/config        — get current config status
  * POST   /v1/integrations/slack/channel/config        — validate and store credentials
  * DELETE /v1/integrations/slack/channel/config        — clear credentials
- * POST   /v1/integrations/slack/channel/oauth-install — run OAuth loopback to capture bot+user tokens
  */
 
 import {
@@ -12,7 +11,6 @@ import {
   getSlackChannelConfig,
   setSlackChannelConfig,
 } from "../../../../daemon/handlers/config-slack-channel.js";
-import { runSlackChannelOAuthInstall } from "../../../../daemon/handlers/slack-channel-oauth-install.js";
 import { BadRequestError } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
 
@@ -43,17 +41,6 @@ export async function handleSetSlackChannelConfig({
 
 async function handleClearSlackChannelConfig() {
   return clearSlackChannelConfig();
-}
-
-async function handleSlackChannelOAuthInstall() {
-  const result = await runSlackChannelOAuthInstall();
-  if (!result.success) {
-    throw new BadRequestError(
-      (result as { error?: string }).error ??
-        "Slack OAuth install failed",
-    );
-  }
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,16 +77,5 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["integrations"],
     requirePolicyEnforcement: true,
     handler: () => handleClearSlackChannelConfig(),
-  },
-  {
-    operationId: "integrations_slack_channel_oauth_install_post",
-    endpoint: "integrations/slack/channel/oauth-install",
-    method: "POST",
-    summary: "Run Slack OAuth install",
-    description:
-      "Run an OAuth2 loopback flow to install the Slack app and capture bot + user tokens.",
-    tags: ["integrations"],
-    requirePolicyEnforcement: true,
-    handler: () => handleSlackChannelOAuthInstall(),
   },
 ];
