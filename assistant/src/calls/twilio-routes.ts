@@ -31,6 +31,7 @@ import {
   BadRequestError,
   GoneError,
   NotFoundError,
+  RouteError,
 } from "../runtime/routes/errors.js";
 import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
@@ -367,7 +368,14 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   const formBody = new URLSearchParams(await req.text());
   const params = Object.fromEntries(formBody.entries());
 
-  return twimlResponse(processVoiceWebhook(params, callSessionId));
+  try {
+    return twimlResponse(processVoiceWebhook(params, callSessionId));
+  } catch (err) {
+    if (err instanceof RouteError) {
+      return new Response(err.message, { status: err.statusCode });
+    }
+    throw err;
+  }
 }
 
 /**
