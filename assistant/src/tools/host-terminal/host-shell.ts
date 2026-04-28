@@ -23,8 +23,14 @@ import { isCesShellLockdownEnabled } from "../../credential-execution/feature-ga
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
+import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
+import {
+  generateBackgroundToolId,
+  registerBackgroundTool,
+  removeBackgroundTool,
+} from "../background-tool-registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -117,6 +123,11 @@ class HostShellTool implements Tool {
             description:
               "Optional timeout in seconds. Uses configured default and max limits.",
           },
+          background: {
+            type: "boolean",
+            description:
+              "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
+          },
         },
         required: ["command", "activity"],
       },
@@ -157,6 +168,8 @@ class HostShellTool implements Tool {
         isError: true,
       };
     }
+    const background = input.background === true;
+
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
 
@@ -192,6 +205,58 @@ class HostShellTool implements Tool {
         hostLockdownActive,
         context.conversationId,
       );
+
+      if (background) {
+        const bgId = generateBackgroundToolId();
+        const proxyPromise = context.hostBashProxy.request(
+          {
+            command,
+            working_dir: rawWorkingDir as string | undefined,
+            timeout_seconds: normalizedTimeout,
+            env: proxyEnv,
+          },
+          context.conversationId,
+          context.signal,
+        );
+
+        proxyPromise
+          .then((result) => {
+            const hint = result.isError
+              ? `Background host command failed:\n${result.content}`
+              : result.content || "(no output)";
+            void wakeAgentForOpportunity({
+              conversationId: context.conversationId,
+              hint,
+              source: "background-tool",
+            });
+          })
+          .catch((err) => {
+            void wakeAgentForOpportunity({
+              conversationId: context.conversationId,
+              hint: `Background host command error: ${err instanceof Error ? err.message : String(err)}`,
+              source: "background-tool",
+            });
+          })
+          .finally(() => removeBackgroundTool(bgId));
+
+        registerBackgroundTool({
+          id: bgId,
+          toolName: "host_bash",
+          conversationId: context.conversationId,
+          command,
+          startedAt: Date.now(),
+          cancel: () => {
+            // The proxy handles its own timeout; cancel is a no-op since we
+            // cannot easily abort a proxy request after it's been sent.
+          },
+        });
+
+        return {
+          content: JSON.stringify({ backgrounded: true, id: bgId }),
+          isError: false,
+        };
+      }
+
       return context.hostBashProxy.request(
         {
           command,
@@ -221,24 +286,110 @@ class HostShellTool implements Tool {
         timeoutSec,
         conversationId: context.conversationId,
         hostLockdownActive,
+        background,
       },
       "Executing host shell command",
     );
+
+    const hostEnv = buildHostShellEnv();
+    // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands self-deny
+    // raw-token/secret reveal flows when invoked from an untrusted shell.
+    if (hostLockdownActive) {
+      hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
+    }
+    // Match `bash` tool behavior so nested assistant CLI calls can bind to
+    // the active conversation when running through host_bash.
+    hostEnv.__CONVERSATION_ID = context.conversationId;
+
+    if (background) {
+      const bgId = generateBackgroundToolId();
+
+      const child = spawn("bash", ["-c", "--", command], {
+        cwd: workingDir,
+        env: hostEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
+      });
+
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let timedOut = false;
+
+      const killTree = () => {
+        if (child.pid != null) {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+            return;
+          } catch {
+            // Process group may have already exited — fall through.
+          }
+        }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // Child may have already exited.
+        }
+      };
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        killTree();
+      }, timeoutMs);
+
+      child.stdout.on("data", (data: Buffer) => stdoutChunks.push(data));
+      child.stderr.on("data", (data: Buffer) => stderrChunks.push(data));
+
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        const stdout = Buffer.concat(stdoutChunks).toString();
+        const stderr = Buffer.concat(stderrChunks).toString();
+        const result = formatShellOutput(
+          stdout,
+          stderr,
+          code,
+          timedOut,
+          timeoutSec,
+        );
+        const hint = result.isError
+          ? `Background host command failed:\n${result.content}`
+          : result.content || "(no output)";
+        void wakeAgentForOpportunity({
+          conversationId: context.conversationId,
+          hint,
+          source: "background-tool",
+        });
+        removeBackgroundTool(bgId);
+      });
+
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        void wakeAgentForOpportunity({
+          conversationId: context.conversationId,
+          hint: `Background host command error: ${err.message}`,
+          source: "background-tool",
+        });
+        removeBackgroundTool(bgId);
+      });
+
+      registerBackgroundTool({
+        id: bgId,
+        toolName: "host_bash",
+        conversationId: context.conversationId,
+        command,
+        startedAt: Date.now(),
+        cancel: killTree,
+      });
+
+      return {
+        content: JSON.stringify({ backgrounded: true, id: bgId }),
+        isError: false,
+      };
+    }
 
     return new Promise<ToolExecutionResult>((resolve) => {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
-
-      const hostEnv = buildHostShellEnv();
-      // Inject VELLUM_UNTRUSTED_SHELL=1 so assistant CLI commands self-deny
-      // raw-token/secret reveal flows when invoked from an untrusted shell.
-      if (hostLockdownActive) {
-        hostEnv.VELLUM_UNTRUSTED_SHELL = "1";
-      }
-      // Match `bash` tool behavior so nested assistant CLI calls can bind to
-      // the active conversation when running through host_bash.
-      hostEnv.__CONVERSATION_ID = context.conversationId;
 
       const child = spawn("bash", ["-c", "--", command], {
         cwd: workingDir,
