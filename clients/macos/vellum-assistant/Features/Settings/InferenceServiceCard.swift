@@ -515,21 +515,27 @@ struct InferenceServiceCard: View {
         // managed) where both old and new resolve to the same provider
         // (e.g. both "anthropic") should not prompt because there is no
         // provider switch for overrides to reconcile against.
-        //
-        // Skip the confirmation when inference-profiles is off — the
-        // overrides UI is hidden so showing the dialog would confuse users
-        // who have no way to inspect or manage their overrides.
-        let profilesEnabled = assistantFeatureFlagStore?.isEnabled("inference-profiles") == true
         let providerIdChanged = persistProvider != initialProvider
-        if profilesEnabled && providerIdChanged {
+        if providerIdChanged {
             let overridesPinnedToOldProvider = store.callSiteOverrides.filter {
                 $0.provider == initialProvider
             }
             if !overridesPinnedToOldProvider.isEmpty {
-                pendingOverrideClears = overridesPinnedToOldProvider
-                pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
-                showOverrideConfirmation = true
-                return
+                let profilesEnabled = assistantFeatureFlagStore?.isEnabled("inference-profiles") == true
+                if profilesEnabled {
+                    // Show the confirmation dialog so the user can choose
+                    // to keep or reset overrides pinned to the old provider.
+                    pendingOverrideClears = overridesPinnedToOldProvider
+                    pendingOverrideOldProviderName = store.dynamicProviderDisplayName(initialProvider)
+                    showOverrideConfirmation = true
+                    return
+                } else {
+                    // When inference-profiles is off the overrides UI is
+                    // hidden, so silently clear stale overrides to prevent
+                    // invisible provider/model mismatches for affected tasks.
+                    performSaveCore(clearingOverrides: overridesPinnedToOldProvider)
+                    return
+                }
             }
         }
 
