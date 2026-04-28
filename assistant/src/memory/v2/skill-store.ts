@@ -2,11 +2,13 @@
 // Memory v2 — Skill catalog → embedded skill entries
 // ---------------------------------------------------------------------------
 //
-// Mirrors v1's `seedSkillGraphNodes` (capability-seed.ts) for the v2 pipeline:
-// enumerate the enabled-skill catalog, render each skill's prose statement via
-// `buildSkillContent`, embed dense + sparse, upsert into the dedicated
+// Mirrors v1's `seedSkillGraphNodes` + `seedUninstalledCatalogSkillMemories`
+// (capability-seed.ts) for the v2 pipeline: enumerate the enabled-skill
+// catalog AND uninstalled catalog skills, render each skill's prose statement
+// via `buildSkillContent`, embed dense + sparse, upsert into the dedicated
 // `memory_v2_skills` Qdrant collection, and prune stale points from prior
-// catalog state.
+// catalog state. Including uninstalled catalog skills ensures their activation
+// hints are discoverable by intent so the model can auto-install them.
 //
 // Unlike v1, skill entries are kept in a small in-process cache so the render
 // path can fetch a `SkillEntry` synchronously by id without round-tripping to
@@ -17,7 +19,11 @@ import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-fl
 import { getConfig } from "../../config/loader.js";
 import { resolveSkillStates } from "../../config/skill-state.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { fromSkillSummary } from "../../skills/skill-memory.js";
+import { getCatalog } from "../../skills/catalog-cache.js";
+import {
+  fromCatalogSkill,
+  fromSkillSummary,
+} from "../../skills/skill-memory.js";
 import { getLogger } from "../../util/logger.js";
 import {
   embedWithBackend,
@@ -55,6 +61,9 @@ let entries: Map<string, SkillEntry> | null = null;
  *      already enforces this, but we mirror v1's enforcement point so the v2
  *      collection never holds an embedding for a flag-gated skill if the two
  *      ever drift.
+ *   3b. Fetch the full remote catalog and seed any uninstalled skills so their
+ *      activation hints are discoverable by semantic search. Best-effort: if
+ *      the catalog fetch fails, only installed skills are seeded.
  *   4. Embed all `content` strings in a single dense `embedWithBackend` call,
  *      and a per-skill synchronous `generateSparseEmbedding`.
  *   5. Upsert one Qdrant point per skill via `upsertSkillEmbedding` (keyed
@@ -73,6 +82,7 @@ export async function seedV2SkillEntries(): Promise<void> {
     // Build the input list, applying the mcp-setup description augmentation
     // and the defense-in-depth feature-flag filter.
     const seeds: SkillEntry[] = [];
+    const seenIds = new Set<string>();
     for (const { summary } of enabled) {
       const flagKey = summary.featureFlag;
       if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config)) continue;
@@ -80,6 +90,27 @@ export async function seedV2SkillEntries(): Promise<void> {
       const augmented = augmentMcpSetupDescription(fromSkillSummary(summary));
       const content = buildSkillContent(augmented);
       seeds.push({ id: summary.id, content });
+      seenIds.add(summary.id);
+    }
+
+    // Seed uninstalled catalog skills so their activation hints are
+    // discoverable by intent (mirrors v1's seedUninstalledCatalogSkillMemories).
+    try {
+      const fullCatalog = await getCatalog();
+      for (const entry of fullCatalog) {
+        if (seenIds.has(entry.id)) continue;
+        const flagKey = entry.metadata?.vellum?.["feature-flag"];
+        if (flagKey && !isAssistantFeatureFlagEnabled(flagKey, config))
+          continue;
+        const content = buildSkillContent(fromCatalogSkill(entry));
+        seeds.push({ id: entry.id, content });
+        seenIds.add(entry.id);
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to fetch catalog for uninstalled skill seeding — continuing with installed skills only",
+      );
     }
 
     // Embed all content strings in one batched call. Sparse vectors are
