@@ -134,11 +134,7 @@ const KNOWN_ENVIRONMENTS: ReadonlySet<string> = new Set([
  * Returns the env-scoped XDG config subdirectory name for Vellum
  * (`vellum` in production, `vellum-<env>` otherwise). Mirrors the Swift
  * side's `VellumPaths.configDir` and the CLI's
- * `environments/paths.ts:getConfigDir` so the daemon resolves to the
- * same on-disk location as every other writer of these files.
- *
- * Unknown environment names fall back to production to preserve the
- * legacy path for any unrecognized value.
+ * `environments/paths.ts:getConfigDir`.
  */
 export function getXdgVellumConfigDirName(): string {
   const raw = process.env.VELLUM_ENVIRONMENT?.trim();

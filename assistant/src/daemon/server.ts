@@ -578,10 +578,6 @@ export class DaemonServer {
     this.broadcast({ type: "sounds_config_updated" });
   }
 
-  private broadcastFeatureFlagsChanged(): void {
-    this.broadcast({ type: "feature_flags_changed" });
-  }
-
   private broadcastAvatarUpdated(): void {
     this.broadcast({
       type: "avatar_updated",
@@ -904,7 +900,6 @@ export class DaemonServer {
       () => this.broadcastSoundsConfigUpdated(),
       () => this.broadcastAvatarUpdated(),
       () => this.broadcastConfigChanged(),
-      () => this.broadcastFeatureFlagsChanged(),
     );
 
     this.syncIdentityToPlatform();

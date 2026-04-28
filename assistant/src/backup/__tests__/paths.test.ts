@@ -88,8 +88,9 @@ describe("VELLUM_BACKUP_DIR override", () => {
 describe("deriveSafeAncestor", () => {
   test("iCloud Drive subtree anchors on the iCloud Drive root", () => {
     const iCloudRoot = getICloudDriveRoot();
-    expect(deriveSafeAncestor(join(iCloudRoot, "VellumAssistant", "backups")))
-      .toBe(iCloudRoot);
+    expect(
+      deriveSafeAncestor(join(iCloudRoot, "VellumAssistant", "backups")),
+    ).toBe(iCloudRoot);
     // The default offsite path specifically — this is the regression the
     // feature exists to fix.
     expect(deriveSafeAncestor(getDefaultOffsiteBackupsDir())).toBe(iCloudRoot);

@@ -178,8 +178,6 @@ describe("runBackupTick — gating", () => {
       workspaceDir: ROOT,
       localDir,
       snapshotLockPath: join(ROOT, ".snapshot.lock"),
-      // Explicit plaintext to avoid touching the key file
-      trustPath: join(ROOT, "trust.json"),
     });
 
     expect(result).toBeNull();

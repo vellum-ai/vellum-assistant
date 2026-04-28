@@ -94,19 +94,12 @@ export function getRepoSkillsDir(): string | undefined {
   return undefined;
 }
 
-// ─── Platform API ────────────────────────────────────────────────────────────
-
-function buildHeaders(): Record<string, string> {
-  return {};
-}
-
 // ─── Catalog operations ──────────────────────────────────────────────────────
 
 export async function fetchCatalog(): Promise<CatalogSkill[]> {
   const platformUrl = getPlatformBaseUrl();
   const url = `${platformUrl}/v1/skills/`;
   const response = await fetch(url, {
-    headers: buildHeaders(),
     signal: AbortSignal.timeout(10000),
   });
 
@@ -214,7 +207,6 @@ async function fetchAndExtractSkill(
   const platformUrl = getPlatformBaseUrl();
   const url = `${platformUrl}/v1/skills/${encodeURIComponent(skillId)}/`;
   const response = await fetch(url, {
-    headers: buildHeaders(),
     signal: AbortSignal.timeout(15000),
   });
 
