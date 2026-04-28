@@ -55,6 +55,8 @@ export interface AppDefinition {
   formatVersion?: number;
   /** Filesystem directory/file stem. Frozen at creation -- never changes on rename. */
   dirName?: string;
+  /** Conversation IDs that have interacted with this app (create/open/refresh). */
+  conversationIds?: string[];
 }
 
 /**
@@ -899,6 +901,50 @@ export function editAppFile(
     writeFileSync(resolved, result.updatedContent, "utf-8");
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation association helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Associate a conversation with an app. Writes directly to the JSON metadata
+ * file without bumping `updatedAt` so the app list ordering is preserved.
+ *
+ * @returns `true` if the association was added, `false` if the app was not
+ *   found or the conversationId was already present (dedup).
+ */
+export function addAppConversationId(
+  appId: string,
+  conversationId: string,
+): boolean {
+  const app = getApp(appId);
+  if (!app) return false;
+
+  const existing = app.conversationIds ?? [];
+  if (existing.includes(conversationId)) return false;
+
+  const { dirName } = resolveAppDir(appId);
+  const dir = getAppsDir();
+  const jsonPath = join(dir, `${dirName}.json`);
+
+  const raw = readFileSync(jsonPath, "utf-8");
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  parsed.conversationIds = [...existing, conversationId];
+  writeFileSync(jsonPath, JSON.stringify(parsed, null, 2));
+
+  return true;
+}
+
+/**
+ * Return all apps associated with a given conversation ID.
+ */
+export function listAppsByConversation(
+  conversationId: string,
+): AppDefinition[] {
+  return listApps().filter((app) =>
+    app.conversationIds?.includes(conversationId),
+  );
 }
 
 export type { EditEngineResult };
