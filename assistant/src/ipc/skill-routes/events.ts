@@ -33,7 +33,7 @@ import { z } from "zod";
 import { buildAssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 import type { SkillIpcStreamingRoute } from "../skill-server.js";
 
 // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ function handleBuildEvent(params?: Record<string, unknown>): unknown {
 // Route exports
 // ---------------------------------------------------------------------------
 
-export const eventsRoutes: IpcRoute[] = [
+export const eventsRoutes: SkillIpcRoute[] = [
   { method: "host.events.publish", handler: handlePublish },
   { method: "host.events.buildEvent", handler: handleBuildEvent },
 ];

@@ -47,11 +47,10 @@ import {
 } from "../runtime/skill-route-registry.js";
 import { unregisterSkillTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import type {
-  IpcMethodHandler,
-  IpcRequest,
-  IpcResponse,
-} from "./assistant-server.js";
+import type { IpcRequest, IpcResponse } from "./assistant-server.js";
+
+export type { SkillIpcRoute, SkillMethodHandler } from "./skill-ipc-types.js";
+import type { SkillMethodHandler } from "./skill-ipc-types.js";
 import {
   skillIpcRoutes,
   skillIpcStreamingRoutes,
@@ -270,7 +269,7 @@ class SkillIpcConnectionState implements SkillIpcConnection {
 export class SkillIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
-  private methods = new Map<string, IpcMethodHandler>();
+  private methods = new Map<string, SkillMethodHandler>();
   private streamingMethods = new Map<string, SkillIpcStreamingHandler>();
   /**
    * Per-socket subscription registry. Keyed by the request id that opened
@@ -303,7 +302,7 @@ export class SkillIpcServer {
   }
 
   /** Register an additional method handler after construction. */
-  registerMethod(method: string, handler: IpcMethodHandler): void {
+  registerMethod(method: string, handler: SkillMethodHandler): void {
     this.methods.set(method, handler);
   }
 

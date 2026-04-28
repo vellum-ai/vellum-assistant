@@ -30,7 +30,7 @@ import type {
 } from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 import type { SkillIpcConnection } from "../skill-server.js";
 
 const log = getLogger("skill-routes-registries");
@@ -359,32 +359,32 @@ async function handleReportSessionEnded(
 
 // ── Route exports ─────────────────────────────────────────────────────
 
-export const registerToolsRoute: IpcRoute = {
+export const registerToolsRoute: SkillIpcRoute = {
   method: "host.registries.register_tools",
   handler: handleRegisterTools,
 };
 
-export const registerSkillRouteRoute: IpcRoute = {
+export const registerSkillRouteRoute: SkillIpcRoute = {
   method: "host.registries.register_skill_route",
   handler: handleRegisterSkillRoute,
 };
 
-export const registerShutdownHookRoute: IpcRoute = {
+export const registerShutdownHookRoute: SkillIpcRoute = {
   method: "host.registries.register_shutdown_hook",
   handler: handleRegisterShutdownHook,
 };
 
-export const reportSessionStartedRoute: IpcRoute = {
+export const reportSessionStartedRoute: SkillIpcRoute = {
   method: "host.registries.report_session_started",
   handler: handleReportSessionStarted,
 };
 
-export const reportSessionEndedRoute: IpcRoute = {
+export const reportSessionEndedRoute: SkillIpcRoute = {
   method: "host.registries.report_session_ended",
   handler: handleReportSessionEnded,
 };
 
-export const registriesRoutes: IpcRoute[] = [
+export const registriesRoutes: SkillIpcRoute[] = [
   registerToolsRoute,
   registerSkillRouteRoute,
   registerShutdownHookRoute,

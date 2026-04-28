@@ -12,23 +12,23 @@
 
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
-export const hostIdentityGetAssistantNameRoute: IpcRoute = {
+export const hostIdentityGetAssistantNameRoute: SkillIpcRoute = {
   method: "host.identity.getAssistantName",
   handler: () => {
     return getAssistantName() ?? null;
   },
 };
 
-export const hostIdentityGetInternalAssistantIdRoute: IpcRoute = {
+export const hostIdentityGetInternalAssistantIdRoute: SkillIpcRoute = {
   method: "host.identity.getInternalAssistantId",
   handler: () => {
     return DAEMON_INTERNAL_ASSISTANT_ID;
   },
 };
 
-export const identityRoutes: IpcRoute[] = [
+export const identityRoutes: SkillIpcRoute[] = [
   hostIdentityGetAssistantNameRoute,
   hostIdentityGetInternalAssistantIdRoute,
 ];

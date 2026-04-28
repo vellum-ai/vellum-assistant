@@ -11,7 +11,7 @@ import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig, getNestedValue } from "../../config/loader.js";
-import type { IpcRoute } from "../assistant-server.js";
+import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 const GetSectionParams = z.object({
   path: z.string().min(1),
@@ -21,7 +21,7 @@ const IsFeatureFlagEnabledParams = z.object({
   key: z.string().min(1),
 });
 
-export const hostConfigGetSectionRoute: IpcRoute = {
+export const hostConfigGetSectionRoute: SkillIpcRoute = {
   method: "host.config.getSection",
   handler: (params) => {
     const { path } = GetSectionParams.parse(params);
@@ -33,7 +33,7 @@ export const hostConfigGetSectionRoute: IpcRoute = {
   },
 };
 
-export const hostConfigIsFeatureFlagEnabledRoute: IpcRoute = {
+export const hostConfigIsFeatureFlagEnabledRoute: SkillIpcRoute = {
   method: "host.config.isFeatureFlagEnabled",
   handler: (params) => {
     const { key } = IsFeatureFlagEnabledParams.parse(params);
@@ -41,7 +41,7 @@ export const hostConfigIsFeatureFlagEnabledRoute: IpcRoute = {
   },
 };
 
-export const configRoutes: IpcRoute[] = [
+export const configRoutes: SkillIpcRoute[] = [
   hostConfigGetSectionRoute,
   hostConfigIsFeatureFlagEnabledRoute,
 ];

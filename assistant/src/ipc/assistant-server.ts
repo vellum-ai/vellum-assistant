@@ -44,7 +44,7 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
-import { routeDefinitionsToIpcRoutes } from "./routes/route-adapter.js";
+import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
@@ -72,19 +72,8 @@ export type IpcResponse = {
   headers?: Record<string, string>;
 };
 
-export type IpcMethodHandler = (
-  params?: Record<string, unknown>,
-  connection?: unknown,
-) => unknown | Promise<unknown>;
 
-/** A single IPC route definition — method name + handler function. */
-export type IpcRoute = {
-  method: string;
-  handler: IpcMethodHandler;
-  /** Structured handler from transport-agnostic RouteDefinitions. The IPC
-   *  server prefers this over `handler` when present. */
-  structuredHandler?: RouteDefinition["handler"];
-};
+
 
 /**
  * Wrapper returned by route handlers that produce a streaming response.
@@ -138,8 +127,7 @@ export function isIpcBinaryResponse(
 export class AssistantIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
-  private methods = new Map<string, IpcMethodHandler>();
-  private structuredMethods = new Map<string, RouteDefinition["handler"]>();
+  private methods = new Map<string, RouteDefinition["handler"]>();
   private socketPath: string;
 
   constructor() {
@@ -149,11 +137,8 @@ export class AssistantIpcServer {
       { source: resolution.source, path: resolution.path },
       "Assistant IPC socket path resolved",
     );
-    for (const route of routeDefinitionsToIpcRoutes(ROUTES)) {
-      this.methods.set(route.method, route.handler);
-      if (route.structuredHandler) {
-        this.structuredMethods.set(route.method, route.structuredHandler);
-      }
+    for (const route of routeDefinitionsToIpcMethods(ROUTES)) {
+      this.methods.set(route.operationId, route.handler);
     }
   }
 
@@ -249,8 +234,8 @@ export class AssistantIpcServer {
       return;
     }
 
-    const legacyHandler = this.methods.get(req.method);
-    if (!legacyHandler) {
+    const handler = this.methods.get(req.method);
+    if (!handler) {
       this.sendResponse(socket, reader, {
         id: req.id,
         error: `Unknown method: ${req.method}`,
@@ -258,17 +243,10 @@ export class AssistantIpcServer {
       return;
     }
 
-    // Prefer the structured handler when available. The gateway IPC proxy
-    // sends separated { pathParams, queryParams, body, headers }; CLI
-    // callers send flat params and use the legacy handler.
-    const structuredHandler = this.structuredMethods.get(req.method);
-
     void binary;
 
     try {
-      const result = structuredHandler
-        ? structuredHandler(req.params ?? {})
-        : legacyHandler(req.params);
+      const result = handler(req.params ?? {});
 
       if (result instanceof Promise) {
         result
