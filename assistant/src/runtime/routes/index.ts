@@ -15,6 +15,7 @@ import { ROUTES as APPROVAL_ROUTES } from "./approval-routes.js";
 import { ROUTES as ATTACHMENT_ROUTES } from "./attachment-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./audio-routes.js";
 import { ROUTES as AVATAR_ROUTES } from "./avatar-routes.js";
+import { ROUTES as BACKGROUND_TOOL_ROUTES } from "./background-tool-routes.js";
 import { ROUTES as BACKUP_ROUTES } from "./backup-routes.js";
 import { ROUTES as BRAIN_GRAPH_ROUTES } from "./brain-graph-routes.js";
 import { ROUTES as BROWSER_ROUTES } from "./browser-routes.js";
@@ -91,6 +92,7 @@ export const ROUTES: RouteDefinition[] = [
   ...APPROVAL_ROUTES,
   ...AUDIO_ROUTES,
   ...AVATAR_ROUTES,
+  ...BACKGROUND_TOOL_ROUTES,
   ...BACKUP_ROUTES,
   ...CACHE_ROUTES,
   ...CALL_ROUTES,
