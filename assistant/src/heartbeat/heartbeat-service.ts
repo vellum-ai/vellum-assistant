@@ -355,6 +355,10 @@ export class HeartbeatService {
             missingScopes: result.missingScopes,
           },
           routingIntent: "single_channel",
+          conversationMetadata: {
+            source: "heartbeat",
+            groupId: "system:background",
+          },
         });
       } catch (err) {
         log.error(
