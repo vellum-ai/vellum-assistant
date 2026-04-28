@@ -23,7 +23,7 @@ import { Command } from "commander";
 /** The last `cliIpcCall` invocation captured for assertions. */
 let lastIpcCall: {
   method: string;
-   
+
   params?: any;
 } | null = null;
 
@@ -42,8 +42,7 @@ let logOutput: string[] = [];
 // ---------------------------------------------------------------------------
 
 mock.module("../../../ipc/cli-client.js", () => ({
-  cliIpcCall: async (method: string,  
-  params?: any) => {
+  cliIpcCall: async (method: string, params?: any) => {
     lastIpcCall = { method, params };
     return mockIpcResult;
   },
@@ -138,7 +137,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("subcommand registration", () => {
-  test("registers v2 under memory with all five subcommands", () => {
+  test("registers v2 under memory with all six subcommands", () => {
     const program = buildProgramWithStubParent();
     const memory = program.commands.find((c) => c.name() === "memory");
     expect(memory).toBeDefined();
@@ -150,6 +149,7 @@ describe("subcommand registration", () => {
       "migrate",
       "rebuild-edges",
       "reembed",
+      "reembed-skills",
       "validate",
     ]);
   });
@@ -161,7 +161,7 @@ describe("subcommand registration", () => {
     );
   });
 
-  test("--help lists all five subcommands", () => {
+  test("--help lists all six subcommands", () => {
     const program = buildProgramWithStubParent();
     const memory = program.commands.find((c) => c.name() === "memory")!;
     const v2 = memory.commands.find((c) => c.name() === "v2")!;
@@ -170,6 +170,7 @@ describe("subcommand registration", () => {
     expect(help).toContain("migrate");
     expect(help).toContain("rebuild-edges");
     expect(help).toContain("reembed");
+    expect(help).toContain("reembed-skills");
     expect(help).toContain("activation");
     expect(help).toContain("validate");
   });

@@ -38,6 +38,7 @@ import { cliIpcCall } from "../../ipc/cli-client.js";
 import type {
   MemoryV2BackfillOp,
   MemoryV2BackfillResult,
+  MemoryV2ReembedSkillsResult,
   MemoryV2ValidateResult,
 } from "../../runtime/routes/memory-v2-routes.js";
 import { log } from "../logger.js";
@@ -104,7 +105,7 @@ bidirectional edges in memory/edges.json, and activation-based retrieval.
 v2 stays gated behind the memory-v2-enabled feature flag — these subcommands
 remain useful operator tools regardless of whether the flag is on.
 
-Subcommands fall into two groups:
+Subcommands fall into three groups:
 
   Mutating (return a jobId enqueued on the memory job queue):
     migrate          One-shot v1->v2 synthesis. Refuses to overwrite an
@@ -113,6 +114,9 @@ Subcommands fall into two groups:
                      memory/edges.json.
     reembed          Refresh dense + sparse vectors for every concept page.
     activation       Refresh persisted activation state for every conversation.
+
+  Mutating (synchronous — runs inside the daemon and returns when done):
+    reembed-skills   Re-seed v2 skill entries from the current skill catalog.
 
   Read-only:
     validate         Print a diagnostic report of orphan edges, oversized
@@ -124,6 +128,7 @@ Examples:
   $ assistant memory v2 migrate --force
   $ assistant memory v2 rebuild-edges
   $ assistant memory v2 reembed
+  $ assistant memory v2 reembed-skills
   $ assistant memory v2 activation`,
   );
 
@@ -203,6 +208,42 @@ Examples:
       await runBackfillOp("reembed");
     });
 
+  // ── reembed-skills ────────────────────────────────────────────────────
+
+  v2.command("reembed-skills")
+    .description(
+      "Re-seed v2 skill entries from the current skill catalog (synchronous)",
+    )
+    .addHelpText(
+      "after",
+      `
+Re-runs the v2 skill catalog seed against the current skill set, replacing
+both the in-process skill cache and the memory_v2_skills Qdrant collection.
+Useful after editing a skill's SKILL.md, after a feature-flag flip changes
+the enabled-skill set, or to recover a corrupted skills collection.
+
+Unlike 'reembed' (concept pages), this runs synchronously inside the
+daemon — the command returns only once the seed completes. Requires both
+the memory-v2-enabled feature flag and memory.v2.enabled to be on.
+
+Examples:
+  $ assistant memory v2 reembed-skills`,
+    )
+    .action(async () => {
+      const result = await cliIpcCall<MemoryV2ReembedSkillsResult>(
+        "memory_v2_reembed_skills",
+        { body: {} },
+      );
+
+      if (!result.ok) {
+        log.error(result.error ?? "Failed to re-seed v2 skill entries");
+        process.exitCode = 1;
+        return;
+      }
+
+      log.info("Skill re-seed complete.");
+    });
+
   // ── activation ────────────────────────────────────────────────────────
 
   v2.command("activation")
@@ -253,10 +294,12 @@ Examples:
   $ assistant memory v2 validate`,
     )
     .action(async () => {
-      const result =
-        await cliIpcCall<MemoryV2ValidateResult>("memory_v2_validate", {
+      const result = await cliIpcCall<MemoryV2ValidateResult>(
+        "memory_v2_validate",
+        {
           body: {},
-        });
+        },
+      );
 
       if (!result.ok) {
         log.error(result.error ?? "Failed to validate memory v2 state");
