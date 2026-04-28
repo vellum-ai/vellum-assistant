@@ -1,11 +1,12 @@
 /**
- * Memory v2 route definitions — backfill + validate.
+ * Memory v2 route definitions — backfill + validate + reembed-skills.
  *
  * Migrated from `ipc/routes/memory-v2-backfill.ts` and
  * `ipc/routes/memory-v2-validate.ts` into the shared ROUTES array.
  */
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { loadConfig } from "../../config/loader.js";
 import {
   enqueueMemoryJob,
@@ -13,7 +14,9 @@ import {
 } from "../../memory/jobs-store.js";
 import { readEdges, validateEdges } from "../../memory/v2/edges.js";
 import { listPages, readPage } from "../../memory/v2/page-store.js";
+import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 import type { RouteHandlerArgs } from "./types.js";
 
@@ -115,6 +118,42 @@ async function handleValidate({
   };
 }
 
+// ── Reembed skills ──────────────────────────────────────────────────────
+
+const MemoryV2ReembedSkillsParams = z.object({}).strict();
+
+export type MemoryV2ReembedSkillsResult = {
+  success: true;
+};
+
+async function handleReembedSkills({
+  body = {},
+}: RouteHandlerArgs): Promise<MemoryV2ReembedSkillsResult> {
+  MemoryV2ReembedSkillsParams.parse(body);
+
+  // Gate the route on both the feature flag and the per-workspace config
+  // toggle so the v2 skill collection never gets re-seeded against a
+  // workspace whose v2 subsystem is intentionally off.
+  const config = loadConfig();
+  if (
+    !isAssistantFeatureFlagEnabled("memory-v2-enabled", config) ||
+    !config.memory.v2.enabled
+  ) {
+    throw new RouteError(
+      "Memory v2 is not enabled — flip both the memory-v2-enabled feature flag and memory.v2.enabled to use this command.",
+      "MEMORY_V2_DISABLED",
+      409,
+    );
+  }
+
+  // Unlike the queued backfill jobs above, this is a CLI-driven sync
+  // request: the operator wants the cache replaced before the next prompt
+  // assembly, so we await the seed inline rather than enqueueing it.
+  await seedV2SkillEntries();
+
+  return { success: true };
+}
+
 // ── Route definitions ───────────────────────────────────────────────────
 
 export const ROUTES: RouteDefinition[] = [
@@ -139,5 +178,16 @@ export const ROUTES: RouteDefinition[] = [
       "Read-only structural validation of the v2 workspace — reports orphan edges, oversized pages, and parse failures.",
     tags: ["memory"],
     requestBody: MemoryV2ValidateParams,
+  },
+  {
+    operationId: "memory_v2_reembed_skills",
+    method: "POST",
+    endpoint: "memory/v2/reembed-skills",
+    handler: handleReembedSkills,
+    summary: "Re-seed v2 skill entries from the current skill catalog",
+    description:
+      "Synchronously re-runs seedV2SkillEntries against the current skill catalog. Gated on memory-v2-enabled flag and config.memory.v2.enabled.",
+    tags: ["memory"],
+    requestBody: MemoryV2ReembedSkillsParams,
   },
 ];
