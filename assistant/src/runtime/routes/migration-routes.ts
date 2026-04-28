@@ -552,7 +552,7 @@ async function extractFileData(
       const syntheticReq = new Request("http://localhost", {
         method: "POST",
         headers: { "content-type": contentType },
-        body: rawBody,
+        body: rawBody.buffer as ArrayBuffer,
       });
       const formData = await syntheticReq.formData();
       const file = formData.get("file");

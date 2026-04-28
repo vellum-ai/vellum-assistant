@@ -279,7 +279,7 @@ interface AcceptedResponse {
 }
 
 interface ConflictResponse {
-  error: { code: "import_in_progress"; job_id: string };
+  error: { code: "import_in_progress"; message: string };
 }
 
 interface BadRequestResponse {
@@ -287,7 +287,7 @@ interface BadRequestResponse {
 }
 
 interface InvalidBundleUrlResponse {
-  error: { code: "invalid_bundle_url"; reason: string };
+  error: { code: "invalid_bundle_url"; message: string };
 }
 
 // ---------------------------------------------------------------------------
