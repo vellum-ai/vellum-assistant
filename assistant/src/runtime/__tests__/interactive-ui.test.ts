@@ -1,43 +1,98 @@
 /**
  * Tests for the interactive UI request primitive.
  *
- * Exercise strategy: the module exposes a register/request pattern with
- * a module-level resolver, identical to `runtime/agent-wake.ts`. Tests
- * exercise:
- *   1. Contract validation — request/result shapes.
- *   2. Missing resolver behavior (fail-closed).
- *   3. Resolver registration + delegation.
- *   4. Resolver error handling (fail-closed on throw).
- *   5. Surface ID generation and consistency.
- *   6. Decision token minting for submitted confirmation requests.
- *   7. Decision token absence for non-confirmation or non-submitted.
- *   8. Structured audit log emission for all outcomes.
+ * Mocks findConversation and showStandaloneSurface at the module boundary
+ * so requestInteractiveUi can be exercised without the daemon conversation
+ * store or real surface rendering.
+ *
+ * Exercise strategy:
+ *   1. Missing conversation behavior (fail-closed).
+ *   2. Delegation to showStandaloneSurface when conversation found.
+ *   3. showStandaloneSurface error handling (fail-closed on throw).
+ *   4. Surface ID generation and consistency.
+ *   5. Decision token minting for submitted confirmation requests.
+ *   6. Decision token absence for non-confirmation or non-submitted.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { decodeDecisionToken } from "../decision-token.js";
-import {
-  type CancellationReason,
-  type InteractiveUiRequest,
-  type InteractiveUiResult,
-  registerInteractiveUiResolver,
-  requestInteractiveUi,
-  resetInteractiveUiResolverForTests,
-  resetSurfaceIdCounterForTests,
+// Import types statically (mock.module only affects runtime bindings)
+import type {
+  CancellationReason,
+  InteractiveUiRequest,
 } from "../interactive-ui.js";
+import type { InteractiveUiResult } from "../interactive-ui.js";
+
+// ---------------------------------------------------------------------------
+// Mock state
+// ---------------------------------------------------------------------------
+
+/** When set, findConversation returns this object. When null, returns undefined. */
+let mockConversation: Record<string, unknown> | null = {
+  conversationId: "conv-default",
+  hasNoClient: false,
+};
+
+/** The result showStandaloneSurface will return. */
+let mockSurfaceResult: InteractiveUiResult = {
+  status: "submitted",
+  actionId: "confirm",
+  surfaceId: "mock-surface-1",
+};
+
+/** Whether showStandaloneSurface should throw. */
+let mockSurfaceThrows: Error | null = null;
+
+/** Captured calls to showStandaloneSurface. */
+let surfaceCalls: Array<{
+  ctx: unknown;
+  request: unknown;
+  surfaceId: string;
+}> = [];
+
+mock.module("../../daemon/conversation-store.js", () => ({
+  findConversation: (_conversationId: string) => {
+    return mockConversation ?? undefined;
+  },
+}));
+
+mock.module("../../daemon/conversation-surfaces.js", () => ({
+  showStandaloneSurface: async (
+    ctx: unknown,
+    request: unknown,
+    surfaceId: string,
+  ) => {
+    surfaceCalls.push({ ctx, request, surfaceId });
+    if (mockSurfaceThrows) throw mockSurfaceThrows;
+    return mockSurfaceResult;
+  },
+}));
+
+// Import runtime values after mocking
+const { requestInteractiveUi, resetSurfaceIdCounterForTests } =
+  await import("../interactive-ui.js");
+const { decodeDecisionToken } = await import("../decision-token.js");
 
 // ── Setup ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  resetInteractiveUiResolverForTests();
   resetSurfaceIdCounterForTests();
+  mockConversation = { conversationId: "conv-default", hasNoClient: false };
+  mockSurfaceResult = {
+    status: "submitted",
+    actionId: "confirm",
+    surfaceId: "mock-surface-1",
+  };
+  mockSurfaceThrows = null;
+  surfaceCalls = [];
 });
 
-// ── Missing resolver (fail-closed) ───────────────────────────────────
+// ── Conversation not found (fail-closed) ─────────────────────────────
 
-describe("requestInteractiveUi without resolver", () => {
-  test("returns cancelled with no_interactive_surface reason when no resolver is registered", async () => {
+describe("requestInteractiveUi without conversation", () => {
+  test("returns cancelled with conversation_not_found reason when conversation not in memory", async () => {
+    mockConversation = null;
+
     const request: InteractiveUiRequest = {
       conversationId: "conv-1",
       surfaceType: "confirmation",
@@ -47,14 +102,17 @@ describe("requestInteractiveUi without resolver", () => {
     const result = await requestInteractiveUi(request);
 
     expect(result.status).toBe("cancelled");
-    expect(result.cancellationReason).toBe("no_interactive_surface");
+    expect(result.cancellationReason).toBe("conversation_not_found");
     expect(result.surfaceId).toBeString();
     expect(result.surfaceId.length).toBeGreaterThan(0);
     expect(result.actionId).toBeUndefined();
     expect(result.submittedData).toBeUndefined();
+    expect(surfaceCalls).toHaveLength(0);
   });
 
   test("generates a unique surfaceId per call", async () => {
+    mockConversation = null;
+
     const request: InteractiveUiRequest = {
       conversationId: "conv-1",
       surfaceType: "confirmation",
@@ -68,6 +126,8 @@ describe("requestInteractiveUi without resolver", () => {
   });
 
   test("does not mint decision token on fail-closed cancel", async () => {
+    mockConversation = null;
+
     const result = await requestInteractiveUi({
       conversationId: "conv-failclosed",
       surfaceType: "confirmation",
@@ -75,25 +135,20 @@ describe("requestInteractiveUi without resolver", () => {
     });
 
     expect(result.status).toBe("cancelled");
-    expect(result.cancellationReason).toBe("no_interactive_surface");
+    expect(result.cancellationReason).toBe("conversation_not_found");
     expect(result.decisionToken).toBeUndefined();
   });
 });
 
-// ── Resolver registration + delegation ──────────────────────────────
+// ── Delegation to showStandaloneSurface ──────────────────────────────
 
-describe("requestInteractiveUi with resolver", () => {
-  test("delegates to the registered resolver", async () => {
-    const receivedRequests: InteractiveUiRequest[] = [];
-
-    registerInteractiveUiResolver(async (req) => {
-      receivedRequests.push(req);
-      return {
-        status: "submitted",
-        actionId: "confirm",
-        surfaceId: "test-surface-1",
-      };
-    });
+describe("requestInteractiveUi with conversation", () => {
+  test("delegates to showStandaloneSurface", async () => {
+    mockSurfaceResult = {
+      status: "submitted",
+      actionId: "confirm",
+      surfaceId: "test-surface-1",
+    };
 
     const request: InteractiveUiRequest = {
       conversationId: "conv-2",
@@ -112,22 +167,15 @@ describe("requestInteractiveUi with resolver", () => {
     expect(result.status).toBe("submitted");
     expect(result.actionId).toBe("confirm");
     expect(result.surfaceId).toBe("test-surface-1");
-    expect(receivedRequests).toHaveLength(1);
-    expect(receivedRequests[0].conversationId).toBe("conv-2");
-    expect(receivedRequests[0].surfaceType).toBe("confirmation");
-    expect(receivedRequests[0].title).toBe("Confirm deletion");
-    expect(receivedRequests[0].data).toEqual({
-      itemName: "important-file.txt",
-    });
-    expect(receivedRequests[0].actions).toHaveLength(2);
-    expect(receivedRequests[0].timeoutMs).toBe(30_000);
+    expect(surfaceCalls).toHaveLength(1);
+    expect(surfaceCalls[0].surfaceId).toStartWith("ui-standalone-");
   });
 
-  test("passes through timed_out status from resolver", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("passes through timed_out status", async () => {
+    mockSurfaceResult = {
       status: "timed_out",
       surfaceId: "timeout-surface",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-3",
@@ -140,11 +188,11 @@ describe("requestInteractiveUi with resolver", () => {
     expect(result.surfaceId).toBe("timeout-surface");
   });
 
-  test("passes through cancelled status from resolver", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("passes through cancelled status", async () => {
+    mockSurfaceResult = {
       status: "cancelled",
       surfaceId: "cancelled-surface",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-4",
@@ -156,14 +204,14 @@ describe("requestInteractiveUi with resolver", () => {
     expect(result.surfaceId).toBe("cancelled-surface");
   });
 
-  test("passes through submitted data from resolver", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("passes through submitted data", async () => {
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "submit",
       submittedData: { name: "Alice", email: "alice@example.com" },
       summary: "Form submitted by user",
       surfaceId: "form-surface",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-5",
@@ -180,37 +228,13 @@ describe("requestInteractiveUi with resolver", () => {
     expect(result.summary).toBe("Form submitted by user");
     expect(result.surfaceId).toBe("form-surface");
   });
-
-  test("replaces resolver when registered a second time", async () => {
-    registerInteractiveUiResolver(async () => ({
-      status: "submitted",
-      actionId: "first",
-      surfaceId: "first-resolver",
-    }));
-
-    registerInteractiveUiResolver(async () => ({
-      status: "cancelled",
-      surfaceId: "second-resolver",
-    }));
-
-    const result = await requestInteractiveUi({
-      conversationId: "conv-6",
-      surfaceType: "confirmation",
-      data: {},
-    });
-
-    expect(result.status).toBe("cancelled");
-    expect(result.surfaceId).toBe("second-resolver");
-  });
 });
 
-// ── Error handling (fail-closed on resolver throw) ──────────────────
+// ── Error handling (fail-closed on throw) ────────────────────────────
 
-describe("resolver error handling", () => {
-  test("returns cancelled with resolver_error reason when resolver throws", async () => {
-    registerInteractiveUiResolver(async () => {
-      throw new Error("Surface rendering failed");
-    });
+describe("showStandaloneSurface error handling", () => {
+  test("returns cancelled with resolver_error reason when showStandaloneSurface throws", async () => {
+    mockSurfaceThrows = new Error("Surface rendering failed");
 
     const result = await requestInteractiveUi({
       conversationId: "conv-7",
@@ -224,26 +248,8 @@ describe("resolver error handling", () => {
     expect(result.surfaceId.length).toBeGreaterThan(0);
   });
 
-  test("returns cancelled with resolver_error reason when resolver rejects", async () => {
-    registerInteractiveUiResolver(() =>
-      Promise.reject(new Error("Connection lost")),
-    );
-
-    const result = await requestInteractiveUi({
-      conversationId: "conv-8",
-      surfaceType: "form",
-      data: {},
-    });
-
-    expect(result.status).toBe("cancelled");
-    expect(result.cancellationReason).toBe("resolver_error");
-    expect(result.surfaceId).toBeString();
-  });
-
-  test("does not mint decision token on resolver error", async () => {
-    registerInteractiveUiResolver(async () => {
-      throw new Error("kaboom");
-    });
+  test("does not mint decision token on error", async () => {
+    mockSurfaceThrows = new Error("kaboom");
 
     const result = await requestInteractiveUi({
       conversationId: "conv-err-token",
@@ -260,11 +266,11 @@ describe("resolver error handling", () => {
 // ── Surface ID consistency ──────────────────────────────────────────
 
 describe("surfaceId handling", () => {
-  test("uses resolver-provided surfaceId when present", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("uses showStandaloneSurface-provided surfaceId when present", async () => {
+    mockSurfaceResult = {
       status: "submitted",
       surfaceId: "resolver-provided-id",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-9",
@@ -275,11 +281,11 @@ describe("surfaceId handling", () => {
     expect(result.surfaceId).toBe("resolver-provided-id");
   });
 
-  test("fills in surfaceId when resolver returns empty string", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("fills in surfaceId when showStandaloneSurface returns empty string", async () => {
+    mockSurfaceResult = {
       status: "submitted",
       surfaceId: "",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-10",
@@ -287,7 +293,6 @@ describe("surfaceId handling", () => {
       data: {},
     });
 
-    // Empty string is falsy, so the generated surfaceId should be used
     expect(result.surfaceId).toStartWith("ui-interaction-");
   });
 });
@@ -296,11 +301,11 @@ describe("surfaceId handling", () => {
 
 describe("decision token", () => {
   test("mints token for affirmative confirm action", async () => {
-    registerInteractiveUiResolver(async () => ({
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "confirm",
       surfaceId: "confirm-surface-1",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-token-1",
@@ -312,7 +317,6 @@ describe("decision token", () => {
     expect(result.decisionToken).toBeString();
     expect(result.decisionToken!.length).toBeGreaterThan(0);
 
-    // Token should be decodable and contain correct metadata
     const payload = decodeDecisionToken(result.decisionToken!);
     expect(payload).not.toBeNull();
     expect(payload!.conversationId).toBe("conv-token-1");
@@ -322,12 +326,12 @@ describe("decision token", () => {
     expect(payload!.expiresAt).toBeString();
   });
 
-  test("does not mint token for non-confirm actionId (e.g. approve)", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("does not mint token for non-confirm actionId", async () => {
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "approve",
       surfaceId: "approve-surface",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-token-approve",
@@ -340,12 +344,12 @@ describe("decision token", () => {
     expect(result.decisionToken).toBeUndefined();
   });
 
-  test("does not mint token for deny action on confirmation", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("does not mint token for deny action", async () => {
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "deny",
       surfaceId: "deny-surface",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-token-deny",
@@ -358,11 +362,11 @@ describe("decision token", () => {
     expect(result.decisionToken).toBeUndefined();
   });
 
-  test("does not mint token when actionId is absent on confirmation", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("does not mint token when actionId is absent", async () => {
+    mockSurfaceResult = {
       status: "submitted",
       surfaceId: "no-action-surface",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-token-noaction",
@@ -375,11 +379,11 @@ describe("decision token", () => {
   });
 
   test("token has expiry in the future", async () => {
-    registerInteractiveUiResolver(async () => ({
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "confirm",
       surfaceId: "expiry-surface",
-    }));
+    };
 
     const before = Date.now();
     const result = await requestInteractiveUi({
@@ -390,19 +394,18 @@ describe("decision token", () => {
 
     const payload = decodeDecisionToken(result.decisionToken!);
     const expiresAt = new Date(payload!.expiresAt).getTime();
-    // Should expire ~5 minutes in the future
     expect(expiresAt).toBeGreaterThan(before);
     expect(expiresAt).toBeGreaterThan(before + 4 * 60 * 1000);
     expect(expiresAt).toBeLessThanOrEqual(before + 6 * 60 * 1000);
   });
 
   test("does not mint token for submitted form request", async () => {
-    registerInteractiveUiResolver(async () => ({
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "submit",
       submittedData: { name: "Bob" },
       surfaceId: "form-no-token",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-form-notoken",
@@ -414,11 +417,11 @@ describe("decision token", () => {
     expect(result.decisionToken).toBeUndefined();
   });
 
-  test("does not mint token for cancelled confirmation request", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("does not mint token for cancelled confirmation", async () => {
+    mockSurfaceResult = {
       status: "cancelled",
       surfaceId: "cancel-no-token",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-cancel-notoken",
@@ -430,11 +433,11 @@ describe("decision token", () => {
     expect(result.decisionToken).toBeUndefined();
   });
 
-  test("does not mint token for timed_out confirmation request", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("does not mint token for timed_out confirmation", async () => {
+    mockSurfaceResult = {
       status: "timed_out",
       surfaceId: "timeout-no-token",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-timeout-notoken",
@@ -447,11 +450,11 @@ describe("decision token", () => {
   });
 
   test("each minted token is unique", async () => {
-    registerInteractiveUiResolver(async () => ({
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "confirm",
       surfaceId: "unique-surface",
-    }));
+    };
 
     const result1 = await requestInteractiveUi({
       conversationId: "conv-unique-1",
@@ -465,7 +468,6 @@ describe("decision token", () => {
       data: {},
     });
 
-    // Tokens differ due to nonce even with same conversation/action
     expect(result1.decisionToken).not.toBe(result2.decisionToken);
   });
 });
@@ -473,23 +475,23 @@ describe("decision token", () => {
 // ── Cancellation reason propagation ──────────────────────────────────
 
 describe("cancellation reason", () => {
-  test("no_interactive_surface reason when no resolver registered", async () => {
+  test("conversation_not_found reason when conversation not in memory", async () => {
+    mockConversation = null;
+
     const result = await requestInteractiveUi({
-      conversationId: "conv-reason-no-resolver",
+      conversationId: "conv-reason-not-found",
       surfaceType: "confirmation",
       data: {},
     });
 
     expect(result.status).toBe("cancelled");
     expect(result.cancellationReason).toBe(
-      "no_interactive_surface" satisfies CancellationReason,
+      "conversation_not_found" satisfies CancellationReason,
     );
   });
 
-  test("resolver_error reason when resolver throws", async () => {
-    registerInteractiveUiResolver(async () => {
-      throw new Error("boom");
-    });
+  test("resolver_error reason when showStandaloneSurface throws", async () => {
+    mockSurfaceThrows = new Error("boom");
 
     const result = await requestInteractiveUi({
       conversationId: "conv-reason-error",
@@ -503,12 +505,12 @@ describe("cancellation reason", () => {
     );
   });
 
-  test("resolver can return user_dismissed reason", async () => {
-    registerInteractiveUiResolver(async () => ({
+  test("passes through user_dismissed reason from showStandaloneSurface", async () => {
+    mockSurfaceResult = {
       status: "cancelled",
       surfaceId: "dismissed-surface",
       cancellationReason: "user_dismissed",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-reason-user-dismissed",
@@ -520,46 +522,12 @@ describe("cancellation reason", () => {
     expect(result.cancellationReason).toBe("user_dismissed");
   });
 
-  test("resolver can return conversation_not_found reason", async () => {
-    registerInteractiveUiResolver(async () => ({
-      status: "cancelled",
-      surfaceId: "not-found-surface",
-      cancellationReason: "conversation_not_found",
-    }));
-
-    const result = await requestInteractiveUi({
-      conversationId: "conv-reason-not-found",
-      surfaceType: "confirmation",
-      data: {},
-    });
-
-    expect(result.status).toBe("cancelled");
-    expect(result.cancellationReason).toBe("conversation_not_found");
-  });
-
-  test("resolver can return resolver_unavailable reason", async () => {
-    registerInteractiveUiResolver(async () => ({
-      status: "cancelled",
-      surfaceId: "unavailable-surface",
-      cancellationReason: "resolver_unavailable",
-    }));
-
-    const result = await requestInteractiveUi({
-      conversationId: "conv-reason-unavailable",
-      surfaceType: "confirmation",
-      data: {},
-    });
-
-    expect(result.status).toBe("cancelled");
-    expect(result.cancellationReason).toBe("resolver_unavailable");
-  });
-
   test("submitted result does not carry cancellationReason", async () => {
-    registerInteractiveUiResolver(async () => ({
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "confirm",
       surfaceId: "no-reason-submit",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-reason-submitted",
@@ -572,10 +540,10 @@ describe("cancellation reason", () => {
   });
 
   test("timed_out result does not carry cancellationReason", async () => {
-    registerInteractiveUiResolver(async () => ({
+    mockSurfaceResult = {
       status: "timed_out",
       surfaceId: "no-reason-timeout",
-    }));
+    };
 
     const result = await requestInteractiveUi({
       conversationId: "conv-reason-timeout",
@@ -591,70 +559,14 @@ describe("cancellation reason", () => {
 // ── Contract shape validation ───────────────────────────────────────
 
 describe("contract shapes", () => {
-  test("request with minimal fields", async () => {
-    const received: InteractiveUiRequest[] = [];
-    registerInteractiveUiResolver(async (req) => {
-      received.push(req);
-      return { status: "cancelled", surfaceId: "min-surface" };
-    });
-
-    await requestInteractiveUi({
-      conversationId: "conv-minimal",
-      surfaceType: "confirmation",
-      data: {},
-    });
-
-    expect(received[0]).toEqual({
-      conversationId: "conv-minimal",
-      surfaceType: "confirmation",
-      data: {},
-    });
-    // Optional fields should be absent, not undefined
-    expect("title" in received[0]).toBe(false);
-    expect("actions" in received[0]).toBe(false);
-    expect("timeoutMs" in received[0]).toBe(false);
-  });
-
-  test("request with all fields populated", async () => {
-    const received: InteractiveUiRequest[] = [];
-    registerInteractiveUiResolver(async (req) => {
-      received.push(req);
-      return { status: "submitted", actionId: "ok", surfaceId: "full-surface" };
-    });
-
-    const fullRequest: InteractiveUiRequest = {
-      conversationId: "conv-full",
-      surfaceType: "form",
-      title: "Enter details",
-      data: { schema: { name: "string", age: "number" } },
-      actions: [
-        { id: "ok", label: "Submit", variant: "primary" },
-        { id: "skip", label: "Skip" },
-      ],
-      timeoutMs: 60_000,
-    };
-
-    await requestInteractiveUi(fullRequest);
-
-    expect(received[0].conversationId).toBe("conv-full");
-    expect(received[0].surfaceType).toBe("form");
-    expect(received[0].title).toBe("Enter details");
-    expect(received[0].actions).toHaveLength(2);
-    expect(received[0].actions![0].variant).toBe("primary");
-    expect(received[0].actions![1].variant).toBeUndefined();
-    expect(received[0].timeoutMs).toBe(60_000);
-  });
-
   test("result contract — submitted with all optional fields", async () => {
-    const fullResult: InteractiveUiResult = {
+    mockSurfaceResult = {
       status: "submitted",
       actionId: "confirm",
       submittedData: { choice: "yes" },
       summary: "User confirmed the action",
       surfaceId: "full-result-surface",
     };
-
-    registerInteractiveUiResolver(async () => fullResult);
 
     const result = await requestInteractiveUi({
       conversationId: "conv-contract",
@@ -667,7 +579,6 @@ describe("contract shapes", () => {
     expect(result.submittedData).toEqual({ choice: "yes" });
     expect(result.summary).toBe("User confirmed the action");
     expect(result.surfaceId).toBe("full-result-surface");
-    // Confirmation + submitted → token should be present
     expect(result.decisionToken).toBeString();
   });
 });
