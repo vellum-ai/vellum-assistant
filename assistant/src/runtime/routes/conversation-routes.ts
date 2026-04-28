@@ -405,10 +405,6 @@ export function handleListMessages(
     );
   }
 
-  if (!resolvedConversationId) {
-    return Response.json({ messages: [] });
-  }
-
   const beforeTimestampRaw = url.searchParams.get("beforeTimestamp");
   const limitRaw = url.searchParams.get("limit");
   const pageRaw = url.searchParams.get("page");
@@ -432,6 +428,21 @@ export function handleListMessages(
     );
   }
   const isLatestPage = pageRaw === "latest";
+
+  if (!resolvedConversationId) {
+    // Unresolved conversation keys still need to advertise the stable
+    // `page=latest` contract so the web client can rely on metadata fields
+    // being present even before any message is persisted.
+    if (isLatestPage && beforeTimestampRaw === null) {
+      return Response.json({
+        messages: [],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+      });
+    }
+    return Response.json({ messages: [] });
+  }
 
   const beforeTimestamp = beforeTimestampRaw
     ? Number(beforeTimestampRaw)

@@ -214,6 +214,32 @@ describe("handleListMessages page=latest", () => {
     expect(body.oldestMessageId).toBeNull();
   });
 
+  test("page=latest on unresolved conversationKey returns null metadata contract", async () => {
+    const response = handleListMessages(
+      buildUrl({ conversationKey: "no-such-key", page: "latest" }),
+      null,
+    );
+    const body = (await response.json()) as ListResponse;
+
+    expect(body.messages).toEqual([]);
+    expect(body.hasMore).toBe(false);
+    expect(body.oldestTimestamp).toBeNull();
+    expect(body.oldestMessageId).toBeNull();
+  });
+
+  test("no-page GET on unresolved conversationKey keeps minimal shape", async () => {
+    const response = handleListMessages(
+      buildUrl({ conversationKey: "no-such-key" }),
+      null,
+    );
+    const body = (await response.json()) as ListResponse;
+
+    expect(body.messages).toEqual([]);
+    expect("hasMore" in body).toBe(false);
+    expect("oldestTimestamp" in body).toBe(false);
+    expect("oldestMessageId" in body).toBe(false);
+  });
+
   test("page=invalid returns 400 with httpError shape", async () => {
     const conv = createConversation();
 
