@@ -43,6 +43,16 @@ struct SettingsGeneralDiskSectionTests {
     }
 
     @Test
+    func rememberedDeepLinkKeepsResourcesVisibleAfterPendingSectionClears() {
+        #expect(SettingsGeneralTab.shouldShowSystemResourcesSection(
+            topology: .local,
+            healthz: nil,
+            pendingSection: nil,
+            deepLinkRequested: true
+        ))
+    }
+
+    @Test
     func megabyteFormatterUsesReadableUnits() {
         #expect(SettingsGeneralTab.formatMb(512) == "512 MB")
         #expect(SettingsGeneralTab.formatMb(1_536) == "1.5 GB")
