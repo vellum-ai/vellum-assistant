@@ -222,7 +222,7 @@ public struct PermissionPromptView: View {
                     }
                 }
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    Capsule()
                         .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
                         .allowsHitTesting(false)
                 )
