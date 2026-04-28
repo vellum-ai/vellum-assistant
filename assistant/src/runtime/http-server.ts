@@ -5,8 +5,6 @@
  * configured port (default: 7821).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
@@ -227,7 +225,6 @@ export class RuntimeHttpServer {
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   private guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
-  private interfacesDir: string | null;
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
 
@@ -243,7 +240,6 @@ export class RuntimeHttpServer {
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
     this.guardianFollowUpConversationGenerator =
       options.guardianFollowUpConversationGenerator;
-    this.interfacesDir = options.interfacesDir ?? null;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -1449,24 +1445,6 @@ export class RuntimeHttpServer {
       return await handleConnectAction(validatedReq);
 
     return null;
-  }
-
-  private handleGetInterface(interfacePath: string): Response {
-    if (!this.interfacesDir) {
-      return httpError("NOT_FOUND", "Interface not found", 404);
-    }
-    const fullPath = resolve(this.interfacesDir, interfacePath);
-    if (
-      (fullPath !== this.interfacesDir &&
-        !fullPath.startsWith(this.interfacesDir + "/")) ||
-      !existsSync(fullPath)
-    ) {
-      return httpError("NOT_FOUND", "Interface not found", 404);
-    }
-    const source = readFileSync(fullPath, "utf-8");
-    return new Response(source, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
   }
 
   // ---------------------------------------------------------------------------

@@ -102,6 +102,20 @@ mock.module("../../prompts/system-prompt.js", () => ({
   stripCommentLines: (s: string) => s,
 }));
 
+// Mock processMessage — HeartbeatService now imports it directly.
+let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+
+mock.module("../../daemon/process-message.js", () => ({
+  processMessage: async (...args: unknown[]) => {
+    if (_testProcessMessage) return _testProcessMessage(...args);
+    return { messageId: `mock-msg-${Date.now()}` };
+  },
+  resolveTurnChannel: () => "vellum",
+  resolveTurnInterface: () => "vellum",
+  makePendingInteractionRegistrar: () => () => {},
+  prepareConversationForMessage: async () => ({}),
+}));
+
 const { getHomeFeedPath } = await import("../../home/feed-writer.js");
 const { HeartbeatService } = await import("../heartbeat-service.js");
 
@@ -129,6 +143,7 @@ beforeEach(() => {
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishSpy.mockClear();
+  _testProcessMessage = undefined;
 });
 
 afterEach(() => {
@@ -146,8 +161,8 @@ afterEach(() => {
 
 describe("heartbeat feed events", () => {
   test("successful heartbeat emits feed event with priority 30 and no urgency", async () => {
+    _testProcessMessage = async () => ({ messageId: "msg-1" });
     const service = new HeartbeatService({
-      processMessage: async () => ({ messageId: "msg-1" }),
       alerter: () => {},
     });
 
@@ -168,10 +183,10 @@ describe("heartbeat feed events", () => {
   });
 
   test("failed heartbeat emits feed event with priority 55 and urgency medium", async () => {
+    _testProcessMessage = async () => {
+      throw new Error("LLM call failed");
+    };
     const service = new HeartbeatService({
-      processMessage: async () => {
-        throw new Error("LLM call failed");
-      },
       alerter: () => {},
     });
 
@@ -192,8 +207,8 @@ describe("heartbeat feed events", () => {
   });
 
   test("dedupKey uses date for daily dedup", async () => {
+    _testProcessMessage = async () => ({ messageId: "msg-1" });
     const service = new HeartbeatService({
-      processMessage: async () => ({ messageId: "msg-1" }),
       alerter: () => {},
     });
 

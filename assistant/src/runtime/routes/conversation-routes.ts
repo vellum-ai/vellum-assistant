@@ -1459,7 +1459,6 @@ export async function handleSendMessage(
   deps: {
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
-    heartbeatService?: HeartbeatService;
   },
 ): Promise<unknown> {
   const body = (rawBody ?? {}) as {
@@ -1611,7 +1610,7 @@ export async function handleSendMessage(
 
   // Desktop messages are always from the guardian — reset the heartbeat
   // timer so the next heartbeat is a full interval after this interaction.
-  deps.heartbeatService?.resetTimer();
+  HeartbeatService.getInstance()?.resetTimer();
 
   const mapping = getOrCreateConversation(resolvedConversationKey, {
     conversationType: "standard",
@@ -2753,7 +2752,6 @@ export const ROUTES: RouteDefinition[] = [
           resolveAttachments,
         },
         approvalConversationGenerator: createApprovalConversationGenerator(),
-        heartbeatService: HeartbeatService.getInstance(),
       }),
   },
   {

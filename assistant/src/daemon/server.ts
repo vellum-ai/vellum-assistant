@@ -13,7 +13,6 @@ import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
-import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -772,7 +771,6 @@ export class DaemonServer {
       getOrCreateConversation: (id, options?) =>
         getOrCreateActiveConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),
-      heartbeatService: HeartbeatService.getInstance(),
     };
   }
 
