@@ -47,6 +47,8 @@ import {
   SttStreamSession,
 } from "../stt/stt-stream-session.js";
 import { getLogger } from "../util/logger.js";
+import { assistantEventHub } from "./assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 // Auth
 import {
   authenticateHostBrowserResultRequest,
@@ -265,10 +267,8 @@ export class RuntimeHttpServer {
         open: (ws) => {
           const data = ws.data as AllWebSocketData;
           if ("wsType" in data && data.wsType === "browser-relay") {
-            // When the JWT sub resolved to a guardian principal at upgrade
-            // time, register this connection with the chrome-extension
-            // registry so host_browser_request frames can be routed to it.
             if (data.guardianId) {
+              // Chrome-extension registration (legacy — WS being deprecated).
               const now = Date.now();
               getChromeExtensionRegistry().register({
                 id: data.connectionId,
@@ -278,17 +278,39 @@ export class RuntimeHttpServer {
                 connectedAt: now,
                 lastActiveAt: now,
               });
+
+              // Subscribe to the event hub and forward matching events
+              // to the WebSocket. This replaces the previous direct-send
+              // path through the chrome extension registry from the proxy.
+              const subscription = assistantEventHub.subscribe(
+                { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+                (event) => {
+                  const { type } = event.message as { type?: string };
+                  if (
+                    type === "host_browser_request" ||
+                    type === "host_browser_cancel"
+                  ) {
+                    try {
+                      ws.send(JSON.stringify(event.message));
+                    } catch {
+                      // WS may have closed — subscription cleanup happens
+                      // in the close handler.
+                    }
+                  }
+                },
+              );
+
+              // Stash the subscription handle so the close handler can
+              // dispose it.
+              (
+                data as BrowserRelayWebSocketData & {
+                  _hubSub?: { dispose(): void };
+                }
+              )._hubSub = subscription;
+
               getClientRegistry().register({
                 clientId: data.connectionId,
                 interfaceId: "chrome-extension",
-                send: (msg: unknown) => {
-                  try {
-                    ws.send(JSON.stringify(msg));
-                    return true;
-                  } catch {
-                    return false;
-                  }
-                },
               });
             }
             return;
@@ -574,13 +596,16 @@ export class RuntimeHttpServer {
         close: (ws, code, reason) => {
           const data = ws.data as AllWebSocketData;
           if ("wsType" in data && data.wsType === "browser-relay") {
-            // Always attempt to unregister — the registry uses connectionId
-            // as the key and no-ops if the entry is absent (e.g. when the
-            // connection was never registered because guardianId was
-            // undefined, or when it was superseded by a newer registration
-            // for the same guardian).
             getChromeExtensionRegistry().unregister(data.connectionId);
             getClientRegistry().unregister(data.connectionId);
+            // Dispose the event hub subscription (if any) so the hub
+            // doesn't try to deliver events to a closed WebSocket.
+            const sub = (
+              data as BrowserRelayWebSocketData & {
+                _hubSub?: { dispose(): void };
+              }
+            )._hubSub;
+            sub?.dispose();
             return;
           }
           if ("wsType" in data && data.wsType === "media-stream") {

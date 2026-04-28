@@ -43,16 +43,6 @@ const ALL_CAPABILITIES: HostProxyCapability[] = [
   "host_browser",
 ];
 
-/**
- * Opaque send function attached to a client entry. When present, the
- * registry can deliver messages to this client without knowing the
- * underlying transport (WebSocket, SSE, IPC, etc.).
- *
- * Returns `true` when the message was accepted by the transport layer;
- * `false` when the send fails (e.g. socket closed).
- */
-export type ClientSendFn = (msg: unknown) => boolean;
-
 export interface ClientEntry {
   /** Stable identifier for this client connection. */
   clientId: string;
@@ -64,13 +54,6 @@ export interface ClientEntry {
   connectedAt: number;
   /** Wall-clock timestamp (ms) of the most recent activity. */
   lastActiveAt: number;
-  /**
-   * Transport-level send function. Optional — only populated for clients
-   * whose transport supports outbound delivery from the registry (e.g.
-   * chrome-extension WebSocket). Callers should check availability before
-   * invoking.
-   */
-  send?: ClientSendFn;
 }
 
 /** Serialized form returned by the IPC route / CLI command. */
@@ -95,17 +78,12 @@ export class ClientRegistry {
    * If a client with the same `clientId` already exists, its `lastActiveAt`
    * is updated. Otherwise a new entry is created with derived capabilities.
    */
-  register(opts: {
-    clientId: string;
-    interfaceId: InterfaceId;
-    send?: ClientSendFn;
-  }): ClientEntry {
+  register(opts: { clientId: string; interfaceId: InterfaceId }): ClientEntry {
     const existing = this.clients.get(opts.clientId);
     const now = Date.now();
 
     if (existing) {
       existing.lastActiveAt = now;
-      if (opts.send) existing.send = opts.send;
       log.debug(
         { clientId: opts.clientId, interfaceId: opts.interfaceId },
         "client refreshed",
@@ -123,7 +101,6 @@ export class ClientRegistry {
       capabilities,
       connectedAt: now,
       lastActiveAt: now,
-      send: opts.send,
     };
 
     this.clients.set(opts.clientId, entry);
@@ -213,23 +190,6 @@ export class ClientRegistry {
    */
   getMostRecentByInterface(interfaceId: InterfaceId): ClientEntry | undefined {
     return this.listByInterface(interfaceId)[0];
-  }
-
-  /**
-   * Send a message to the most recently active client that supports the
-   * given capability. Returns `true` when the message was accepted by the
-   * transport, `false` when no client with a `send` function is available
-   * or the underlying send fails.
-   *
-   * On success, bumps the client's `lastActiveAt` so subsequent sends
-   * continue to target the same client.
-   */
-  sendToCapability(capability: HostProxyCapability, msg: unknown): boolean {
-    const client = this.getMostRecentByCapability(capability);
-    if (!client?.send) return false;
-    const ok = client.send(msg);
-    if (ok) client.lastActiveAt = Date.now();
-    return ok;
   }
 
   /**

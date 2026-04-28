@@ -1,5 +1,8 @@
 import { v4 as uuid } from "uuid";
 
+import { buildAssistantEvent } from "../runtime/assistant-event.js";
+import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getClientRegistry } from "../runtime/client-registry.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -69,12 +72,13 @@ export class HostBrowserProxy {
   }
 
   /**
-   * Send a ServerMessage to the most recently active `host_browser`
-   * client via the client registry. Returns true on success, false when
-   * no sendable client is available.
+   * Publish a ServerMessage through the assistant event hub. Subscribers
+   * with matching filters (e.g. the chrome-extension WS handler) will
+   * receive and forward the message to their transport.
    */
-  private sendToExtension(msg: ServerMessage): boolean {
-    return getClientRegistry().sendToCapability("host_browser", msg);
+  private sendToExtension(msg: ServerMessage): void {
+    const event = buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg);
+    assistantEventHub.publish(event);
   }
 
   request(
@@ -136,14 +140,7 @@ export class HostBrowserProxy {
       this.pending.set(requestId, { resolve, reject, timer, detachAbort });
 
       try {
-        const sent = this.sendToExtension({
-          ...input,
-          type: "host_browser_request",
-          requestId,
-          conversationId,
-        } as ServerMessage);
-
-        if (!sent) {
+        if (!this.isAvailable()) {
           clearTimeout(timer);
           this.pending.delete(requestId);
           detachAbort();
@@ -152,7 +149,15 @@ export class HostBrowserProxy {
               "host_browser send failed: no active extension connection",
             ),
           );
+          return;
         }
+
+        this.sendToExtension({
+          ...input,
+          type: "host_browser_request",
+          requestId,
+          conversationId,
+        } as ServerMessage);
       } catch (err) {
         // Sender threw synchronously (e.g. client transport error during
         // event emission). Clean up pending state and timer so we don't
