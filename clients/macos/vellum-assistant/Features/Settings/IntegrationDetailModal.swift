@@ -64,8 +64,8 @@ struct IntegrationDetailModal: View {
         authManager.currentUser?.id
     }
 
-    private var isPaid: Bool {
-        (providerMeta?.isPaid ?? false) || (yourOwnMeta?.isPaid ?? false)
+    private var managedIsPaid: Bool {
+        providerMeta?.isPaid ?? false
     }
 
     // MARK: - Body
@@ -77,7 +77,7 @@ struct IntegrationDetailModal: View {
                 ?? "Configure \(displayName) OAuth",
             closeAction: onClose,
             titleAccessory: {
-                if isPaid {
+                if draftMode == "managed" && managedIsPaid {
                     VPaidBadge()
                 }
             }
@@ -179,7 +179,7 @@ struct IntegrationDetailModal: View {
     @ViewBuilder
     private var managedBody: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            if isPaid {
+            if managedIsPaid {
                 VNotification(
                     "Using this integration can result in additional costs.",
                     tone: .warning
@@ -323,12 +323,6 @@ struct IntegrationDetailModal: View {
     private var yourOwnBody: some View {
         let apps = store.yourOwnApps(for: providerKey)
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            if isPaid {
-                VNotification(
-                    "Using this integration can result in additional costs.",
-                    tone: .warning
-                )
-            }
             if store.yourOwnIsLoading(for: providerKey) {
                 yourOwnSkeleton
             } else if apps.isEmpty && !isShowingAddAppForm {
