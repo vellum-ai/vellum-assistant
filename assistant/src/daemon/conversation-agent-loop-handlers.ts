@@ -512,6 +512,11 @@ export function handleToolResult(
   // was NOT prompted for confirmation (no entry in toolConfirmationOutcomes).
   // Confirmation outcomes are set BEFORE handleToolResult fires, so the map
   // is fully populated at this point.
+  //
+  // Known limitation: non-interactive sessions that auto-deny a tool without
+  // prompting also have no confirmation outcome entry, so those denials are
+  // recorded as autoApproved=true. This field is for DB/log analytics only
+  // and has no UI impact; consult _confirmationDecision for denial signal.
   if (event.riskLevel) {
     state.toolRiskOutcomes.set(event.toolUseId, {
       riskLevel: event.riskLevel,
