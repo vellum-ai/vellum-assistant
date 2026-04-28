@@ -88,20 +88,24 @@ export function resolveHostBrowserResultByRequestId(frame: {
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  if (!interaction.conversation) {
+  const response = { content: normalizedContent, isError: normalizedIsError };
+
+  // Prefer the conversation path (standard per-conversation proxy).
+  // Fall back to the direct proxy reference for conversation-less
+  // requests (e.g. CLI `assistant browser navigate`).
+  if (interaction.conversation) {
+    interaction.conversation.resolveHostBrowser(requestId as string, response);
+  } else if (interaction.hostBrowserProxy) {
+    interaction.hostBrowserProxy.resolve(requestId as string, response);
+  } else {
     return {
       ok: false,
       code: "BAD_REQUEST",
       status: 400,
       message:
-        "host_browser pending interaction has no associated conversation",
+        "host_browser pending interaction has no associated conversation or proxy",
     };
   }
-
-  interaction.conversation.resolveHostBrowser(requestId, {
-    content: normalizedContent,
-    isError: normalizedIsError,
-  });
 
   return { ok: true };
 }
@@ -203,8 +207,10 @@ function handleHostBrowserResult({ body }: RouteHandlerArgs) {
 
   const resolution = resolveHostBrowserResultByRequestId(body);
   if (!resolution.ok) {
-    if (resolution.code === "NOT_FOUND") throw new NotFoundError(resolution.message);
-    if (resolution.code === "CONFLICT") throw new ConflictError(resolution.message);
+    if (resolution.code === "NOT_FOUND")
+      throw new NotFoundError(resolution.message);
+    if (resolution.code === "CONFLICT")
+      throw new ConflictError(resolution.message);
     throw new BadRequestError(resolution.message);
   }
 

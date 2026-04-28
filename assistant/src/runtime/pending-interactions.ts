@@ -53,6 +53,18 @@ export interface PendingInteraction {
   confirmationDetails?: ConfirmationDetails;
   /** For ACP permissions: resolves directly without a Conversation object. */
   directResolve?: (decision: UserDecision) => void;
+  /**
+   * Direct reference to the HostBrowserProxy that originated this request.
+   * Used when no conversation context exists (e.g. CLI `assistant browser`
+   * commands) so the result resolver can call `proxy.resolve()` directly
+   * instead of going through `conversation.resolveHostBrowser()`.
+   */
+  hostBrowserProxy?: {
+    resolve(
+      requestId: string,
+      response: { content: string; isError: boolean },
+    ): void;
+  };
 }
 
 const pending = new Map<string, PendingInteraction>();

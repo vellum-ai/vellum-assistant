@@ -17,8 +17,12 @@ import {
   type BrowserOperation,
 } from "../../browser/types.js";
 import { findConversation } from "../../daemon/conversation-store.js";
+import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { ContentBlock } from "../../providers/types.js";
+import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
 import { getClientRegistry } from "../client-registry.js";
+import * as pendingInteractions from "../pending-interactions.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param validation ─────────────────────────────────────────────────
@@ -80,36 +84,83 @@ async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
     ? conversationId!
     : browserCliConversationKey(sessionId);
 
-  // When there's no conversation context (e.g. `assistant browser status`
-  // from the CLI), check the client registry for connected host_browser
-  // clients so the status command can report accurate extension availability.
-  const registry = getClientRegistry();
-  const browserClients = registry.listByCapability("host_browser");
+  // Check the client registry for connected host_browser clients so the
+  // status command can report accurate extension availability.
+  const clientRegistry = getClientRegistry();
+  const browserClients = clientRegistry.listByCapability("host_browser");
 
-  const result = await executeBrowserOperation(
-    operation as BrowserOperation,
-    input,
-    {
-      workingDir: process.cwd(),
-      conversationId: resolvedConversationId,
-      trustClass: conversation?.trustContext?.trustClass ?? "unknown",
-      hostBrowserProxy: conversation?.hostBrowserProxy,
-      transportInterface: conversation?.transportInterface,
-      hostBrowserRegistryRouted: !!conversation?.hostBrowserSenderOverride,
-      connectedBrowserClients: browserClients.map((c) => ({
-        clientId: c.clientId,
-        interfaceId: c.interfaceId,
-      })),
-    },
-  );
+  // Resolve the host browser proxy. Prefer the conversation's proxy when
+  // available; otherwise create an on-the-fly proxy wired to the
+  // ChromeExtensionRegistry so CLI `assistant browser` commands can drive
+  // the extension without a conversation context.
+  let hostBrowserProxy = conversation?.hostBrowserProxy;
+  let cliProxy: HostBrowserProxy | undefined;
 
-  const screenshots = extractScreenshots(result.contentBlocks);
+  if (!hostBrowserProxy) {
+    const extConn = getChromeExtensionRegistry().getAny();
+    if (extConn) {
+      const guardianId = extConn.guardianId;
+      const sender = (msg: ServerMessage): void => {
+        // Register the pending interaction so host_browser_result can
+        // resolve it. Pass the proxy itself as the direct resolver since
+        // there's no conversation object.
+        if (
+          msg.type === "host_browser_request" &&
+          "requestId" in msg &&
+          typeof msg.requestId === "string"
+        ) {
+          pendingInteractions.register(msg.requestId, {
+            conversation: null,
+            conversationId: resolvedConversationId,
+            kind: "host_browser",
+            hostBrowserProxy: cliProxy,
+          });
+        }
+        const ok = getChromeExtensionRegistry().send(guardianId, msg);
+        if (!ok) {
+          throw new Error(
+            `host_browser send failed: no active extension connection for guardian ${guardianId}`,
+          );
+        }
+      };
+      cliProxy = new HostBrowserProxy(sender);
+      cliProxy.updateSender(sender, true);
+      hostBrowserProxy = cliProxy;
+    }
+  }
 
-  return {
-    content: result.content,
-    isError: result.isError,
-    ...(screenshots.length > 0 ? { screenshots } : {}),
-  };
+  try {
+    const result = await executeBrowserOperation(
+      operation as BrowserOperation,
+      input,
+      {
+        workingDir: process.cwd(),
+        conversationId: resolvedConversationId,
+        trustClass: conversation?.trustContext?.trustClass ?? "unknown",
+        hostBrowserProxy,
+        transportInterface:
+          conversation?.transportInterface ?? "chrome-extension",
+        hostBrowserRegistryRouted:
+          !!conversation?.hostBrowserSenderOverride || !!cliProxy,
+        connectedBrowserClients: browserClients.map((c) => ({
+          clientId: c.clientId,
+          interfaceId: c.interfaceId,
+        })),
+      },
+    );
+
+    const screenshots = extractScreenshots(result.contentBlocks);
+
+    return {
+      content: result.content,
+      isError: result.isError,
+      ...(screenshots.length > 0 ? { screenshots } : {}),
+    };
+  } finally {
+    // Dispose the CLI proxy to clean up any pending timers if the
+    // operation was aborted or timed out.
+    cliProxy?.dispose();
+  }
 }
 
 // ── Routes ───────────────────────────────────────────────────────────

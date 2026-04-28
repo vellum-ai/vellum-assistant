@@ -293,6 +293,29 @@ export class ChromeExtensionRegistry {
   }
 
   /**
+   * Return the most recently active connection across ALL guardians.
+   * Used by conversation-less code paths (e.g. CLI `assistant browser`)
+   * that need to route through any available extension without knowing
+   * the guardian ID upfront.
+   */
+  getAny(): ChromeExtensionConnection | undefined {
+    let best: ChromeExtensionConnection | undefined;
+    for (const instances of this.byGuardian.values()) {
+      for (const conn of instances.values()) {
+        if (
+          !best ||
+          conn.lastActiveAt > best.lastActiveAt ||
+          (conn.lastActiveAt === best.lastActiveAt &&
+            (conn.registrationSeq ?? 0) > (best.registrationSeq ?? 0))
+        ) {
+          best = conn;
+        }
+      }
+    }
+    return best;
+  }
+
+  /**
    * Send a ServerMessage to the default active chrome-extension
    * connection for the given guardian. The "default active" instance
    * is the one with the most recent `lastActiveAt` timestamp — i.e.
