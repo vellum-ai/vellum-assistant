@@ -248,26 +248,41 @@ public class VMenuPanel: NSPanel {
             ?? .zero
 
         var x = cursor.x - shadowInset
-        var y: CGFloat
 
-        switch anchor {
-        case .below:
-            y = cursor.y - size.height + shadowInset
-        case .above:
-            y = cursor.y - shadowInset
-        }
-
+        // Horizontal overflow
         if x + size.width > screen.maxX {
             x = cursor.x - size.width + shadowInset
         }
         if x < screen.minX {
             x = screen.minX
         }
-        if y < screen.minY {
-            y = cursor.y - shadowInset
+
+        // Vertical positioning with flip-then-clamp
+        let belowY = cursor.y - size.height + shadowInset
+        let aboveY = cursor.y - shadowInset
+        var y: CGFloat
+
+        switch anchor {
+        case .below:
+            y = belowY
+            // Overflows bottom → try flipping above
+            if y < screen.minY {
+                y = aboveY
+            }
+        case .above:
+            y = aboveY
+            // Overflows top → try flipping below
+            if y + size.height > screen.maxY {
+                y = belowY
+            }
         }
+
+        // Final clamp to screen bounds
         if y + size.height > screen.maxY {
             y = screen.maxY - size.height
+        }
+        if y < screen.minY {
+            y = screen.minY
         }
 
         return CGPoint(x: x, y: y)
