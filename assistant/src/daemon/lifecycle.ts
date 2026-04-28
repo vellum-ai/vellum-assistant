@@ -89,7 +89,6 @@ import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getDotEnvPath,
-  getInterfacesDir,
   getWorkspaceDir,
 } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
@@ -922,7 +921,6 @@ export async function runDaemon(): Promise<void> {
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
-      interfacesDir: getInterfacesDir(),
       approvalCopyGenerator: createApprovalCopyGenerator(),
       approvalConversationGenerator: createApprovalConversationGenerator(),
       guardianActionCopyGenerator: createGuardianActionCopyGenerator(),
@@ -1207,14 +1205,6 @@ export async function runDaemon(): Promise<void> {
 
     const heartbeatConfig = config.heartbeat;
     const heartbeat = new HeartbeatService({
-      processMessage: (conversationId, content, options) =>
-        processMessage(conversationId, content, undefined, {
-          trustContext: {
-            sourceChannel: "vellum",
-            trustClass: "guardian",
-          },
-          ...options,
-        }),
       alerter: (alert) => server.broadcast(alert),
       onConversationCreated: (info) =>
         server.broadcast({
@@ -1233,16 +1223,7 @@ export async function runDaemon(): Promise<void> {
     );
 
     const filingConfig = config.filing;
-    const filing = new FilingService({
-      processMessage: (conversationId, content, options) =>
-        processMessage(conversationId, content, undefined, {
-          trustContext: {
-            sourceChannel: "vellum",
-            trustClass: "guardian",
-          },
-          ...options,
-        }),
-    });
+    const filing = new FilingService();
     filing.start();
     log.info(
       {

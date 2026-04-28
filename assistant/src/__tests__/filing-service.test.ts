@@ -82,6 +82,26 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
+// Mock processMessage — FilingService now imports it directly.
+let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: async (...args: unknown[]) => {
+    if (_testProcessMessage) return _testProcessMessage(...args);
+    return { messageId: `mock-msg-${Date.now()}` };
+  },
+  resolveTurnChannel: () => "vellum",
+  resolveTurnInterface: () => "vellum",
+  makePendingInteractionRegistrar: () => () => {},
+  prepareConversationForMessage: async () => ({}),
+}));
+
+function setTestProcessMessage(
+  fn: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined,
+): void {
+  _testProcessMessage = fn;
+}
+
 // Import after mocks are set up
 const { FilingService } = await import("../filing/filing-service.js");
 
@@ -107,6 +127,16 @@ describe("FilingService", () => {
     createdConversations.length = 0;
     conversationIdCounter = 0;
 
+    // Default processMessage mock: capture calls for assertions.
+    setTestProcessMessage(async (...args: unknown[]) => {
+      processMessageCalls.push({
+        conversationId: args[0] as string,
+        content: args[1] as string,
+        options: (args[3] as { speed?: string; callSite?: string } | undefined) ?? undefined,
+      });
+      return { messageId: "msg-1" };
+    });
+
     mockConfig = {
       filing: {
         enabled: true,
@@ -131,23 +161,13 @@ describe("FilingService", () => {
 
   function createService(overrides?: {
     processMessage?: (
-      id: string,
-      content: string,
-      options?: { speed?: string; callSite?: string },
+      ...args: unknown[]
     ) => Promise<{ messageId: string }>;
   }) {
-    return new FilingService({
-      processMessage:
-        overrides?.processMessage ??
-        (async (
-          conversationId: string,
-          content: string,
-          options?: { speed?: string; callSite?: string },
-        ) => {
-          processMessageCalls.push({ conversationId, content, options });
-          return { messageId: "msg-1" };
-        }),
-    });
+    if (overrides?.processMessage) {
+      setTestProcessMessage(overrides.processMessage);
+    }
+    return new FilingService();
   }
 
   test("runOnce() passes callSite: 'filingAgent' to processMessage", async () => {
@@ -155,7 +175,7 @@ describe("FilingService", () => {
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options).toEqual({ callSite: "filingAgent" });
+    expect(processMessageCalls[0].options).toMatchObject({ callSite: "filingAgent" });
     expect(processMessageCalls[0].options?.callSite).toBe("filingAgent");
   });
 
@@ -198,7 +218,7 @@ describe("FilingService", () => {
       await service.runCompactionOnce();
 
       expect(processMessageCalls).toHaveLength(1);
-      expect(processMessageCalls[0].options).toEqual({
+      expect(processMessageCalls[0].options).toMatchObject({
         callSite: "compactionAgent",
       });
     });
@@ -257,14 +277,6 @@ describe("FilingService", () => {
       mockConfig.filing.activeHoursStart = 9;
       mockConfig.filing.activeHoursEnd = 17;
       const service = new FilingService({
-        processMessage: async (
-          conversationId: string,
-          content: string,
-          options?: { speed?: string; callSite?: string },
-        ) => {
-          processMessageCalls.push({ conversationId, content, options });
-          return { messageId: "msg-1" };
-        },
         getCurrentHour: () => 3, // 3 AM, outside 9-17 window
       });
 

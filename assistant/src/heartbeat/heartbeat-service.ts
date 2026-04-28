@@ -2,8 +2,8 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
+import { processMessage } from "../daemon/process-message.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
@@ -82,11 +82,6 @@ function recordReengagementTimestamp(): void {
 }
 
 export interface HeartbeatDeps {
-  processMessage: (
-    conversationId: string,
-    content: string,
-    options?: { callSite?: LLMCallSite },
-  ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {
     conversationId: string;
@@ -398,7 +393,11 @@ export class HeartbeatService {
         title: "Heartbeat",
       });
 
-      await this.deps.processMessage(conversation.id, prompt, {
+      await processMessage(conversation.id, prompt, undefined, {
+        trustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+        },
         callSite: "heartbeatAgent",
       });
 

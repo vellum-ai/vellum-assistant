@@ -171,8 +171,6 @@ export interface RuntimeHttpServerOptions {
   port?: number;
   /** Hostname / IP to bind to. Defaults to '127.0.0.1' (loopback-only). */
   hostname?: string;
-  /** Root directory for interface files on disk. */
-  interfacesDir?: string;
   /** Daemon-injected generator for approval copy (provider-backed). */
   approvalCopyGenerator?: ApprovalCopyGenerator;
   /** Daemon-injected generator for conversational approval flow (provider-backed). */

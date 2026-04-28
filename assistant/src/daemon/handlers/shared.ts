@@ -3,7 +3,6 @@ import { v4 as uuid } from "uuid";
 import { broadcastToAllClients } from "../../acp/index.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
-import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
@@ -180,8 +179,6 @@ export interface HandlerContext {
   ): Promise<Conversation>;
   /** Refresh the eviction timestamp for a conversation that was accessed directly. */
   touchConversation(conversationId: string): void;
-  /** Optional heartbeat service reference for "Run Now" support. */
-  heartbeatService?: HeartbeatService;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

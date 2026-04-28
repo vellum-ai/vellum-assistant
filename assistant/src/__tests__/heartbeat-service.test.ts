@@ -106,6 +106,27 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
+// Mock processMessage — HeartbeatService now imports it directly.
+// Tests override _testProcessMessage to capture / customize calls.
+let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+
+mock.module("../daemon/process-message.js", () => ({
+  processMessage: async (...args: unknown[]) => {
+    if (_testProcessMessage) return _testProcessMessage(...args);
+    return { messageId: `mock-msg-${Date.now()}` };
+  },
+  resolveTurnChannel: () => "vellum",
+  resolveTurnInterface: () => "vellum",
+  makePendingInteractionRegistrar: () => () => {},
+  prepareConversationForMessage: async () => ({}),
+}));
+
+export function setTestProcessMessage(
+  fn: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined,
+): void {
+  _testProcessMessage = fn;
+}
+
 // Import after mocks are set up
 const { HeartbeatService, isShallowProfile } =
   await import("../heartbeat/heartbeat-service.js");
@@ -179,6 +200,16 @@ describe("HeartbeatService", () => {
     conversationIdCounter = 0;
     mockGuardianPersona = null;
 
+    // Default processMessage mock: capture calls for assertions.
+    setTestProcessMessage(async (...args: unknown[]) => {
+      processMessageCalls.push({
+        conversationId: args[0] as string,
+        content: args[1] as string,
+        options: (args[3] as { callSite?: string } | undefined) ?? undefined,
+      });
+      return { messageId: "msg-1" };
+    });
+
     mockConfig = {
       heartbeat: {
         enabled: true,
@@ -191,23 +222,14 @@ describe("HeartbeatService", () => {
 
   function createService(overrides?: {
     processMessage?: (
-      id: string,
-      content: string,
-      options?: { callSite?: string },
+      ...args: unknown[]
     ) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
   }) {
+    if (overrides?.processMessage) {
+      setTestProcessMessage(overrides.processMessage);
+    }
     return new HeartbeatService({
-      processMessage:
-        overrides?.processMessage ??
-        (async (
-          conversationId: string,
-          content: string,
-          options?: { callSite?: string },
-        ) => {
-          processMessageCalls.push({ conversationId, content, options });
-          return { messageId: "msg-1" };
-        }),
       alerter: (alert: { type: string; title: string; body: string }) => {
         alerterCalls.push(alert);
       },
@@ -539,22 +561,19 @@ describe("HeartbeatService", () => {
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options).toEqual({
+    expect(processMessageCalls[0].options).toMatchObject({
       callSite: "heartbeatAgent",
     });
   });
 
-  test("processMessage receives only callSite — no legacy speed knob", async () => {
-    // The heartbeat service unconditionally passes `callSite:
-    // 'heartbeatAgent'` and nothing else. The resolver maps that identifier
-    // to whatever `llm.callSites.heartbeatAgent` (or `llm.default`)
-    // configures.
+  test("processMessage receives callSite and trustContext", async () => {
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options).toEqual({
+    expect(processMessageCalls[0].options).toMatchObject({
       callSite: "heartbeatAgent",
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
     });
   });
 

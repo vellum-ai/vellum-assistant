@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { processMessage } from "../daemon/process-message.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -60,11 +61,6 @@ If the disk shape changed (files split, files moved, files created, files remove
 This is your knowledge base — keep it sharp.`;
 
 export interface FilingDeps {
-  processMessage: (
-    conversationId: string,
-    content: string,
-    options?: { callSite?: LLMCallSite },
-  ) => Promise<{ messageId: string }>;
   onConversationCreated?: (info: {
     conversationId: string;
     title: string;
@@ -90,7 +86,7 @@ export class FilingService {
   private _lastCompactionAt: number | null = null;
   private _nextCompactionAt: number | null = null;
 
-  constructor(deps: FilingDeps) {
+  constructor(deps: FilingDeps = {}) {
     this.deps = deps;
     FilingService.instance = this;
   }
@@ -341,7 +337,11 @@ export class FilingService {
         title: opts.title,
       });
 
-      await this.deps.processMessage(conversation.id, opts.prompt, {
+      await processMessage(conversation.id, opts.prompt, undefined, {
+        trustContext: {
+          sourceChannel: "vellum",
+          trustClass: "guardian",
+        },
         callSite: opts.callSite,
       });
 

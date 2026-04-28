@@ -32,6 +32,11 @@ mock.module("../config/env.js", () => ({
 // so we mock the module to intercept it.
 let _processMessageCalled = false;
 
+mock.module("../daemon/approval-generators.js", () => ({
+  createApprovalCopyGenerator: () => undefined,
+  createApprovalConversationGenerator: () => undefined,
+}));
+
 mock.module("../daemon/process-message.js", () => ({
   processMessage: async (..._args: unknown[]) => {
     _processMessageCalled = true;
