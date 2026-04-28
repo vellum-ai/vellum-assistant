@@ -112,6 +112,20 @@ CU execution dependencies are protocol-based for testability:
 
 </details>
 
+#### `@Environment` with `@Observable` — always use optional
+
+When reading an `@Observable` object from the environment, **always declare the property as optional** (`Type?`). Non-optional declarations crash with `Fatal error: No Observable object of type X found` if any `NSHostingController` root omits the `.environment(object)` injection — and this app has multiple independent hosting roots that don't share environments.
+
+```swift
+// ✅ Correct — safe in all hosting contexts
+@Environment(AssistantFeatureFlagStore.self) private var store: AssistantFeatureFlagStore?
+
+// ❌ Wrong — crashes if the object is missing from the environment
+@Environment(AssistantFeatureFlagStore.self) private var store
+```
+
+**Ref:** [Apple Environment docs — "retrieve an optional version"](https://developer.apple.com/documentation/swiftui/environment)
+
 ### Network Layer (`Network/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
