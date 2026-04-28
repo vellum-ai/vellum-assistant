@@ -277,10 +277,22 @@ export function shellEscapeArgs(args: string[]): string {
  * reliable output extraction, captures the result, and exits with the
  * remote command's exit code.
  */
+export interface NonInteractiveExecOptions {
+  verbose?: boolean;
+}
+
 export async function nonInteractiveExec(
   assistant: ResolvedManagedAssistant,
   command: string[],
+  options?: NonInteractiveExecOptions,
 ): Promise<void> {
+  const verbose = options?.verbose ?? false;
+  const dbg = verbose
+    ? (msg: string) => console.error(`\x1b[2m[exec] ${msg}\x1b[0m`)
+    : (_msg: string) => {};
+
+  dbg(`creating terminal session (cols=120, rows=24)`);
+
   const { session_id: sessionId } = await createTerminalSession(
     assistant.token,
     assistant.assistantId,
@@ -289,16 +301,24 @@ export async function nonInteractiveExec(
     assistant.platformUrl,
   );
 
+  dbg(`session created: ${sessionId}`);
+
   const abortController = new AbortController();
   const output: Buffer[] = [];
   let commandSent = false;
+  let eventCount = 0;
 
   // Unique sentinels to delimit command output
   const startSentinel = `__VELLUM_EXEC_START_${Date.now()}__`;
   const endSentinel = `__VELLUM_EXEC_END_${Date.now()}__`;
   const exitCodeSentinel = `__VELLUM_EXIT_`;
 
-  const timeout = setTimeout(() => abortController.abort(), 30_000);
+  dbg(`sentinels: start=${startSentinel} end=${endSentinel}`);
+
+  const timeout = setTimeout(() => {
+    dbg(`30s timeout reached — aborting`);
+    abortController.abort();
+  }, 30_000);
 
   try {
     for await (const event of subscribeTerminalEvents(
@@ -308,8 +328,14 @@ export async function nonInteractiveExec(
       assistant.platformUrl,
       abortController.signal,
     )) {
+      eventCount++;
       const bytes = Buffer.from(event.data, "base64");
       output.push(bytes);
+
+      if (verbose) {
+        const text = bytes.toString("utf-8");
+        dbg(`SSE event #${eventCount} (seq=${event.seq}, ${bytes.length}B): ${JSON.stringify(text)}`);
+      }
 
       // Wait for shell prompt before sending command
       if (!commandSent) {
@@ -321,13 +347,18 @@ export async function nonInteractiveExec(
         ) {
           commandSent = true;
           const shellCmd = shellEscapeArgs(command);
+          const fullCmd = `echo '${startSentinel}'; ${shellCmd}; __ec=$?; echo '${endSentinel}'; echo '${exitCodeSentinel}'$__ec; exit $__ec\r`;
+          dbg(`prompt detected — sending command`);
+          if (verbose) {
+            dbg(`full command: ${JSON.stringify(fullCmd)}`);
+          }
           // Wrap command: print start sentinel, run command, capture exit
           // code, print end sentinel with exit code, then exit the shell
           await sendTerminalInput(
             assistant.token,
             assistant.assistantId,
             sessionId,
-            `echo '${startSentinel}'; ${shellCmd}; __ec=$?; echo '${endSentinel}'; echo '${exitCodeSentinel}'$__ec; exit $__ec\r`,
+            fullCmd,
             assistant.platformUrl,
           );
         }
@@ -337,6 +368,7 @@ export async function nonInteractiveExec(
       if (commandSent) {
         const accumulated = Buffer.concat(output).toString("utf-8");
         if (accumulated.includes(exitCodeSentinel)) {
+          dbg(`exit code sentinel detected — waiting 500ms for final output`);
           // Give a moment for final output to arrive
           setTimeout(() => abortController.abort(), 500);
         }
@@ -346,6 +378,7 @@ export async function nonInteractiveExec(
     // Expected: abort on timeout or sentinel detection
   } finally {
     clearTimeout(timeout);
+    dbg(`stream ended after ${eventCount} events — closing session`);
     await closeTerminalSession(
       assistant.token,
       assistant.assistantId,
@@ -356,12 +389,25 @@ export async function nonInteractiveExec(
 
   // Parse output between sentinels
   const raw = Buffer.concat(output).toString("utf-8");
+
+  if (verbose) {
+    dbg(`--- raw output (${raw.length} chars) ---`);
+    console.error(raw);
+    dbg(`--- end raw output ---`);
+  }
+
   // Strip ANSI escapes
   const clean = raw.replace(
     // biome-ignore lint/suspicious/noControlCharactersInRegex: needed for ANSI stripping
     /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][^\n]|\r/g,
     "",
   );
+
+  if (verbose) {
+    dbg(`--- cleaned output (${clean.length} chars) ---`);
+    console.error(clean);
+    dbg(`--- end cleaned output ---`);
+  }
 
   const lines = clean.split("\n");
 
@@ -378,12 +424,19 @@ export async function nonInteractiveExec(
       startIdx = i;
     }
   }
+
+  dbg(`sentinel indices: startLine=${startIdx} endLine=${endIdx} (of ${lines.length} lines)`);
+
   const start = startIdx >= 0 ? startIdx + 1 : 0;
   const end = endIdx >= 0 ? endIdx : lines.length;
   const result = lines.slice(start, end).join("\n").trim();
 
+  dbg(`extracted result: ${result.length} chars`);
+
   if (result) {
     process.stdout.write(result + "\n");
+  } else {
+    dbg(`no output extracted between sentinels`);
   }
 
   // Extract exit code from sentinel (also search backwards)
@@ -397,6 +450,8 @@ export async function nonInteractiveExec(
       break;
     }
   }
+
+  dbg(`exit code: ${exitCode}`);
 
   process.exit(exitCode);
 }

@@ -84,6 +84,9 @@ export async function exec(): Promise<void> {
     console.log(
       "  -it                 Interactive mode with TTY (like docker exec -it)",
     );
+    console.log(
+      "  --verbose           Show debug output (SSE events, sentinel parsing)",
+    );
     console.log("");
     console.log("Services:");
     console.log("  assistant (or vellum-assistant)");
@@ -116,12 +119,15 @@ export async function exec(): Promise<void> {
   let nameArg: string | undefined;
   let serviceRaw = "assistant";
   let interactive = false;
+  let verbose = false;
 
   for (let i = 0; i < preArgs.length; i++) {
     if (preArgs[i] === "--service" && preArgs[i + 1]) {
       serviceRaw = preArgs[++i];
     } else if (preArgs[i] === "-it" || preArgs[i] === "-ti") {
       interactive = true;
+    } else if (preArgs[i] === "--verbose") {
+      verbose = true;
     } else if (!preArgs[i].startsWith("-")) {
       nameArg = preArgs[i];
     }
@@ -201,7 +207,7 @@ export async function exec(): Promise<void> {
     }
 
     // Non-interactive: sentinel-based output capture with exit code
-    await nonInteractiveExec(assistant, command);
+    await nonInteractiveExec(assistant, command, { verbose });
     return;
   }
 
