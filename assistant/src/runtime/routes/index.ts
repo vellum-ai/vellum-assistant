@@ -67,6 +67,7 @@ import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
+import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
 import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
@@ -136,6 +137,7 @@ export const ROUTES: RouteDefinition[] = [
   ...SLACK_CHANNEL_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
+  ...SUGGEST_TRUST_RULE_ROUTES,
   ...SUBAGENT_ROUTES,
   ...SURFACE_ACTION_ROUTES,
   ...SURFACE_CONTENT_ROUTES,

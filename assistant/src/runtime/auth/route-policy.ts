@@ -610,6 +610,12 @@ registerPolicy("avatar/notify-updated", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Trust rule suggestion: local-only (gateway IPC)
+registerPolicy("trust-rules/suggest", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Notification pipeline: local-only (CLI / IPC callers)
 registerPolicy("notifications/emit", {
   requiredScopes: ["settings.write"],

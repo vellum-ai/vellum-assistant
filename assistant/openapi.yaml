@@ -10324,6 +10324,129 @@ paths:
           required: true
           schema:
             type: string
+  /v1/trust-rules/suggest:
+    post:
+      operationId: trustrules_suggest_post
+      summary: Suggest a trust rule
+      description: Use an LLM to suggest a trust rule pattern, risk level, and scope for a given action.
+      tags:
+        - trust
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pattern:
+                    type: string
+                  risk:
+                    type: string
+                  scope:
+                    type: string
+                  description:
+                    type: string
+                  scopeOptions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pattern:
+                          type: string
+                        label:
+                          type: string
+                      required:
+                        - pattern
+                        - label
+                      additionalProperties: false
+                  directoryScopeOptions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope:
+                          type: string
+                        label:
+                          type: string
+                      required:
+                        - scope
+                        - label
+                      additionalProperties: false
+                required:
+                  - pattern
+                  - risk
+                  - description
+                  - scopeOptions
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool:
+                  type: string
+                  minLength: 1
+                command:
+                  type: string
+                  minLength: 1
+                riskAssessment:
+                  type: object
+                  properties:
+                    risk:
+                      type: string
+                    reasoning:
+                      type: string
+                    reasonDescription:
+                      type: string
+                  required:
+                    - risk
+                    - reasoning
+                    - reasonDescription
+                  additionalProperties: false
+                scopeOptions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      pattern:
+                        type: string
+                      label:
+                        type: string
+                    required:
+                      - pattern
+                      - label
+                    additionalProperties: false
+                directoryScopeOptions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      scope:
+                        type: string
+                      label:
+                        type: string
+                    required:
+                      - scope
+                      - label
+                    additionalProperties: false
+                currentThreshold:
+                  type: string
+                intent:
+                  type: string
+                  enum:
+                    - auto_approve
+                    - escalate
+              required:
+                - tool
+                - command
+                - riskAssessment
+                - scopeOptions
+                - currentThreshold
+                - intent
+              additionalProperties: false
   /v1/tts/synthesize:
     post:
       operationId: tts_synthesize_post
