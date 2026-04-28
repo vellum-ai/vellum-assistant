@@ -68,6 +68,7 @@ import {
   type ForwardedCdpEvent,
   onCdpEvent,
 } from "../browser-session/index.js";
+import { HostBrowserProxy } from "../daemon/host-browser-proxy.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -80,7 +81,6 @@ import {
   getChromeExtensionRegistry,
 } from "../runtime/chrome-extension-registry.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
-import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 initializeDb();
 
@@ -124,7 +124,7 @@ describe("host_browser WS event + invalidation e2e", () => {
     const db = getDb();
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
-    pendingInteractions.clear();
+    HostBrowserProxy.reset();
     __resetChromeExtensionRegistryForTests();
     __resetBrowserSessionEventsForTests();
 
@@ -139,7 +139,7 @@ describe("host_browser WS event + invalidation e2e", () => {
 
   afterEach(async () => {
     await server?.stop();
-    pendingInteractions.clear();
+    HostBrowserProxy.reset();
     __resetChromeExtensionRegistryForTests();
     __resetBrowserSessionEventsForTests();
     resetCapabilityTokenSecretForTests();

@@ -2248,23 +2248,8 @@ async function checkExtensionModeStatus(
   autoCandidate: boolean,
 ): Promise<BrowserStatusModeResult> {
   const proxy = HostBrowserProxy.instance;
-  const proxyAvailable = proxy?.isAvailable() ?? false;
 
-  if (!proxy) {
-    return {
-      mode: BROWSER_STATUS_MODE.EXTENSION,
-      available: false,
-      verified: "preflight",
-      autoCandidate,
-      summary:
-        "Extension mode is unavailable: no Chrome extension connection found in the registry.",
-      userActions: extensionSetupActions(),
-      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
-      details: { transport: "extension-ws" },
-    };
-  }
-
-  if (!proxyAvailable) {
+  if (!proxy.isAvailable()) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,

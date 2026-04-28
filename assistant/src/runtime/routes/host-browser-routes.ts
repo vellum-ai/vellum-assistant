@@ -11,8 +11,7 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
-import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 /**
@@ -30,8 +29,8 @@ export type HostBrowserResultResolution =
   | { ok: true }
   | {
       ok: false;
-      code: "BAD_REQUEST" | "NOT_FOUND" | "CONFLICT";
-      status: 400 | 404 | 409;
+      code: "BAD_REQUEST" | "NOT_FOUND";
+      status: 400 | 404;
       message: string;
     };
 
@@ -62,10 +61,8 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
-  // Peek first (non-destructive) so we can validate the interaction kind
-  // without accidentally consuming a confirmation or secret interaction.
-  const peeked = pendingInteractions.get(requestId);
-  if (!peeked) {
+  const proxy = HostBrowserProxy.instance;
+  if (!proxy.hasPendingRequest(requestId)) {
     return {
       ok: false,
       code: "NOT_FOUND",
@@ -74,35 +71,13 @@ export function resolveHostBrowserResultByRequestId(frame: {
     };
   }
 
-  if (peeked.kind !== "host_browser") {
-    return {
-      ok: false,
-      code: "CONFLICT",
-      status: 409,
-      message: `Pending interaction is of kind "${peeked.kind}", expected "host_browser"`,
-    };
-  }
-
-  // Validation passed — consume the pending interaction.
-  pendingInteractions.resolve(requestId);
-
   const normalizedContent = typeof content === "string" ? content : "";
   const normalizedIsError = typeof isError === "boolean" ? isError : false;
 
-  const response = { content: normalizedContent, isError: normalizedIsError };
-
-  const proxy = HostBrowserProxy.instance;
-  if (proxy) {
-    proxy.resolve(requestId as string, response);
-  } else {
-    return {
-      ok: false,
-      code: "BAD_REQUEST",
-      status: 400,
-      message:
-        "host_browser pending interaction has no associated proxy (no extension connected)",
-    };
-  }
+  proxy.resolve(requestId, {
+    content: normalizedContent,
+    isError: normalizedIsError,
+  });
 
   return { ok: true };
 }
@@ -206,8 +181,6 @@ function handleHostBrowserResult({ body }: RouteHandlerArgs) {
   if (!resolution.ok) {
     if (resolution.code === "NOT_FOUND")
       throw new NotFoundError(resolution.message);
-    if (resolution.code === "CONFLICT")
-      throw new ConflictError(resolution.message);
     throw new BadRequestError(resolution.message);
   }
 

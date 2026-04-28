@@ -82,16 +82,21 @@ mock.module("../browser-manager.js", () => ({
   },
 }));
 
-/** Mutable proxy returned by HostBrowserProxy.instance. Set to null/undefined for "no extension". */
+/** Mutable proxy returned by HostBrowserProxy.instance. */
 let mockSingletonProxy: {
   isAvailable: () => boolean;
   request: unknown;
 } | null = null;
 
+const unavailableFallback = {
+  isAvailable: () => false,
+  request: () => Promise.reject(new Error("no extension")),
+};
+
 mock.module("../../../daemon/host-browser-proxy.js", () => ({
   HostBrowserProxy: {
     get instance() {
-      return mockSingletonProxy ?? undefined;
+      return mockSingletonProxy ?? unavailableFallback;
     },
   },
 }));
@@ -194,22 +199,8 @@ describe("executeBrowserStatus", () => {
     expect(extension.details.transport).toBe("extension-ws");
   });
 
-  test("reports extension unavailable when no singleton proxy exists", async () => {
-    // mockSingletonProxy = null (set in beforeEach)
-    const result = await executeBrowserStatus({}, makeContext());
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content);
-    const extension = payload.modes.find(
-      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
-    );
-    expect(extension).toBeDefined();
-    expect(extension.available).toBe(false);
-    expect(extension.summary).toContain("no Chrome extension connection");
-    expect(extension.details.transport).toBe("extension-ws");
-  });
-
-  test("reports extension disconnected when singleton proxy exists but not available", async () => {
-    mockSingletonProxy = { isAvailable: () => false, request: () => {} };
+  test("reports extension disconnected when singleton proxy is not available", async () => {
+    // mockSingletonProxy = null → falls back to unavailableFallback
     const result = await executeBrowserStatus({}, makeContext());
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
