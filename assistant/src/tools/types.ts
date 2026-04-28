@@ -272,6 +272,16 @@ export interface ToolContext {
    */
   hostBrowserRegistryRouted?: boolean;
   /**
+   * Connected clients that support the `host_browser` capability, populated
+   * from the ClientRegistry. Used by `browser status` to report accurate
+   * extension availability even when no proxy is bound to the current
+   * conversation (e.g. when called from the CLI without a conversation ID).
+   */
+  connectedBrowserClients?: Array<{
+    clientId: string;
+    interfaceId: string;
+  }>;
+  /**
    * The per-turn inference-profile override the agent loop is currently
    * running under, propagated through tool context so subagent-spawn tools
    * can forward it when spawning nested subagents. Without this, sub-subagent

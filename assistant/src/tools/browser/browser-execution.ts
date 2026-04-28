@@ -2286,8 +2286,35 @@ async function checkExtensionModeStatus(
   const proxyBound = Boolean(context.hostBrowserProxy);
   const proxyConnected = context.hostBrowserProxy?.isAvailable() ?? false;
   const isMacOS = context.transportInterface === "macos";
+  const registryClients = context.connectedBrowserClients ?? [];
+  const extensionClients = registryClients.filter(
+    (c) => c.interfaceId === "chrome-extension",
+  );
 
   if (!proxyBound) {
+    // No proxy bound to this conversation, but the client registry may
+    // show a connected chrome-extension client with host_browser capability.
+    // Report that so `assistant browser status` from the CLI is accurate.
+    if (extensionClients.length > 0) {
+      return {
+        mode: BROWSER_STATUS_MODE.EXTENSION,
+        available: false,
+        verified: "preflight",
+        autoCandidate,
+        summary:
+          "Extension mode: a Chrome extension client is connected but no host browser proxy is bound to this conversation. " +
+          "Extension browser operations will be available within a conversation turn initiated from the extension.",
+        userActions: [],
+        tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+        details: {
+          proxyBound,
+          proxyConnected,
+          connectedExtensionClients: extensionClients,
+          transport: "extension-ws",
+        },
+      };
+    }
+
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,

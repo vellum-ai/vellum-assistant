@@ -277,12 +277,58 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
         payload.screenshots = result.screenshots;
       }
       process.stdout.write(JSON.stringify(payload) + "\n");
+    } else if (meta.operation === "status" && result.content) {
+      formatBrowserStatus(result.content);
     } else {
       if (result.content) {
         log.info(result.content);
       }
     }
   });
+}
+
+// ── Status formatter ─────────────────────────────────────────────────
+
+interface StatusModeEntry {
+  mode: string;
+  available: boolean;
+  autoCandidate: boolean;
+  summary: string;
+}
+
+interface StatusPayload {
+  requestedMode: string;
+  recommendedMode: string | null;
+  stickyConversationMode: string | null;
+  modes: StatusModeEntry[];
+}
+
+function formatBrowserStatus(content: string): void {
+  let data: StatusPayload;
+  try {
+    data = JSON.parse(content);
+  } catch {
+    log.info(content);
+    return;
+  }
+
+  log.info(`Requested mode: ${data.requestedMode}`);
+  if (data.recommendedMode) {
+    log.info(`Recommended:    ${data.recommendedMode}`);
+  }
+  if (data.stickyConversationMode) {
+    log.info(`Sticky mode:    ${data.stickyConversationMode}`);
+  }
+  log.info("");
+
+  const modes = data.modes ?? [];
+  for (const mode of modes) {
+    const icon = mode.available ? "✓" : "✗";
+    const auto = mode.autoCandidate ? " (auto-candidate)" : "";
+    log.info(`  ${icon} ${mode.mode}${auto}`);
+    log.info(`    ${mode.summary}`);
+    log.info("");
+  }
 }
 
 // ── Registration ─────────────────────────────────────────────────────
