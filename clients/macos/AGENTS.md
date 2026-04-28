@@ -114,7 +114,7 @@ CU execution dependencies are protocol-based for testability:
 
 #### `@Environment` with `@Observable` — always use optional
 
-When placing an `@Observable` object in the SwiftUI environment via `.environment(object)`, **always declare the receiving property as optional** (`Type?`):
+When reading an `@Observable` object from the environment, **always declare the property as optional** (`Type?`). Non-optional declarations crash with `Fatal error: No Observable object of type X found` if any `NSHostingController` root omits the `.environment(object)` injection — and this app has multiple independent hosting roots that don't share environments.
 
 ```swift
 // ✅ Correct — safe in all hosting contexts
@@ -124,9 +124,7 @@ When placing an `@Observable` object in the SwiftUI environment via `.environmen
 @Environment(AssistantFeatureFlagStore.self) private var store
 ```
 
-**Why:** This app uses `NSHostingController` for each window (Main, Thread, settings, etc.), not SwiftUI `WindowGroup` scenes. Environment values do not propagate across separate `NSHostingController` roots — each window must manually inject `.environment(object)`. A non-optional declaration crashes with `Fatal error: No Observable object of type X found` if any hosting path omits the injection. Optional declarations return `nil` instead, matching [Apple's recommendation](https://developer.apple.com/documentation/swiftui/environment): *"In cases where there is no guarantee that an object is in the environment, retrieve an optional version."*
-
-This pattern caused LUM-1206 (EXC_BREAKPOINT crash in `AssistantProgressView`) when a pop-out thread window was missing the injection.
+**Ref:** [Apple Environment docs — "retrieve an optional version"](https://developer.apple.com/documentation/swiftui/environment)
 
 ### Network Layer (`Network/`)
 
