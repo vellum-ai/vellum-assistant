@@ -107,7 +107,7 @@ public struct ToolConfirmationBubble: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.sm) {
-                VButton(label: "Open System Settings", style: .primary) {
+                VButton(label: "Open System Settings", style: .primary, buttonShape: .capsule) {
                     #if os(macOS)
                     if let url = confirmation.settingsURL {
                         NSWorkspace.shared.open(url)
@@ -115,11 +115,11 @@ public struct ToolConfirmationBubble: View {
                     #endif
                 }
 
-                VButton(label: "I\u{2019}ve granted it", style: .outlined) {
+                VButton(label: "I\u{2019}ve granted it", style: .outlined, buttonShape: .capsule) {
                     onAllow()
                 }
 
-                VButton(label: "Skip", style: .outlined) {
+                VButton(label: "Skip", style: .outlined, buttonShape: .capsule) {
                     onDeny()
                 }
             }
