@@ -698,14 +698,11 @@ struct ChatView: View {
 
 // MARK: - BtwOverlayView
 
-/// Standalone View struct for the "/btw" response overlay, extracted from
-/// `ChatView` to create a separate observation scope. With `@Observable`,
-/// each View's `body` gets its own observation tracking context — property
-/// reads inside this struct are tracked here, not in the parent `ChatView.body`.
-/// This prevents `viewModel.btwResponse` / `viewModel.btwLoading` changes
-/// from triggering a full `ChatView.body` re-evaluation.
+/// "/btw" response overlay with its own observation scope.
 ///
-/// Ref: [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
+/// As a standalone `View` struct, `@Observable` property reads
+/// (`btwResponse`, `btwLoading`) are tracked in this view's body
+/// rather than the parent's — narrowing the invalidation surface.
 private struct BtwOverlayView: View {
     @Bindable var viewModel: ChatViewModel
 
