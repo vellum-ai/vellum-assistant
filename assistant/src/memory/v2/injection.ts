@@ -289,17 +289,12 @@ async function renderInjectionBlock(
     sections.push(`### ${entry.slug}\n${entry.body}`);
   }
 
-  // Skills subsection — drop ids the cache no longer knows. Append the
-  // `→ use skill_load to activate` suffix when the rendered content matches
-  // the v1 regex (ported verbatim from `memory/graph/injection.ts`).
+  // v2's skills collection is skills-only, so the activation suffix always applies.
   const skillLines: string[] = [];
   for (const id of skillIds) {
     const entry = getSkillCapability(id);
     if (!entry) continue;
-    const suffix = /skill \(/.test(entry.content)
-      ? " → use skill_load to activate"
-      : "";
-    skillLines.push(`- ${entry.content}${suffix}`);
+    skillLines.push(`- ${entry.content} → use skill_load to activate`);
   }
   if (skillLines.length > 0) {
     sections.push(`### Skills You Can Use\n${skillLines.join("\n")}`);

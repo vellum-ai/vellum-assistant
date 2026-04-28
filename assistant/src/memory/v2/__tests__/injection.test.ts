@@ -628,8 +628,7 @@ describe("injectMemoryV2Block", () => {
     expect(result.block).toContain("## What I Remember Right Now");
     expect(result.block).toContain("</memory>");
     // No concept-page sections; skills subsection present with the right
-    // bullet shape and the v1 `→ use skill_load to activate` suffix (the
-    // content matches the `/skill \(/` regex).
+    // bullet shape and the unconditional `→ use skill_load to activate` suffix.
     expect(result.block).not.toContain("### alice-vscode");
     expect(result.block).toContain("### Skills You Can Use");
     expect(result.block).toContain(
@@ -646,8 +645,8 @@ describe("injectMemoryV2Block", () => {
       [
         {
           id: "example-skill-a",
-          // Content without the `skill (` regex match — no suffix expected.
-          content: "Plain capability description for example-skill-a.",
+          content:
+            'The "Example Skill A" skill (example-skill-a) is available. Helps with examples.',
         },
       ],
     );
@@ -672,11 +671,10 @@ describe("injectMemoryV2Block", () => {
     expect(skillsIdx).toBeGreaterThan(-1);
     expect(aliceIdx).toBeLessThan(skillsIdx);
 
-    // Skill content does not match `/skill \(/`, so no activation suffix.
+    // The activation suffix is always appended for skills.
     expect(result.block).toContain(
-      "- Plain capability description for example-skill-a.",
+      '- The "Example Skill A" skill (example-skill-a) is available. Helps with examples. → use skill_load to activate',
     );
-    expect(result.block).not.toContain("→ use skill_load to activate");
   });
 
   test("returns null when both concept pages and skills are empty", async () => {
