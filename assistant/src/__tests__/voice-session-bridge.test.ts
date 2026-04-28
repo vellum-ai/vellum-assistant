@@ -946,7 +946,6 @@ describe("voice-session-bridge", () => {
     const publishedMessages: ServerMessage[] = [];
     const subscription = assistantEventHub.subscribe(
       {
-        assistantId: "self",
         conversationId: conversation.id,
       },
       (event) => {

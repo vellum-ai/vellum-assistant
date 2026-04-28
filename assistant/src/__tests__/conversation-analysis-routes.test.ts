@@ -37,7 +37,6 @@ mock.module("../runtime/services/conversation-serializer.js", () => ({
 }));
 
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
-
 import { ROUTES } from "../runtime/routes/conversation-analysis-routes.js";
 
 const analyzeRoute = ROUTES.find(
