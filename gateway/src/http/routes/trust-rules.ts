@@ -61,7 +61,7 @@ function readInteractiveThreshold(): string {
       .from(autoApproveThresholds)
       .where(eq(autoApproveThresholds.id, 1))
       .get();
-    return row?.interactive ?? "low";
+    return row?.interactive ?? "medium";
   } catch {
     return "low";
   }
@@ -121,11 +121,8 @@ export function createTrustRulesListHandler() {
       const origin = url.searchParams.get("origin") ?? undefined;
       const tool = url.searchParams.get("tool") ?? undefined;
       const includeDeleted = url.searchParams.get("include_deleted") === "true";
-
-      // When no origin filter is specified, default to user-relevant rules
-      // only (user_defined + user-modified defaults). This excludes unmodified
-      // defaults and soft-deleted rules from the default listing.
-      const userRelevantOnly = origin === undefined;
+      const includeAll = url.searchParams.get("include_all") === "true";
+      const userRelevantOnly = !includeAll && origin === undefined;
 
       const rules = store.list({
         origin,

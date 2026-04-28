@@ -6,24 +6,24 @@
  */
 import { z } from "zod";
 
-import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
-import type { AuthContext } from "../auth/types.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-/**
- * POST /v1/host-bash-result — resolve a pending host bash request by requestId.
- * Requires AuthContext with guardian-bound actor.
- */
-async function handleHostBashResult(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  const authError = requireBoundGuardian(authContext);
-  if (authError) return authError;
+// ---------------------------------------------------------------------------
+// POST /v1/host-bash-result
+// ---------------------------------------------------------------------------
 
-  const body = (await req.json()) as {
+function handleHostBashResult({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
+  }
+
+  const { requestId, stdout, stderr, exitCode, timedOut } = body as {
     requestId?: string;
     stdout?: string;
     stderr?: string;
@@ -31,32 +31,23 @@ async function handleHostBashResult(
     timedOut?: boolean;
   };
 
-  const { requestId, stdout, stderr, exitCode, timedOut } = body;
-
   if (!requestId || typeof requestId !== "string") {
-    return httpError("BAD_REQUEST", "requestId is required", 400);
+    throw new BadRequestError("requestId is required");
   }
 
-  // Peek first (non-destructive) so we can validate the interaction kind
-  // without accidentally consuming a confirmation or secret interaction.
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
-    return httpError(
-      "NOT_FOUND",
+    throw new NotFoundError(
       "No pending interaction found for this requestId",
-      404,
     );
   }
 
   if (peeked.kind !== "host_bash") {
-    return httpError(
-      "CONFLICT",
+    throw new ConflictError(
       `Pending interaction is of kind "${peeked.kind}", expected "host_bash"`,
-      409,
     );
   }
 
-  // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
 
   interaction.conversation!.resolveHostBash(requestId, {
@@ -66,33 +57,32 @@ async function handleHostBashResult(
     timedOut: timedOut ?? false,
   });
 
-  return Response.json({ accepted: true });
+  return { accepted: true };
 }
 
 // ---------------------------------------------------------------------------
-// Route definitions
+// Route definitions (shared HTTP + IPC)
 // ---------------------------------------------------------------------------
 
-export function hostBashRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "host-bash-result",
-      method: "POST",
-      summary: "Submit host bash result",
-      description: "Resolve a pending host bash request by requestId.",
-      tags: ["host"],
-      requestBody: z.object({
-        requestId: z.string().describe("Pending bash request ID"),
-        stdout: z.string().optional(),
-        stderr: z.string().optional(),
-        exitCode: z.number().optional(),
-        timedOut: z.boolean().optional(),
-      }),
-      responseBody: z.object({
-        accepted: z.boolean(),
-      }),
-      handler: async ({ req, authContext }) =>
-        handleHostBashResult(req, authContext),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "host_bash_result",
+    endpoint: "host-bash-result",
+    method: "POST",
+    requireGuardian: true,
+    summary: "Submit host bash result",
+    description: "Resolve a pending host bash request by requestId.",
+    tags: ["host"],
+    requestBody: z.object({
+      requestId: z.string().describe("Pending bash request ID"),
+      stdout: z.string().optional(),
+      stderr: z.string().optional(),
+      exitCode: z.number().optional(),
+      timedOut: z.boolean().optional(),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+    handler: handleHostBashResult,
+  },
+];

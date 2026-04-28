@@ -20,6 +20,10 @@ import {
   isProviderAvailable,
 } from "../../providers/provider-availability.js";
 import { initializeProviders } from "../../providers/registry.js";
+import {
+  conversationEntries,
+  deleteConversation,
+} from "../conversation-store.js";
 import { CONFIG_RELOAD_DEBOUNCE_MS, log } from "./shared.js";
 
 /** Reverse lookup: model ID → provider, derived from PROVIDER_CATALOG. */
@@ -99,10 +103,6 @@ export async function getModelInfo(): Promise<ModelInfo> {
  * Keeps the business logic decoupled from transport-specific HandlerContext.
  */
 export interface ModelSetContext {
-  conversations: Map<
-    string,
-    { isProcessing(): boolean; dispose(): void; markStale(): void }
-  >;
   suppressConfigReload: boolean;
   setSuppressConfigReload(value: boolean): void;
   updateConfigFingerprint(): void;
@@ -192,10 +192,10 @@ export async function setModel(
 
   // Evict idle conversations immediately; mark busy ones as stale so they
   // get recreated with the new provider once they finish processing.
-  for (const [id, conversation] of ctx.conversations) {
+  for (const [id, conversation] of conversationEntries()) {
     if (!conversation.isProcessing()) {
       conversation.dispose();
-      ctx.conversations.delete(id);
+      deleteConversation(id);
     } else {
       conversation.markStale();
     }

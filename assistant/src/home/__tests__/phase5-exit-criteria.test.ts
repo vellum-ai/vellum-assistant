@@ -70,8 +70,25 @@ const { generateGmailDigest } = await import("../platform-gmail-digest.js");
 const { writeAssistantFeedItem } =
   await import("../assistant-feed-authoring.js");
 const { patchFeedItemStatus, readHomeFeed } = await import("../feed-writer.js");
-const { handleGetHomeFeed } =
+const { handleGetHomeFeed: _handleGetHomeFeed } =
   await import("../../runtime/routes/home-feed-routes.js");
+const { RouteError } = await import("../../runtime/routes/errors.js");
+
+async function handleGetHomeFeed(req: Request) {
+  const url = new URL(req.url);
+  const queryParams: Record<string, string> = {};
+  for (const [key, value] of url.searchParams.entries()) {
+    queryParams[key] = value;
+  }
+  try {
+    const result = await _handleGetHomeFeed({ queryParams });
+    return Response.json(result);
+  } catch (err) {
+    if (err instanceof RouteError)
+      return Response.json({ error: err.message }, { status: err.statusCode });
+    throw err;
+  }
+}
 
 // ─── tmpdir workspace lifecycle ────────────────────────────────────────
 

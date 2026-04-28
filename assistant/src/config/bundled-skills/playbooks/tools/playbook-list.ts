@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db.js";
+import { getDb } from "../../../../memory/db-connection.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
 import type {

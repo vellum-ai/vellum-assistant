@@ -1,11 +1,11 @@
 /**
- * Runtime HTTP route handlers for the call API.
+ * Transport-agnostic route definitions for the call API.
  *
- * POST   /v1/calls/start              — initiate a new call
- * GET    /v1/calls/:callSessionId      — get call status
- * POST   /v1/calls/:callSessionId/cancel — cancel a call
- * POST   /v1/calls/:callSessionId/answer — answer a pending question
- * POST   /v1/calls/:callSessionId/instruction — relay an instruction to an active call
+ * POST   /v1/calls/start                       — initiate a new call
+ * GET    /v1/calls/:callSessionId               — get call status
+ * POST   /v1/calls/:callSessionId/cancel        — cancel a call
+ * POST   /v1/calls/:callSessionId/answer        — answer a pending question
+ * POST   /v1/calls/:callSessionId/instruction   — relay an instruction to an active call
  */
 
 import { z } from "zod";
@@ -20,14 +20,14 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../../config/schema.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError, httpErrorCodeFromStatus } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, ForbiddenError, RouteError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
 // Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
 // that network-retry duplicates from the client don't start a second call.
 
-const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CALL_IDEMPOTENCY_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface IdempotencyEntry {
   body: unknown;
@@ -43,46 +43,35 @@ function pruneIdempotencyCache(): void {
   }
 }
 
-/**
- * POST /v1/calls/start
- *
- * Body: { phoneNumber: string; task: string; context?: string; conversationId: string; callerIdentityMode?: 'assistant_number' | 'user_number'; idempotencyKey?: string }
- *
- * Optional `idempotencyKey`: if supplied, duplicate requests with the same key
- * within 5 minutes return the cached 201 response without starting a second call.
- */
-export async function handleStartCall(
-  req: Request,
-  assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
-): Promise<Response> {
+// ── Error helper ──────────────────────────────────────────────────────────────
+
+const STATUS_CODE_MAP: Record<number, string> = {
+  400: "BAD_REQUEST",
+  401: "UNAUTHORIZED",
+  403: "FORBIDDEN",
+  404: "NOT_FOUND",
+  409: "CONFLICT",
+  422: "UNPROCESSABLE_ENTITY",
+  424: "FAILED_DEPENDENCY",
+  429: "RATE_LIMITED",
+  503: "SERVICE_UNAVAILABLE",
+};
+
+function throwDomainError(error: string, status: number): never {
+  throw new RouteError(error, STATUS_CODE_MAP[status] ?? "INTERNAL_ERROR", status);
+}
+
+// ── Handlers ──────────────────────────────────────────────────────────────────
+
+async function handleStartCall({ body }: RouteHandlerArgs) {
   if (!getConfig().calls.enabled) {
-    return httpError(
-      "FORBIDDEN",
+    throw new ForbiddenError(
       "Calls feature is disabled via configuration. Set calls.enabled to true to use this feature.",
-      403,
     );
   }
 
-  let body: {
-    phoneNumber?: string;
-    task?: string;
-    context?: string;
-    conversationId?: string;
-    callerIdentityMode?: "assistant_number" | "user_number";
-    idempotencyKey?: string;
-  };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return httpError("BAD_REQUEST", "Invalid JSON in request body", 400);
-  }
-
-  if (typeof body !== "object" || body == null || Array.isArray(body)) {
-    return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
-  }
-
-  if (!body.conversationId) {
-    return httpError("BAD_REQUEST", "conversationId is required", 400);
+  if (!body?.conversationId) {
+    throw new BadRequestError("conversationId is required");
   }
 
   if (
@@ -91,41 +80,40 @@ export async function handleStartCall(
       body.callerIdentityMode as string,
     )
   ) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Invalid callerIdentityMode: "${
         body.callerIdentityMode
       }". Must be one of: ${VALID_CALLER_IDENTITY_MODES.join(", ")}`,
-      400,
     );
   }
 
-  // Idempotency check: return cached response for duplicate requests
   const idempotencyKey =
     typeof body.idempotencyKey === "string" && body.idempotencyKey
-      ? body.idempotencyKey
+      ? (body.idempotencyKey as string)
       : null;
 
   if (idempotencyKey) {
     pruneIdempotencyCache();
     const cached = idempotencyCache.get(idempotencyKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return Response.json(cached.body, { status: 201 });
+      return cached.body;
     }
   }
 
   const result = await startCall({
-    phoneNumber: body.phoneNumber ?? "",
-    task: body.task ?? "",
-    context: body.context,
-    conversationId: body.conversationId,
-    assistantId,
-    callerIdentityMode: body.callerIdentityMode,
+    phoneNumber: (body.phoneNumber as string) ?? "",
+    task: (body.task as string) ?? "",
+    context: body.context as string | undefined,
+    conversationId: body.conversationId as string,
+    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    callerIdentityMode: body.callerIdentityMode as
+      | "assistant_number"
+      | "user_number"
+      | undefined,
   });
 
   if (!result.ok) {
-    const status = result.status ?? 500;
-    return httpError(httpErrorCodeFromStatus(status), result.error, status);
+    throwDomainError(result.error, result.status ?? 500);
   }
 
   const responseBody = {
@@ -140,26 +128,27 @@ export async function handleStartCall(
   if (idempotencyKey) {
     idempotencyCache.set(idempotencyKey, {
       body: responseBody,
-      expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
+      expiresAt: Date.now() + CALL_IDEMPOTENCY_TTL_MS,
     });
   }
 
-  return Response.json(responseBody, { status: 201 });
+  return responseBody;
 }
 
-/**
- * GET /v1/calls/:callSessionId
- */
-function handleGetCallStatus(callSessionId: string): Response {
+function handleGetCallStatus({ pathParams }: RouteHandlerArgs) {
+  const callSessionId = pathParams?.callSessionId;
+  if (!callSessionId) {
+    throw new BadRequestError("callSessionId is required");
+  }
+
   const result = getCallStatus(callSessionId);
 
   if (!result.ok) {
-    const status = result.status ?? 500;
-    return httpError(httpErrorCodeFromStatus(status), result.error, status);
+    throwDomainError(result.error, result.status ?? 500);
   }
 
   const { session } = result;
-  return Response.json({
+  return {
     callSessionId: session.id,
     conversationId: session.conversationId,
     status: session.status,
@@ -176,224 +165,196 @@ function handleGetCallStatus(callSessionId: string): Response {
     pendingQuestion: result.pendingQuestion ?? null,
     createdAt: new Date(session.createdAt).toISOString(),
     updatedAt: new Date(session.updatedAt).toISOString(),
-  });
+  };
 }
 
-/**
- * POST /v1/calls/:callSessionId/cancel
- *
- * Body: { reason?: string }
- */
-async function handleCancelCall(
-  req: Request,
-  callSessionId: string,
-): Promise<Response> {
-  let reason: string | undefined;
-  try {
-    const body = (await req.json()) as { reason?: string };
-    reason = body.reason;
-  } catch {
-    // Empty body is fine
+async function handleCancelCall({ pathParams, body }: RouteHandlerArgs) {
+  const callSessionId = pathParams?.callSessionId;
+  if (!callSessionId) {
+    throw new BadRequestError("callSessionId is required");
   }
 
-  const result = await cancelCall({ callSessionId, reason });
+  const result = await cancelCall({
+    callSessionId,
+    reason: body?.reason as string | undefined,
+  });
 
   if (!result.ok) {
-    const status = result.status ?? 500;
-    return httpError(httpErrorCodeFromStatus(status), result.error, status);
+    throwDomainError(result.error, result.status ?? 500);
   }
 
-  return Response.json({
+  return {
     callSessionId: result.session.id,
     status: result.session.status,
-  });
+  };
 }
 
-/**
- * POST /v1/calls/:callSessionId/answer
- *
- * Body: { answer: string }
- */
-async function handleAnswerCall(
-  req: Request,
-  callSessionId: string,
-): Promise<Response> {
-  let body: { answer?: string; pendingQuestionId?: string };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return httpError("BAD_REQUEST", "Invalid JSON in request body", 400);
-  }
-
-  if (typeof body !== "object" || body == null || Array.isArray(body)) {
-    return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
+async function handleAnswerCall({ pathParams, body }: RouteHandlerArgs) {
+  const callSessionId = pathParams?.callSessionId;
+  if (!callSessionId) {
+    throw new BadRequestError("callSessionId is required");
   }
 
   const result = await answerCall({
     callSessionId,
-    answer: body.answer ?? "",
+    answer: (body?.answer as string) ?? "",
     pendingQuestionId:
-      typeof body.pendingQuestionId === "string"
+      typeof body?.pendingQuestionId === "string"
         ? body.pendingQuestionId
         : undefined,
   });
 
   if (!result.ok) {
-    const status = result.status ?? 500;
-    return httpError(httpErrorCodeFromStatus(status), result.error, status);
+    throwDomainError(result.error, result.status ?? 500);
   }
 
-  return Response.json({ ok: true, questionId: result.questionId });
+  return { ok: true, questionId: result.questionId };
 }
 
-/**
- * POST /v1/calls/:callSessionId/instruction
- *
- * Body: { instruction: string }
- */
-async function handleInstructionCall(
-  req: Request,
-  callSessionId: string,
-): Promise<Response> {
-  let body: { instruction?: string };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return httpError("BAD_REQUEST", "Invalid JSON in request body", 400);
-  }
-
-  if (typeof body !== "object" || body == null || Array.isArray(body)) {
-    return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
+async function handleInstructionCall({ pathParams, body }: RouteHandlerArgs) {
+  const callSessionId = pathParams?.callSessionId;
+  if (!callSessionId) {
+    throw new BadRequestError("callSessionId is required");
   }
 
   const result = await relayInstruction({
     callSessionId,
-    instructionText: body.instruction ?? "",
+    instructionText: (body?.instruction as string) ?? "",
   });
 
   if (!result.ok) {
-    const status = result.status ?? 500;
-    return httpError(httpErrorCodeFromStatus(status), result.error, status);
+    throwDomainError(result.error, result.status ?? 500);
   }
 
-  return Response.json({ ok: true });
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function callRouteDefinitions(deps: {
-  assistantId: string;
-}): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "calls/start",
-      method: "POST",
-      summary: "Start a call",
-      description:
-        "Initiate a new outbound phone call. Supports idempotency keys to prevent duplicate calls.",
-      tags: ["calls"],
-      handler: async ({ req }) => handleStartCall(req, deps.assistantId),
-      requestBody: z.object({
-        phoneNumber: z.string().describe("Phone number to call").optional(),
-        task: z.string().describe("Task description for the call").optional(),
-        context: z
-          .string()
-          .describe("Additional context for the call")
-          .optional(),
-        conversationId: z.string().describe("Conversation to associate with"),
-        callerIdentityMode: z
-          .string()
-          .describe("Caller identity: 'assistant_number' or 'user_number'")
-          .optional(),
-        idempotencyKey: z
-          .string()
-          .describe("Idempotency key to prevent duplicate calls")
-          .optional(),
-      }),
-      responseBody: z.object({
-        callSessionId: z.string(),
-        callSid: z.string(),
-        status: z.string(),
-        toNumber: z.string(),
-        fromNumber: z.string(),
-        callerIdentityMode: z.string(),
-      }),
-    },
-    {
-      endpoint: "calls/:id/cancel",
-      method: "POST",
-      policyKey: "calls/cancel",
-      summary: "Cancel a call",
-      description: "Cancel an active or pending call.",
-      tags: ["calls"],
-      handler: async ({ req, params }) => handleCancelCall(req, params.id),
-      requestBody: z.object({
-        reason: z.string().describe("Cancellation reason"),
-      }),
-      responseBody: z.object({
-        callSessionId: z.string(),
-        status: z.string(),
-      }),
-    },
-    {
-      endpoint: "calls/:id/answer",
-      method: "POST",
-      policyKey: "calls/answer",
-      summary: "Answer a pending call question",
-      description:
-        "Provide an answer to a pending question during an active call.",
-      tags: ["calls"],
-      handler: async ({ req, params }) => handleAnswerCall(req, params.id),
-      requestBody: z.object({
-        answer: z.string().describe("Answer text"),
-        pendingQuestionId: z.string().describe("ID of the pending question"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-        questionId: z.string(),
-      }),
-    },
-    {
-      endpoint: "calls/:id/instruction",
-      method: "POST",
-      policyKey: "calls/instruction",
-      summary: "Relay instruction to active call",
-      description: "Send a real-time instruction to an active call.",
-      tags: ["calls"],
-      handler: async ({ req, params }) => handleInstructionCall(req, params.id),
-      requestBody: z.object({
-        instruction: z.string().describe("Instruction text to relay"),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-    },
-    {
-      endpoint: "calls/:id",
-      method: "GET",
-      policyKey: "calls",
-      summary: "Get call status",
-      description: "Return the current status and details of a call session.",
-      tags: ["calls"],
-      handler: ({ params }) => handleGetCallStatus(params.id),
-      responseBody: z.object({
-        callSessionId: z.string(),
-        conversationId: z.string(),
-        status: z.string(),
-        toNumber: z.string(),
-        fromNumber: z.string(),
-        provider: z.string(),
-        providerCallSid: z.string(),
-        task: z.string(),
-        startedAt: z.string(),
-        endedAt: z.string(),
-        lastError: z.string(),
-        pendingQuestion: z.object({}).passthrough(),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-      }),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "calls_start",
+    endpoint: "calls/start",
+    method: "POST",
+    policyKey: "calls/start",
+    requirePolicyEnforcement: true,
+    summary: "Start a call",
+    description:
+      "Initiate a new outbound phone call. Supports idempotency keys to prevent duplicate calls.",
+    tags: ["calls"],
+    responseStatus: "201",
+    requestBody: z.object({
+      phoneNumber: z.string().describe("Phone number to call").optional(),
+      task: z.string().describe("Task description for the call").optional(),
+      context: z
+        .string()
+        .describe("Additional context for the call")
+        .optional(),
+      conversationId: z.string().describe("Conversation to associate with"),
+      callerIdentityMode: z
+        .string()
+        .describe("Caller identity: 'assistant_number' or 'user_number'")
+        .optional(),
+      idempotencyKey: z
+        .string()
+        .describe("Idempotency key to prevent duplicate calls")
+        .optional(),
+    }),
+    responseBody: z.object({
+      callSessionId: z.string(),
+      callSid: z.string(),
+      status: z.string(),
+      toNumber: z.string(),
+      fromNumber: z.string(),
+      callerIdentityMode: z.string(),
+    }),
+    handler: handleStartCall,
+  },
+  {
+    operationId: "calls_cancel",
+    endpoint: "calls/:callSessionId/cancel",
+    method: "POST",
+    policyKey: "calls/cancel",
+    requirePolicyEnforcement: true,
+    summary: "Cancel a call",
+    description: "Cancel an active or pending call.",
+    tags: ["calls"],
+    requestBody: z.object({
+      reason: z.string().describe("Cancellation reason").optional(),
+    }),
+    responseBody: z.object({
+      callSessionId: z.string(),
+      status: z.string(),
+    }),
+    handler: handleCancelCall,
+  },
+  {
+    operationId: "calls_answer",
+    endpoint: "calls/:callSessionId/answer",
+    method: "POST",
+    policyKey: "calls/answer",
+    requirePolicyEnforcement: true,
+    summary: "Answer a pending call question",
+    description:
+      "Provide an answer to a pending question during an active call.",
+    tags: ["calls"],
+    requestBody: z.object({
+      answer: z.string().describe("Answer text"),
+      pendingQuestionId: z
+        .string()
+        .describe("ID of the pending question")
+        .optional(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      questionId: z.string(),
+    }),
+    handler: handleAnswerCall,
+  },
+  {
+    operationId: "calls_instruction",
+    endpoint: "calls/:callSessionId/instruction",
+    method: "POST",
+    policyKey: "calls/instruction",
+    requirePolicyEnforcement: true,
+    summary: "Relay instruction to active call",
+    description: "Send a real-time instruction to an active call.",
+    tags: ["calls"],
+    requestBody: z.object({
+      instruction: z.string().describe("Instruction text to relay"),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+    handler: handleInstructionCall,
+  },
+  {
+    operationId: "calls_get",
+    endpoint: "calls/:callSessionId",
+    method: "GET",
+    policyKey: "calls",
+    requirePolicyEnforcement: true,
+    summary: "Get call status",
+    description: "Return the current status and details of a call session.",
+    tags: ["calls"],
+    responseBody: z.object({
+      callSessionId: z.string(),
+      conversationId: z.string(),
+      status: z.string(),
+      toNumber: z.string(),
+      fromNumber: z.string(),
+      provider: z.string(),
+      providerCallSid: z.string(),
+      task: z.string(),
+      startedAt: z.string().nullable(),
+      endedAt: z.string().nullable(),
+      lastError: z.string().nullable(),
+      pendingQuestion: z.object({}).passthrough().nullable(),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    }),
+    handler: handleGetCallStatus,
+  },
+];

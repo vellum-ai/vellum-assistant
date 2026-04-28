@@ -12,14 +12,13 @@ import "../../__tests__/test-preload.js";
 // Mocks — must be registered before importing the handler under test
 // ---------------------------------------------------------------------------
 
-const ipcSuggestTrustRuleMock = mock(
-  (_params: unknown) =>
-    Promise.resolve({
-      pattern: "git push",
-      risk: "medium",
-      description: "Allow git push",
-      scopeOptions: [{ pattern: "git push", label: "This exact command" }],
-    }),
+const ipcSuggestTrustRuleMock = mock((_params: unknown) =>
+  Promise.resolve({
+    pattern: "git push",
+    risk: "medium",
+    description: "Allow git push",
+    scopeOptions: [{ pattern: "git push", label: "This exact command" }],
+  }),
 );
 
 mock.module("../../ipc/assistant-client.js", () => ({
@@ -27,9 +26,7 @@ mock.module("../../ipc/assistant-client.js", () => ({
 }));
 
 // Import after mocks are registered
-const { createTrustRulesSuggestHandler } = await import(
-  "./trust-rules.js"
-);
+const { createTrustRulesSuggestHandler } = await import("./trust-rules.js");
 
 import { initGatewayDb, resetGatewayDb } from "../../db/connection.js";
 import { clearFeatureFlagStoreCache } from "../../feature-flag-store.js";
@@ -137,9 +134,7 @@ describe("POST /v1/trust-rules/suggest", () => {
     const handler = createTrustRulesSuggestHandler();
 
     // Missing tool
-    const res1 = await handler(
-      jsonRequest({ ...VALID_BODY, tool: undefined }),
-    );
+    const res1 = await handler(jsonRequest({ ...VALID_BODY, tool: undefined }));
     expect(res1.status).toBe(400);
 
     // Missing command
@@ -188,7 +183,7 @@ describe("POST /v1/trust-rules/suggest", () => {
     // Write a threshold row with interactive = "medium"
     const db = getGatewayDb();
     db.insert(autoApproveThresholds)
-      .values({ id: 1, interactive: "medium", background: "high", headless: "none" })
+      .values({ id: 1, interactive: "medium", autonomous: "none" })
       .onConflictDoUpdate({
         target: autoApproveThresholds.id,
         set: { interactive: "medium" },
@@ -205,7 +200,7 @@ describe("POST /v1/trust-rules/suggest", () => {
     expect(callArgs.currentThreshold).toBe("medium");
   });
 
-  test("currentThreshold defaults to 'low' when no threshold row in DB", async () => {
+  test("currentThreshold defaults to 'medium' when no threshold row in DB", async () => {
     // No row inserted — DB is fresh from beforeEach
     const handler = createTrustRulesSuggestHandler();
     await handler(jsonRequest(VALID_BODY));
@@ -214,7 +209,7 @@ describe("POST /v1/trust-rules/suggest", () => {
     const callArgs = ipcSuggestTrustRuleMock.mock.calls[0][0] as {
       currentThreshold: string;
     };
-    expect(callArgs.currentThreshold).toBe("low");
+    expect(callArgs.currentThreshold).toBe("medium");
   });
 
   test("passes directoryScopeOptions when provided", async () => {

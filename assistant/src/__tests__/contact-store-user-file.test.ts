@@ -11,7 +11,8 @@ import {
   generateUserFileSlug,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { getDb, getSqlite, initializeDb } from "../memory/db.js";
+import { getDb, getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { migrateNormalizeUserFileByPrincipal } from "../memory/migrations/220-normalize-user-file-by-principal.js";
 
 initializeDb();

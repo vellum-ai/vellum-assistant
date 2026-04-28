@@ -65,7 +65,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { initializeDb, getDb } = await import("../db.js");
+const { getDb } = await import("../db-connection.js");
+const { initializeDb } = await import("../db-init.js");
 const { resetTestTables } = await import("../raw-query.js");
 const { memoryJobs } = await import("../schema.js");
 const { _setOverridesForTesting } =

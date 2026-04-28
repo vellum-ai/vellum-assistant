@@ -13,8 +13,8 @@ import {
   isAutoAnalysisConversation,
 } from "../auto-analysis-guard.js";
 import { createConversation } from "../conversation-crud.js";
-import { getDb, initializeDb } from "../db.js";
-
+import { getDb } from "../db-connection.js";
+import { initializeDb } from "../db-init.js";
 initializeDb();
 
 function resetTables(): void {

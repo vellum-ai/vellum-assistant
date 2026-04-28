@@ -31,7 +31,7 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getMessages } from "../conversation-crud.js";
 import { listConversations } from "../conversation-queries.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { enqueueEmbedConceptPageJob } from "../jobs/embed-concept-page.js";
 import type { MemoryJob } from "../jobs-store.js";
 import {

@@ -172,6 +172,13 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
   }),
 }));
 
+const ipcCallMock = mock(
+  async (): Promise<Record<string, unknown> | undefined> => ({ ok: true }),
+);
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: ipcCallMock,
+}));
+
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 
@@ -257,7 +264,7 @@ function makeConversation() {
   };
 }
 
-function makeRequest(content: string) {
+function makeRequest(content: string, extras: Record<string, unknown> = {}) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -266,6 +273,7 @@ function makeRequest(content: string) {
       content,
       sourceChannel: "vellum",
       interface: "macos",
+      ...extras,
     }),
   });
 }
@@ -286,6 +294,7 @@ describe("handleSendMessage slash command interception", () => {
   beforeEach(() => {
     resolveSlashMock.mockClear();
     addMessageMock.mockClear();
+    ipcCallMock.mockClear();
   });
 
   test("intercepts built-in slash commands (unknown kind) without calling agent loop", async () => {
@@ -381,5 +390,58 @@ describe("handleSendMessage slash command interception", () => {
       provider: "anthropic",
       maxInputTokens: 200000,
     });
+  });
+
+  test("applies riskThreshold override when provided", async () => {
+    resolveSlashMock.mockReturnValue({
+      kind: "passthrough",
+      content: "hello there",
+    });
+
+    const { conversation } = makeConversation();
+    const res = await handleSendMessage(
+      makeRequest("hello there", { riskThreshold: "none" }),
+      makeDeps(conversation),
+      testAuthContext,
+    );
+
+    expect(res.status).toBe(202);
+    expect(ipcCallMock).toHaveBeenCalledWith("set_conversation_threshold", {
+      conversationId: "conv-slash-test",
+      threshold: "none",
+    });
+  });
+
+  test("returns 500 when riskThreshold IPC fails", async () => {
+    resolveSlashMock.mockReturnValue({
+      kind: "passthrough",
+      content: "hello there",
+    });
+    ipcCallMock.mockImplementationOnce(async () => undefined);
+
+    const { conversation } = makeConversation();
+    const res = await handleSendMessage(
+      makeRequest("hello there", { riskThreshold: "none" }),
+      makeDeps(conversation),
+      testAuthContext,
+    );
+
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).toContain("risk threshold");
+  });
+
+  test("rejects invalid riskThreshold values", async () => {
+    const { conversation } = makeConversation();
+    const res = await handleSendMessage(
+      makeRequest("hello there", { riskThreshold: "critical" }),
+      makeDeps(conversation),
+      testAuthContext,
+    );
+
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain("riskThreshold");
+    expect(ipcCallMock).not.toHaveBeenCalled();
   });
 });

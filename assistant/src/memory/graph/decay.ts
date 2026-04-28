@@ -9,7 +9,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { memoryGraphNodes } from "../schema.js";
 import type { EmotionalCharge, Fidelity } from "./types.js";
 

@@ -9,8 +9,8 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import {
   expireCanonicalGuardianRequest,

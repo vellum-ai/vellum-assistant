@@ -12,7 +12,7 @@ import {
   getConversationByKey,
   setConversationKey,
 } from "../../memory/conversation-key-store.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { indexMessageNow } from "../../memory/indexer.js";
 import {
   conversations as conversationsTable,

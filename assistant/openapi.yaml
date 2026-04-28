@@ -539,6 +539,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: method
+          in: query
+          required: false
+          schema:
+            type: string
     post:
       operationId: apps_by_id_data_post
       summary: Mutate app data
@@ -607,6 +612,16 @@ paths:
           required: true
           schema:
             type: string
+        - name: fromCommit
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: toCommit
+          in: query
+          required: false
+          schema:
+            type: string
   /v1/apps/{id}/history:
     get:
       operationId: apps_by_id_history_get
@@ -637,6 +652,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: number
   /v1/apps/{id}/open:
     post:
       operationId: apps_by_id_open_post
@@ -1012,7 +1032,6 @@ paths:
                   description: Canonical JSON payload to sign
                 signature:
                   type: string
-                  description: Ed25519 signature (optional, completes signing)
                 keyId:
                   type: string
                 publicKey:
@@ -1173,14 +1192,117 @@ paths:
           required: true
           schema:
             type: string
-  /v1/audio/{id}:
+  /v1/attachments/lookup:
+    post:
+      operationId: attachments_lookup_post
+      summary: Look up attachment by source path
+      description: Search for a previously registered attachment by its original source path, scoped to a conversation.
+      tags:
+        - attachments
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  filePath:
+                    type: string
+                required:
+                  - filePath
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourcePath:
+                  type: string
+                  description: Original source path of the file
+                conversationId:
+                  type: string
+                  description: Conversation ID to search within
+              required:
+                - sourcePath
+                - conversationId
+              additionalProperties: false
+  /v1/attachments/register:
+    post:
+      operationId: attachments_register_post
+      summary: Register a file-backed attachment
+      description:
+        Register an on-disk file as a file-backed attachment. The file must be within the workspace directory and
+        must remain on disk for the lifetime of the attachment.
+      tags:
+        - attachments
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  originalFilename:
+                    type: string
+                  mimeType:
+                    type: string
+                  sizeBytes:
+                    type: number
+                  kind:
+                    type: string
+                  filePath:
+                    type: string
+                  createdAt:
+                    type: number
+                required:
+                  - id
+                  - originalFilename
+                  - mimeType
+                  - sizeBytes
+                  - kind
+                  - filePath
+                  - createdAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: Absolute path to the file
+                mimeType:
+                  type: string
+                  description: MIME type of the file
+                filename:
+                  type: string
+                  description: Display filename (defaults to basename of path)
+              required:
+                - path
+                - mimeType
+              additionalProperties: false
+  /v1/audio/{audioId}:
     get:
-      operationId: audio_by_id_get
+      operationId: audio_by_audioId_get
+      summary: Get audio segment
+      description:
+        Retrieve a previously stored audio segment by ID. Unauthenticated — the audioId is an unguessable UUID
+        capability token.
+      tags:
+        - audio
       responses:
         "200":
           description: Successful response
       parameters:
-        - name: id
+        - name: audioId
           in: path
           required: true
           schema:
@@ -1195,6 +1317,26 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/avatar/notify-updated:
+    post:
+      operationId: avatar_notifyupdated_post
+      summary: Notify avatar updated
+      description: Publish an avatar_updated SSE event to connected clients.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
   /v1/avatar/render-from-traits:
     post:
       operationId: avatar_renderfromtraits_post
@@ -1450,6 +1592,87 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/browser/execute:
+    post:
+      operationId: browser_execute_post
+      summary: Execute a browser operation
+      description: Invoke a browser operation (navigate, click, type, screenshot, etc.) via the headless browser subsystem.
+      tags:
+        - browser
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  isError:
+                    type: boolean
+                  screenshots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        mediaType:
+                          type: string
+                        data:
+                          type: string
+                      required:
+                        - mediaType
+                        - data
+                      additionalProperties: false
+                required:
+                  - content
+                  - isError
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operation:
+                  type: string
+                  enum:
+                    - navigate
+                    - snapshot
+                    - screenshot
+                    - close
+                    - attach
+                    - detach
+                    - click
+                    - type
+                    - press_key
+                    - scroll
+                    - select_option
+                    - hover
+                    - wait_for
+                    - extract
+                    - wait_for_download
+                    - fill_credential
+                    - status
+                input:
+                  default: {}
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                sessionId:
+                  default: default
+                  type: string
+                  minLength: 1
+                conversationId:
+                  type: string
+                  minLength: 1
+              required:
+                - operation
+                - input
+                - sessionId
+              additionalProperties: false
   /v1/btw:
     post:
       operationId: btw_post
@@ -1479,9 +1702,114 @@ paths:
                 - conversationKey
                 - content
               additionalProperties: false
-  /v1/calls/{id}:
+  /v1/cache/delete:
+    post:
+      operationId: cache_delete_post
+      summary: Delete a cache entry
+      description: Remove a cached value by key.
+      tags:
+        - cache
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                required:
+                  - deleted
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  minLength: 1
+              required:
+                - key
+              additionalProperties: false
+  /v1/cache/get:
+    post:
+      operationId: cache_get_post
+      summary: Get a cache entry
+      description: Retrieve a cached value by key. Returns null if not found.
+      tags:
+        - cache
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    properties:
+                      data: {}
+                    required:
+                      - data
+                    additionalProperties: false
+                  - type: "null"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  minLength: 1
+              required:
+                - key
+              additionalProperties: false
+  /v1/cache/set:
+    post:
+      operationId: cache_set_post
+      summary: Set a cache entry
+      description: Store a value in the daemon's in-memory cache, optionally with a TTL.
+      tags:
+        - cache
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                required:
+                  - key
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: {}
+                key:
+                  type: string
+                  minLength: 1
+                ttl_ms:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+              required:
+                - data
+              additionalProperties: false
+  /v1/calls/{callSessionId}:
     get:
-      operationId: calls_by_id_get
+      operationId: calls_by_callSessionId_get
       summary: Get call status
       description: Return the current status and details of a call session.
       tags:
@@ -1511,15 +1839,23 @@ paths:
                   task:
                     type: string
                   startedAt:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   endedAt:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   lastError:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   pendingQuestion:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
                   createdAt:
                     type: string
                   updatedAt:
@@ -1541,14 +1877,14 @@ paths:
                   - updatedAt
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
             type: string
-  /v1/calls/{id}/answer:
+  /v1/calls/{callSessionId}/answer:
     post:
-      operationId: calls_by_id_answer_post
+      operationId: calls_by_callSessionId_answer_post
       summary: Answer a pending call question
       description: Provide an answer to a pending question during an active call.
       tags:
@@ -1570,7 +1906,7 @@ paths:
                   - questionId
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
@@ -1590,11 +1926,10 @@ paths:
                   description: ID of the pending question
               required:
                 - answer
-                - pendingQuestionId
               additionalProperties: false
-  /v1/calls/{id}/cancel:
+  /v1/calls/{callSessionId}/cancel:
     post:
-      operationId: calls_by_id_cancel_post
+      operationId: calls_by_callSessionId_cancel_post
       summary: Cancel a call
       description: Cancel an active or pending call.
       tags:
@@ -1616,7 +1951,7 @@ paths:
                   - status
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
@@ -1631,12 +1966,10 @@ paths:
                 reason:
                   type: string
                   description: Cancellation reason
-              required:
-                - reason
               additionalProperties: false
-  /v1/calls/{id}/instruction:
+  /v1/calls/{callSessionId}/instruction:
     post:
-      operationId: calls_by_id_instruction_post
+      operationId: calls_by_callSessionId_instruction_post
       summary: Relay instruction to active call
       description: Send a real-time instruction to an active call.
       tags:
@@ -1655,7 +1988,7 @@ paths:
                   - ok
                 additionalProperties: false
       parameters:
-        - name: id
+        - name: callSessionId
           in: path
           required: true
           schema:
@@ -1681,7 +2014,7 @@ paths:
       tags:
         - calls
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -1746,19 +2079,6 @@ paths:
       responses:
         "200":
           description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  channel:
-                    type: string
-                required:
-                  - success
-                  - channel
-                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2006,6 +2326,37 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/clients:
+    get:
+      operationId: clients_get
+      summary: List connected clients
+      description: Return all connected clients, optionally filtered by capability.
+      tags:
+        - clients
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      type: object
+                      properties: {}
+                      additionalProperties: {}
+                required:
+                  - clients
+                additionalProperties: false
+      parameters:
+        - name: capability
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter clients by a specific capability.
   /v1/config:
     get:
       operationId: config_get
@@ -2239,6 +2590,43 @@ paths:
                   - ok
                   - contacts
                 additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max contacts to return (default 50)
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by role (e.g. guardian)
+        - name: contactType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by contact type (human or assistant)
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Full-text search query
+        - name: channelAddress
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by channel address
+        - name: channelType
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by channel type
     post:
       operationId: contacts_post
       summary: Create or update a contact
@@ -2300,7 +2688,7 @@ paths:
       tags:
         - contacts
       responses:
-        "200":
+        "204":
           description: Successful response
       parameters:
         - name: id
@@ -2440,7 +2828,7 @@ paths:
       tags:
         - contacts
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -2458,6 +2846,8 @@ paths:
                   - ok
                   - invite
                 additionalProperties: false
+        "400":
+          description: Invalid invite parameters
       requestBody:
         required: true
         content:
@@ -2505,6 +2895,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "404":
+          description: Invite not found
       parameters:
         - name: id
           in: path
@@ -2535,6 +2927,8 @@ paths:
                   - ok
                   - callSid
                 additionalProperties: false
+        "400":
+          description: Invite not eligible for outbound call
       parameters:
         - name: id
           in: path
@@ -2575,6 +2969,8 @@ paths:
                   - type
                   - memberId
                 additionalProperties: false
+        "400":
+          description: Invalid redemption parameters or failed redemption
       requestBody:
         required: true
         content:
@@ -2654,6 +3050,121 @@ paths:
               required:
                 - keepId
                 - mergeId
+              additionalProperties: false
+  /v1/contacts/merge-by-id:
+    post:
+      operationId: contacts_mergebyid_post
+      summary: Merge two contacts
+      description: Merge two contacts by ID, keeping one and absorbing the other.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keepId:
+                  type: string
+                  minLength: 1
+                mergeId:
+                  type: string
+                  minLength: 1
+              required:
+                - keepId
+                - mergeId
+              additionalProperties: false
+  /v1/contacts/search:
+    post:
+      operationId: contacts_search_post
+      summary: Search contacts
+      description: Search contacts by query, channel address, or channel type.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties: {}
+                  additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                channelAddress:
+                  type: string
+                channelType:
+                  type: string
+                limit:
+                  type: number
+              additionalProperties: false
+  /v1/contacts/upsert:
+    post:
+      operationId: contacts_upsert_post
+      summary: Create or update a contact
+      description: Create a new contact or update an existing one by ID.
+      tags:
+        - contacts
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+                additionalProperties: {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                displayName:
+                  type: string
+                  minLength: 1
+                notes:
+                  type: string
+                channels:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      address:
+                        type: string
+                      isPrimary:
+                        type: boolean
+                    required:
+                      - type
+                      - address
+                    additionalProperties: false
+              required:
+                - displayName
               additionalProperties: false
   /v1/conversation-starters:
     get:
@@ -3212,6 +3723,33 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/rename:
+    post:
+      operationId: conversations_rename_post
+      summary: Rename a conversation
+      description: Update the display title of a conversation.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                title:
+                  type: string
+                  minLength: 1
+              required:
+                - conversationId
+                - title
+              additionalProperties: false
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
@@ -3260,6 +3798,25 @@ paths:
                   - query
                   - results
                 additionalProperties: false
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max results
+        - name: maxMessagesPerConversation
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max messages per conversation
   /v1/conversations/seen:
     post:
       operationId: conversations_seen_post
@@ -3315,6 +3872,134 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/conversations/wake:
+    post:
+      operationId: conversations_wake_post
+      summary: Wake a conversation
+      description: Invoke the agent loop for a conversation with an opportunity hint.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoked:
+                    type: boolean
+                  producedToolCalls:
+                    type: boolean
+                  reason:
+                    type: string
+                required:
+                  - invoked
+                  - producedToolCalls
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                hint:
+                  type: string
+                  minLength: 1
+                source:
+                  default: cli
+                  type: string
+              required:
+                - conversationId
+                - hint
+                - source
+              additionalProperties: false
+  /v1/credentials/prompt:
+    post:
+      operationId: credentials_prompt_post
+      summary: Prompt user for a credential
+      description: Trigger a secure input prompt in the user's app to collect a credential value.
+      tags:
+        - credentials
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  error:
+                    type: string
+                  service:
+                    type: string
+                  field:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  minLength: 1
+                field:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+                  minLength: 1
+                description:
+                  type: string
+                placeholder:
+                  type: string
+                allowedDomains:
+                  type: array
+                  items:
+                    type: string
+                allowedTools:
+                  type: array
+                  items:
+                    type: string
+                injectionTemplates:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      hostPattern:
+                        type: string
+                        minLength: 1
+                      injectionType:
+                        type: string
+                        enum:
+                          - header
+                          - query
+                      headerName:
+                        type: string
+                      valuePrefix:
+                        type: string
+                      queryParamName:
+                        type: string
+                    required:
+                      - hostPattern
+                      - injectionType
+                    additionalProperties: false
+              required:
+                - service
+                - field
+                - label
+              additionalProperties: false
   /v1/debug:
     get:
       operationId: debug_get
@@ -3366,6 +4051,147 @@ paths:
                   - schedules
                   - timestamp
                 additionalProperties: false
+  /v1/defer/cancel:
+    post:
+      operationId: defer_cancel_post
+      summary: Cancel deferred wakes
+      description: Cancel a specific deferred wake by ID, or all defers for a conversation.
+      tags:
+        - defer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - cancelled
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                all:
+                  type: boolean
+                conversationId:
+                  type: string
+              additionalProperties: false
+  /v1/defer/create:
+    post:
+      operationId: defer_create_post
+      summary: Create a deferred wake
+      description: Schedule a future wake-up on a conversation, optionally with a delay or absolute timestamp.
+      tags:
+        - defer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  fireAt:
+                    type: number
+                  conversationId:
+                    type: string
+                required:
+                  - id
+                  - name
+                  - fireAt
+                  - conversationId
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                hint:
+                  type: string
+                  minLength: 1
+                delaySeconds:
+                  type: number
+                fireAt:
+                  type: number
+                name:
+                  type: string
+              required:
+                - conversationId
+                - hint
+              additionalProperties: false
+  /v1/defer/list:
+    post:
+      operationId: defer_list_post
+      summary: List active deferred wakes
+      description: List all active deferred wakes, optionally filtered by conversation.
+      tags:
+        - defer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        hint:
+                          type: string
+                        conversationId:
+                          type: string
+                        fireAt:
+                          type: number
+                        status:
+                          type: string
+                      required:
+                        - id
+                        - name
+                        - hint
+                        - conversationId
+                        - fireAt
+                        - status
+                      additionalProperties: false
+                required:
+                  - defers
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+              additionalProperties: false
   /v1/diagnostics/env-vars:
     get:
       operationId: diagnostics_envvars_get
@@ -3480,6 +4306,7 @@ paths:
                 properties:
                   success:
                     type: boolean
+                    const: true
                   surfaceId:
                     type: string
                 required:
@@ -3589,6 +4416,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "500":
+          description: Failed to create archive
       requestBody:
         required: true
         content:
@@ -3605,9 +4434,7 @@ paths:
                   description: Scope to a single conversation
                   type: string
                 full:
-                  description:
-                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
-                    debugging.
+                  description: Full export — include messages, LLM request logs, and usage events for all conversations.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
@@ -3703,8 +4530,10 @@ paths:
       tags:
         - groups
       responses:
-        "200":
+        "201":
           description: Successful response
+        "400":
+          description: Missing or invalid name, or sort_position ceiling reached
       requestBody:
         required: true
         content:
@@ -3726,8 +4555,12 @@ paths:
       tags:
         - groups
       responses:
-        "200":
+        "204":
           description: Successful response
+        "403":
+          description: System groups cannot be deleted
+        "404":
+          description: Group not found
       parameters:
         - name: groupId
           in: path
@@ -3743,6 +4576,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: System group sort position cannot be changed
+        "404":
+          description: Group not found
       parameters:
         - name: groupId
           in: path
@@ -3771,6 +4608,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: Cannot reorder system groups
       requestBody:
         required: true
         content:
@@ -4195,11 +5034,21 @@ paths:
                   intervalMs:
                     type: number
                   activeHoursStart:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   activeHoursEnd:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   nextRunAt:
-                    type: string
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   success:
                     type: boolean
                 required:
@@ -4208,6 +5057,7 @@ paths:
                   - activeHoursStart
                   - activeHoursEnd
                   - nextRunAt
+                  - lastRunAt
                   - success
                 additionalProperties: false
     put:
@@ -4229,11 +5079,21 @@ paths:
                   intervalMs:
                     type: number
                   activeHoursStart:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   activeHoursEnd:
-                    type: number
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   nextRunAt:
-                    type: string
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   success:
                     type: boolean
                 required:
@@ -4242,6 +5102,7 @@ paths:
                   - activeHoursStart
                   - activeHoursEnd
                   - nextRunAt
+                  - lastRunAt
                   - success
                 additionalProperties: false
       requestBody:
@@ -4321,7 +5182,7 @@ paths:
           required: false
           schema:
             type: integer
-          description: Max runs to return (default 20)
+          description: Max runs to return (default 20, max 100)
   /v1/home/feed:
     get:
       operationId: home_feed_get
@@ -4632,6 +5493,10 @@ paths:
                   - author
                   - createdAt
                 additionalProperties: false
+        "404":
+          description: Feed item not found
+        "500":
+          description: Failed to persist feed item status
       parameters:
         - name: id
           in: path
@@ -4677,6 +5542,10 @@ paths:
                 required:
                   - conversationId
                 additionalProperties: false
+        "404":
+          description: Feed item or action not found
+        "500":
+          description: Failed to create conversation
       parameters:
         - name: id
           in: path
@@ -4806,6 +5675,8 @@ paths:
                   - assistantName
                   - updatedAt
                 additionalProperties: false
+        "500":
+          description: Failed to compute relationship state
   /v1/host-bash-result:
     post:
       operationId: hostbashresult_post
@@ -5165,145 +6036,183 @@ paths:
   /v1/integrations/slack/channel/config:
     delete:
       operationId: integrations_slack_channel_config_delete
+      summary: Clear Slack channel config
+      description: Clear stored Slack channel credentials.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
     get:
       operationId: integrations_slack_channel_config_get
+      summary: Get Slack channel config
+      description: Check current Slack channel configuration status.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_slack_channel_config_post
+      summary: Set Slack channel config
+      description: Validate and store Slack channel credentials.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/slack/channel/oauth-install:
     post:
       operationId: integrations_slack_channel_oauthinstall_post
+      summary: Run Slack OAuth install
+      description: Run an OAuth2 loopback flow to install the Slack app and capture bot + user tokens.
       tags:
-        - channel
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/telegram/commands:
     post:
       operationId: integrations_telegram_commands_post
+      summary: Register Telegram commands
+      description: Register bot commands with the Telegram API.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/telegram/config:
     delete:
       operationId: integrations_telegram_config_delete
+      summary: Clear Telegram config
+      description: Clear credentials and deregister webhook.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
     get:
       operationId: integrations_telegram_config_get
+      summary: Get Telegram config
+      description: Check current Telegram bot configuration status.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_telegram_config_post
+      summary: Set Telegram config
+      description: Set bot token and configure webhook.
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/telegram/setup:
     post:
       operationId: integrations_telegram_setup_post
+      summary: Setup Telegram
+      description: "Composite: set config + register commands."
       tags:
-        - telegram
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/config:
     get:
       operationId: integrations_twilio_config_get
+      summary: Get Twilio config
+      description: Return current Twilio configuration status.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/credentials:
     delete:
       operationId: integrations_twilio_credentials_delete
+      summary: Clear Twilio credentials
+      description: Remove stored Twilio credentials.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_twilio_credentials_post
+      summary: Set Twilio credentials
+      description: Validate and store Twilio account SID and auth token.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers:
     get:
       operationId: integrations_twilio_numbers_get
+      summary: List Twilio numbers
+      description: List phone numbers on the Twilio account.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/assign:
     post:
       operationId: integrations_twilio_numbers_assign_post
+      summary: Assign Twilio number
+      description: Assign an existing phone number to this assistant.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/provision:
     post:
       operationId: integrations_twilio_numbers_provision_post
+      summary: Provision Twilio number
+      description: Search for and provision a new phone number.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/release:
     post:
       operationId: integrations_twilio_numbers_release_post
+      summary: Release Twilio number
+      description: Release a phone number back to Twilio.
       tags:
-        - twilio
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/integrations/vercel/config:
     delete:
       operationId: integrations_vercel_config_delete
+      summary: Delete Vercel config
+      description: Delete the stored Vercel API token.
       tags:
-        - vercel
+        - integrations
       responses:
         "200":
           description: Successful response
     get:
       operationId: integrations_vercel_config_get
+      summary: Get Vercel config
+      description: Check if a Vercel API token is stored.
       tags:
-        - vercel
+        - integrations
       responses:
         "200":
           description: Successful response
     post:
       operationId: integrations_vercel_config_post
+      summary: Set or delete Vercel config
+      description: Set or delete the Vercel API token. Action is determined by the body action field.
       tags:
-        - vercel
+        - integrations
       responses:
         "200":
           description: Successful response
@@ -5383,6 +6292,8 @@ paths:
       responses:
         "200":
           description: Successful response
+        "500":
+          description: Failed to create archive
       requestBody:
         required: true
         content:
@@ -5399,9 +6310,7 @@ paths:
                   description: Scope to a single conversation
                   type: string
                 full:
-                  description:
-                    Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data
-                    debugging.
+                  description: Full export — include messages, LLM request logs, and usage events for all conversations.
                   type: boolean
                 startTime:
                   description: Lower bound epoch ms
@@ -5485,7 +6394,7 @@ paths:
       tags:
         - memory
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -5500,6 +6409,8 @@ paths:
                 required:
                   - item
                 additionalProperties: false
+        "409":
+          description: A memory with this content already exists
       requestBody:
         required: true
         content:
@@ -5531,18 +6442,8 @@ paths:
       tags:
         - memory
       responses:
-        "200":
+        "204":
           description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5599,6 +6500,8 @@ paths:
                 required:
                   - item
                 additionalProperties: false
+        "409":
+          description: Another memory item with this content already exists
       parameters:
         - name: id
           in: path
@@ -5687,6 +6590,13 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                riskThreshold:
+                  type: string
+                  enum:
+                    - none
+                    - low
+                    - medium
+                    - high
               required:
                 - content
               additionalProperties: false
@@ -5706,6 +6616,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional conversation ID filter
   /v1/messages/{id}/llm-context:
     get:
       operationId: messages_by_id_llmcontext_get
@@ -5741,9 +6657,9 @@ paths:
           required: true
           schema:
             type: string
-  /v1/messages/{id}/tts:
+  /v1/messages/{messageId}/tts:
     post:
-      operationId: messages_by_id_tts_post
+      operationId: messages_by_messageId_tts_post
       summary: Synthesize message to speech
       description: Synthesize a message's text content to audio using the configured TTS provider.
       tags:
@@ -5752,7 +6668,7 @@ paths:
         "200":
           description: Successful response
       parameters:
-        - name: id
+        - name: messageId
           in: path
           required: true
           schema:
@@ -5779,6 +6695,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Conversation ID (required)
   /v1/migrations/export:
     post:
       operationId: migrations_export_post
@@ -6278,26 +7200,191 @@ paths:
               required:
                 - deliveryId
               additionalProperties: false
-  /v1/oauth/apps:
-    get:
-      operationId: oauth_apps_get
+  /v1/notifications/emit:
+    post:
+      operationId: notifications_emit_post
+      summary: Emit a notification signal
+      description: Emit a notification signal into the pipeline for routing and delivery.
       tags:
-        - oauth-apps
+        - notifications
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signalId:
+                    type: string
+                  dispatched:
+                    type: boolean
+                  deduplicated:
+                    type: boolean
+                  reason:
+                    type: string
+                required:
+                  - signalId
+                  - dispatched
+                  - deduplicated
+                  - reason
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sourceEventName:
+                  type: string
+                  minLength: 1
+                sourceChannel:
+                  type: string
+                  enum:
+                    - assistant_tool
+                    - vellum
+                    - phone
+                    - telegram
+                    - slack
+                    - scheduler
+                    - watcher
+                sourceContextId:
+                  type: string
+                  minLength: 1
+                attentionHints:
+                  type: object
+                  properties:
+                    requiresAction:
+                      type: boolean
+                    urgency:
+                      type: string
+                      enum:
+                        - low
+                        - medium
+                        - high
+                    deadlineAt:
+                      type: number
+                    isAsyncBackground:
+                      type: boolean
+                    visibleInSourceNow:
+                      type: boolean
+                  required:
+                    - requiresAction
+                    - urgency
+                    - isAsyncBackground
+                    - visibleInSourceNow
+                  additionalProperties: false
+                contextPayload:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                routingIntent:
+                  type: string
+                  enum:
+                    - single_channel
+                    - multi_channel
+                    - all_channels
+                dedupeKey:
+                  type: string
+                throwOnError:
+                  type: boolean
+              required:
+                - sourceEventName
+                - sourceChannel
+                - sourceContextId
+                - attentionHints
+              additionalProperties: false
+  /v1/notifications/events:
     post:
-      operationId: oauth_apps_post
+      operationId: notifications_events_post
+      summary: List notification events
+      description: List recent notification events, optionally filtered by source event name.
       tags:
-        - oauth-apps
+        - notifications
       responses:
         "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    sourceEventName:
+                      type: string
+                    sourceChannel:
+                      type: string
+                    sourceContextId:
+                      type: string
+                    urgency:
+                      type: string
+                    dedupeKey:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    createdAt:
+                      type: string
+                  required:
+                    - id
+                    - sourceEventName
+                    - sourceChannel
+                    - sourceContextId
+                    - urgency
+                    - dedupeKey
+                    - createdAt
+                  additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                sourceEventName:
+                  type: string
+              additionalProperties: false
+  /v1/oauth/apps:
+    get:
+      operationId: oauth_apps_get
+      summary: List OAuth apps
+      description: List OAuth apps filtered by provider_key.
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: provider_key
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth provider key to filter by
+    post:
+      operationId: oauth_apps_post
+      summary: Create OAuth app
+      description: Register a new OAuth app with client credentials.
+      tags:
+        - oauth
+      responses:
+        "201":
           description: Successful response
   /v1/oauth/apps/{appId}/connect:
     post:
       operationId: oauth_apps_by_appId_connect_post
+      summary: Start OAuth connect
+      description: Start an OAuth connect flow for an app.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6310,8 +7397,10 @@ paths:
   /v1/oauth/apps/{appId}/connections:
     get:
       operationId: oauth_apps_by_appId_connections_get
+      summary: List OAuth connections
+      description: List connections for an OAuth app.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6324,8 +7413,10 @@ paths:
   /v1/oauth/apps/{id}:
     delete:
       operationId: oauth_apps_by_id_delete
+      summary: Delete OAuth app
+      description: Delete an OAuth app and disconnect all its connections.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6338,8 +7429,10 @@ paths:
   /v1/oauth/connections/{id}:
     delete:
       operationId: oauth_connections_by_id_delete
+      summary: Disconnect OAuth connection
+      description: Disconnect a single OAuth connection.
       tags:
-        - oauth-apps
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6352,16 +7445,27 @@ paths:
   /v1/oauth/providers:
     get:
       operationId: oauth_providers_get
+      summary: List OAuth providers
+      description: List all registered OAuth providers with optional filtering.
       tags:
-        - oauth-providers
+        - oauth
       responses:
         "200":
           description: Successful response
+      parameters:
+        - name: supports_managed_mode
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by managed mode support (true/false)
   /v1/oauth/providers/{providerKey}:
     get:
       operationId: oauth_providers_by_providerKey_get
+      summary: Get OAuth provider
+      description: Get a single OAuth provider by key.
       tags:
-        - oauth-providers
+        - oauth
       responses:
         "200":
           description: Successful response
@@ -6397,6 +7501,22 @@ paths:
                 - service
                 - requestedScopes
               additionalProperties: false
+  /v1/pages/{appId}:
+    get:
+      operationId: pages_by_appId_get
+      summary: Serve app page
+      description: Render and serve a shareable app page as HTML.
+      tags:
+        - apps
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/pairing/request:
     post:
       operationId: pairing_request_post
@@ -6811,7 +7931,7 @@ paths:
       tags:
         - recordings
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -6965,6 +8085,13 @@ paths:
                 required:
                   - schedules
                 additionalProperties: false
+      parameters:
+        - name: include_all
+          in: query
+          required: false
+          schema:
+            type: string
+          description: When 'true', include deferred schedules that are normally hidden.
   /v1/schedules/{id}:
     delete:
       operationId: schedules_by_id_delete
@@ -7145,6 +8272,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 10, max 100)
   /v1/schedules/{id}/toggle:
     post:
       operationId: schedules_by_id_toggle_post
@@ -7239,7 +8372,7 @@ paths:
       parameters:
         - name: q
           in: query
-          required: false
+          required: true
           schema:
             type: string
           description: Search query (required)
@@ -7797,7 +8930,7 @@ paths:
       tags:
         - skills
       responses:
-        "200":
+        "201":
           description: Successful response
           content:
             application/json:
@@ -7838,7 +8971,7 @@ paths:
       tags:
         - skills
       responses:
-        "200":
+        "204":
           description: Successful response
       parameters:
         - name: id
@@ -8642,16 +9775,20 @@ paths:
   /v1/slack/channels:
     get:
       operationId: slack_channels_get
+      summary: List Slack channels
+      description: List Slack channels, groups, and DMs for the channel picker.
       tags:
-        - share
+        - integrations
       responses:
         "200":
           description: Successful response
   /v1/slack/share:
     post:
       operationId: slack_share_post
+      summary: Share to Slack channel
+      description: Post an app link directly to a Slack channel.
       tags:
-        - share
+        - integrations
       responses:
         "200":
           description: Successful response
@@ -8665,18 +9802,64 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        subtitle:
+                          type: string
+                        setupMode:
+                          type: string
+                        setupHint:
+                          type: string
+                        apiKeyProviderName:
+                          type: string
+                        conversationStreamingMode:
+                          type: string
+                        credentialsGuide:
+                          type: string
+                      required:
+                        - id
+                        - displayName
+                      additionalProperties: false
+                required:
+                  - providers
+                additionalProperties: false
   /v1/stt/transcribe:
     post:
       operationId: stt_transcribe_post
       summary: Transcribe audio to text
-      description:
-        Transcribe base64-encoded audio to text using the configured STT provider. Provider selection is resolved
-        globally via config.
+      description: Transcribe base64-encoded audio to text using the configured STT provider.
       tags:
         - stt
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  providerId:
+                    type: string
+                  boundaryId:
+                    type: string
+                required:
+                  - text
+                  - providerId
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -8867,9 +10050,7 @@ paths:
                     type: boolean
                   conversationId:
                     type: string
-                    description:
-                      Id of a newly launched conversation when the action dispatched one (e.g. launch_conversation). Omitted
-                      otherwise.
+                    description: Id of a newly launched conversation when the action dispatched one. Omitted otherwise.
                 required:
                   - ok
                 additionalProperties: false
@@ -9147,9 +10328,7 @@ paths:
     post:
       operationId: tts_synthesize_post
       summary: Synthesize text to speech
-      description:
-        Synthesize arbitrary text to audio using the configured TTS provider. Provider selection is resolved
-        globally via config — callers do not specify a provider.
+      description: Synthesize arbitrary text to audio using the configured TTS provider.
       tags:
         - tts
       responses:
@@ -9166,9 +10345,7 @@ paths:
                   type: string
                   description: Text to synthesize into speech
                 context:
-                  description:
-                    Optional context hint for output policy or capability selection (e.g. voice-mode). Does not affect provider
-                    selection.
+                  description: Optional context hint for output policy or capability selection.
                   type: string
                 conversationId:
                   description: Optional conversation ID for scoping or analytics.
@@ -9313,6 +10490,21 @@ paths:
                 required:
                   - items
                 additionalProperties: false
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - pending
+              - running
+              - awaiting_review
+              - done
+              - failed
+              - cancelled
+              - archived
+          description: Filter by work item status
   /v1/work-items/{id}:
     delete:
       operationId: workitems_by_id_delete
@@ -9427,6 +10619,10 @@ paths:
       responses:
         "200":
           description: Successful response
+        "404":
+          description: Work item not found
+        "409":
+          description: Work item is not running
       parameters:
         - name: id
           in: path
@@ -9527,6 +10723,12 @@ paths:
       responses:
         "200":
           description: Successful response
+        "403":
+          description: Required tool permissions not approved
+        "404":
+          description: Work item or associated task not found
+        "409":
+          description: Work item is already running or not runnable
       parameters:
         - name: id
           in: path
@@ -9553,6 +10755,13 @@ paths:
       responses:
         "200":
           description: Successful response
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+          description: File path to read
   /v1/workspace/delete:
     post:
       operationId: workspace_delete_post
@@ -9563,6 +10772,16 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+                additionalProperties: false
       requestBody:
         required: true
         content:

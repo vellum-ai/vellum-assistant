@@ -23,7 +23,9 @@ mock.module("../security/secure-keys.js", () => ({
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { resetTestTables } from "../memory/raw-query.js";
 import { listProviders, seedProviders } from "../oauth/oauth-store.js";
 import { isProviderVisible } from "../oauth/provider-visibility.js";
 

@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,

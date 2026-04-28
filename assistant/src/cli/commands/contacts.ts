@@ -16,7 +16,7 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   createIngressInvite,
   listIngressInvites,

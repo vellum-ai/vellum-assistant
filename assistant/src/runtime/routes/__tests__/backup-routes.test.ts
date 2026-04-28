@@ -1,5 +1,5 @@
 /**
- * Unit tests for the /v1/backups HTTP route handlers.
+ * Unit tests for the /v1/backups route handlers.
  *
  * These tests drive the handler functions directly (bypassing the router)
  * so they exercise the handler logic — input validation, path containment,
@@ -20,17 +20,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BackupRunResult } from "../../../backup/backup-worker.js";
-import type { SnapshotEntry } from "../../../backup/list-snapshots.js";
 import type { RestoreResult, VerifyResult } from "../../../backup/restore.js";
 import type { BackupConfig } from "../../../config/schema.js";
 import { BackupConfigSchema } from "../../../config/schema.js";
@@ -52,9 +44,8 @@ mock.module("../../../util/logger.js", () => ({
 // enumeration when backup.offsite.enabled is false.
 
 const listSnapshotsCallLog: string[] = [];
-const { listSnapshotsInDir: realListSnapshotsInDir } = await import(
-  "../../../backup/list-snapshots.js"
-);
+const { listSnapshotsInDir: realListSnapshotsInDir } =
+  await import("../../../backup/list-snapshots.js");
 mock.module("../../../backup/list-snapshots.js", () => ({
   listSnapshotsInDir: async (dir: string) => {
     listSnapshotsCallLog.push(dir);
@@ -74,9 +65,6 @@ let mockInvalidateConfigCacheCalls = 0;
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     backup: mockBackupConfig,
-    // The handlers only touch `.backup`, but getConfig() is typed as returning
-    // the full AssistantConfig. Cast through `unknown` so the partial shape is
-    // accepted without pulling in the full config schema.
   }),
   invalidateConfigCache: () => {
     mockInvalidateConfigCacheCalls += 1;
@@ -85,27 +73,18 @@ mock.module("../../../config/loader.js", () => ({
 }));
 
 // -- Trust-cache mock ------------------------------------------------------
-// After a successful `restoreFromSnapshot`, handleBackupRestore must call
-// `invalidateConfigCache()` and `clearTrustCache()` (matching the migration
-// importer). The SQLite handle reset is owned by `restoreFromSnapshot` and
-// covered in restore.test.ts. Tests here record the call sequence via
-// `recoveryCallOrder` and assert on the relative ordering.
 
 const recoveryCallOrder: string[] = [];
 
 mock.module("../../../permissions/trust-store.js", () => ({
-  clearCache: () => {  },
+  clearCache: () => {},
 }));
 
 // -- Platform paths mock ---------------------------------------------------
-// `getWorkspaceDir` / `getWorkspaceHooksDir` are used inside the restore
-// handler to build a DefaultPathResolver. Return test-friendly paths so
-// restore tests don't pollute the real workspace.
 
 mock.module("../../../util/platform.js", () => ({
   getWorkspaceDir: () => mockWorkspaceDir,
   getWorkspaceHooksDir: () => join(mockWorkspaceDir, "hooks"),
-  // Passed through when tests need the protected dir (e.g. via paths.ts).
   getProtectedDir: () => join(mockWorkspaceDir, "protected"),
   getDbPath: () => join(mockWorkspaceDir, "data", "db", "assistant.db"),
 }));
@@ -122,9 +101,6 @@ mock.module("../../../memory/checkpoints.js", () => ({
 }));
 
 // -- Backup key mock -------------------------------------------------------
-// Tests override this via `setMockBackupKey` / `setMockBackupKeyMissing`.
-// The mock also records how many times the key was read so tests can assert
-// "key file was never touched" for plaintext-only code paths.
 
 let mockBackupKey: Buffer | null = Buffer.alloc(32, 0xaa);
 let mockReadBackupKeyCalls = 0;
@@ -138,8 +114,6 @@ mock.module("../../../backup/backup-key.js", () => ({
 }));
 
 // -- Backup worker mock ----------------------------------------------------
-// `createSnapshotNow` is replaced so tests can control success / 409
-// behavior without touching the real export pipeline.
 
 let mockCreateSnapshotResult: BackupRunResult | null = null;
 let mockCreateSnapshotError: Error | null = null;
@@ -157,9 +131,6 @@ mock.module("../../../backup/backup-worker.js", () => ({
 }));
 
 // -- Restore module mock ---------------------------------------------------
-// Both `restoreFromSnapshot` and `verifySnapshot` are replaced. Tests
-// inspect `lastRestoreArgs` / `lastVerifyArgs` to assert the handler
-// forwarded the correct key and options.
 
 interface RestoreCall {
   path: string;
@@ -213,12 +184,13 @@ mock.module("../../../backup/restore.js", () => ({
 // ---------------------------------------------------------------------------
 
 import {
-  backupRouteDefinitions,
   handleBackupCreate,
   handleBackupList,
   handleBackupRestore,
   handleBackupVerify,
+  ROUTES,
 } from "../backup-routes.js";
+import { RouteError } from "../errors.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,13 +199,11 @@ import {
 let ROOT: string;
 let LOCAL_DIR: string;
 
-/** Build a valid BackupConfig with overrides applied via spread. */
 function makeConfig(overrides: Partial<BackupConfig> = {}): BackupConfig {
   const base = BackupConfigSchema.parse({});
   return { ...base, ...overrides };
 }
 
-/** Write a backup-shaped file to disk so `listSnapshotsInDir` picks it up. */
 function writeBackupFile(
   dir: string,
   filename: string,
@@ -245,14 +215,6 @@ function writeBackupFile(
   return fullPath;
 }
 
-function jsonRequest(method: string, body: unknown): Request {
-  return new Request("http://localhost/v1/backups", {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
@@ -260,7 +222,6 @@ function jsonRequest(method: string, body: unknown): Request {
 beforeEach(() => {
   ROOT = mkdtempSync(join(tmpdir(), "vellum-backup-routes-"));
   LOCAL_DIR = join(ROOT, "local");
-  // Reset mocks to defaults
   mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
   mockWorkspaceDir = join(ROOT, "workspace");
   for (const key of Object.keys(mockCheckpointStore)) {
@@ -303,14 +264,6 @@ afterEach(() => {
 
 describe("handleBackupList", () => {
   test("empty workspace: returns empty local array and one unreachable iCloud default", async () => {
-    // Use default offsite destinations (null) so the iCloud default kicks in.
-    // `getICloudDriveRoot` reads `process.env.HOME` at call time. Overriding
-    // HOME to our ROOT tempdir both (a) keeps the test hermetic — it does not
-    // depend on whether the dev machine has iCloud Drive enabled or contains
-    // any real backup bundles at the real iCloud path, and (b) ensures the
-    // derived default iCloud dir is unreachable (no Library/Mobile Documents
-    // under ROOT) so the probe returns `reachable: false` and the snapshots
-    // array is empty.
     const origHome = process.env.HOME;
     process.env.HOME = ROOT;
     try {
@@ -322,27 +275,13 @@ describe("handleBackupList", () => {
         },
       });
 
-      const res = await handleBackupList(
-        new Request("http://localhost/v1/backups"),
-      );
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        local: SnapshotEntry[];
-        offsite: Array<{
-          destination: { path: string; encrypt: boolean };
-          snapshots: SnapshotEntry[];
-          reachable: boolean;
-        }>;
-        nextRunAt: string | null;
-      };
-      expect(body.local).toEqual([]);
-      // iCloud default is present as a single destination pointing at the
-      // derived-from-ROOT iCloud path, which does not exist on disk.
-      expect(body.offsite).toHaveLength(1);
-      expect(body.offsite[0].destination.encrypt).toBe(true);
-      expect(body.offsite[0].snapshots).toEqual([]);
-      expect(body.offsite[0].reachable).toBe(false);
-      expect(body.nextRunAt).toBeNull();
+      const result = await handleBackupList();
+      expect(result.local).toEqual([]);
+      expect(result.offsite).toHaveLength(1);
+      expect(result.offsite[0].destination.encrypt).toBe(true);
+      expect(result.offsite[0].snapshots).toEqual([]);
+      expect(result.offsite[0].reachable).toBe(false);
+      expect(result.nextRunAt).toBeNull();
     } finally {
       if (origHome === undefined) {
         delete process.env.HOME;
@@ -360,23 +299,17 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      local: SnapshotEntry[];
-      offsite: Array<unknown>;
-    };
-    expect(body.local).toHaveLength(2);
-    expect(body.local[0].filename).toBe("backup-20260411-120000.vbundle");
-    expect(body.local[1].filename).toBe("backup-20260411-100000.vbundle");
-    expect(body.offsite).toEqual([]);
+    const result = await handleBackupList();
+    expect(result.local).toHaveLength(2);
+    expect(result.local[0].filename).toBe("backup-20260411-120000.vbundle");
+    expect(result.local[1].filename).toBe("backup-20260411-100000.vbundle");
+    expect(result.offsite).toEqual([]);
   });
 
   test("two offsite destinations: reachable + unreachable reflected per-entry", async () => {
     const reachableDir = join(ROOT, "offsite-reachable");
     const unreachableDir = join(ROOT, "nope", "deeper", "backups");
     mkdirSync(reachableDir, { recursive: true });
-    // Put a snapshot in the reachable one so the `snapshots` array is populated.
     writeBackupFile(reachableDir, "backup-20260411-100000.vbundle");
 
     mockBackupConfig = makeConfig({
@@ -390,25 +323,17 @@ describe("handleBackupList", () => {
       },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      offsite: Array<{
-        destination: { path: string; encrypt: boolean };
-        snapshots: SnapshotEntry[];
-        reachable: boolean;
-      }>;
-    };
-    expect(body.offsite).toHaveLength(2);
-    expect(body.offsite[0].destination.path).toBe(reachableDir);
-    expect(body.offsite[0].reachable).toBe(true);
-    expect(body.offsite[0].snapshots).toHaveLength(1);
-    expect(body.offsite[0].snapshots[0].filename).toBe(
+    const result = await handleBackupList();
+    expect(result.offsite).toHaveLength(2);
+    expect(result.offsite[0].destination.path).toBe(reachableDir);
+    expect(result.offsite[0].reachable).toBe(true);
+    expect(result.offsite[0].snapshots).toHaveLength(1);
+    expect(result.offsite[0].snapshots[0].filename).toBe(
       "backup-20260411-100000.vbundle",
     );
-    expect(body.offsite[1].destination.path).toBe(unreachableDir);
-    expect(body.offsite[1].reachable).toBe(false);
-    expect(body.offsite[1].snapshots).toEqual([]);
+    expect(result.offsite[1].destination.path).toBe(unreachableDir);
+    expect(result.offsite[1].reachable).toBe(false);
+    expect(result.offsite[1].snapshots).toEqual([]);
   });
 
   test("encrypted files in a reachable offsite dir return with encrypted: true", async () => {
@@ -425,23 +350,15 @@ describe("handleBackupList", () => {
       },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      offsite: Array<{
-        snapshots: SnapshotEntry[];
-        reachable: boolean;
-      }>;
-    };
-    expect(body.offsite).toHaveLength(1);
-    expect(body.offsite[0].reachable).toBe(true);
-    expect(body.offsite[0].snapshots).toHaveLength(2);
-    // Newest-first
-    expect(body.offsite[0].snapshots[0].filename).toBe(
+    const result = await handleBackupList();
+    expect(result.offsite).toHaveLength(1);
+    expect(result.offsite[0].reachable).toBe(true);
+    expect(result.offsite[0].snapshots).toHaveLength(2);
+    expect(result.offsite[0].snapshots[0].filename).toBe(
       "backup-20260411-120000.vbundle.enc",
     );
-    expect(body.offsite[0].snapshots[0].encrypted).toBe(true);
-    expect(body.offsite[0].snapshots[1].encrypted).toBe(true);
+    expect(result.offsite[0].snapshots[0].encrypted).toBe(true);
+    expect(result.offsite[0].snapshots[1].encrypted).toBe(true);
   });
 
   test("nextRunAt is computed from checkpoint + intervalHours when enabled", async () => {
@@ -454,11 +371,8 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { nextRunAt: string | null };
-    // 6 hours after 10:00 UTC is 16:00 UTC
-    expect(body.nextRunAt).toBe("2026-04-11T16:00:00.000Z");
+    const result = await handleBackupList();
+    expect(result.nextRunAt).toBe("2026-04-11T16:00:00.000Z");
   });
 
   test("nextRunAt is null when backup is disabled", async () => {
@@ -471,45 +385,24 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
-    const body = (await res.json()) as { nextRunAt: string | null };
-    expect(body.nextRunAt).toBeNull();
+    const result = await handleBackupList();
+    expect(result.nextRunAt).toBeNull();
   });
 
   test("offsite.enabled=false returns offsite:[] and offsiteEnabled:false without probing destinations", async () => {
-    // Regression test: when the user disables offsite backups, the HTTP
-    // handler must mirror the worker's behavior and return an empty offsite
-    // list without enumerating any destinations. Previously the handler
-    // would still probe each configured destination, causing the macOS UI
-    // to render offsite cards even after offsite was turned off.
-    //
-    // Even with destinations present in config, `offsite.enabled=false`
-    // should short-circuit the enumeration loop.
     const configuredDestDir = join(ROOT, "offsite-still-configured");
     mkdirSync(configuredDestDir, { recursive: true });
     mockBackupConfig = makeConfig({
       localDirectory: LOCAL_DIR,
       offsite: {
         enabled: false,
-        destinations: [
-          { path: configuredDestDir, encrypt: true },
-        ],
+        destinations: [{ path: configuredDestDir, encrypt: true }],
       },
     });
 
-    const res = await handleBackupList(
-      new Request("http://localhost/v1/backups"),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      local: SnapshotEntry[];
-      offsite: unknown[];
-      offsiteEnabled: boolean;
-    };
-    expect(body.offsite).toEqual([]);
-    expect(body.offsiteEnabled).toBe(false);
-    // listSnapshotsInDir should only have been called for the local dir —
-    // never for any offsite destination.
+    const result = await handleBackupList();
+    expect(result.offsite).toEqual([]);
+    expect(result.offsiteEnabled).toBe(false);
     expect(listSnapshotsCallLog).toEqual([LOCAL_DIR]);
   });
 
@@ -519,12 +412,8 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(
-      new Request("http://localhost/v1/backups"),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { offsiteEnabled: boolean };
-    expect(body.offsiteEnabled).toBe(true);
+    const result = await handleBackupList();
+    expect(result.offsiteEnabled).toBe(true);
   });
 });
 
@@ -553,13 +442,9 @@ describe("handleBackupCreate", () => {
     });
     mockCreateSnapshotResult = fakeRunResult;
 
-    const res = await handleBackupCreate(
-      new Request("http://localhost/v1/backups/create", { method: "POST" }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as BackupRunResult;
-    expect(body.durationMs).toBe(42);
-    expect(body.offsite).toEqual([]);
+    const result = await handleBackupCreate();
+    expect(result.durationMs).toBe(42);
+    expect(result.offsite).toEqual([]);
     expect(mockCreateSnapshotCalls).toBe(1);
   });
 
@@ -575,64 +460,58 @@ describe("handleBackupCreate", () => {
       },
     });
     mockCreateSnapshotResult = fakeRunResult;
-
-    // The mocked createSnapshotNow never touches the key file. We assert:
-    // (a) the HTTP layer itself did not try to load readBackupKey, and
-    // (b) no backup.key file exists under the protected dir (which is under
-    //     our ROOT per the platform mock).
     mockReadBackupKeyCalls = 0;
-    const res = await handleBackupCreate(
-      new Request("http://localhost/v1/backups/create", { method: "POST" }),
-    );
-    expect(res.status).toBe(200);
+
+    await handleBackupCreate();
     expect(mockReadBackupKeyCalls).toBe(0);
-    // ROOT is a fresh temp dir — no protected/backup.key was ever written.
     const keyFileExists = await import("node:fs").then((m) =>
       m.existsSync(join(ROOT, "workspace", "protected", "backup.key")),
     );
     expect(keyFileExists).toBe(false);
   });
 
-  test("concurrent call returns 409 when mock raises 'snapshot in progress'", async () => {
+  test("concurrent call throws ConflictError when mock raises 'snapshot in progress'", async () => {
     mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
     mockCreateSnapshotError = new Error("snapshot in progress");
 
-    const res = await handleBackupCreate(
-      new Request("http://localhost/v1/backups/create", { method: "POST" }),
-    );
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("CONFLICT");
+    try {
+      await handleBackupCreate();
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(409);
+      expect((err as RouteError).code).toBe("CONFLICT");
+    }
   });
 
   test("cross-process conflict ('locked by pid N') is still mapped to 409", async () => {
-    // Regression test for the startsWith matcher in handleBackupCreate: the
-    // cross-process file lock in snapshot-lock.ts throws
-    // "snapshot in progress (locked by pid N)" rather than the bare
-    // "snapshot in progress" message the in-process flag emits. Both must
-    // map to 409 / CONFLICT — pin the matcher against future drift.
     mockBackupConfig = makeConfig({ localDirectory: LOCAL_DIR });
     mockCreateSnapshotError = new Error(
       "snapshot in progress (locked by pid 12345)",
     );
 
-    const res = await handleBackupCreate(
-      new Request("http://localhost/v1/backups/create", { method: "POST" }),
-    );
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("CONFLICT");
+    try {
+      await handleBackupCreate();
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(409);
+      expect((err as RouteError).code).toBe("CONFLICT");
+    }
   });
 
   test("other errors are surfaced as 500", async () => {
     mockCreateSnapshotError = new Error("disk full");
-    const res = await handleBackupCreate(
-      new Request("http://localhost/v1/backups/create", { method: "POST" }),
-    );
-    expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(body.error.message).toBe("disk full");
+
+    try {
+      await handleBackupCreate();
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(500);
+      expect((err as RouteError).code).toBe("INTERNAL_ERROR");
+      expect((err as RouteError).message).toBe("disk full");
+    }
   });
 });
 
@@ -642,7 +521,11 @@ describe("handleBackupCreate", () => {
 
 describe("handleBackupRestore", () => {
   test("rejects path outside the allowed directories with 400", async () => {
-    const outsidePath = join(ROOT, "elsewhere", "backup-20260411-100000.vbundle");
+    const outsidePath = join(
+      ROOT,
+      "elsewhere",
+      "backup-20260411-100000.vbundle",
+    );
     mkdirSync(join(ROOT, "elsewhere"), { recursive: true });
     writeFileSync(outsidePath, "payload");
     mockBackupConfig = makeConfig({
@@ -650,19 +533,22 @@ describe("handleBackupRestore", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: outsidePath }),
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toMatch(/outside/i);
+    try {
+      await handleBackupRestore({
+        body: { path: outsidePath },
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+      expect((err as RouteError).message).toMatch(/outside/i);
+    }
     expect(lastRestoreArgs).toBeNull();
   });
 
   test("rejects symlink that escapes the allowed directories", async () => {
-    // Create a valid-looking symlink inside LOCAL_DIR that points to a file
-    // outside. realpath() follows the symlink, so containment check fails.
     const outsideTarget = join(ROOT, "evil-target.vbundle");
     writeFileSync(outsideTarget, "payload");
     mkdirSync(LOCAL_DIR, { recursive: true });
@@ -673,10 +559,17 @@ describe("handleBackupRestore", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: symlinkPath }),
-    );
-    expect(res.status).toBe(400);
+    try {
+      await handleBackupRestore({
+        body: { path: symlinkPath },
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+    }
     expect(lastRestoreArgs).toBeNull();
   });
 
@@ -691,16 +584,15 @@ describe("handleBackupRestore", () => {
     });
     mockReadBackupKeyCalls = 0;
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
+    const result = await handleBackupRestore({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    });
+    expect(result).toBeDefined();
     expect(mockReadBackupKeyCalls).toBe(0);
     expect(lastRestoreArgs).not.toBeNull();
     expect(lastRestoreArgs!.hasKey).toBe(false);
-    // restoreFromSnapshot should be called with the realpath'd snapshot path.
-    // On macOS, `/var/...` resolves to `/private/var/...`, so compare against
-    // the realpath of the input rather than the raw string.
     const expectedRealpath = await (
       await import("node:fs/promises")
     ).realpath(snapshotPath);
@@ -719,16 +611,17 @@ describe("handleBackupRestore", () => {
     mockBackupKey = Buffer.alloc(32, 0xbb);
     mockReadBackupKeyCalls = 0;
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
+    await handleBackupRestore({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    });
     expect(mockReadBackupKeyCalls).toBe(1);
     expect(lastRestoreArgs).not.toBeNull();
     expect(lastRestoreArgs!.hasKey).toBe(true);
   });
 
-  test("encrypted bundle with missing backup.key returns a clear 400", async () => {
+  test("encrypted bundle with missing backup.key throws BadRequestError", async () => {
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle.enc",
@@ -737,30 +630,24 @@ describe("handleBackupRestore", () => {
       localDirectory: LOCAL_DIR,
       offsite: { enabled: true, destinations: [] },
     });
-    mockBackupKey = null; // readBackupKey returns null when the file is missing
+    mockBackupKey = null;
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toMatch(/backup.key is missing/);
-    // restoreFromSnapshot must NOT have been called — we bail before handing
-    // the path to the restore helper.
+    try {
+      await handleBackupRestore({
+        body: { path: snapshotPath },
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+      expect((err as RouteError).message).toMatch(/backup.key is missing/);
+    }
     expect(lastRestoreArgs).toBeNull();
   });
 
   test("successful restore runs the full recovery sequence in order", async () => {
-    // Regression test for the restore-corrupts-daemon-state gap:
-    // handleBackupRestore must invoke `restoreFromSnapshot` FIRST (which
-    // internally calls `resetDb()` before overwriting `assistant.db`), then
-    // invalidateConfigCache() + clearTrustCache() AFTER (so the daemon
-    // re-reads the restored config/trust rules). The migration importer
-    // already does this — the backup handler must match.
-    // Note: `resetDb` ordering vs the commit step is verified in
-    // src/backup/__tests__/restore.test.ts; here we only verify the
-    // handler-level ordering of restoreFromSnapshot → cache invalidations.
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
@@ -770,22 +657,19 @@ describe("handleBackupRestore", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
+    await handleBackupRestore({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    });
     expect(mockInvalidateConfigCacheCalls).toBe(1);
     expect(recoveryCallOrder).toEqual([
       "restoreFromSnapshot",
-      "invalidateConfigCache",    ]);
+      "invalidateConfigCache",
+    ]);
   });
 
   test("restore failure leaves caches untouched", async () => {
-    // When `restoreFromSnapshot` throws, the handler must NOT invalidate
-    // in-process caches — nothing new was written to disk, so the cached
-    // config/trust state still reflects reality. The SQLite handle reset is
-    // owned by `restoreFromSnapshot` and covered in
-    // src/backup/__tests__/restore.test.ts.
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
@@ -796,20 +680,21 @@ describe("handleBackupRestore", () => {
     });
     mockRestoreError = new Error("simulated restore failure");
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(500);
-    // Caches should NOT be invalidated on failure — the in-process caches
-    // still reflect the pre-restore state on disk (the bundle write failed
-    // so there's nothing new to re-read).
+    try {
+      await handleBackupRestore({
+        body: { path: snapshotPath },
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(500);
+    }
     expect(mockInvalidateConfigCacheCalls).toBe(0);
   });
 
   test("response no longer exposes credentialsIncluded", async () => {
-    // The dead credentials plumbing has been removed from the backup surface.
-    // Credentials intentionally live in the OS keychain / CES and are not
-    // part of the backup round trip.
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,
       "backup-20260411-100000.vbundle",
@@ -819,31 +704,28 @@ describe("handleBackupRestore", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupRestore(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect("credentialsIncluded" in body).toBe(false);
-    expect(body.manifest).toBeDefined();
-    expect(body.restoredFiles).toBeDefined();
+    const result = (await handleBackupRestore({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    })) as Record<string, unknown>;
+    expect("credentialsIncluded" in result).toBe(false);
+    expect(result.manifest).toBeDefined();
+    expect(result.restoredFiles).toBeDefined();
   });
 
-  test("missing path field returns 400", async () => {
-    const res = await handleBackupRestore(jsonRequest("POST", {}));
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("BAD_REQUEST");
-  });
-
-  test("malformed JSON body returns 400", async () => {
-    const req = new Request("http://localhost/v1/backups/restore", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{not-json",
-    });
-    const res = await handleBackupRestore(req);
-    expect(res.status).toBe(400);
+  test("missing path field throws BadRequestError", async () => {
+    try {
+      await handleBackupRestore({
+        body: {},
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+    }
   });
 });
 
@@ -864,13 +746,13 @@ describe("handleBackupVerify", () => {
     });
     mockVerifyResult = { valid: false, error: "bad checksum" };
 
-    const res = await handleBackupVerify(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as VerifyResult;
-    expect(body.valid).toBe(false);
-    expect(body.error).toBe("bad checksum");
+    const result = (await handleBackupVerify({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    })) as VerifyResult;
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("bad checksum");
     expect(lastVerifyArgs!.hasKey).toBe(false);
   });
 
@@ -894,13 +776,13 @@ describe("handleBackupVerify", () => {
       } as unknown as VerifyResult["manifest"],
     };
 
-    const res = await handleBackupVerify(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
+    const result = (await handleBackupVerify({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    })) as VerifyResult;
     expect(mockReadBackupKeyCalls).toBe(0);
-    const body = (await res.json()) as VerifyResult;
-    expect(body.valid).toBe(true);
+    expect(result.valid).toBe(true);
   });
 
   test("encrypted bundle with key loads key and forwards to verifySnapshot", async () => {
@@ -915,16 +797,21 @@ describe("handleBackupVerify", () => {
     mockBackupKey = Buffer.alloc(32, 0xcc);
     mockReadBackupKeyCalls = 0;
 
-    const res = await handleBackupVerify(
-      jsonRequest("POST", { path: snapshotPath }),
-    );
-    expect(res.status).toBe(200);
+    await handleBackupVerify({
+      body: { path: snapshotPath },
+      pathParams: {},
+      queryParams: {},
+    });
     expect(mockReadBackupKeyCalls).toBe(1);
     expect(lastVerifyArgs!.hasKey).toBe(true);
   });
 
-  test("path outside allowed directories returns 400", async () => {
-    const outsidePath = join(ROOT, "elsewhere", "backup-20260411-100000.vbundle");
+  test("path outside allowed directories throws BadRequestError", async () => {
+    const outsidePath = join(
+      ROOT,
+      "elsewhere",
+      "backup-20260411-100000.vbundle",
+    );
     mkdirSync(join(ROOT, "elsewhere"), { recursive: true });
     writeFileSync(outsidePath, "payload");
     mockBackupConfig = makeConfig({
@@ -932,22 +819,28 @@ describe("handleBackupVerify", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupVerify(
-      jsonRequest("POST", { path: outsidePath }),
-    );
-    expect(res.status).toBe(400);
+    try {
+      await handleBackupVerify({
+        body: { path: outsidePath },
+        pathParams: {},
+        queryParams: {},
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      expect((err as RouteError).statusCode).toBe(400);
+    }
     expect(lastVerifyArgs).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// backupRouteDefinitions
+// ROUTES array
 // ---------------------------------------------------------------------------
 
-describe("backupRouteDefinitions", () => {
+describe("ROUTES", () => {
   test("registers four routes with the expected endpoint+method pairs", () => {
-    const defs = backupRouteDefinitions();
-    const pairs = defs.map((d) => `${d.method} ${d.endpoint}`).sort();
+    const pairs = ROUTES.map((d) => `${d.method} ${d.endpoint}`).sort();
     expect(pairs).toEqual([
       "GET backups",
       "POST backups/create",

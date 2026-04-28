@@ -8,6 +8,10 @@
 import { z } from "zod";
 
 import type { Conversation } from "../../daemon/conversation.js";
+import {
+  findConversation,
+  getOrCreateConversation,
+} from "../../daemon/conversation-store.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
@@ -33,8 +37,13 @@ import {
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("work-items-routes");
 
@@ -400,474 +409,450 @@ function approveWorkItemPermissions(
 }
 
 // ---------------------------------------------------------------------------
-// Dependencies for session-bound operations
+// Transport-agnostic routes (served by both HTTP and IPC)
 // ---------------------------------------------------------------------------
 
-export interface WorkItemRouteDeps {
-  getOrCreateConversation: (conversationId: string) => Promise<Conversation>;
-  findConversation?: (conversationId: string) => Conversation | undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Route definitions
-// ---------------------------------------------------------------------------
-
-export function workItemRouteDefinitions(
-  deps?: WorkItemRouteDeps,
-): HTTPRouteDefinition[] {
-  return [
-    // GET /v1/work-items — list work items
-    {
-      endpoint: "work-items",
-      method: "GET",
-      policyKey: "work-items",
-      summary: "List work items",
-      description: "Return work items, optionally filtered by status.",
-      tags: ["work-items"],
-      responseBody: z.object({
-        items: z.array(z.unknown()),
-      }),
-      handler: ({ url }) => {
-        const status = url.searchParams.get("status") ?? undefined;
-        const items = listWorkItems(
-          status ? { status: status as WorkItemStatus } : undefined,
-        );
-        return Response.json({ items });
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listWorkItems",
+    endpoint: "work-items",
+    method: "GET",
+    policyKey: "work-items",
+    summary: "List work items",
+    description: "Return work items, optionally filtered by status.",
+    tags: ["work-items"],
+    queryParams: [
+      {
+        name: "status",
+        description: "Filter by work item status",
+        schema: {
+          type: "string",
+          enum: [
+            "pending",
+            "running",
+            "awaiting_review",
+            "done",
+            "failed",
+            "cancelled",
+            "archived",
+          ],
+        },
       },
+    ],
+    responseBody: z.object({
+      items: z.array(z.unknown()),
+    }),
+    handler: ({ queryParams }) => {
+      const status = queryParams?.status ?? undefined;
+      const items = listWorkItems(
+        status ? { status: status as WorkItemStatus } : undefined,
+      );
+      return { items };
     },
+  },
 
-    // GET /v1/work-items/:id — get work item
-    {
-      endpoint: "work-items/:id",
-      method: "GET",
-      policyKey: "work-items",
-      summary: "Get a work item",
-      description: "Return a single work item by ID.",
-      tags: ["work-items"],
-      handler: ({ params }) => {
-        const item = getWorkItem(params.id) ?? null;
-        if (!item) {
-          return httpError("NOT_FOUND", "Work item not found", 404);
-        }
-        return Response.json({ item });
-      },
+  {
+    operationId: "getWorkItem",
+    endpoint: "work-items/:id",
+    method: "GET",
+    policyKey: "work-items",
+    summary: "Get a work item",
+    description: "Return a single work item by ID.",
+    tags: ["work-items"],
+    handler: ({ pathParams }) => {
+      const item = getWorkItem(pathParams!.id) ?? null;
+      if (!item) {
+        throw new NotFoundError("Work item not found");
+      }
+      return { item };
     },
+  },
 
-    // PATCH /v1/work-items/:id — update work item
-    {
-      endpoint: "work-items/:id",
-      method: "PATCH",
-      policyKey: "work-items",
-      summary: "Update a work item",
-      description:
-        "Partially update a work item's title, notes, status, or priority.",
-      tags: ["work-items"],
-      requestBody: z.object({
-        title: z.string(),
-        notes: z.string(),
-        status: z.string(),
-        priorityTier: z.number().int(),
-        sortIndex: z.number().int(),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as {
-          title?: string;
-          notes?: string;
-          status?: string;
-          priorityTier?: number;
-          sortIndex?: number;
-        };
+  {
+    operationId: "updateWorkItem",
+    endpoint: "work-items/:id",
+    method: "PATCH",
+    policyKey: "work-items",
+    summary: "Update a work item",
+    description:
+      "Partially update a work item's title, notes, status, or priority.",
+    tags: ["work-items"],
+    requestBody: z.object({
+      title: z.string(),
+      notes: z.string(),
+      status: z.string(),
+      priorityTier: z.number().int(),
+      sortIndex: z.number().int(),
+    }),
+    handler: ({ pathParams, body }) => {
+      const id = pathParams!.id;
+      const { title, notes, status, priorityTier, sortIndex } = (body ??
+        {}) as {
+        title?: string;
+        notes?: string;
+        status?: string;
+        priorityTier?: number;
+        sortIndex?: number;
+      };
 
-        // Don't allow overwriting a cancelled status
-        if (body.status !== undefined) {
-          const existing = getWorkItem(params.id);
-          if (existing?.status === "cancelled" && body.status !== "cancelled") {
-            return Response.json({ item: existing });
-          }
+      if (status !== undefined) {
+        const existing = getWorkItem(id);
+        if (existing?.status === "cancelled" && status !== "cancelled") {
+          return { item: existing };
         }
+      }
 
-        const updates: Record<string, unknown> = {};
-        if (body.title !== undefined) updates.title = body.title;
-        if (body.notes !== undefined) updates.notes = body.notes;
-        if (body.status !== undefined) updates.status = body.status;
-        if (body.priorityTier !== undefined)
-          updates.priorityTier = body.priorityTier;
-        if (body.sortIndex !== undefined) updates.sortIndex = body.sortIndex;
+      const updates: Record<string, unknown> = {};
+      if (title !== undefined) updates.title = title;
+      if (notes !== undefined) updates.notes = notes;
+      if (status !== undefined) updates.status = status;
+      if (priorityTier !== undefined) updates.priorityTier = priorityTier;
+      if (sortIndex !== undefined) updates.sortIndex = sortIndex;
 
-        const item =
-          updateWorkItem(
-            params.id,
-            updates as Parameters<typeof updateWorkItem>[1],
-          ) ?? null;
+      const item =
+        updateWorkItem(id, updates as Parameters<typeof updateWorkItem>[1]) ??
+        null;
 
-        if (item) {
-          broadcastWorkItemStatus(item.id);
-          publishEvent({ type: "tasks_changed" });
-        }
-
-        return Response.json({ item });
-      },
-    },
-
-    // POST /v1/work-items/:id/complete — complete work item
-    {
-      endpoint: "work-items/:id/complete",
-      method: "POST",
-      policyKey: "work-items/complete",
-      summary: "Complete a work item",
-      description: "Transition a work item from awaiting_review to done.",
-      tags: ["work-items"],
-      handler: ({ params }) => {
-        const existing = getWorkItem(params.id);
-        if (!existing) {
-          return httpError(
-            "NOT_FOUND",
-            `Work item not found: ${params.id}`,
-            404,
-          );
-        }
-        if (existing.status !== "awaiting_review") {
-          return httpError(
-            "CONFLICT",
-            `Cannot complete work item: status is '${existing.status}', expected 'awaiting_review'`,
-            409,
-          );
-        }
-
-        const item = updateWorkItem(params.id, { status: "done" }) ?? null;
-        if (item) {
-          broadcastWorkItemStatus(item.id);
-          publishEvent({ type: "tasks_changed" });
-        }
-        return Response.json({ item });
-      },
-    },
-
-    // DELETE /v1/work-items/:id — delete work item
-    {
-      endpoint: "work-items/:id",
-      method: "DELETE",
-      policyKey: "work-items",
-      summary: "Delete a work item",
-      description: "Permanently remove a work item.",
-      tags: ["work-items"],
-      handler: ({ params }) => {
-        const existing = getWorkItem(params.id);
-        if (!existing) {
-          return httpError("NOT_FOUND", "Work item not found", 404);
-        }
-        deleteWorkItem(params.id);
+      if (item) {
+        broadcastWorkItemStatus(item.id);
         publishEvent({ type: "tasks_changed" });
-        return Response.json({ id: params.id, success: true });
-      },
+      }
+
+      return { item };
     },
+  },
 
-    // POST /v1/work-items/:id/cancel — cancel work item
-    {
-      endpoint: "work-items/:id/cancel",
-      method: "POST",
-      policyKey: "work-items/cancel",
-      summary: "Cancel a running work item",
-      description: "Abort a running work item and set its status to cancelled.",
-      tags: ["work-items"],
-      handler: ({ params }) => {
-        const workItem = getWorkItem(params.id);
-        if (!workItem) {
-          return httpError("NOT_FOUND", "Work item not found", 404);
-        }
-        if (workItem.status !== "running") {
-          return httpError(
-            "CONFLICT",
-            `Work item is not running (status: ${workItem.status})`,
-            409,
-          );
-        }
-
-        // Abort the conversation associated with this work item's current run
-        const conversationId = workItem.lastRunConversationId;
-        if (conversationId && deps?.findConversation) {
-          const conversation = deps.findConversation(conversationId);
-          if (conversation) {
-            conversation.headlessLock = false;
-            conversation.abort(
-              createAbortReason(
-                "work_item_aborted",
-                "work-items-routes.cancel",
-                conversationId,
-              ),
-            );
-            getSubagentManager().abortAllForParent(conversationId);
-          }
-        }
-
-        updateWorkItem(params.id, {
-          status: "cancelled",
-          lastRunStatus: "cancelled",
-        });
-
-        broadcastWorkItemStatus(params.id);
-        publishEvent({ type: "tasks_changed" });
-        return Response.json({ id: params.id, success: true });
-      },
-    },
-
-    // POST /v1/work-items/:id/approve-permissions — approve permissions
-    {
-      endpoint: "work-items/:id/approve-permissions",
-      method: "POST",
-      policyKey: "work-items/approve-permissions",
-      summary: "Approve tool permissions",
-      description: "Pre-approve a set of tools for a work item before it runs.",
-      tags: ["work-items"],
-      requestBody: z.object({
-        approvedTools: z
-          .array(z.unknown())
-          .describe("Array of tool names to approve"),
-      }),
-      handler: async ({ req, params }) => {
-        const body = (await req.json()) as { approvedTools?: string[] };
-        if (!Array.isArray(body.approvedTools)) {
-          return httpError(
-            "BAD_REQUEST",
-            "approvedTools array is required",
-            400,
-          );
-        }
-        const result = approveWorkItemPermissions(
-          params.id,
-          body.approvedTools,
+  {
+    operationId: "completeWorkItem",
+    endpoint: "work-items/:id/complete",
+    method: "POST",
+    policyKey: "work-items/complete",
+    summary: "Complete a work item",
+    description: "Transition a work item from awaiting_review to done.",
+    tags: ["work-items"],
+    handler: ({ pathParams }) => {
+      const id = pathParams!.id;
+      const existing = getWorkItem(id);
+      if (!existing) {
+        throw new NotFoundError(`Work item not found: ${id}`);
+      }
+      if (existing.status !== "awaiting_review") {
+        throw new ConflictError(
+          `Cannot complete work item: status is '${existing.status}', expected 'awaiting_review'`,
         );
-        if (!result.success) {
-          return httpError("NOT_FOUND", result.error!, 404);
-        }
-        return Response.json({ id: params.id, success: true });
-      },
-    },
+      }
 
-    // POST /v1/work-items/:id/preflight — preflight check
-    {
-      endpoint: "work-items/:id/preflight",
-      method: "POST",
-      policyKey: "work-items/preflight",
-      summary: "Preflight check",
-      description: "Check tool permissions needed before running a work item.",
-      tags: ["work-items"],
-      responseBody: z.object({
-        id: z.string(),
-        success: z.boolean(),
-        permissions: z.object({}).passthrough(),
-      }),
-      handler: async ({ params }) => {
-        const result = await preflightWorkItem(params.id);
-        if (!result.success) {
-          return httpError("NOT_FOUND", result.error!, 404);
-        }
-        return Response.json({
-          id: params.id,
-          success: true,
-          permissions: result.permissions,
-        });
-      },
-    },
-
-    // POST /v1/work-items/:id/run — run task
-    {
-      endpoint: "work-items/:id/run",
-      method: "POST",
-      policyKey: "work-items/run",
-      summary: "Run a work item",
-      description:
-        "Execute the task associated with a work item. Returns immediately; execution happens in the background.",
-      tags: ["work-items"],
-      handler: async ({ params }) => {
-        const workItem = getWorkItem(params.id);
-        if (!workItem) {
-          return httpError("NOT_FOUND", "Work item not found", 404);
-        }
-
-        if (workItem.status === "running") {
-          return httpError("CONFLICT", "Work item is already running", 409);
-        }
-
-        const NON_RUNNABLE_STATUSES: readonly string[] = ["archived"];
-        if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
-          return httpError(
-            "CONFLICT",
-            `Work item has status '${workItem.status}' and cannot be run`,
-            409,
-          );
-        }
-
-        const task = getTask(workItem.taskId);
-        if (!task) {
-          return httpError(
-            "NOT_FOUND",
-            `Associated task not found: ${workItem.taskId}`,
-            404,
-          );
-        }
-
-        const taskRequiredTools = task.requiredTools
-          ? sanitizeToolList(JSON.parse(task.requiredTools))
-          : getRegisteredToolNames();
-        const requiredTools = resolveRequiredTools(
-          workItem.requiredTools,
-          taskRequiredTools,
-        );
-
-        // Permission checkpoint
-        let approvedTools: string[] | undefined;
-        if (requiredTools.length > 0) {
-          approvedTools = workItem.approvedTools
-            ? JSON.parse(workItem.approvedTools)
-            : undefined;
-          const approvedSet = new Set<string>(approvedTools ?? []);
-          const missingApprovals = requiredTools.filter(
-            (t) => !approvedSet.has(t),
-          );
-          if (missingApprovals.length > 0) {
-            return httpError(
-              "FORBIDDEN",
-              "Required tool permissions have not been approved. Run preflight first.",
-              403,
-            );
-          }
-        }
-
-        if (!deps?.getOrCreateConversation) {
-          return httpError(
-            "NOT_IMPLEMENTED",
-            "Conversation management not available for task execution",
-            501,
-          );
-        }
-
-        // Set status to running
-        updateWorkItem(params.id, { status: "running" });
-        broadcastWorkItemStatus(params.id);
+      const item = updateWorkItem(id, { status: "done" }) ?? null;
+      if (item) {
+        broadcastWorkItemStatus(item.id);
         publishEvent({ type: "tasks_changed" });
-
-        // Execute task asynchronously
-        let taskConversation: Conversation | null = null;
-        const getOrCreateConversation = deps.getOrCreateConversation;
-        const workItemId = params.id;
-
-        // Fire-and-forget: return acknowledgment immediately, run task in background
-        void (async () => {
-          try {
-            const result = await runTask(
-              {
-                taskId: workItem.taskId,
-                workingDir: process.cwd(),
-                approvedTools,
-              },
-              async (conversationId, message, taskRunId) => {
-                if (!taskConversation) {
-                  updateWorkItem(workItemId, {
-                    lastRunConversationId: conversationId,
-                  });
-                  taskConversation =
-                    await getOrCreateConversation(conversationId);
-
-                  publishEvent({
-                    type: "task_run_conversation_created",
-                    conversationId,
-                    workItemId,
-                    title: workItem.title,
-                  });
-                  taskConversation.taskRunId = taskRunId;
-                  taskConversation.headlessLock = true;
-                }
-                await taskConversation.processMessage(
-                  message,
-                  [],
-                  (event) => {
-                    publishEvent(event);
-                  },
-                  undefined,
-                  undefined,
-                  undefined,
-                  { isInteractive: false },
-                );
-              },
-            );
-
-            // Release headless lock
-            if (taskConversation) {
-              (taskConversation as { headlessLock: boolean }).headlessLock =
-                false;
-            }
-
-            // Don't overwrite cancelled status
-            const current = getWorkItem(workItemId);
-            if (current?.status !== "cancelled") {
-              const finalStatus: WorkItemStatus =
-                result.status === "completed" ? "awaiting_review" : "failed";
-              updateWorkItem(workItemId, {
-                status: finalStatus,
-                lastRunId: result.taskRunId,
-                lastRunConversationId: result.conversationId,
-                lastRunStatus: result.status,
-              });
-            }
-
-            broadcastWorkItemStatus(workItemId);
-            publishEvent({ type: "tasks_changed" });
-          } catch (err) {
-            if (taskConversation) {
-              (taskConversation as { headlessLock: boolean }).headlessLock =
-                false;
-            }
-            log.error({ err, workItemId }, "work_item_run_task (HTTP) failed");
-            updateWorkItem(workItemId, {
-              status: "failed",
-              lastRunStatus: "failed",
-            });
-            broadcastWorkItemStatus(workItemId);
-            publishEvent({ type: "tasks_changed" });
-          }
-        })();
-
-        return Response.json({
-          id: params.id,
-          success: true,
-          lastRunId: "",
-        });
-      },
+      }
+      return { item };
     },
+  },
 
-    // GET /v1/work-items/:id/output — get task output
-    {
-      endpoint: "work-items/:id/output",
-      method: "GET",
-      policyKey: "work-items/output",
-      summary: "Get work item output",
-      description: "Return the final output of a completed work item run.",
-      tags: ["work-items"],
-      responseBody: z.object({
-        id: z.string(),
-        success: z.boolean(),
-        output: z.object({}).passthrough(),
-      }),
-      handler: ({ params }) => {
+  {
+    operationId: "deleteWorkItem",
+    endpoint: "work-items/:id",
+    method: "DELETE",
+    policyKey: "work-items",
+    summary: "Delete a work item",
+    description: "Permanently remove a work item.",
+    tags: ["work-items"],
+    handler: ({ pathParams }) => {
+      const id = pathParams!.id;
+      const existing = getWorkItem(id);
+      if (!existing) {
+        throw new NotFoundError("Work item not found");
+      }
+      deleteWorkItem(id);
+      publishEvent({ type: "tasks_changed" });
+      return { id, success: true };
+    },
+  },
+
+  {
+    operationId: "approveWorkItemPermissions",
+    endpoint: "work-items/:id/approve-permissions",
+    method: "POST",
+    policyKey: "work-items/approve-permissions",
+    summary: "Approve tool permissions",
+    description: "Pre-approve a set of tools for a work item before it runs.",
+    tags: ["work-items"],
+    requestBody: z.object({
+      approvedTools: z
+        .array(z.unknown())
+        .describe("Array of tool names to approve"),
+    }),
+    handler: ({ pathParams, body }) => {
+      const id = pathParams!.id;
+      const { approvedTools } = (body ?? {}) as {
+        approvedTools?: string[];
+      };
+      if (!Array.isArray(approvedTools)) {
+        throw new BadRequestError("approvedTools array is required");
+      }
+      const result = approveWorkItemPermissions(id, approvedTools);
+      if (!result.success) {
+        throw new NotFoundError(result.error!);
+      }
+      return { id, success: true };
+    },
+  },
+
+  {
+    operationId: "preflightWorkItem",
+    endpoint: "work-items/:id/preflight",
+    method: "POST",
+    policyKey: "work-items/preflight",
+    summary: "Preflight check",
+    description: "Check tool permissions needed before running a work item.",
+    tags: ["work-items"],
+    responseBody: z.object({
+      id: z.string(),
+      success: z.boolean(),
+      permissions: z.object({}).passthrough(),
+    }),
+    handler: async ({ pathParams }) => {
+      const id = pathParams!.id;
+      const result = await preflightWorkItem(id);
+      if (!result.success) {
+        throw new NotFoundError(result.error!);
+      }
+      return {
+        id,
+        success: true,
+        permissions: result.permissions,
+      };
+    },
+  },
+
+  {
+    operationId: "getWorkItemOutput",
+    endpoint: "work-items/:id/output",
+    method: "GET",
+    policyKey: "work-items/output",
+    summary: "Get work item output",
+    description: "Return the final output of a completed work item run.",
+    tags: ["work-items"],
+    responseBody: z.object({
+      id: z.string(),
+      success: z.boolean(),
+      output: z.object({}).passthrough(),
+    }),
+    handler: ({ pathParams }) => {
+      const id = pathParams!.id;
+      const result = getWorkItemOutput(id);
+      if (!result.success) {
+        throw new NotFoundError(result.error!);
+      }
+      return {
+        id,
+        success: true,
+        output: result.output,
+      };
+    },
+  },
+
+  // -- Cancel + Run (previously HTTP-only due to getOrCreateConversation dep) --
+
+  {
+    operationId: "cancelWorkItem",
+    endpoint: "work-items/:id/cancel",
+    method: "POST",
+    policyKey: "work-items/cancel",
+    summary: "Cancel a running work item",
+    description: "Abort a running work item and set its status to cancelled.",
+    tags: ["work-items"],
+    additionalResponses: {
+      "404": { description: "Work item not found" },
+      "409": { description: "Work item is not running" },
+    },
+    handler: ({ pathParams }) => {
+      const workItem = getWorkItem(pathParams!.id);
+      if (!workItem) {
+        throw new NotFoundError("Work item not found");
+      }
+      if (workItem.status !== "running") {
+        throw new ConflictError(
+          `Work item is not running (status: ${workItem.status})`,
+        );
+      }
+
+      const conversationId = workItem.lastRunConversationId;
+      if (conversationId) {
+        const conversation = findConversation(conversationId);
+        if (conversation) {
+          conversation.headlessLock = false;
+          conversation.abort(
+            createAbortReason(
+              "work_item_aborted",
+              "work-items-routes.cancel",
+              conversationId,
+            ),
+          );
+          getSubagentManager().abortAllForParent(conversationId);
+        }
+      }
+
+      updateWorkItem(pathParams!.id, {
+        status: "cancelled",
+        lastRunStatus: "cancelled",
+      });
+
+      broadcastWorkItemStatus(pathParams!.id);
+      publishEvent({ type: "tasks_changed" });
+      return { id: pathParams!.id, success: true };
+    },
+  },
+
+  {
+    operationId: "runWorkItem",
+    endpoint: "work-items/:id/run",
+    method: "POST",
+    policyKey: "work-items/run",
+    summary: "Run a work item",
+    description:
+      "Execute the task associated with a work item. Returns immediately; execution happens in the background.",
+    tags: ["work-items"],
+    additionalResponses: {
+      "404": { description: "Work item or associated task not found" },
+      "403": { description: "Required tool permissions not approved" },
+      "409": { description: "Work item is already running or not runnable" },
+    },
+    handler: async ({ pathParams }) => {
+      const workItem = getWorkItem(pathParams!.id);
+      if (!workItem) {
+        throw new NotFoundError("Work item not found");
+      }
+
+      if (workItem.status === "running") {
+        throw new ConflictError("Work item is already running");
+      }
+
+      const NON_RUNNABLE_STATUSES: readonly string[] = ["archived"];
+      if (NON_RUNNABLE_STATUSES.includes(workItem.status)) {
+        throw new ConflictError(
+          `Work item has status '${workItem.status}' and cannot be run`,
+        );
+      }
+
+      const task = getTask(workItem.taskId);
+      if (!task) {
+        throw new NotFoundError(
+          `Associated task not found: ${workItem.taskId}`,
+        );
+      }
+
+      const taskRequiredTools = task.requiredTools
+        ? sanitizeToolList(JSON.parse(task.requiredTools))
+        : getRegisteredToolNames();
+      const requiredTools = resolveRequiredTools(
+        workItem.requiredTools,
+        taskRequiredTools,
+      );
+
+      let approvedTools: string[] | undefined;
+      if (requiredTools.length > 0) {
+        approvedTools = workItem.approvedTools
+          ? JSON.parse(workItem.approvedTools)
+          : undefined;
+        const approvedSet = new Set<string>(approvedTools ?? []);
+        const missingApprovals = requiredTools.filter(
+          (t) => !approvedSet.has(t),
+        );
+        if (missingApprovals.length > 0) {
+          throw new ForbiddenError(
+            "Required tool permissions have not been approved. Run preflight first.",
+          );
+        }
+      }
+
+      updateWorkItem(pathParams!.id, { status: "running" });
+      broadcastWorkItemStatus(pathParams!.id);
+      publishEvent({ type: "tasks_changed" });
+
+      let taskConversation: Conversation | null = null;
+      const workItemId = pathParams!.id;
+
+      void (async () => {
         try {
-          const result = getWorkItemOutput(params.id);
-          if (!result.success) {
-            return httpError("NOT_FOUND", result.error!, 404);
-          }
-          return Response.json({
-            id: params.id,
-            success: true,
-            output: result.output,
-          });
-        } catch (err) {
-          log.error(
-            { err, workItemId: params.id },
-            "GET /v1/work-items/:id/output failed",
+          const result = await runTask(
+            {
+              taskId: workItem.taskId,
+              workingDir: process.cwd(),
+              approvedTools,
+            },
+            async (conversationId, message, taskRunId) => {
+              if (!taskConversation) {
+                updateWorkItem(workItemId, {
+                  lastRunConversationId: conversationId,
+                });
+                taskConversation =
+                  await getOrCreateConversation(conversationId);
+
+                publishEvent({
+                  type: "task_run_conversation_created",
+                  conversationId,
+                  workItemId,
+                  title: workItem.title,
+                });
+                taskConversation.taskRunId = taskRunId;
+                taskConversation.headlessLock = true;
+              }
+              await taskConversation.processMessage(
+                message,
+                [],
+                (event) => {
+                  publishEvent(event);
+                },
+                undefined,
+                undefined,
+                undefined,
+                { isInteractive: false },
+              );
+            },
           );
-          return httpError("INTERNAL_ERROR", "Failed to load task output", 500);
+
+          if (taskConversation) {
+            (taskConversation as { headlessLock: boolean }).headlessLock =
+              false;
+          }
+
+          const current = getWorkItem(workItemId);
+          if (current?.status !== "cancelled") {
+            const finalStatus: WorkItemStatus =
+              result.status === "completed" ? "awaiting_review" : "failed";
+            updateWorkItem(workItemId, {
+              status: finalStatus,
+              lastRunId: result.taskRunId,
+              lastRunConversationId: result.conversationId,
+              lastRunStatus: result.status,
+            });
+          }
+
+          broadcastWorkItemStatus(workItemId);
+          publishEvent({ type: "tasks_changed" });
+        } catch (err) {
+          if (taskConversation) {
+            (taskConversation as { headlessLock: boolean }).headlessLock =
+              false;
+          }
+          log.error({ err, workItemId }, "work_item_run_task failed");
+          updateWorkItem(workItemId, {
+            status: "failed",
+            lastRunStatus: "failed",
+          });
+          broadcastWorkItemStatus(workItemId);
+          publishEvent({ type: "tasks_changed" });
         }
-      },
+      })();
+
+      return {
+        id: pathParams!.id,
+        success: true,
+        lastRunId: "",
+      };
     },
-  ];
-}
+  },
+];

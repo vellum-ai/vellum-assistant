@@ -12,7 +12,7 @@ import {
   buildConversationStarterValidationContext,
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { rawGet } from "../../memory/raw-query.js";
 import {
@@ -20,8 +20,8 @@ import {
   memoryCheckpoints,
   memoryJobs,
 } from "../../memory/schema.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Strongest-first ordering — maximize category diversity so the top four
@@ -77,7 +77,6 @@ function hasActiveConversationStarterJob(
 export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
   if (items.length <= 1) return items;
 
-  // Group by category, preserving original order within each group
   const byCategory = new Map<string, T[]>();
   for (const item of items) {
     const cat = item.category ?? "other";
@@ -89,8 +88,6 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
     group.push(item);
   }
 
-  // Prefer categories with the most remaining items so the row stays varied
-  // early without burying the dominant themes entirely.
   const sortedGroups = [...byCategory.entries()]
     .sort((a, b) => b[1].length - a[1].length)
     .map(([, group]) => ({ items: group, idx: 0 }));
@@ -118,7 +115,6 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
             return category !== lastCategory;
           });
 
-    // First pass: prefer unseen categories, then avoid adjacent duplicates.
     for (const group of nextGroups) {
       if (group.idx >= group.items.length) continue;
       const candidate = group.items[group.idx];
@@ -131,7 +127,6 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
       break;
     }
 
-    // Fallback: if all remaining items share the same category, just pick next
     if (!picked) {
       for (const group of availableGroups) {
         if (group.idx < group.items.length) {
@@ -154,22 +149,18 @@ export function orderStrongestFirst<T extends StarterItem>(items: T[]): T[] {
 }
 
 // ---------------------------------------------------------------------------
-// GET /v1/conversation-starters
+// Handlers
 // ---------------------------------------------------------------------------
 
-function handleListConversationStarters(url: URL): Response {
-  const limitParam = Math.min(
-    Math.max(1, Number(url.searchParams.get("limit") ?? 4)),
-    20,
-  );
-  const offsetParam = Math.max(0, Number(url.searchParams.get("offset") ?? 0));
-  const scopeId = url.searchParams.get("scope_id") ?? "default";
+function handleListConversationStarters({
+  queryParams = {},
+}: RouteHandlerArgs) {
+  const limitParam = Math.min(Math.max(1, Number(queryParams.limit ?? 4)), 20);
+  const offsetParam = Math.max(0, Number(queryParams.offset ?? 0));
+  const scopeId = queryParams.scope_id ?? "default";
 
   const db = getDb();
 
-  // Fetch all chips (ranked by model, newest batch first), apply diversity
-  // reordering, then paginate. Reordering must happen before offset/limit so
-  // that paginated results are stable across pages.
   const allItems = db
     .select({
       id: conversationStarters.id,
@@ -198,9 +189,6 @@ function handleListConversationStarters(url: URL): Response {
   const invalidItemCount = allItems.length - validItems.length;
   const total = validItems.length;
 
-  // If starters exist, return them immediately. If the batch is stale or
-  // the generation checkpoint is ahead of the current active memory count,
-  // kick off a background refresh but keep the existing chips visible.
   if (allItems.length > 0) {
     const totalActive =
       rawGet<{ c: number }>(
@@ -240,34 +228,35 @@ function handleListConversationStarters(url: URL): Response {
 
     const ordered = orderStrongestFirst(validItems);
     const page = ordered.slice(offsetParam, offsetParam + limitParam);
-    return Response.json({
+    return {
       starters: page,
       total,
       status: hasActiveJob ? "refreshing" : "ready",
-    });
+    };
   }
 
-  // No starters — check whether we have memory graph nodes to generate from.
   const memoryCount = rawGet<{ c: number }>(
     `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
     scopeId,
   );
 
   if (!memoryCount || memoryCount.c === 0) {
-    return Response.json({ starters: [], total: 0, status: "empty" });
+    return { starters: [], total: 0, status: "empty" };
   }
 
-  // Memory items exist but no starters yet — ensure a generation job is queued.
   const existing = hasActiveConversationStarterJob(db, scopeId);
 
   if (!existing) {
     enqueueMemoryJob("generate_conversation_starters", { scopeId });
   }
 
-  return Response.json({ starters: [], total: 0, status: "generating" });
+  return { starters: [], total: 0, status: "generating" };
 }
 
-function handleDeleteConversationStarter(starterId: string): Response {
+function handleDeleteConversationStarter({
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const starterId = pathParams.id;
   const db = getDb();
   const existing = db
     .select({ id: conversationStarters.id })
@@ -281,11 +270,7 @@ function handleDeleteConversationStarter(starterId: string): Response {
     .get();
 
   if (!existing) {
-    return httpError(
-      "NOT_FOUND",
-      `Conversation starter not found: ${starterId}`,
-      404,
-    );
+    throw new NotFoundError(`Conversation starter not found: ${starterId}`);
   }
 
   db.delete(conversationStarters)
@@ -297,68 +282,65 @@ function handleDeleteConversationStarter(starterId: string): Response {
     )
     .run();
 
-  return Response.json({ deleted: true, id: starterId });
+  return { deleted: true, id: starterId };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function conversationStarterRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "conversation-starters",
-      method: "GET",
-      summary: "List conversation starters",
-      description:
-        "Return conversation starter chips, ordered for category diversity.",
-      tags: ["conversation-starters"],
-      handler: (ctx) => handleListConversationStarters(ctx.url),
-      queryParams: [
-        {
-          name: "limit",
-          schema: { type: "integer" },
-          description: "Max starters to return (1–20, default 4)",
-        },
-        {
-          name: "offset",
-          schema: { type: "integer" },
-          description: "Pagination offset (default 0)",
-        },
-        {
-          name: "scope_id",
-          schema: { type: "string" },
-          description: 'Scope ID (default "default")',
-        },
-      ],
-      responseBody: z.object({
-        starters: z
-          .array(z.unknown())
-          .describe("Ordered list of starter chips"),
-        total: z.number().int().describe("Total number of available starters"),
-        status: z
-          .enum(["ready", "refreshing", "empty", "generating"])
-          .describe("One of: ready, refreshing, empty, generating"),
-      }),
-    },
-    {
-      endpoint: "conversation-starters/:id",
-      method: "DELETE",
-      policyKey: "conversation-starters",
-      summary: "Delete conversation starter",
-      description:
-        "Remove a generated conversation starter chip from the current starter set.",
-      tags: ["conversation-starters"],
-      handler: ({ params }) => handleDeleteConversationStarter(params.id),
-      responseBody: z.object({
-        deleted: z.boolean(),
-        id: z.string(),
-      }),
-      additionalResponses: {
-        "404": {
-          description: "Conversation starter not found",
-        },
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "conversation_starters_list",
+    endpoint: "conversation-starters",
+    method: "GET",
+    handler: handleListConversationStarters,
+    summary: "List conversation starters",
+    description:
+      "Return conversation starter chips, ordered for category diversity.",
+    tags: ["conversation-starters"],
+    queryParams: [
+      {
+        name: "limit",
+        type: "integer",
+        description: "Max starters to return (1–20, default 4)",
+      },
+      {
+        name: "offset",
+        type: "integer",
+        description: "Pagination offset (default 0)",
+      },
+      {
+        name: "scope_id",
+        description: 'Scope ID (default "default")',
+      },
+    ],
+    responseBody: z.object({
+      starters: z.array(z.unknown()).describe("Ordered list of starter chips"),
+      total: z.number().int().describe("Total number of available starters"),
+      status: z
+        .enum(["ready", "refreshing", "empty", "generating"])
+        .describe("One of: ready, refreshing, empty, generating"),
+    }),
+  },
+  {
+    operationId: "conversation_starters_delete",
+    endpoint: "conversation-starters/:id",
+    method: "DELETE",
+    policyKey: "conversation-starters",
+    handler: handleDeleteConversationStarter,
+    summary: "Delete conversation starter",
+    description:
+      "Remove a generated conversation starter chip from the current starter set.",
+    tags: ["conversation-starters"],
+    responseBody: z.object({
+      deleted: z.boolean(),
+      id: z.string(),
+    }),
+    additionalResponses: {
+      "404": {
+        description: "Conversation starter not found",
       },
     },
-  ];
-}
+  },
+];

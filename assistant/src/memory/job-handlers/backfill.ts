@@ -11,7 +11,7 @@ import {
   getConversationMemoryScopeId,
   messageMetadataSchema,
 } from "../conversation-crud.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { indexMessageNow } from "../indexer.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { messages } from "../schema.js";

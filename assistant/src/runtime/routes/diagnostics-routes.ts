@@ -1,5 +1,5 @@
 /**
- * HTTP route handlers for dictation processing.
+ * Route handlers for dictation processing.
  */
 
 import { z } from "zod";
@@ -22,8 +22,8 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("diagnostics-routes");
 
@@ -185,10 +185,18 @@ function computeMaxTokens(inputLength: number): number {
   return Math.max(256, estimatedInputTokens + 128);
 }
 
-async function handleDictation(body: DictationBody): Promise<Response> {
+interface DictationResult {
+  text: string;
+  mode: DictationMode;
+  actionPlan?: string;
+  resolvedProfileId: string;
+  profileSource: ProfileResolution["source"];
+}
+
+async function handleDictation(body: DictationBody): Promise<DictationResult> {
   log.info(
     { transcriptionLength: body.transcription.length },
-    "Dictation request received via HTTP",
+    "Dictation request received",
   );
 
   const resolution = resolveProfile(
@@ -235,18 +243,18 @@ async function handleDictation(body: DictationBody): Promise<Response> {
       } as DictationRequest);
       const normalizedText = applyDictionary(transcription, profile.dictionary);
       if (mode === "action") {
-        return Response.json({
+        return {
           text: body.transcription,
           mode: "action",
           actionPlan: `User wants to: ${body.transcription}`,
           ...profileMeta,
-        });
+        };
       }
-      return Response.json({
+      return {
         text: normalizedText,
         mode,
         ...profileMeta,
-      });
+      };
     }
 
     const systemPrompt = buildCombinedDictationPrompt(body, stylePrompt);
@@ -315,20 +323,20 @@ async function handleDictation(body: DictationBody): Promise<Response> {
         );
 
         if (mode === "action") {
-          return Response.json({
+          return {
             text: body.transcription,
             mode: "action",
             actionPlan: `User wants to: ${body.transcription}`,
             ...profileMeta,
-          });
+          };
         }
         const cleanedText = input.text?.trim() || transcription;
         const normalizedText = applyDictionary(cleanedText, profile.dictionary);
-        return Response.json({
+        return {
           text: normalizedText,
           mode: "dictation",
           ...profileMeta,
-        });
+        };
       }
 
       log.warn("No tool_use block in combined dictation call, using heuristic");
@@ -351,19 +359,19 @@ async function handleDictation(body: DictationBody): Promise<Response> {
   } as DictationRequest);
   log.info({ mode: fallbackMode }, "Using heuristic fallback");
   if (fallbackMode === "action") {
-    return Response.json({
+    return {
       text: body.transcription,
       mode: "action",
       actionPlan: `User wants to: ${body.transcription}`,
       ...profileMeta,
-    });
+    };
   }
   const normalizedText = applyDictionary(transcription, profile.dictionary);
-  return Response.json({
+  return {
     text: normalizedText,
     mode: fallbackMode,
     ...profileMeta,
-  });
+  };
 }
 
 async function handleCommandMode(
@@ -374,7 +382,7 @@ async function handleCommandMode(
     profileSource: ProfileResolution["source"];
   },
   stylePrompt: string | undefined,
-): Promise<Response> {
+): Promise<DictationResult> {
   const systemPrompt = buildCommandPrompt(body, stylePrompt);
   const inputLength =
     (body.context.selectedText ?? "").length + body.transcription.length;
@@ -388,11 +396,11 @@ async function handleCommandMode(
         body.context.selectedText ?? body.transcription,
         profile.dictionary,
       );
-      return Response.json({
+      return {
         text: normalizedText,
         mode: "command",
         ...profileMeta,
-      });
+      };
     }
 
     const response = await provider.sendMessage(
@@ -410,22 +418,22 @@ async function handleCommandMode(
         ? textBlock.text.trim()
         : (body.context.selectedText ?? body.transcription);
     const normalizedText = applyDictionary(cleanedText, profile.dictionary);
-    return Response.json({
+    return {
       text: normalizedText,
       mode: "command",
       ...profileMeta,
-    });
+    };
   } catch (err) {
     log.error({ err }, "Command mode LLM call failed, returning selected text");
     const normalizedText = applyDictionary(
       body.context.selectedText ?? body.transcription,
       profile.dictionary,
     );
-    return Response.json({
+    return {
       text: normalizedText,
       mode: "command",
       ...profileMeta,
-    });
+    };
   }
 }
 
@@ -433,50 +441,51 @@ async function handleCommandMode(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function diagnosticsRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "dictation",
-      method: "POST",
-      policyKey: "dictation",
-      summary: "Process dictation",
-      description:
-        "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
-      tags: ["diagnostics"],
-      requestBody: z.object({
-        transcription: z.string().describe("Raw speech transcription"),
-        context: z
-          .object({})
-          .passthrough()
-          .describe(
-            "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
-          ),
-        profileId: z
-          .string()
-          .describe("Optional dictation profile ID")
-          .optional(),
-      }),
-      responseBody: z.object({
-        text: z.string().describe("Processed text output"),
-        mode: z
-          .string()
-          .describe("Detected mode: dictation, command, or action"),
-        actionPlan: z
-          .string()
-          .describe("Action plan (only when mode is action)"),
-        resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
-        profileSource: z.string().describe("How the profile was resolved"),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as DictationBody;
-        if (!body.transcription) {
-          return httpError("BAD_REQUEST", "transcription is required", 400);
-        }
-        if (!body.context) {
-          return httpError("BAD_REQUEST", "context is required", 400);
-        }
-        return handleDictation(body);
-      },
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "dictation_post",
+    endpoint: "dictation",
+    method: "POST",
+    policyKey: "dictation",
+    summary: "Process dictation",
+    description:
+      "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
+    tags: ["diagnostics"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      transcription: z.string().describe("Raw speech transcription"),
+      context: z
+        .object({})
+        .passthrough()
+        .describe(
+          "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
+        ),
+      profileId: z
+        .string()
+        .describe("Optional dictation profile ID")
+        .optional(),
+    }),
+    responseBody: z.object({
+      text: z.string().describe("Processed text output"),
+      mode: z
+        .string()
+        .describe("Detected mode: dictation, command, or action"),
+      actionPlan: z
+        .string()
+        .describe("Action plan (only when mode is action)"),
+      resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
+      profileSource: z.string().describe("How the profile was resolved"),
+    }),
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      const { transcription, context, profileId } =
+        body as unknown as DictationBody;
+      if (!transcription) {
+        throw new BadRequestError("transcription is required");
+      }
+      if (!context) {
+        throw new BadRequestError("context is required");
+      }
+      return handleDictation({ transcription, context, profileId });
     },
-  ];
-}
+  },
+];

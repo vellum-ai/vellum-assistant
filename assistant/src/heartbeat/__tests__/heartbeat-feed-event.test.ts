@@ -43,7 +43,6 @@ mock.module("../../util/platform.js", () => ({
     join(workspaceDir ?? fallbackDir, "avatar/avatar-image.png"),
 
   getXdgVellumConfigDirName: () => ".vellum",
-  getXdgPlatformTokenPath: () => join(workspaceDir ?? fallbackDir, "token"),
 }));
 
 // Stub config so heartbeat is enabled. Must export every symbol from

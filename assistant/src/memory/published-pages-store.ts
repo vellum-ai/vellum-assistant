@@ -7,7 +7,7 @@
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { publishedPages } from "./schema.js";
 
 export interface PublishedPageRecord {

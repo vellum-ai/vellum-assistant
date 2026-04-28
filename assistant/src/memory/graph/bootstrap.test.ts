@@ -1,13 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 import { setMemoryCheckpoint } from "../checkpoints.js";
-import {
-  initializeDb,
-  rawAll,
-  rawGet,
-  rawRun,
-  resetTestTables,
-} from "../db.js";
+import { initializeDb } from "../db-init.js";
+import { rawAll, rawGet, rawRun, resetTestTables } from "../raw-query.js";
 import { migrateToolCreatedItems } from "./bootstrap.js";
 
 // ---------------------------------------------------------------------------

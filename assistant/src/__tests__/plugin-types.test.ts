@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   type CircuitBreakerArgs,

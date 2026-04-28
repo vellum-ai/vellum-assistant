@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../../../../../security/credential-key.js";
+import { ServiceUnavailableError } from "../../../errors.js";
 
 // ── Module mocks ────────────────────────────────────────────────────────────
 
@@ -22,13 +23,10 @@ mock.module("../../../../../security/secure-keys.js", () => ({
   getSecureKeyAsync: getSecureKeyAsyncMock,
 }));
 
-// share.ts imports getConnectionByProvider from oauth-store at module load.
-// Stub it to return undefined so Socket Mode tokens are the only source.
 mock.module("../../../../../oauth/oauth-store.js", () => ({
   getConnectionByProvider: () => undefined,
 }));
 
-// Stub the app store so handleShareToSlackChannel finds the app.
 const FAKE_APP = { id: "app-1", name: "Test App", description: "desc" };
 mock.module("../../../../../memory/app-store.js", () => ({
   getApp: (id: string) => (id === FAKE_APP.id ? FAKE_APP : undefined),
@@ -68,7 +66,6 @@ function installFetchStub() {
       authorization: headers.get("authorization"),
     });
 
-    // Minimal OK Slack envelopes so handlers don't throw on shape mismatches.
     const body = fakeSlackResponse(url);
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -89,8 +86,8 @@ function fakeSlackResponse(url: string): Record<string, unknown> {
 
 // ── Test fixtures ───────────────────────────────────────────────────────────
 
-const BOT_TOKEN = "xoxb-BOT";
-const USER_TOKEN = "xoxp-USER";
+const BOT_TOKEN = "xoxb-test-bot-token";
+const USER_TOKEN = "xoxp-test-user-token";
 
 describe("Slack share route token routing", () => {
   beforeEach(() => {
@@ -109,8 +106,10 @@ describe("Slack share route token routing", () => {
       return null;
     });
 
-    const res = await handleListSlackChannels();
-    expect(res.status).toBe(200);
+    const result = (await handleListSlackChannels()) as {
+      channels: unknown[];
+    };
+    expect(result).toHaveProperty("channels");
 
     const listCall = captured.find((c) =>
       c.url.includes("/conversations.list"),
@@ -120,8 +119,6 @@ describe("Slack share route token routing", () => {
   });
 
   test("GET /v1/slack/channels: bot + user tokens prefer user_token for reads", async () => {
-    // Core fix: with both tokens stored, the Share UI picker must see every
-    // channel the USER can see — not just ones the bot is a member of.
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
       if (key === credentialKey("slack_channel", "user_token"))
@@ -129,8 +126,10 @@ describe("Slack share route token routing", () => {
       return null;
     });
 
-    const res = await handleListSlackChannels();
-    expect(res.status).toBe(200);
+    const result = (await handleListSlackChannels()) as {
+      channels: unknown[];
+    };
+    expect(result).toHaveProperty("channels");
 
     const listCall = captured.find((c) =>
       c.url.includes("/conversations.list"),
@@ -140,9 +139,6 @@ describe("Slack share route token routing", () => {
   });
 
   test("POST /v1/slack/share: bot + user tokens still write with bot token", async () => {
-    // SAFETY invariant: posts MUST come from the bot identity. If the handler
-    // ever routed the write through user_token, the posted message would
-    // appear as the user — unambiguously wrong.
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) return BOT_TOKEN;
       if (key === credentialKey("slack_channel", "user_token"))
@@ -150,30 +146,25 @@ describe("Slack share route token routing", () => {
       return null;
     });
 
-    const req = new Request("http://localhost/v1/slack/share", {
-      method: "POST",
-      body: JSON.stringify({ appId: FAKE_APP.id, channelId: "C123" }),
-    });
-
-    const res = await handleShareToSlackChannel(req);
-    expect(res.status).toBe(200);
+    const result = (await handleShareToSlackChannel({
+      body: { appId: FAKE_APP.id, channelId: "C123" },
+    })) as { ok: boolean };
+    expect(result.ok).toBe(true);
 
     const postCall = captured.find((c) => c.url.includes("/chat.postMessage"));
     expect(postCall).toBeDefined();
     expect(postCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
   });
 
-  test("no tokens configured: both handlers return 503", async () => {
+  test("no tokens configured: both handlers throw ServiceUnavailableError", async () => {
     getSecureKeyAsyncMock.mockImplementation(async () => null);
 
-    const listRes = await handleListSlackChannels();
-    expect(listRes.status).toBe(503);
+    expect(handleListSlackChannels()).rejects.toThrow(ServiceUnavailableError);
 
-    const shareReq = new Request("http://localhost/v1/slack/share", {
-      method: "POST",
-      body: JSON.stringify({ appId: FAKE_APP.id, channelId: "C123" }),
-    });
-    const shareRes = await handleShareToSlackChannel(shareReq);
-    expect(shareRes.status).toBe(503);
+    expect(
+      handleShareToSlackChannel({
+        body: { appId: FAKE_APP.id, channelId: "C123" },
+      }),
+    ).rejects.toThrow(ServiceUnavailableError);
   });
 });

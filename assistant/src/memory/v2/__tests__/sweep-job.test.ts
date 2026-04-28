@@ -82,7 +82,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { initializeDb, resetDb, getDb } = await import("../../db.js");
+const { resetDb, getDb } = await import("../../db-connection.js");
+const { initializeDb } = await import("../../db-init.js");
 const { messages, conversations } = await import("../../schema.js");
 const { _setOverridesForTesting } =
   await import("../../../config/assistant-feature-flags.js");

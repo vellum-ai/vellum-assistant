@@ -17,7 +17,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { deleteConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 

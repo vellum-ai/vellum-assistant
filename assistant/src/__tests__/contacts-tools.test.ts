@@ -39,20 +39,22 @@ mock.module("../config/env.js", () => ({
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
     const store = await import("../contacts/contact-store.js");
+    const body = (params?.body ?? params ?? {}) as Record<string, unknown>;
+    const pathParams = (params?.pathParams ?? {}) as Record<string, string>;
     if (method === "search_contacts") {
-      return { ok: true, result: store.searchContacts(params ?? {}) };
+      return { ok: true, result: store.searchContacts(body) };
     }
     if (method === "upsert_contact") {
-      return { ok: true, result: store.upsertContact(params as never) };
+      return { ok: true, result: store.upsertContact(body as never) };
     }
-    if (method === "get_contact") {
-      return {
-        ok: true,
-        result: store.getContact((params as { id: string }).id) ?? null,
-      };
+    if (method === "getContact") {
+      const id = pathParams.id ?? (body as { id?: string }).id;
+      const contact = id ? store.getContact(id) : null;
+      if (!contact) return { ok: false, error: `Contact "${id}" not found` };
+      return { ok: true, result: { ok: true, contact } };
     }
     if (method === "merge_contacts") {
-      const { keepId, mergeId } = params as { keepId: string; mergeId: string };
+      const { keepId, mergeId } = body as { keepId: string; mergeId: string };
       return { ok: true, result: store.mergeContacts(keepId, mergeId) };
     }
     return { ok: false, error: `Unknown IPC method: ${method}` };
@@ -64,12 +66,12 @@ import type { Database } from "bun:sqlite";
 import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
 import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
 import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
-  handleGetContact,
-  handleListContacts,
   handleMergeContacts,
   handleUpsertContact,
+  ROUTES,
 } from "../runtime/routes/contact-routes.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -90,14 +92,24 @@ beforeAll(() => {
         return handleMergeContacts(req);
       }
       if (path === "/v1/contacts" && req.method === "GET") {
-        return handleListContacts(url);
+        const listRoute = ROUTES.find(
+          (r) => r.operationId === "listContacts",
+        )!;
+        const qp: Record<string, string> = {};
+        url.searchParams.forEach((v, k) => { qp[k] = v; });
+        const result = listRoute.handler({ queryParams: qp });
+        return Response.json(result);
       }
       if (path === "/v1/contacts" && req.method === "POST") {
         return handleUpsertContact(req);
       }
       const idMatch = path.match(/^\/v1\/contacts\/([^/]+)$/);
       if (idMatch && req.method === "GET") {
-        return handleGetContact(idMatch[1]);
+        const getRoute = ROUTES.find(
+          (r) => r.operationId === "getContact",
+        )!;
+        const result = getRoute.handler({ pathParams: { id: idMatch[1] } });
+        return Response.json(result);
       }
       return new Response("Not found", { status: 404 });
     },

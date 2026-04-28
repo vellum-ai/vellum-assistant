@@ -1,6 +1,5 @@
 /**
- * Tests for guardian bootstrap, vellum migration, and local identity
- * resolution.
+ * Tests for local identity resolution.
  *
  * Legacy actor-token HMAC middleware tests have been removed --
  * that middleware is replaced by the JWT auth middleware in
@@ -9,8 +8,8 @@
  * Pairing flow tests have moved to the gateway (pairing is now
  * gateway-native).
  *
- * The gateway owns credential minting; these tests cover only
- * guardian bootstrap, vellum migration, and local identity resolution.
+ * The gateway owns credential minting and guardian binding creation;
+ * these tests cover only local identity resolution.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -30,12 +29,10 @@ mock.module("../config/env.js", () => ({
   checkUnrecognizedEnvVars: () => {},
 }));
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { createGuardianBinding } from "../contacts/contacts-write.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { resetExternalAssistantIdCache } from "../runtime/auth/external-assistant-id.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
-import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import {
   resolveLocalAuthContext,
   resolveLocalTrustContext,
@@ -58,69 +55,12 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Guardian vellum migration
-// ---------------------------------------------------------------------------
-
-describe("guardian vellum migration", () => {
-  test("ensureVellumGuardianBinding creates binding when missing", () => {
-    const principalId = ensureVellumGuardianBinding("self");
-    expect(principalId).toMatch(/^vellum-principal-/);
-
-    const guardianResult = findGuardianForChannel("vellum");
-    expect(guardianResult).not.toBeNull();
-    expect(guardianResult!.contact.principalId).toBe(principalId);
-    expect(guardianResult!.channel.verifiedVia).toBe("startup-migration");
-  });
-
-  test("ensureVellumGuardianBinding is idempotent", () => {
-    const first = ensureVellumGuardianBinding("self");
-    const second = ensureVellumGuardianBinding("self");
-    expect(first).toBe(second);
-  });
-
-  test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "tg-user-123",
-      guardianDeliveryChatId: "tg-chat-456",
-      guardianPrincipalId: "tg-user-123",
-      verifiedVia: "challenge",
-    });
-
-    ensureVellumGuardianBinding("self");
-
-    const tgGuardian = findGuardianForChannel("telegram");
-    expect(tgGuardian).not.toBeNull();
-    expect(tgGuardian!.channel.externalUserId).toBe("tg-user-123");
-
-    const vGuardian = findGuardianForChannel("vellum");
-    expect(vGuardian).not.toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Local identity resolution
 // ---------------------------------------------------------------------------
 
 describe("resolveLocalTrustContext", () => {
-  test("returns guardian context when vellum binding exists", () => {
-    ensureVellumGuardianBinding("self");
-
+  test("falls back to minimal trust context when no vellum binding exists", () => {
     const ctx = resolveLocalTrustContext();
-    expect(ctx.trustClass).toBe("guardian");
-    expect(ctx.sourceChannel).toBe("vellum");
-  });
-
-  test("returns guardian context with principal when no vellum binding exists (pre-bootstrap self-heal)", () => {
-    const ctx = resolveLocalTrustContext();
-    expect(ctx.trustClass).toBe("guardian");
-    expect(ctx.sourceChannel).toBe("vellum");
-    expect(ctx.guardianPrincipalId).toBeDefined();
-  });
-
-  test("respects custom sourceChannel parameter", () => {
-    ensureVellumGuardianBinding("self");
-    const ctx = resolveLocalTrustContext("vellum");
     expect(ctx.sourceChannel).toBe("vellum");
   });
 });
@@ -151,26 +91,13 @@ describe("resolveLocalAuthContext", () => {
     expect(ctx.scopes.has("local.all")).toBe(true);
   });
 
-  test("enriches actorPrincipalId from vellum guardian binding when present", () => {
-    ensureVellumGuardianBinding("self");
-    const guardianResult = findGuardianForChannel("vellum");
-    expect(guardianResult).toBeTruthy();
+  test("actorPrincipalId is undefined when no vellum binding exists", () => {
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
 
     const ctx = resolveLocalAuthContext("session-123");
-    expect(ctx.actorPrincipalId).toBe(
-      guardianResult!.contact.principalId ?? undefined,
-    );
-  });
-
-  test("actorPrincipalId is auto-created via self-heal when no vellum binding exists", () => {
-    // Reset DB to ensure no binding
-    resetDb();
-    initializeDb();
-
-    const ctx = resolveLocalAuthContext("session-123");
-    // Self-heal creates a vellum guardian binding automatically
-    expect(ctx.actorPrincipalId).toBeDefined();
-    expect(ctx.actorPrincipalId).toMatch(/^vellum-principal-/);
+    expect(ctx.actorPrincipalId).toBeUndefined();
   });
 
   test("conversationId matches the provided argument", () => {

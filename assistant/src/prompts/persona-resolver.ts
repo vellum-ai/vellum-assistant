@@ -11,10 +11,8 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import type {
-  ChannelCapabilities,
-  TrustContext,
-} from "../daemon/conversation-runtime-assembly.js";
+import type { ChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";

@@ -60,7 +60,8 @@ mock.module("../messaging/providers/slack/backfill.js", () => ({
 }));
 
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";

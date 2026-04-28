@@ -4,7 +4,8 @@ import type {
   TraceEvent,
   TraceEventKind,
 } from "../daemon/message-types/messages.js";
-import { getDb, rawChanges } from "./db.js";
+import { getDb } from "./db-connection.js";
+import { rawChanges } from "./raw-query.js";
 import { traceEvents } from "./schema.js";
 
 // ---------------------------------------------------------------------------

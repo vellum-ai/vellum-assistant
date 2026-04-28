@@ -6,9 +6,22 @@
  * CLI and the daemon. File-based signals and the HTTP port are deprecated
  * in favor of this IPC socket.
  *
- * Protocol: newline-delimited JSON over a Unix domain socket.
- * - Request:  { "id": string, "method": string, "params"?: Record<string, unknown> }
- * - Response: { "id": string, "result"?: unknown, "error"?: string }
+ * Protocol: length-prefixed binary frames over a Unix domain socket.
+ * Each frame: [4-byte big-endian length][payload bytes]
+ *
+ * Messages use a JSON envelope:
+ * - Request:  { id, method, params?, headers? }
+ * - Response: { id, result?, error?, headers? }
+ *
+ * When a message's headers map contains "content-length", a binary data
+ * frame immediately follows the JSON frame.
+ *
+ * Chunked streaming: when the response headers contain
+ * "transfer-encoding: chunked", multiple binary data frames follow the
+ * JSON envelope. A zero-length frame terminates the stream.
+ *
+ * Legacy newline-delimited JSON is auto-detected and supported for
+ * backward compatibility with older CLI clients.
  *
  * The preferred socket path is `{workspaceDir}/assistant.sock`. On
  * platforms with strict AF_UNIX path limits (notably macOS), the server falls
@@ -19,7 +32,17 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 
+import { RouteError } from "../runtime/routes/errors.js";
+import type { RouteDefinition } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
+import type { IpcEnvelope } from "./ipc-framing.js";
+import {
+  IpcFrameReader,
+  writeLegacyMessage,
+  writeMessage,
+  writeStreamChunk,
+  writeStreamEnd,
+} from "./ipc-framing.js";
 import { cliIpcRoutes } from "./routes/index.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -34,12 +57,18 @@ export type IpcRequest = {
   id: string;
   method: string;
   params?: Record<string, unknown>;
+  headers?: Record<string, string>;
 };
 
 export type IpcResponse = {
   id: string;
   result?: unknown;
   error?: string;
+  /** HTTP status code — present for all responses, not just errors. */
+  statusCode?: number;
+  /** Machine-readable error code (e.g. "NOT_FOUND") for RouteError instances. */
+  errorCode?: string;
+  headers?: Record<string, string>;
 };
 
 export type IpcMethodHandler = (
@@ -51,7 +80,55 @@ export type IpcMethodHandler = (
 export type IpcRoute = {
   method: string;
   handler: IpcMethodHandler;
+  /** Structured handler from transport-agnostic RouteDefinitions. The IPC
+   *  server prefers this over `handler` when present. */
+  structuredHandler?: RouteDefinition["handler"];
 };
+
+/**
+ * Wrapper returned by route handlers that produce a streaming response.
+ * The IPC server detects this and pipes the ReadableStream as chunked
+ * binary frames instead of serializing to JSON.
+ */
+export interface IpcStreamingResponse {
+  stream: ReadableStream<Uint8Array>;
+  headers: Record<string, string>;
+}
+
+/**
+ * Wrapper returned by route handlers that produce a single binary response.
+ * Sent as a JSON envelope with content-length followed by one binary frame.
+ */
+export interface IpcBinaryResponse {
+  binary: Uint8Array;
+  headers: Record<string, string>;
+}
+
+export function isIpcStreamingResponse(
+  value: unknown,
+): value is IpcStreamingResponse {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "stream" in value &&
+    (value as IpcStreamingResponse).stream instanceof ReadableStream &&
+    "headers" in value &&
+    typeof (value as IpcStreamingResponse).headers === "object"
+  );
+}
+
+export function isIpcBinaryResponse(
+  value: unknown,
+): value is IpcBinaryResponse {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "binary" in value &&
+    (value as IpcBinaryResponse).binary instanceof Uint8Array &&
+    "headers" in value &&
+    typeof (value as IpcBinaryResponse).headers === "object"
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Server
@@ -61,6 +138,7 @@ export class AssistantIpcServer {
   private server: Server | null = null;
   private clients = new Set<Socket>();
   private methods = new Map<string, IpcMethodHandler>();
+  private structuredMethods = new Map<string, RouteDefinition["handler"]>();
   private socketPath: string;
 
   constructor() {
@@ -72,6 +150,9 @@ export class AssistantIpcServer {
     );
     for (const route of cliIpcRoutes) {
       this.methods.set(route.method, route.handler);
+      if (route.structuredHandler) {
+        this.structuredMethods.set(route.method, route.structuredHandler);
+      }
     }
   }
 
@@ -92,18 +173,14 @@ export class AssistantIpcServer {
       this.clients.add(socket);
       log.debug("IPC client connected");
 
-      let buffer = "";
+      const reader = new IpcFrameReader(
+        (envelope, binary) =>
+          this.handleEnvelope(socket, reader, envelope, binary),
+        (err) => log.warn({ err }, "IPC frame read error"),
+      );
 
       socket.on("data", (chunk) => {
-        buffer += chunk.toString();
-        let newlineIdx: number;
-        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-          const line = buffer.slice(0, newlineIdx).trim();
-          buffer = buffer.slice(newlineIdx + 1);
-          if (line) {
-            this.handleMessage(socket, line);
-          }
-        }
+        reader.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
 
       socket.on("close", () => {
@@ -154,77 +231,229 @@ export class AssistantIpcServer {
 
   // ── Internal ──────────────────────────────────────────────────────────
 
-  private handleMessage(socket: Socket, line: string): void {
-    let req: IpcRequest;
-    try {
-      req = JSON.parse(line) as IpcRequest;
-    } catch {
-      this.sendResponse(socket, {
-        id: "unknown",
-        error: "Invalid JSON",
-      });
-      return;
-    }
+  private handleEnvelope(
+    socket: Socket,
+    reader: IpcFrameReader,
+    envelope: IpcEnvelope,
+    binary: Uint8Array | undefined,
+  ): void {
+    const req = envelope as IpcRequest;
 
-    if (
-      !req ||
-      typeof req !== "object" ||
-      Array.isArray(req) ||
-      !req.id ||
-      !req.method
-    ) {
-      const id =
-        req &&
-        typeof req === "object" &&
-        !Array.isArray(req) &&
-        typeof req.id === "string"
-          ? req.id
-          : "unknown";
-      this.sendResponse(socket, {
+    if (!req.id || !req.method) {
+      const id = typeof req.id === "string" ? req.id : "unknown";
+      this.sendResponse(socket, reader, {
         id,
         error: "Missing 'id' or 'method' field",
       });
       return;
     }
 
-    const handler = this.methods.get(req.method);
-    if (!handler) {
-      this.sendResponse(socket, {
+    const legacyHandler = this.methods.get(req.method);
+    if (!legacyHandler) {
+      this.sendResponse(socket, reader, {
         id: req.id,
         error: `Unknown method: ${req.method}`,
       });
       return;
     }
 
+    // Prefer the structured handler when available. The gateway IPC proxy
+    // sends separated { pathParams, queryParams, body, headers }; CLI
+    // callers send flat params and use the legacy handler.
+    const structuredHandler = this.structuredMethods.get(req.method);
+
+    void binary;
+
     try {
-      const result = handler(req.params);
+      const result = structuredHandler
+        ? structuredHandler(req.params ?? {})
+        : legacyHandler(req.params);
+
       if (result instanceof Promise) {
         result
           .then((value) => {
-            this.sendResponse(socket, { id: req.id, result: value });
+            this.sendResult(socket, reader, req.id, value);
           })
           .catch((err) => {
             log.warn({ err, method: req.method }, "IPC handler error");
-            this.sendResponse(socket, {
-              id: req.id,
-              error: String(err),
-            });
+            this.sendResponse(
+              socket,
+              reader,
+              this.buildErrorResponse(req.id, err),
+            );
           });
       } else {
-        this.sendResponse(socket, { id: req.id, result });
+        this.sendResult(socket, reader, req.id, result);
       }
     } catch (err) {
       log.warn({ err, method: req.method }, "IPC handler error");
-      this.sendResponse(socket, {
-        id: req.id,
-        error: String(err),
-      });
+      this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));
     }
   }
 
-  private sendResponse(socket: Socket, response: IpcResponse): void {
-    if (!socket.destroyed) {
-      socket.write(JSON.stringify(response) + "\n");
+  private buildErrorResponse(id: string, err: unknown): IpcResponse {
+    if (err instanceof RouteError) {
+      return {
+        id,
+        error: err.message,
+        statusCode: err.statusCode,
+        errorCode: err.code,
+      };
+    }
+    return { id, error: String(err) };
+  }
+
+  /**
+   * Route a handler result to the appropriate send path:
+   * - IpcStreamingResponse → chunked binary frames
+   * - IpcBinaryResponse → single binary frame with content-length
+   * - Everything else → JSON response
+   */
+  private sendResult(
+    socket: Socket,
+    reader: IpcFrameReader,
+    requestId: string,
+    value: unknown,
+  ): void {
+    if (isIpcStreamingResponse(value)) {
+      this.sendStreamingResponse(socket, reader, requestId, value);
+    } else if (isIpcBinaryResponse(value)) {
+      const envelope: IpcResponse = {
+        id: requestId,
+        headers: {
+          ...value.headers,
+          "content-length": String(value.binary.byteLength),
+        },
+      };
+      this.sendResponse(socket, reader, envelope, value.binary);
+    } else {
+      this.sendResponse(socket, reader, { id: requestId, result: value });
+    }
+  }
+
+  /**
+   * Pipe a ReadableStream as chunked binary frames over IPC.
+   *
+   * Wire format:
+   *   [JSON envelope: { id, headers: { "transfer-encoding": "chunked", ... } }]
+   *   [chunk frame 1]
+   *   [chunk frame 2]
+   *   ...
+   *   [zero-length terminator]
+   */
+  private sendStreamingResponse(
+    socket: Socket,
+    reader: IpcFrameReader,
+    requestId: string,
+    response: IpcStreamingResponse,
+  ): void {
+    if (socket.destroyed) return;
+
+    // Legacy clients can't handle chunked streaming — fall back to
+    // buffering the full stream and sending as a single binary response.
+    if (reader.isLegacy) {
+      this.bufferAndSendStream(socket, reader, requestId, response);
+      return;
+    }
+
+    const envelope: IpcResponse = {
+      id: requestId,
+      headers: {
+        ...response.headers,
+        "transfer-encoding": "chunked",
+      },
+    };
+    writeMessage(socket, envelope);
+
+    const streamReader = response.stream.getReader();
+    const pump = (): void => {
+      streamReader
+        .read()
+        .then(({ done, value }) => {
+          if (socket.destroyed) {
+            streamReader.cancel().catch(() => {});
+            return;
+          }
+          if (done) {
+            writeStreamEnd(socket);
+            return;
+          }
+          writeStreamChunk(socket, value);
+          pump();
+        })
+        .catch((err) => {
+          log.warn({ err }, "IPC stream read error");
+          if (!socket.destroyed) {
+            writeStreamEnd(socket);
+          }
+        });
+    };
+    pump();
+  }
+
+  /**
+   * Legacy fallback: buffer the entire stream, then send as a single
+   * binary response with content-length.
+   */
+  private bufferAndSendStream(
+    socket: Socket,
+    reader: IpcFrameReader,
+    requestId: string,
+    response: IpcStreamingResponse,
+  ): void {
+    const chunks: Uint8Array[] = [];
+    const streamReader = response.stream.getReader();
+
+    const pump = (): void => {
+      streamReader
+        .read()
+        .then(({ done, value }) => {
+          if (done) {
+            const totalLength = chunks.reduce(
+              (sum, c) => sum + c.byteLength,
+              0,
+            );
+            const merged = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const c of chunks) {
+              merged.set(c, offset);
+              offset += c.byteLength;
+            }
+            const envelope: IpcResponse = {
+              id: requestId,
+              headers: {
+                ...response.headers,
+                "content-length": String(totalLength),
+              },
+            };
+            this.sendResponse(socket, reader, envelope, merged);
+            return;
+          }
+          chunks.push(value);
+          pump();
+        })
+        .catch((err) => {
+          log.warn({ err }, "IPC legacy stream buffer error");
+          this.sendResponse(socket, reader, {
+            id: requestId,
+            error: "Stream read failed",
+          });
+        });
+    };
+    pump();
+  }
+
+  private sendResponse(
+    socket: Socket,
+    reader: IpcFrameReader,
+    response: IpcResponse,
+    binary?: Uint8Array,
+  ): void {
+    if (socket.destroyed) return;
+    if (reader.isLegacy) {
+      writeLegacyMessage(socket, response);
+    } else {
+      writeMessage(socket, response, binary);
     }
   }
 }
@@ -232,7 +461,3 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-export function getAssistantSocketPath(): string {
-  return resolveIpcSocketPath("assistant").path;
-}

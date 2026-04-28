@@ -21,8 +21,8 @@ import { VellumAcpClientHandler } from "../../acp/client-handler.js";
 import { AcpSessionManager } from "../../acp/session-manager.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../../daemon/message-types/acp.js";
-import { getSqlite, initializeDb } from "../../memory/db.js";
-
+import { getSqlite } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
 initializeDb();
 
 function clearHistory() {

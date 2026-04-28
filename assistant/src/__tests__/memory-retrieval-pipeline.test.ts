@@ -20,8 +20,8 @@ mock.module("../daemon/conversation-runtime-assembly.js", () => ({
 }));
 
 import type { AssistantConfig } from "../config/schema.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import {
   asDefaultGraphPayload,

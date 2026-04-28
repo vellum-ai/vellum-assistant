@@ -30,7 +30,8 @@ import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../../tools/credentials/metadata-store.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
+import { BadRequestError, InternalError } from "../errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -63,10 +64,7 @@ function pruneAssistantPhoneNumbers(
 // Route handlers
 // ---------------------------------------------------------------------------
 
-/**
- * GET /v1/integrations/twilio/config
- */
-async function handleGetTwilioConfig(): Promise<Response> {
+async function handleGetTwilioConfig() {
   const hasCredentials = await hasTwilioCredentials();
   const accountSid = hasCredentials
     ? (await getTwilioCredentials()).accountSid
@@ -75,104 +73,73 @@ async function handleGetTwilioConfig(): Promise<Response> {
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   const phoneNumber = (twilio.phoneNumber as string) ?? "";
 
-  return Response.json({
+  return {
     success: true,
     hasCredentials,
     accountSid: accountSid || undefined,
     phoneNumber: phoneNumber || undefined,
-  });
+  };
 }
 
-/**
- * POST /v1/integrations/twilio/credentials
- *
- * Body: { accountSid: string, authToken: string }
- */
-export async function handleSetTwilioCredentials(
-  req: Request,
-): Promise<Response> {
-  let body: { accountSid?: string; authToken?: string };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      {
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: "Invalid JSON in request body",
-      },
-      { status: 400 },
-    );
-  }
+export async function handleSetTwilioCredentials({
+  body = {},
+}: RouteHandlerArgs) {
+  const { accountSid, authToken } = body as {
+    accountSid?: string;
+    authToken?: string;
+  };
 
-  if (!body.accountSid || !body.authToken) {
-    return Response.json(
-      {
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: "accountSid and authToken are required",
-      },
-      { status: 400 },
-    );
+  if (!accountSid || !authToken) {
+    throw new BadRequestError("accountSid and authToken are required");
   }
 
   // Validate credentials against Twilio API
   const authHeader =
     "Basic " +
-    Buffer.from(`${body.accountSid}:${body.authToken}`).toString("base64");
+    Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   try {
     const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${body.accountSid}.json`,
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}.json`,
       { method: "GET", headers: { Authorization: authHeader } },
     );
     if (!res.ok) {
       const errBody = await res.text();
-      return Response.json({
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: `Twilio API validation failed (${res.status}): ${errBody}`,
-      });
+      throw new BadRequestError(
+        `Twilio API validation failed (${res.status}): ${errBody}`,
+      );
     }
   } catch (err) {
+    if (err instanceof BadRequestError) throw err;
     const message = err instanceof Error ? err.message : String(err);
-    return Response.json({
-      success: false,
-      hasCredentials: await hasTwilioCredentials(),
-      error: `Failed to validate Twilio credentials: ${message}`,
-    });
+    throw new BadRequestError(
+      `Failed to validate Twilio credentials: ${message}`,
+    );
   }
 
-  // Dual-write: secure key store is still read by the gateway for HMAC
-  // validation (gateway/src/credential-reader.ts), while the assistant reads
-  // from config via resolveAccountSid(). Both stores must stay in sync.
   const sidStored = await setSecureKeyAsync(
     credentialKey("twilio", "account_sid"),
-    body.accountSid,
+    accountSid,
   );
   if (!sidStored) {
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: "Failed to store Account SID in secure storage",
-    });
+    throw new InternalError(
+      "Failed to store Account SID in secure storage",
+    );
   }
 
   const tokenStored = await setSecureKeyAsync(
     credentialKey("twilio", "auth_token"),
-    body.authToken,
+    authToken,
   );
   if (!tokenStored) {
     await deleteSecureKeyAsync(credentialKey("twilio", "account_sid"));
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: "Failed to store Auth Token in secure storage",
-    });
+    throw new InternalError(
+      "Failed to store Auth Token in secure storage",
+    );
   }
 
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
-  twilio.accountSid = body.accountSid;
+  twilio.accountSid = accountSid;
   saveRawConfig({ ...raw, twilio });
 
   upsertCredentialMetadata("twilio", "account_sid", {
@@ -205,23 +172,16 @@ export async function handleSetTwilioCredentials(
   });
   upsertCredentialMetadata("twilio", "auth_token", {});
 
-  return Response.json({ success: true, hasCredentials: true });
+  return { success: true, hasCredentials: true };
 }
 
-/**
- * DELETE /v1/integrations/twilio/credentials
- */
-export async function handleClearTwilioCredentials(): Promise<Response> {
+export async function handleClearTwilioCredentials() {
   const r1 = await deleteSecureKeyAsync(credentialKey("twilio", "account_sid"));
   const r2 = await deleteSecureKeyAsync(credentialKey("twilio", "auth_token"));
 
   if (r1 === "error" || r2 === "error") {
-    return Response.json(
-      {
-        success: false,
-        error: "Failed to delete Twilio credentials from secure storage",
-      },
-      { status: 500 },
+    throw new InternalError(
+      "Failed to delete Twilio credentials from secure storage",
     );
   }
 
@@ -233,76 +193,52 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
   deleteCredentialMetadata("twilio", "account_sid");
   deleteCredentialMetadata("twilio", "auth_token");
 
-  return Response.json({ success: true, hasCredentials: false });
+  return { success: true, hasCredentials: false };
 }
 
-/**
- * GET /v1/integrations/twilio/numbers
- */
-async function handleListTwilioNumbers(): Promise<Response> {
+async function handleListTwilioNumbers() {
   if (!(await hasTwilioCredentials())) {
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: "Twilio credentials not configured. Set credentials first.",
-    });
+    throw new BadRequestError(
+      "Twilio credentials not configured. Set credentials first.",
+    );
   }
 
   const { accountSid, authToken } = await getTwilioCredentials();
   const numbers = await listIncomingPhoneNumbers(accountSid, authToken);
 
-  return Response.json({ success: true, hasCredentials: true, numbers });
+  return { success: true, hasCredentials: true, numbers };
 }
 
-/**
- * POST /v1/integrations/twilio/numbers/provision
- *
- * Body: { country?: string, areaCode?: string }
- */
-export async function handleProvisionTwilioNumber(
-  req: Request,
-): Promise<Response> {
+export async function handleProvisionTwilioNumber({
+  body,
+}: RouteHandlerArgs) {
   if (!(await hasTwilioCredentials())) {
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: "Twilio credentials not configured. Set credentials first.",
-    });
+    throw new BadRequestError(
+      "Twilio credentials not configured. Set credentials first.",
+    );
   }
 
-  let body: { country?: string; areaCode?: string };
-  const provisionText = await req.text();
-  if (!provisionText.trim()) {
-    body = {};
-  } else {
-    try {
-      body = JSON.parse(provisionText) as typeof body;
-    } catch {
-      return Response.json(
-        {
-          success: false,
-          hasCredentials: await hasTwilioCredentials(),
-          error: "Invalid JSON in request body",
-        },
-        { status: 400 },
-      );
-    }
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
+
+  const { country: rawCountry, areaCode } = body as {
+    country?: string;
+    areaCode?: string;
+  };
   const { accountSid, authToken } = await getTwilioCredentials();
-  const country = body.country ?? "US";
+  const country = rawCountry ?? "US";
 
   const available = await searchAvailableNumbers(
     accountSid,
     authToken,
     country,
-    body.areaCode,
+    areaCode,
   );
   if (available.length === 0) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error: `No available phone numbers found for country=${country}${body.areaCode ? ` areaCode=${body.areaCode}` : ""}`,
-    });
+    throw new BadRequestError(
+      `No available phone numbers found for country=${country}${areaCode ? ` areaCode=${areaCode}` : ""}`,
+    );
   }
 
   const purchased = await provisionPhoneNumber(
@@ -325,51 +261,27 @@ export async function handleProvisionTwilioNumber(
     loadRawConfig() as IngressConfig,
   );
 
-  return Response.json({
+  return {
     success: true,
     hasCredentials: true,
     phoneNumber: purchased.phoneNumber,
     warning: webhookResult.warning,
-  });
+  };
 }
 
-/**
- * POST /v1/integrations/twilio/numbers/assign
- *
- * Body: { phoneNumber: string }
- */
-export async function handleAssignTwilioNumber(
-  req: Request,
-): Promise<Response> {
-  let body: { phoneNumber?: string };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      {
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: "Invalid JSON in request body",
-      },
-      { status: 400 },
-    );
-  }
+export async function handleAssignTwilioNumber({
+  body = {},
+}: RouteHandlerArgs) {
+  const { phoneNumber } = body as { phoneNumber?: string };
 
-  if (!body.phoneNumber) {
-    return Response.json(
-      {
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: "phoneNumber is required",
-      },
-      { status: 400 },
-    );
+  if (!phoneNumber) {
+    throw new BadRequestError("phoneNumber is required");
   }
 
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
-  twilio.phoneNumber = body.phoneNumber;
-  pruneAssistantPhoneNumbers(twilio, body.phoneNumber, "keep");
+  twilio.phoneNumber = phoneNumber;
+  pruneAssistantPhoneNumbers(twilio, phoneNumber, "keep");
   saveRawConfig({ ...raw, twilio });
 
   // Best-effort webhook configuration when credentials are available
@@ -378,7 +290,7 @@ export async function handleAssignTwilioNumber(
     const { accountSid: acctSid, authToken: acctToken } =
       await getTwilioCredentials();
     const webhookResult = await syncTwilioWebhooks(
-      body.phoneNumber,
+      phoneNumber,
       acctSid,
       acctToken,
       loadRawConfig() as IngressConfig,
@@ -386,57 +298,37 @@ export async function handleAssignTwilioNumber(
     webhookWarning = webhookResult.warning;
   }
 
-  return Response.json({
+  return {
     success: true,
     hasCredentials: await hasTwilioCredentials(),
-    phoneNumber: body.phoneNumber,
+    phoneNumber,
     warning: webhookWarning,
-  });
+  };
 }
 
-/**
- * POST /v1/integrations/twilio/numbers/release
- *
- * Body: { phoneNumber?: string }
- */
-async function handleReleaseTwilioNumber(req: Request): Promise<Response> {
+async function handleReleaseTwilioNumber({ body }: RouteHandlerArgs) {
   if (!(await hasTwilioCredentials())) {
-    return Response.json({
-      success: false,
-      hasCredentials: false,
-      error: "Twilio credentials not configured. Set credentials first.",
-    });
+    throw new BadRequestError(
+      "Twilio credentials not configured. Set credentials first.",
+    );
   }
 
-  let body: { phoneNumber?: string };
-  const releaseText = await req.text();
-  if (!releaseText.trim()) {
-    body = {};
-  } else {
-    try {
-      body = JSON.parse(releaseText) as typeof body;
-    } catch {
-      return Response.json(
-        {
-          success: false,
-          hasCredentials: await hasTwilioCredentials(),
-          error: "Invalid JSON in request body",
-        },
-        { status: 400 },
-      );
-    }
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body is required");
   }
+
+  const { phoneNumber: requestedNumber } = body as {
+    phoneNumber?: string;
+  };
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
-  const phoneNumber = body.phoneNumber || (twilio.phoneNumber as string) || "";
+  const phoneNumber =
+    requestedNumber || (twilio.phoneNumber as string) || "";
 
   if (!phoneNumber) {
-    return Response.json({
-      success: false,
-      hasCredentials: true,
-      error:
-        "No phone number to release. Specify phoneNumber or ensure one is assigned.",
-    });
+    throw new BadRequestError(
+      "No phone number to release. Specify phoneNumber or ensure one is assigned.",
+    );
   }
 
   const { accountSid, authToken } = await getTwilioCredentials();
@@ -449,54 +341,87 @@ async function handleReleaseTwilioNumber(req: Request): Promise<Response> {
   pruneAssistantPhoneNumbers(twilio, phoneNumber, "remove");
   saveRawConfig({ ...raw, twilio });
 
-  return Response.json({
+  return {
     success: true,
     hasCredentials: true,
     warning:
       "Phone number released from Twilio. Any associated toll-free verification context is lost.",
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function twilioRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "integrations/twilio/config",
-      method: "GET",
-      handler: async () => handleGetTwilioConfig(),
-    },
-    {
-      endpoint: "integrations/twilio/credentials",
-      method: "POST",
-      handler: async ({ req }) => handleSetTwilioCredentials(req),
-    },
-    {
-      endpoint: "integrations/twilio/credentials",
-      method: "DELETE",
-      handler: async () => handleClearTwilioCredentials(),
-    },
-    {
-      endpoint: "integrations/twilio/numbers",
-      method: "GET",
-      handler: async () => handleListTwilioNumbers(),
-    },
-    {
-      endpoint: "integrations/twilio/numbers/provision",
-      method: "POST",
-      handler: async ({ req }) => handleProvisionTwilioNumber(req),
-    },
-    {
-      endpoint: "integrations/twilio/numbers/assign",
-      method: "POST",
-      handler: async ({ req }) => handleAssignTwilioNumber(req),
-    },
-    {
-      endpoint: "integrations/twilio/numbers/release",
-      method: "POST",
-      handler: async ({ req }) => handleReleaseTwilioNumber(req),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "integrations_twilio_config_get",
+    endpoint: "integrations/twilio/config",
+    method: "GET",
+    summary: "Get Twilio config",
+    description: "Return current Twilio configuration status.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleGetTwilioConfig(),
+  },
+  {
+    operationId: "integrations_twilio_credentials_post",
+    endpoint: "integrations/twilio/credentials",
+    method: "POST",
+    summary: "Set Twilio credentials",
+    description: "Validate and store Twilio account SID and auth token.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleSetTwilioCredentials,
+  },
+  {
+    operationId: "integrations_twilio_credentials_delete",
+    endpoint: "integrations/twilio/credentials",
+    method: "DELETE",
+    summary: "Clear Twilio credentials",
+    description: "Remove stored Twilio credentials.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleClearTwilioCredentials(),
+  },
+  {
+    operationId: "integrations_twilio_numbers_get",
+    endpoint: "integrations/twilio/numbers",
+    method: "GET",
+    summary: "List Twilio numbers",
+    description: "List phone numbers on the Twilio account.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleListTwilioNumbers(),
+  },
+  {
+    operationId: "integrations_twilio_numbers_provision_post",
+    endpoint: "integrations/twilio/numbers/provision",
+    method: "POST",
+    summary: "Provision Twilio number",
+    description: "Search for and provision a new phone number.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleProvisionTwilioNumber,
+  },
+  {
+    operationId: "integrations_twilio_numbers_assign_post",
+    endpoint: "integrations/twilio/numbers/assign",
+    method: "POST",
+    summary: "Assign Twilio number",
+    description: "Assign an existing phone number to this assistant.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleAssignTwilioNumber,
+  },
+  {
+    operationId: "integrations_twilio_numbers_release_post",
+    endpoint: "integrations/twilio/numbers/release",
+    method: "POST",
+    summary: "Release Twilio number",
+    description: "Release a phone number back to Twilio.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleReleaseTwilioNumber,
+  },
+];

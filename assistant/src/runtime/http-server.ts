@@ -98,7 +98,7 @@ import { verifyToken } from "./auth/token-service.js";
 import { verifyHostBrowserCapability } from "./capability-tokens.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
 import { getChromeExtensionRegistry } from "./chrome-extension-registry.js";
-import { httpError } from "./http-errors.js";
+import { httpError, type HttpErrorCode } from "./http-errors.js";
 import type { HTTPRouteDefinition } from "./http-router.js";
 import { HttpRouter } from "./http-router.js";
 // Middleware
@@ -125,97 +125,40 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
-import { appManagementRouteDefinitions } from "./routes/app-management-routes.js";
-import { handleServePage } from "./routes/app-routes.js";
-import { appRouteDefinitions } from "./routes/app-routes.js";
-import { approvalRouteDefinitions } from "./routes/approval-routes.js";
+import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
-import { handleGetAudio } from "./routes/audio-routes.js";
-import { avatarRouteDefinitions } from "./routes/avatar-routes.js";
-import { backupRouteDefinitions } from "./routes/backup-routes.js";
-import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
-import { btwRouteDefinitions } from "./routes/btw-routes.js";
-import { callRouteDefinitions } from "./routes/call-routes.js";
+import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
-import { channelReadinessRouteDefinitions } from "./routes/channel-readiness-routes.js";
 import {
   channelRouteDefinitions,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
-import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
-import {
-  contactCatchAllRouteDefinitions,
-  contactRouteDefinitions,
-} from "./routes/contact-routes.js";
+import { contactHttpOnlyRouteDefinitions } from "./routes/contact-routes.js";
 import { conversationAnalysisRouteDefinitions } from "./routes/conversation-analysis-routes.js";
-import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import {
   type ConversationManagementDeps,
   conversationManagementRouteDefinitions,
 } from "./routes/conversation-management-routes.js";
-import { conversationQueryRouteDefinitions } from "./routes/conversation-query-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
-import { conversationStarterRouteDefinitions } from "./routes/conversation-starter-routes.js";
-import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
-import { documentRouteDefinitions } from "./routes/documents-routes.js";
+import { RouteError } from "./routes/errors.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
-import { filingRouteDefinitions } from "./routes/filing-routes.js";
-import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
-import { groupRouteDefinitions } from "./routes/group-routes.js";
-import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
-import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
-import { homeFeedRouteDefinitions } from "./routes/home-feed-routes.js";
-import { homeStateRouteDefinitions } from "./routes/home-state-routes.js";
-import { hostBashRouteDefinitions } from "./routes/host-bash-routes.js";
 import {
-  hostBrowserRouteDefinitions,
   resolveHostBrowserEvent,
   resolveHostBrowserResultByRequestId,
   resolveHostBrowserSessionInvalidated,
 } from "./routes/host-browser-routes.js";
-import { hostCuRouteDefinitions } from "./routes/host-cu-routes.js";
-import { hostFileRouteDefinitions } from "./routes/host-file-routes.js";
-import { hostTransferRouteDefinitions } from "./routes/host-transfer-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "./routes/http-adapter.js";
 import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
 import { ROUTES } from "./routes/index.js";
-import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
-import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
-import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
-import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
-import { vercelRouteDefinitions } from "./routes/integrations/vercel.js";
-import { inviteRouteDefinitions } from "./routes/invite-routes.js";
-import { logExportRouteDefinitions } from "./routes/log-export-routes.js";
-import { memoryItemRouteDefinitions } from "./routes/memory-item-routes.js";
-import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
-import { notificationRouteDefinitions } from "./routes/notification-routes.js";
-import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
-import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import { playgroundRouteDefinitions } from "./routes/playground/index.js";
-import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
-import { recordingRouteDefinitions } from "./routes/recording-routes.js";
-import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
-import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { settingsRouteDefinitions } from "./routes/settings-routes.js";
-import { skillRouteDefinitions } from "./routes/skills-routes.js";
-import { sttRouteDefinitions } from "./routes/stt-routes.js";
-import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
-import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
-import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
-import { telemetryRouteDefinitions } from "./routes/telemetry-routes.js";
-import { traceEventRouteDefinitions } from "./routes/trace-event-routes.js";
-import { ttsRouteDefinitions } from "./routes/tts-routes.js";
-import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
-import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { scheduleHttpOnlyRouteDefinitions } from "./routes/schedule-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
-import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
-import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
+import { workspaceHttpOnlyRouteDefinitions } from "./routes/workspace-routes.js";
 import { setAnalysisDeps } from "./services/analyze-deps-singleton.js";
 import { matchSkillRoute } from "./skill-route-registry.js";
 
@@ -235,7 +178,7 @@ export type {
   SendMessageDeps,
 } from "./http-types.js";
 
-import type { Conversation } from "../daemon/conversation.js";
+import { findConversation } from "../daemon/conversation-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
@@ -348,16 +291,8 @@ export class RuntimeHttpServer {
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
   private sendMessageDeps?: SendMessageDeps;
-  private findConversation?: RuntimeHttpServerOptions["findConversation"];
-  private findConversationBySurfaceId?: RuntimeHttpServerOptions["findConversationBySurfaceId"];
-  private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
-  private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
-  private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
-  private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
-  private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
-  private getFilingService?: RuntimeHttpServerOptions["getFilingService"];
+
   private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
 
@@ -372,16 +307,7 @@ export class RuntimeHttpServer {
       options.guardianFollowUpConversationGenerator;
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
-    this.findConversation = options.findConversation;
-    this.findConversationBySurfaceId = options.findConversationBySurfaceId;
-    this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
-    this.getModelSetContext = options.getModelSetContext;
-    this.getRecordingDeps = options.getRecordingDeps;
-    this.getCesClient = options.getCesClient;
-    this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
-    this.getHeartbeatService = options.getHeartbeatService;
-    this.getFilingService = options.getFilingService;
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -962,10 +888,33 @@ export class RuntimeHttpServer {
     if (twilioResponse) return twilioResponse;
 
     // Audio serving endpoint — before auth check because Twilio
-    // fetches these URLs directly. The audioId is an unguessable UUID.
+    // fetches these URLs directly (isPublic route, ATL-314).
     const audioMatch = path.match(/^\/v1\/audio\/([^/]+)$/);
     if (audioMatch && req.method === "GET") {
-      return handleGetAudio(audioMatch[1]);
+      const audioDef = AUDIO_ROUTES.find((r) => r.operationId === "audio_get")!;
+      const args = { pathParams: { audioId: audioMatch[1] } };
+      try {
+        const result = await audioDef.handler(args);
+        const headers =
+          typeof audioDef.responseHeaders === "function"
+            ? audioDef.responseHeaders(args)
+            : audioDef.responseHeaders;
+        if (result instanceof ReadableStream) {
+          return new Response(result as ReadableStream<Uint8Array>, {
+            headers,
+          });
+        }
+        return new Response(result as BodyInit, { headers });
+      } catch (err) {
+        if (err instanceof RouteError) {
+          return httpError(
+            err.code as HttpErrorCode,
+            err.message,
+            err.statusCode,
+          );
+        }
+        throw err;
+      }
     }
 
     // Skill-registered routes (e.g. meet-bot event ingress). Handled before
@@ -1005,9 +954,18 @@ export class RuntimeHttpServer {
     // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
     const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
     if (pagesMatch && req.method === "GET") {
-      return withErrorHandling("pages", async () =>
-        handleServePage(pagesMatch[1]),
-      );
+      return withErrorHandling("pages", async () => {
+        const pageDef = APP_ROUTES.find(
+          (r) => r.operationId === "pages_serve",
+        )!;
+        const args = { pathParams: { appId: pagesMatch[1] } };
+        const body = pageDef.handler(args) as string;
+        const headers =
+          typeof pageDef.responseHeaders === "function"
+            ? pageDef.responseHeaders(args)
+            : pageDef.responseHeaders;
+        return new Response(body, { headers });
+      });
     }
 
     // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
@@ -1773,66 +1731,10 @@ export class RuntimeHttpServer {
 
     return [
       ...routeDefinitionsToHTTPRoutes(ROUTES),
-      ...appRouteDefinitions(),
-      ...appManagementRouteDefinitions(),
-      ...secretRouteDefinitions({
-        getCesClient: this.getCesClient,
-        onProviderCredentialsChanged: this.onProviderCredentialsChanged,
-      }),
-      ...upgradeBroadcastRouteDefinitions(),
-      ...workspaceCommitRouteDefinitions(),
-      ...migrationRollbackRouteDefinitions(),
-      ...usageRouteDefinitions(),
-      ...telemetryRouteDefinitions(),
-      ...workspaceRouteDefinitions(),
-      ...memoryItemRouteDefinitions(),
-      ...conversationStarterRouteDefinitions(),
-      ...settingsRouteDefinitions(),
-      ...avatarRouteDefinitions(),
-      ...scheduleRouteDefinitions({
+      ...workspaceHttpOnlyRouteDefinitions(),
+      ...scheduleHttpOnlyRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
       }),
-      ...heartbeatRouteDefinitions({
-        getHeartbeatService: this.getHeartbeatService,
-      }),
-      ...filingRouteDefinitions({
-        getFilingService: this.getFilingService,
-      }),
-      ...homeStateRouteDefinitions(),
-      ...homeFeedRouteDefinitions(),
-      ...notificationRouteDefinitions(),
-      ...diagnosticsRouteDefinitions(),
-      ...logExportRouteDefinitions(),
-      ...profilerRouteDefinitions(),
-      ...documentRouteDefinitions(),
-      ...workItemRouteDefinitions(
-        this.sendMessageDeps
-          ? {
-              getOrCreateConversation: (conversationId) =>
-                this.sendMessageDeps!.getOrCreateConversation(conversationId),
-              findConversation: this.findConversation
-                ? (conversationId) => {
-                    const s = this.findConversation!(conversationId);
-                    if (!s || !("abort" in s)) return undefined;
-                    return s as Conversation;
-                  }
-                : undefined,
-            }
-          : undefined,
-      ),
-      ...subagentRouteDefinitions(),
-      ...conversationQueryRouteDefinitions({
-        getModelSetContext: this.getModelSetContext,
-        findConversationForQueue: this.findConversation
-          ? (id) => {
-              const s = this.findConversation!(id);
-              if (!s?.removeQueuedMessage) return undefined;
-              return { removeQueuedMessage: s.removeQueuedMessage.bind(s) };
-            }
-          : undefined,
-      }),
-      ...ttsRouteDefinitions(),
-      ...sttRouteDefinitions(),
 
       // Conversation list and seen signal — kept inline because they
       // depend on multiple cross-cutting stores that aren't grouped
@@ -1890,8 +1792,6 @@ export class RuntimeHttpServer {
           return Response.json(response);
         },
       },
-      ...conversationAttentionRouteDefinitions(),
-
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
@@ -1918,8 +1818,6 @@ export class RuntimeHttpServer {
         }
         return conversationAnalysisRouteDefinitions(analysisDeps);
       })(),
-
-      ...groupRouteDefinitions(),
 
       {
         endpoint: "conversations/seen",
@@ -2065,17 +1963,12 @@ export class RuntimeHttpServer {
         },
       },
 
-      ...btwRouteDefinitions({
-        sendMessageDeps: this.sendMessageDeps,
-      }),
-
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
         sendMessageDeps: this.sendMessageDeps,
         approvalConversationGenerator: this.approvalConversationGenerator,
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
-        getHeartbeatService: this.getHeartbeatService,
       }),
       ...playgroundRouteDefinitions({
         getConversationById: async (id) => {
@@ -2092,9 +1985,7 @@ export class RuntimeHttpServer {
           if (!sendDeps) {
             // Fall back to the in-memory active map when the daemon hasn't
             // wired the hydration-capable accessor (e.g. unit tests).
-            const s = this.findConversation?.(id);
-            if (!s || !("abort" in s)) return undefined;
-            return s as Conversation;
+            return findConversation(id);
           }
           return sendDeps.getOrCreateConversation(id);
         },
@@ -2114,7 +2005,7 @@ export class RuntimeHttpServer {
           // then enqueue Qdrant vector cleanup for the returned segment
           // and summary IDs. Without this, seeded-then-deleted playground
           // conversations leak vectors and zombie Conversation objects.
-          if (this.findConversation?.(id)) {
+          if (findConversation(id)) {
             this.conversationManagementDeps?.destroyConversation(id);
           }
           const deleted = deleteConversation(id);
@@ -2147,48 +2038,9 @@ export class RuntimeHttpServer {
           return { id: persisted.id };
         },
       }),
-      ...globalSearchRouteDefinitions(),
-      ...approvalRouteDefinitions(),
-      ...hostBashRouteDefinitions(),
-      ...hostBrowserRouteDefinitions(),
-      ...hostCuRouteDefinitions(),
-      ...hostFileRouteDefinitions(),
-      ...hostTransferRouteDefinitions(),
-      ...(this.getSkillContext
-        ? skillRouteDefinitions({
-            getSkillContext: this.getSkillContext,
-          })
-        : []),
-      ...surfaceActionRouteDefinitions({
-        findConversation: this.findConversation,
-        findConversationBySurfaceId: this.findConversationBySurfaceId,
-      }),
-      ...surfaceContentRouteDefinitions({
-        findConversation: this.findConversation,
-      }),
-      ...guardianActionRouteDefinitions(),
+      ...contactHttpOnlyRouteDefinitions(),
 
-      ...contactRouteDefinitions(),
-      ...inviteRouteDefinitions(),
-      // contacts/:id catch-all must follow invite routes to avoid shadowing
-      ...contactCatchAllRouteDefinitions(),
-
-      ...telegramRouteDefinitions(),
-      ...channelVerificationRouteDefinitions(),
-      ...slackChannelRouteDefinitions(),
-      ...slackShareRouteDefinitions(),
-      ...twilioRouteDefinitions(),
-      ...vercelRouteDefinitions(),
-      ...channelReadinessRouteDefinitions(),
-      ...oauthProvidersRouteDefinitions(),
-      ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
-
-      ...(this.getRecordingDeps
-        ? recordingRouteDefinitions({
-            getRecordingDeps: this.getRecordingDeps,
-          })
-        : []),
 
       {
         endpoint: "interfaces/:path*",
@@ -2205,10 +2057,7 @@ export class RuntimeHttpServer {
         guardianActionCopyGenerator: this.guardianActionCopyGenerator,
         guardianFollowUpConversationGenerator:
           this.guardianFollowUpConversationGenerator,
-        getHeartbeatService: this.getHeartbeatService,
       }),
-      ...callRouteDefinitions({ assistantId }),
-
       // Internal Twilio forwarding (gateway -> runtime) — kept inline
       // because these reconstruct fake form-encoded requests from JSON,
       // a pattern specific to the gateway-to-daemon bridge.
@@ -2263,11 +2112,8 @@ export class RuntimeHttpServer {
         },
       },
 
-      ...brainGraphRouteDefinitions(),
       ...eventsRouteDefinitions(),
-      ...traceEventRouteDefinitions(),
       ...migrationRouteDefinitions(),
-      ...backupRouteDefinitions(),
 
       // User-defined routes under /x/* — must be LAST so built-in routes
       // always take priority.

@@ -1,6 +1,6 @@
 import { asc, desc, eq, inArray, or } from "drizzle-orm";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { taskRuns, tasks, workItems } from "../memory/schema.js";
 
 // ── Types ────────────────────────────────────────────────────────────

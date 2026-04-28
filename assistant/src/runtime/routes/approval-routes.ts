@@ -4,9 +4,8 @@
  * These endpoints resolve pending confirmations, secrets, and trust rules
  * by requestId — orthogonal to message sending.
  *
- * All approval endpoints require a valid JWT via the Authorization: Bearer
- * header. Guardian decisions additionally verify that the actor is the
- * bound guardian.
+ * Auth is enforced at the transport layer (HTTP policy middleware, IPC
+ * socket trust) — handlers contain only business logic.
  */
 import { z } from "zod";
 
@@ -14,11 +13,9 @@ import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
-import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
-import type { AuthContext } from "../auth/types.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import * as pendingInteractions from "../pending-interactions.js";
+import { BadRequestError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("approval-routes");
 
@@ -35,27 +32,15 @@ function canonicalizeConfirmDecision(params: {
 
 /**
  * POST /v1/confirm — resolve a pending confirmation by requestId.
- * Requires AuthContext with guardian-bound actor.
  */
-export async function handleConfirm(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  const authError = requireBoundGuardian(authContext);
-  if (authError) return authError;
-
-  const body = (await req.json()) as {
-    requestId?: string;
-    decision?: string;
-    selectedPattern?: string;
-    selectedScope?: string;
-  };
-
-  const { requestId, selectedPattern, selectedScope } = body;
-  const decision = body.decision;
+function handleConfirm({ body }: RouteHandlerArgs) {
+  const requestId = body?.requestId as string | undefined;
+  const decision = body?.decision as string | undefined;
+  const selectedPattern = body?.selectedPattern as string | undefined;
+  const selectedScope = body?.selectedScope as string | undefined;
 
   if (!requestId || typeof requestId !== "string") {
-    return httpError("BAD_REQUEST", "requestId is required", 400);
+    throw new BadRequestError("requestId is required");
   }
 
   const peeked = pendingInteractions.get(requestId);
@@ -64,11 +49,7 @@ export async function handleConfirm(
       { requestId, decision },
       "Confirmation POST for unknown requestId (already consumed or never registered)",
     );
-    return httpError(
-      "NOT_FOUND",
-      "No pending interaction found for this requestId",
-      404,
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   const effectiveDecision =
@@ -77,11 +58,7 @@ export async function handleConfirm(
       : null;
 
   if (effectiveDecision == null) {
-    return httpError(
-      "BAD_REQUEST",
-      "decision must resolve to allow or deny",
-      400,
-    );
+    throw new BadRequestError("decision must resolve to allow or deny");
   }
 
   // Validation passed — consume the pending interaction.
@@ -94,7 +71,7 @@ export async function handleConfirm(
       toolName: interaction.confirmationDetails?.toolName,
       conversationId: interaction.conversationId,
     },
-    "Confirmation resolved via HTTP",
+    "Confirmation resolved",
   );
 
   const approved = effectiveDecision === "allow";
@@ -117,7 +94,7 @@ export async function handleConfirm(
   // ACP permissions: resolve directly without a Conversation object.
   if (interaction.directResolve) {
     interaction.directResolve(effectiveDecision as UserDecision);
-    return Response.json({ accepted: true });
+    return { accepted: true };
   }
 
   interaction.conversation!.handleConfirmationResponse(
@@ -131,30 +108,19 @@ export async function handleConfirm(
     },
   );
 
-  return Response.json({ accepted: true });
+  return { accepted: true };
 }
 
 /**
  * POST /v1/secret — resolve a pending secret request by requestId.
- * Requires AuthContext with guardian-bound actor.
  */
-export async function handleSecret(
-  req: Request,
-  authContext: AuthContext,
-): Promise<Response> {
-  const authError = requireBoundGuardian(authContext);
-  if (authError) return authError;
-
-  const body = (await req.json()) as {
-    requestId?: string;
-    value?: string;
-    delivery?: string;
-  };
-
-  const { requestId, value, delivery } = body;
+function handleSecret({ body }: RouteHandlerArgs) {
+  const requestId = body?.requestId as string | undefined;
+  const value = body?.value as string | undefined;
+  const delivery = body?.delivery as string | undefined;
 
   if (!requestId || typeof requestId !== "string") {
-    return httpError("BAD_REQUEST", "requestId is required", 400);
+    throw new BadRequestError("requestId is required");
   }
 
   if (
@@ -162,20 +128,12 @@ export async function handleSecret(
     delivery !== "store" &&
     delivery !== "transient_send"
   ) {
-    return httpError(
-      "BAD_REQUEST",
-      'delivery must be "store" or "transient_send"',
-      400,
-    );
+    throw new BadRequestError('delivery must be "store" or "transient_send"');
   }
 
   const interaction = pendingInteractions.resolve(requestId);
   if (!interaction) {
-    return httpError(
-      "NOT_FOUND",
-      "No pending interaction found for this requestId",
-      404,
-    );
+    throw new NotFoundError("No pending interaction found for this requestId");
   }
 
   interaction.conversation!.handleSecretResponse(
@@ -183,26 +141,19 @@ export async function handleSecret(
     value,
     delivery as "store" | "transient_send" | undefined,
   );
-  return Response.json({ accepted: true });
+  return { accepted: true };
 }
 
 /**
- * GET /v1/pending-interactions?conversationKey=...
- * Requires AuthContext (already verified upstream by JWT middleware).
+ * GET /v1/pending-interactions?conversationKey=...&conversationId=...
  *
  * Returns pending confirmations and secrets for a conversation, allowing
  * polling-based clients (like the CLI) to discover approval requests
  * without SSE.
  */
-export function handleListPendingInteractions(
-  url: URL,
-  _authContext: AuthContext,
-): Response {
-  // Auth is already verified by JWT middleware upstream — no additional
-  // verification needed here. The _authContext parameter is accepted for
-  // type consistency and potential future use.
-  const conversationKey = url.searchParams.get("conversationKey");
-  const conversationId = url.searchParams.get("conversationId");
+function handleListPendingInteractions({ queryParams }: RouteHandlerArgs) {
+  const conversationKey = queryParams?.conversationKey;
+  const conversationId = queryParams?.conversationId;
 
   let resolvedConversationId: string | undefined;
   if (conversationId) {
@@ -211,15 +162,13 @@ export function handleListPendingInteractions(
     const mapping = getConversationByKey(conversationKey);
     resolvedConversationId = mapping?.conversationId;
   } else {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       "conversationKey or conversationId query parameter is required",
-      400,
     );
   }
 
   if (!resolvedConversationId) {
-    return Response.json({ pendingConfirmation: null, pendingSecret: null });
+    return { pendingConfirmation: null, pendingSecret: null };
   }
 
   const interactions = pendingInteractions.getByConversation(
@@ -231,7 +180,7 @@ export function handleListPendingInteractions(
   );
   const secret = interactions.find((i) => i.kind === "secret");
 
-  return Response.json({
+  return {
     pendingConfirmation: confirmation
       ? {
           requestId: confirmation.requestId,
@@ -257,90 +206,87 @@ export function handleListPendingInteractions(
           requestId: secret.requestId,
         }
       : null,
-  });
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function approvalRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "confirm",
-      method: "POST",
-      summary: "Resolve a pending confirmation",
-      description: "Approve or deny a pending tool confirmation by requestId.",
-      tags: ["approvals"],
-      requestBody: z.object({
-        requestId: z.string().describe("Pending interaction request ID"),
-        decision: z
-          .string()
-          .describe("One of: allow, deny"),
-        selectedPattern: z
-          .string()
-          .describe("Allowlist pattern for persistent decisions")
-          .optional(),
-        selectedScope: z
-          .string()
-          .describe("Scope for persistent decisions")
-          .optional(),
-      }),
-      responseBody: z.object({
-        accepted: z.boolean(),
-      }),
-      handler: async ({ req, authContext }) => handleConfirm(req, authContext),
-    },
-    {
-      endpoint: "secret",
-      method: "POST",
-      summary: "Resolve a pending secret request",
-      description: "Provide a secret value for a pending secret request.",
-      tags: ["approvals"],
-      requestBody: z.object({
-        requestId: z.string().describe("Pending interaction request ID"),
-        value: z.string().describe("Secret value").optional(),
-        delivery: z
-          .string()
-          .describe("Delivery mode: store or transient_send")
-          .optional(),
-      }),
-      responseBody: z.object({
-        accepted: z.boolean(),
-      }),
-      handler: async ({ req, authContext }) => handleSecret(req, authContext),
-    },
-    {
-      endpoint: "pending-interactions",
-      method: "GET",
-      summary: "List pending interactions",
-      description:
-        "Return pending confirmations and secrets for a conversation.",
-      tags: ["approvals"],
-      queryParams: [
-        {
-          name: "conversationKey",
-          schema: { type: "string" },
-          description: "Conversation key",
-        },
-        {
-          name: "conversationId",
-          schema: { type: "string" },
-          description: "Conversation ID",
-        },
-      ],
-      responseBody: z.object({
-        pendingConfirmation: z
-          .object({})
-          .passthrough()
-          .describe("Pending confirmation details or null"),
-        pendingSecret: z
-          .object({})
-          .passthrough()
-          .describe("Pending secret request or null"),
-      }),
-      handler: ({ url, authContext }) =>
-        handleListPendingInteractions(url, authContext),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "confirm",
+    endpoint: "confirm",
+    method: "POST",
+    handler: handleConfirm,
+    requireGuardian: true,
+    summary: "Resolve a pending confirmation",
+    description: "Approve or deny a pending tool confirmation by requestId.",
+    tags: ["approvals"],
+    requestBody: z.object({
+      requestId: z.string().describe("Pending interaction request ID"),
+      decision: z.string().describe("One of: allow, deny"),
+      selectedPattern: z
+        .string()
+        .describe("Allowlist pattern for persistent decisions")
+        .optional(),
+      selectedScope: z
+        .string()
+        .describe("Scope for persistent decisions")
+        .optional(),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+  },
+  {
+    operationId: "secret",
+    endpoint: "secret",
+    method: "POST",
+    handler: handleSecret,
+    requireGuardian: true,
+    summary: "Resolve a pending secret request",
+    description: "Provide a secret value for a pending secret request.",
+    tags: ["approvals"],
+    requestBody: z.object({
+      requestId: z.string().describe("Pending interaction request ID"),
+      value: z.string().describe("Secret value").optional(),
+      delivery: z
+        .string()
+        .describe("Delivery mode: store or transient_send")
+        .optional(),
+    }),
+    responseBody: z.object({
+      accepted: z.boolean(),
+    }),
+  },
+  {
+    operationId: "pending_interactions",
+    endpoint: "pending-interactions",
+    method: "GET",
+    handler: handleListPendingInteractions,
+    summary: "List pending interactions",
+    description: "Return pending confirmations and secrets for a conversation.",
+    tags: ["approvals"],
+    queryParams: [
+      {
+        name: "conversationKey",
+        description: "Conversation key",
+      },
+      {
+        name: "conversationId",
+        description: "Conversation ID",
+      },
+    ],
+    responseBody: z.object({
+      pendingConfirmation: z
+        .object({})
+        .passthrough()
+        .describe("Pending confirmation details or null"),
+      pendingSecret: z
+        .object({})
+        .passthrough()
+        .describe("Pending secret request or null"),
+    }),
+  },
+];

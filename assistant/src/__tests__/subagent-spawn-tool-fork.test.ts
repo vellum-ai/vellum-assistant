@@ -28,6 +28,10 @@ mock.module("../memory/conversation-crud.js", () => ({
   createConversation: () => ({ id: "mock-conv" }),
 }));
 
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-store.js";
 import type { Message } from "../providers/types.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { executeSubagentSpawn } from "../tools/subagent/spawn.js";
@@ -61,7 +65,6 @@ describe("subagent_spawn fork parameter", () => {
   test("fork: true passes parent context to manager", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
-    const originalResolve = manager.resolveParentConversation;
 
     let capturedConfig: Record<string, unknown> | undefined;
     manager.spawn = async (config: Record<string, unknown>) => {
@@ -69,16 +72,12 @@ describe("subagent_spawn fork parameter", () => {
       return "fork-subagent-id";
     };
 
-    // Wire resolveParentConversation to return a fake parent conversation.
-    manager.resolveParentConversation = (id: string) => {
-      if (id === "parent-conv-1") {
-        return {
-          messages: FAKE_PARENT_MESSAGES,
-          getCurrentSystemPrompt: () => "You are a helpful assistant.",
-        } as any;
-      }
-      return undefined;
-    };
+    // Populate the store with a fake parent conversation.
+    clearConversations();
+    setConversation("parent-conv-1", {
+      messages: FAKE_PARENT_MESSAGES,
+      getCurrentSystemPrompt: () => "You are a helpful assistant.",
+    } as any);
 
     try {
       const result = await executeSubagentSpawn(
@@ -107,14 +106,13 @@ describe("subagent_spawn fork parameter", () => {
       expect(parsed.message).toContain("Forked subagent");
     } finally {
       manager.spawn = originalSpawn;
-      manager.resolveParentConversation = originalResolve;
+      clearConversations();
     }
   });
 
   test("fork: true ignores role parameter", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
-    const originalResolve = manager.resolveParentConversation;
 
     let capturedConfig: Record<string, unknown> | undefined;
     manager.spawn = async (config: Record<string, unknown>) => {
@@ -122,15 +120,11 @@ describe("subagent_spawn fork parameter", () => {
       return "fork-role-id";
     };
 
-    manager.resolveParentConversation = (id: string) => {
-      if (id === "parent-conv-role") {
-        return {
-          messages: FAKE_PARENT_MESSAGES,
-          getCurrentSystemPrompt: () => "Parent prompt.",
-        } as any;
-      }
-      return undefined;
-    };
+    clearConversations();
+    setConversation("parent-conv-role", {
+      messages: FAKE_PARENT_MESSAGES,
+      getCurrentSystemPrompt: () => "Parent prompt.",
+    } as any);
 
     try {
       const result = await executeSubagentSpawn(
@@ -150,14 +144,13 @@ describe("subagent_spawn fork parameter", () => {
       expect(capturedConfig!.fork).toBe(true);
     } finally {
       manager.spawn = originalSpawn;
-      manager.resolveParentConversation = originalResolve;
+      clearConversations();
     }
   });
 
   test("fork: true defaults sendResultToUser to false", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
-    const originalResolve = manager.resolveParentConversation;
 
     let capturedConfig: Record<string, unknown> | undefined;
     manager.spawn = async (config: Record<string, unknown>) => {
@@ -165,15 +158,11 @@ describe("subagent_spawn fork parameter", () => {
       return "fork-silent-id";
     };
 
-    manager.resolveParentConversation = (id: string) => {
-      if (id === "parent-conv-silent") {
-        return {
-          messages: FAKE_PARENT_MESSAGES,
-          getCurrentSystemPrompt: () => "Parent prompt.",
-        } as any;
-      }
-      return undefined;
-    };
+    clearConversations();
+    setConversation("parent-conv-silent", {
+      messages: FAKE_PARENT_MESSAGES,
+      getCurrentSystemPrompt: () => "Parent prompt.",
+    } as any);
 
     try {
       // No send_result_to_user specified — fork should default to false
@@ -191,14 +180,13 @@ describe("subagent_spawn fork parameter", () => {
       expect(capturedConfig!.sendResultToUser).toBe(false);
     } finally {
       manager.spawn = originalSpawn;
-      manager.resolveParentConversation = originalResolve;
+      clearConversations();
     }
   });
 
   test("fork: true with explicit send_result_to_user: true preserves it", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
-    const originalResolve = manager.resolveParentConversation;
 
     let capturedConfig: Record<string, unknown> | undefined;
     manager.spawn = async (config: Record<string, unknown>) => {
@@ -206,15 +194,11 @@ describe("subagent_spawn fork parameter", () => {
       return "fork-visible-id";
     };
 
-    manager.resolveParentConversation = (id: string) => {
-      if (id === "parent-conv-visible") {
-        return {
-          messages: FAKE_PARENT_MESSAGES,
-          getCurrentSystemPrompt: () => "Parent prompt.",
-        } as any;
-      }
-      return undefined;
-    };
+    clearConversations();
+    setConversation("parent-conv-visible", {
+      messages: FAKE_PARENT_MESSAGES,
+      getCurrentSystemPrompt: () => "Parent prompt.",
+    } as any);
 
     try {
       const result = await executeSubagentSpawn(
@@ -232,7 +216,7 @@ describe("subagent_spawn fork parameter", () => {
       expect(capturedConfig!.sendResultToUser).toBe(true);
     } finally {
       manager.spawn = originalSpawn;
-      manager.resolveParentConversation = originalResolve;
+      clearConversations();
     }
   });
 
@@ -315,63 +299,28 @@ describe("subagent_spawn fork parameter", () => {
   });
 
   test("error when parent conversation cannot be resolved", async () => {
-    const manager = getSubagentManager();
-    const originalResolve = manager.resolveParentConversation;
+    // Empty store — findConversation will return undefined.
+    clearConversations();
 
-    // resolveParentConversation returns undefined
-    manager.resolveParentConversation = () => undefined;
+    const result = await executeSubagentSpawn(
+      {
+        label: "Orphan fork",
+        objective: "Should fail",
+        fork: true,
+      },
+      makeContext("nonexistent-parent", { sendToClient: () => {} }),
+    );
 
-    try {
-      const result = await executeSubagentSpawn(
-        {
-          label: "Orphan fork",
-          objective: "Should fail",
-          fork: true,
-        },
-        makeContext("nonexistent-parent", { sendToClient: () => {} }),
-      );
-
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("Cannot fork");
-      expect(result.content).toContain(
-        "parent conversation could not be resolved",
-      );
-    } finally {
-      manager.resolveParentConversation = originalResolve;
-    }
-  });
-
-  test("error when resolveParentConversation is not wired", async () => {
-    const manager = getSubagentManager();
-    const originalResolve = manager.resolveParentConversation;
-
-    // Unset the callback entirely
-    manager.resolveParentConversation = undefined;
-
-    try {
-      const result = await executeSubagentSpawn(
-        {
-          label: "Unwired fork",
-          objective: "Should fail",
-          fork: true,
-        },
-        makeContext("some-parent", { sendToClient: () => {} }),
-      );
-
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("Cannot fork");
-      expect(result.content).toContain(
-        "parent conversation could not be resolved",
-      );
-    } finally {
-      manager.resolveParentConversation = originalResolve;
-    }
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Cannot fork");
+    expect(result.content).toContain(
+      "parent conversation could not be resolved",
+    );
   });
 
   test("fork: true shallow copies parent messages", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);
-    const originalResolve = manager.resolveParentConversation;
 
     const originalMessages = [...FAKE_PARENT_MESSAGES];
     let capturedConfig: Record<string, unknown> | undefined;
@@ -380,15 +329,11 @@ describe("subagent_spawn fork parameter", () => {
       return "copy-check-id";
     };
 
-    manager.resolveParentConversation = (id: string) => {
-      if (id === "parent-conv-copy") {
-        return {
-          messages: originalMessages,
-          getCurrentSystemPrompt: () => "Prompt.",
-        } as any;
-      }
-      return undefined;
-    };
+    clearConversations();
+    setConversation("parent-conv-copy", {
+      messages: originalMessages,
+      getCurrentSystemPrompt: () => "Prompt.",
+    } as any);
 
     try {
       await executeSubagentSpawn(
@@ -408,7 +353,7 @@ describe("subagent_spawn fork parameter", () => {
       expect(passedMessages).toEqual(originalMessages);
     } finally {
       manager.spawn = originalSpawn;
-      manager.resolveParentConversation = originalResolve;
+      clearConversations();
     }
   });
 });

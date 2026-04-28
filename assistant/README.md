@@ -85,7 +85,7 @@ bun run src/index.ts                # interactive CLI session
 | `assistant conversations list\|new\|export\|clear` | Manage conversations                             |
 | `assistant config set\|get\|list`                  | Manage configuration                             |
 | `assistant keys set\|list\|delete`                 | Manage API keys in secure storage                |
-| `assistant trust list\|remove\|clear`              | Manage trust rules                               |
+| `assistant trust list\|add\|update\|remove`              | Manage trust rules                               |
 
 ## Project Structure
 
@@ -261,7 +261,7 @@ The vellum channel (macOS, iOS) uses JWTs to bind guardian identity to HTTP requ
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
 - **Local identity**: Local connections resolve identity server-side via `resolveLocalGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
-- **Startup migration**: On assistant start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
+- **Startup migration**: On gateway start, `ensureVellumGuardianBinding()` in `gateway/src/auth/guardian-bootstrap.ts` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
 ## Guardian Verification and Ingress ACL
 

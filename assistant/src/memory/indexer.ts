@@ -9,7 +9,7 @@ import { getLogger } from "../util/logger.js";
 import { enqueueAutoAnalysisIfEnabled } from "./auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "./auto-analysis-guard.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
 import {

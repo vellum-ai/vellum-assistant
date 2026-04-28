@@ -29,6 +29,11 @@ let lastIpcCall: {
   params?: Record<string, unknown>;
 } | null = null;
 
+/** Access the body bag from the last IPC call params. */
+function lastBody(): Record<string, unknown> {
+  return lastIpcCall!.params!.body as Record<string, unknown>;
+}
+
 /** The result that cliIpcCall will return. */
 let mockIpcResult: {
   ok: boolean;
@@ -196,10 +201,10 @@ describe("cache set", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("cache/set");
-    expect(lastIpcCall!.params!.data).toEqual({ scores: [98, 85, 72] });
-    expect(lastIpcCall!.params!.ttl_ms).toBeUndefined();
-    expect(lastIpcCall!.params!.key).toBeUndefined();
+    expect(lastIpcCall!.method).toBe("cache_set");
+    expect(lastBody().data).toEqual({ scores: [98, 85, 72] });
+    expect(lastBody().ttl_ms).toBeUndefined();
+    expect(lastBody().key).toBeUndefined();
   });
 
   test("passes --key to IPC params", async () => {
@@ -208,7 +213,7 @@ describe("cache set", () => {
 
     await runCommand(["cache", "set", "--key", "my-key"]);
 
-    expect(lastIpcCall!.params!.key).toBe("my-key");
+    expect(lastBody().key).toBe("my-key");
   });
 
   test("passes --ttl as ttl_ms in IPC params", async () => {
@@ -217,7 +222,7 @@ describe("cache set", () => {
 
     await runCommand(["cache", "set", "--ttl", "5m"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(300_000);
+    expect(lastBody().ttl_ms).toBe(300_000);
   });
 
   test("--json outputs JSON with ok:true and key on success", async () => {
@@ -296,7 +301,7 @@ describe("TTL parsing", () => {
 
     await runCommand(["cache", "set", "--ttl", "1000ms"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+    expect(lastBody().ttl_ms).toBe(1000);
   });
 
   test("parses seconds", async () => {
@@ -305,7 +310,7 @@ describe("TTL parsing", () => {
 
     await runCommand(["cache", "set", "--ttl", "30s"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(30_000);
+    expect(lastBody().ttl_ms).toBe(30_000);
   });
 
   test("parses minutes", async () => {
@@ -314,7 +319,7 @@ describe("TTL parsing", () => {
 
     await runCommand(["cache", "set", "--ttl", "10m"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(600_000);
+    expect(lastBody().ttl_ms).toBe(600_000);
   });
 
   test("parses hours", async () => {
@@ -323,7 +328,7 @@ describe("TTL parsing", () => {
 
     await runCommand(["cache", "set", "--ttl", "2h"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(7_200_000);
+    expect(lastBody().ttl_ms).toBe(7_200_000);
   });
 
   test("rejects invalid TTL format", async () => {
@@ -386,21 +391,21 @@ describe("TTL parsing", () => {
     mockStdinContent = "1";
     mockIpcResult = { ok: true, result: { key: "k" } };
     await runCommand(["cache", "set", "--ttl", "1000ms"]);
-    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+    expect(lastBody().ttl_ms).toBe(1000);
   });
 
   test("accepts 1s", async () => {
     mockStdinContent = "1";
     mockIpcResult = { ok: true, result: { key: "k" } };
     await runCommand(["cache", "set", "--ttl", "1s"]);
-    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+    expect(lastBody().ttl_ms).toBe(1000);
   });
 
   test("accepts 1500ms (resolves to >= 1s)", async () => {
     mockStdinContent = "1";
     mockIpcResult = { ok: true, result: { key: "k" } };
     await runCommand(["cache", "set", "--ttl", "1500ms"]);
-    expect(lastIpcCall!.params!.ttl_ms).toBe(1500);
+    expect(lastBody().ttl_ms).toBe(1500);
   });
 
   test("--json outputs error on sub-second TTL", async () => {
@@ -463,7 +468,7 @@ describe(">1 MB warning", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall).toBeDefined();
-    expect(lastIpcCall!.method).toBe("cache/set");
+    expect(lastIpcCall!.method).toBe("cache_set");
     // Warning is written directly to stderr (not through the logger)
     expect(stderr).toContain("exceeds 1 MB");
   });
@@ -489,8 +494,8 @@ describe("cache get", () => {
     const { exitCode } = await runCommand(["cache", "get", "my-key"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("cache/get");
-    expect(lastIpcCall!.params).toEqual({ key: "my-key" });
+    expect(lastIpcCall!.method).toBe("cache_get");
+    expect(lastBody()).toEqual({ key: "my-key" });
   });
 
   test("--json outputs { ok: true, data: ... } on hit", async () => {
@@ -558,8 +563,8 @@ describe("cache delete", () => {
     const { exitCode } = await runCommand(["cache", "delete", "my-key"]);
 
     expect(exitCode).toBe(0);
-    expect(lastIpcCall!.method).toBe("cache/delete");
-    expect(lastIpcCall!.params).toEqual({ key: "my-key" });
+    expect(lastIpcCall!.method).toBe("cache_delete");
+    expect(lastBody()).toEqual({ key: "my-key" });
   });
 
   test("succeeds with exit 0 when key did not exist", async () => {

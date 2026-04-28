@@ -220,7 +220,8 @@ public final class EventStreamClient {
         bypassSecretCheck: Bool? = nil,
         onboarding: PreChatOnboardingContext? = nil,
         clientMessageId: String? = nil,
-        inferenceProfile: String? = nil
+        inferenceProfile: String? = nil,
+        riskThreshold: String? = nil
     ) {
         locallyOwnedConversationIds.insert(conversationId)
         pendingMappingLocalIds.insert(conversationId)
@@ -295,7 +296,8 @@ public final class EventStreamClient {
                 bypassSecretCheck: bypassSecretCheck,
                 onboarding: onboarding,
                 clientMessageId: clientMessageId,
-                inferenceProfile: inferenceProfile
+                inferenceProfile: inferenceProfile,
+                riskThreshold: riskThreshold
             )
 
             switch sendResult {

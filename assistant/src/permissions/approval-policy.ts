@@ -1,4 +1,3 @@
-import type { PermissionsConfig } from "../config/schemas/security.js";
 import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
@@ -12,7 +11,6 @@ export interface ApprovalContext {
   riskLevel: RiskLevel;
   toolName: string;
   matchedRule?: TrustRule;
-  permissionsMode: "strict" | "workspace";
   isContainerized: boolean;
   isWorkspaceScoped: boolean;
   /** Where the tool originates from — "skill" for skill-provided tools, "builtin" for core tools. */
@@ -31,51 +29,48 @@ export interface ApprovalContext {
    * - "high": auto-approve everything unconditionally
    */
   autoApproveUpTo?: "none" | "low" | "medium" | "high";
-  /**
-   * When true, the auto-approve threshold was resolved from the gateway.
-   * This enables threshold-based override of ask rules — the user's
-   * threshold setting takes precedence over default ask rules when the
-   * risk falls within the threshold.
-   */
-  isGatewayThreshold?: boolean;
 }
 
 // ── Threshold resolution ─────────────────────────────────────────────────────
 
 /**
- * Resolve the `autoApproveUpTo` config value to a scalar threshold for
- * the given execution context.
+ * Per-context defaults when no threshold is provided by the gateway. These
+ * mirror the gateway's own defaults and serve as defense-in-depth for tests /
+ * direct callers that bypass the IPC path.
  *
- * - Scalar string → returned as-is for all contexts
- * - Object with per-context overrides → returns the value for the context
- *
- * When `executionContext` is omitted, defaults to `"conversation"`.
- */
-/**
- * Per-context defaults when `autoApproveUpTo` is omitted from config entirely.
- *
- * In production the Zod schema defaults to the equivalent object form, so this
- * map acts as defense-in-depth for test configs / direct callers that bypass
- * schema validation.
- *
- * Note: when the user sets a scalar value (e.g. `"low"`), it applies uniformly
- * to ALL contexts — including headless, whose default here is `"none"`. A scalar
- * `"low"` is therefore *less strict* than the headless default. This is
- * intentional: the user explicitly chose a uniform threshold.
+ * Note: when a scalar value (e.g. `"low"`) is passed, it applies uniformly to
+ * ALL contexts — including autonomous, whose default here is `"low"`. A scalar
+ * `"none"` is therefore *more strict* than the autonomous default. This is
+ * intentional: the caller explicitly chose a uniform threshold.
  */
 const CONTEXT_DEFAULTS: Record<
   ExecutionContext,
   "none" | "low" | "medium" | "high"
 > = {
-  conversation: "low",
-  background: "medium",
-  headless: "none",
+  conversation: "medium",
+  background: "low",
+  headless: "low",
 };
 
+type ThresholdScalar = "none" | "low" | "medium" | "high";
+type ThresholdConfig =
+  | ThresholdScalar
+  | { conversation: ThresholdScalar; autonomous: ThresholdScalar };
+
+/**
+ * Resolve a threshold config to a scalar threshold for the given execution
+ * context.
+ *
+ * - Scalar string → returned as-is for all contexts
+ * - Object with per-context overrides → returns the value for the context
+ *   (`background` and `headless` both resolve to the `autonomous` field)
+ *
+ * When `executionContext` is omitted, defaults to `"conversation"`.
+ */
 export function resolveThreshold(
-  configValue: PermissionsConfig["autoApproveUpTo"] | undefined,
+  configValue: ThresholdConfig | undefined,
   executionContext?: ExecutionContext,
-): "none" | "low" | "medium" | "high" {
+): ThresholdScalar {
   if (configValue == null) {
     return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
   }
@@ -83,7 +78,8 @@ export function resolveThreshold(
     return configValue;
   }
   const ctx = executionContext ?? "conversation";
-  return configValue[ctx];
+  if (ctx === "conversation") return configValue.conversation;
+  return configValue.autonomous;
 }
 
 // ── Ordinal maps for threshold comparison ─────────────────────────────────────
@@ -133,22 +129,20 @@ export interface ApprovalPolicy {
  *
  * 1. Deny rule → deny
  * 2. Ask rule + risk > autoApproveUpTo → prompt
- *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask)
+ *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask rule)
  *    Exception: skill_load_dynamic ask rules always prompt (inline-command safety gate)
- * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove → allow
+ * 3. Sandbox auto-approve: bash + sandboxAutoApprove + autoApproveUpTo !== "none" → allow
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
  *    environments skip path checks; non-containerized environments validate all
  *    path arguments against the workspace root.)
  * 4. Allow rule + non-High → allow
  * 5. Allow rule + High → fall through to risk-based
  * 6. No rule + third-party skill tool + risk > autoApproveUpTo → prompt
- *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow
- * 7. No rule + strict mode + risk > autoApproveUpTo → prompt
- *    No rule + strict mode + risk ≤ autoApproveUpTo → allow
- * 8. No rule + workspace mode + Low + workspace-scoped → allow
- * 9. No rule + Low + bundled skill → allow
- * 10. Risk ≤ autoApproveUpTo threshold → allow
- * 11. Risk > autoApproveUpTo threshold → prompt
+ *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow (threshold overrides)
+ * 7. No rule + Low + workspace-scoped + within threshold → allow
+ * 8. No rule + Low + bundled skill + within threshold → allow
+ * 9. Risk ≤ autoApproveUpTo threshold → allow
+ * 10. Risk > autoApproveUpTo threshold → prompt
  */
 export class DefaultApprovalPolicy implements ApprovalPolicy {
   evaluate(context: ApprovalContext): ApprovalDecision {
@@ -156,7 +150,6 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       riskLevel,
       toolName,
       matchedRule,
-      permissionsMode,
       isWorkspaceScoped,
       toolOrigin,
       isSkillBundled,
@@ -173,11 +166,10 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 2. Ask rules prompt — unless the gateway threshold covers the risk.
-    // When a gateway threshold is active (isGatewayThreshold), the user's
-    // threshold setting takes precedence over ask rules: if the risk falls
-    // within autoApproveUpTo, the ask rule is overridden and the tool
-    // auto-approves.
+    // ── 2. Ask rules prompt — unless the threshold covers the risk.
+    // The user's threshold setting takes precedence over ask rules: if the
+    // risk falls within autoApproveUpTo, the ask rule is overridden and
+    // the tool auto-approves.
     // Exception: skill_load_dynamic ask rules always prompt — they gate
     // inline-command skill loads that execute embedded commands and must
     // never be silently auto-approved.
@@ -187,7 +179,6 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       );
       if (
         !isDynamicSkillAsk &&
-        context.isGatewayThreshold &&
         isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
       ) {
         return {
@@ -203,14 +194,12 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     }
 
     // ── 3. Sandbox auto-approve: bash + allowlisted → allow ──
-    // Only fires in workspace mode — strict mode always requires explicit rules.
-    // Respects the autoApproveUpTo threshold: when set to "none" (Strict),
-    // sandbox auto-approve is suppressed — the user wants to approve everything.
+    // Respects the autoApproveUpTo threshold: when set to "none", sandbox
+    // auto-approve is suppressed — the user wants to approve everything.
     // Path resolution is baked into `hasSandboxAutoApprove` upstream:
     // containerized environments skip path checks (entire fs is workspace),
     // non-containerized environments validate all path args against workspace root.
     if (
-      permissionsMode === "workspace" &&
       toolName === "bash" &&
       hasSandboxAutoApprove === true &&
       context.autoApproveUpTo !== "none"
@@ -233,16 +222,13 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       // High risk: fall through to risk-based regardless of rule
     }
 
-    // ── 6. No rule + third-party skill tool → prompt (unless v3 threshold covers it)
+    // ── 6. No rule + third-party skill tool → prompt (unless threshold covers it)
     if (!matchedRule) {
       const isThirdPartySkill =
         (toolOrigin === "skill" && !isSkillBundled) ||
         (hasManifestOverride && !toolOrigin);
       if (isThirdPartySkill) {
-        if (
-          context.isGatewayThreshold &&
-          isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
-        ) {
+        if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
           return {
             decision: "allow",
             reason: `${riskLevel} risk: within auto-approve threshold (skill tool)`,
@@ -255,48 +241,34 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       }
     }
 
-    // ── 7. No rule + strict mode → prompt (unless v3 threshold covers it)
-    if (permissionsMode === "strict" && !matchedRule) {
-      if (
-        context.isGatewayThreshold &&
-        isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
-      ) {
-        return {
-          decision: "allow",
-          reason: `${riskLevel} risk: within auto-approve threshold (strict mode overridden)`,
-        };
-      }
+    // ── 7. No rule + Low + workspace-scoped + within threshold → allow ──
+    if (
+      !matchedRule &&
+      riskLevel === RiskLevel.Low &&
+      isWorkspaceScoped &&
+      isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
+    ) {
       return {
-        decision: "prompt",
-        reason: "Strict mode: no matching rule, requires approval",
+        decision: "allow",
+        reason: "Workspace-scoped low-risk operation auto-allowed",
       };
     }
 
-    // ── 8. No rule + workspace mode + Low + workspace-scoped → allow ──
+    // ── 8. No rule + Low + bundled skill + within threshold → allow ──
     if (
-      permissionsMode === "workspace" &&
       !matchedRule &&
-      riskLevel === RiskLevel.Low
+      riskLevel === RiskLevel.Low &&
+      toolOrigin === "skill" &&
+      isSkillBundled &&
+      isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
     ) {
-      if (isWorkspaceScoped) {
-        return {
-          decision: "allow",
-          reason: "Workspace mode: workspace-scoped operation auto-allowed",
-        };
-      }
+      return {
+        decision: "allow",
+        reason: "Bundled skill tool: low risk, auto-allowed",
+      };
     }
 
-    // ── 9. No rule + Low + bundled skill → allow ──────────────────────
-    if (!matchedRule && riskLevel === RiskLevel.Low) {
-      if (toolOrigin === "skill" && isSkillBundled) {
-        return {
-          decision: "allow",
-          reason: "Bundled skill tool: low risk, auto-allowed",
-        };
-      }
-    }
-
-    // ── 10–11. Risk-based fallback: compare risk against configured threshold ─
+    // ── 9–10. Risk-based fallback: compare risk against configured threshold ─
     if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
       return {
         decision: "allow",

@@ -479,8 +479,12 @@ describe("command-registry", () => {
         expect(trustSpec.subcommands!.remove.baseRisk).toBe("high");
       });
 
-      test("assistant trust clear is high risk", () => {
-        expect(trustSpec.subcommands!.clear.baseRisk).toBe("high");
+      test("assistant trust add is high risk", () => {
+        expect(trustSpec.subcommands!.add.baseRisk).toBe("high");
+      });
+
+      test("assistant trust update is high risk", () => {
+        expect(trustSpec.subcommands!.update.baseRisk).toBe("high");
       });
     });
 
@@ -540,8 +544,10 @@ describe("command-registry", () => {
       const trustSubs = Object.keys(
         assistantSpec.subcommands!.trust.subcommands!,
       );
+      expect(trustSubs).toContain("list");
+      expect(trustSubs).toContain("add");
+      expect(trustSubs).toContain("update");
       expect(trustSubs).toContain("remove");
-      expect(trustSubs).toContain("clear");
     });
 
     test("covers expanded top-level assistant command groups", () => {

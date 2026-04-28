@@ -1,10 +1,6 @@
 /**
- * HTTP route handlers for settings, identity/avatar, voice config,
- * OAuth connect, and workspace files.
- *
- * Handles settings, identity/avatar, voice config,
- * OAuth connect, and workspace files.
- *   - handlers/config-tools.ts (tool_names_list, tool_permission_simulate, env_vars_request)
+ * Route handlers for settings, identity/avatar, voice config,
+ * OAuth connect, workspace files, tools, and diagnostics env vars.
  */
 
 import { readFileSync } from "node:fs";
@@ -56,8 +52,12 @@ import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+} from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
 
 const log = getLogger("settings-routes");
@@ -66,24 +66,26 @@ const log = getLogger("settings-routes");
 // Voice config
 // ---------------------------------------------------------------------------
 
-function handleVoiceConfigUpdate(activationKey: string): Response {
+function handleVoiceConfigUpdate({ body = {} }: RouteHandlerArgs) {
+  const { activationKey } = body as { activationKey?: string };
+  if (!activationKey) {
+    throw new BadRequestError("activationKey is required");
+  }
   const result = normalizeActivationKey(activationKey);
   if (!result.ok) {
-    return httpError("BAD_REQUEST", result.reason, 400);
+    throw new BadRequestError(result.reason);
   }
-  // The HTTP route validates and returns the canonical value; the caller
-  // (client) applies the setting locally.
-  return Response.json({ ok: true, activationKey: result.value });
+  return { ok: true, activationKey: result.value };
 }
 
 // ---------------------------------------------------------------------------
 // Avatar generation
 // ---------------------------------------------------------------------------
 
-// Also callable via the `vellum-avatar` skill's AI generation mode.
-async function handleGenerateAvatar(description: string): Promise<Response> {
-  if (!description.trim()) {
-    return httpError("BAD_REQUEST", "Description is required.", 400);
+async function handleGenerateAvatar({ body = {} }: RouteHandlerArgs) {
+  const { description } = body as { description?: string };
+  if (!description?.trim()) {
+    throw new BadRequestError("Description is required.");
   }
 
   log.info({ description }, "Generating avatar via HTTP request");
@@ -92,13 +94,11 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
     const result = await generateAndSaveAvatar(description);
 
     if (result.isError) {
-      return httpError("INTERNAL_ERROR", result.content, 500);
+      throw new InternalError(result.content);
     }
 
     const avatarPath = getAvatarImagePath();
 
-    // Notify all connected SSE clients so every macOS/iOS instance
-    // reloads the avatar image immediately.
     assistantEventHub
       .publish(
         buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
@@ -110,11 +110,12 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
         log.warn({ err }, "Failed to publish avatar_updated event");
       });
 
-    return Response.json({ ok: true, avatarPath });
+    return { ok: true, avatarPath };
   } catch (err) {
+    if (err instanceof InternalError || err instanceof BadRequestError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ error: message }, "Avatar generation failed unexpectedly");
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new InternalError(message);
   }
 }
 
@@ -124,14 +125,20 @@ async function handleGenerateAvatar(description: string): Promise<Response> {
 
 const SUPPORTED_CLIENT_SETTINGS_KEYS = new Set(["activationKey"]);
 
-function handleClientSettingsUpdate(key: string, value: string): Response {
-  if (key === "activationKey") {
-    return handleVoiceConfigUpdate(value);
+function handleClientSettingsUpdate({ body = {} }: RouteHandlerArgs) {
+  const { key, value } = body as { key?: string; value?: string };
+  if (!key || value === undefined) {
+    throw new BadRequestError("key and value are required");
   }
-  return httpError(
-    "BAD_REQUEST",
+  if (key === "activationKey") {
+    const result = normalizeActivationKey(value);
+    if (!result.ok) {
+      throw new BadRequestError(result.reason);
+    }
+    return { ok: true, activationKey: result.value };
+  }
+  throw new BadRequestError(
     `Unsupported client setting key: "${key}". Supported keys: ${[...SUPPORTED_CLIENT_SETTINGS_KEYS].join(", ")}`,
-    400,
   );
 }
 
@@ -154,15 +161,15 @@ function sanitizeOAuthError(message: string): string {
   return "OAuth authentication failed. Please try again.";
 }
 
-async function handleOAuthConnectStart(body: {
-  service?: string;
-  requestedScopes?: string[];
-}): Promise<Response> {
-  if (!body.service) {
-    return httpError("BAD_REQUEST", "Missing required field: service", 400);
-  }
+async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
+  const { service, requestedScopes } = body as {
+    service?: string;
+    requestedScopes?: string[];
+  };
 
-  const service = body.service;
+  if (!service) {
+    throw new BadRequestError("Missing required field: service");
+  }
 
   // Resolve client_id and client_secret from oauth-store.
   let clientId: string | undefined;
@@ -192,31 +199,25 @@ async function handleOAuthConnectStart(body: {
   }
 
   if (!clientId) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `No client_id found for "${service}". Store it first via the credential vault.`,
-      400,
     );
   }
 
   const providerRow = getProvider(service);
   const requiresSecret = !!providerRow?.requiresClientSecret;
   if (requiresSecret && !clientSecret) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `client_secret is required for "${service}" but not found in the credential store. Store it first via the credential vault.`,
-      400,
     );
   }
 
   try {
-    // For HTTP, we cannot send `open_url` mid-request. The auth URL is
-    // returned to the client to open.
     let authorizeUrl: string | undefined;
 
     const result = await orchestrateOAuthConnect({
       service,
-      requestedScopes: body.requestedScopes,
+      requestedScopes,
       clientId,
       clientSecret,
       callbackTransport: "loopback",
@@ -225,7 +226,6 @@ async function handleOAuthConnectStart(body: {
         authorizeUrl = url;
       },
       onDeferredComplete: (deferredResult) => {
-        // Prefer accountInfo from oauth-store when available.
         let accountInfo = deferredResult.accountInfo;
         try {
           const conn = getConnectionByProvider(service);
@@ -234,8 +234,6 @@ async function handleOAuthConnectStart(body: {
           // DB not ready — use orchestrator value
         }
 
-        // Emit oauth_connect_result to all connected SSE clients so the
-        // UI can update immediately when the deferred browser flow completes.
         assistantEventHub
           .publish(
             buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
@@ -270,24 +268,19 @@ async function handleOAuthConnectStart(body: {
         { err: result.error, service },
         "OAuth connect orchestrator returned error",
       );
-      return httpError(
-        "INTERNAL_ERROR",
+      throw new InternalError(
         result.safeError ? result.error : sanitizeOAuthError(result.error),
-        500,
       );
     }
 
     if (result.deferred) {
-      return Response.json({
+      return {
         ok: true,
         deferred: true,
-        // Wire key stays `authUrl` for backward compatibility with existing
-        // clients; the internal field on `result` is `authorizeUrl`.
         authUrl: result.authorizeUrl,
-      });
+      };
     }
 
-    // Prefer accountInfo from oauth-store when available.
     let responseAccountInfo = result.accountInfo;
     try {
       const conn = getConnectionByProvider(service);
@@ -296,18 +289,17 @@ async function handleOAuthConnectStart(body: {
       // DB not ready — use orchestrator value
     }
 
-    return Response.json({
+    return {
       ok: true,
       grantedScopes: result.grantedScopes,
       accountInfo: responseAccountInfo,
-      // Wire key stays `authUrl` for backward compatibility with existing
-      // clients; the local variable was renamed to `authorizeUrl`.
       ...(authorizeUrl ? { authUrl: authorizeUrl } : {}),
-    });
+    };
   } catch (err) {
+    if (err instanceof InternalError || err instanceof BadRequestError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, service }, "OAuth connect flow failed");
-    return httpError("INTERNAL_ERROR", sanitizeOAuthError(message), 500);
+    throw new InternalError(sanitizeOAuthError(message));
   }
 }
 
@@ -315,14 +307,6 @@ async function handleOAuthConnectStart(body: {
 // Workspace files (list/read)
 // ---------------------------------------------------------------------------
 
-/**
- * Build the list of workspace files exposed via the workspace-files endpoint.
- *
- * Returns the static identity/soul files and skills directory plus the
- * guardian's resolved per-user persona file at `users/<slug>.md` when a
- * guardian exists. Callers should invoke this per-request instead of
- * caching, since the guardian can change over the lifetime of the daemon.
- */
 function getWorkspaceFiles(): string[] {
   const files = ["IDENTITY.md", "SOUL.md", "skills/"];
   const guardianPath = resolveGuardianPersonaPath();
@@ -332,32 +316,38 @@ function getWorkspaceFiles(): string[] {
   return files;
 }
 
-function handleWorkspaceFilesList(): Response {
+function handleWorkspaceFilesList() {
   const base = getWorkspaceDir();
   const files = getWorkspaceFiles().map((name) => ({
     path: name,
     name,
     exists: pathExists(join(base, name)),
   }));
-  return Response.json({ type: "workspace_files_list_response", files });
+  return { type: "workspace_files_list_response", files };
 }
 
-function handleWorkspaceFileRead(requestedPath: string): Response {
-  const resolved = resolveWorkspacePath(requestedPath);
+function handleWorkspaceFileRead({ queryParams = {} }: RouteHandlerArgs) {
+  const filePath = queryParams.path ?? "";
+  if (!filePath) {
+    throw new BadRequestError("path query parameter is required");
+  }
+
+  const resolved = resolveWorkspacePath(filePath);
   if (resolved === undefined) {
-    return httpError("BAD_REQUEST", "Invalid path", 400);
+    throw new BadRequestError("Invalid path");
   }
 
   try {
     if (!pathExists(resolved)) {
-      return httpError("NOT_FOUND", "File not found", 404);
+      throw new NotFoundError("File not found");
     }
     const content = readFileSync(resolved, "utf-8");
-    return Response.json({ path: requestedPath, content });
+    return { path: filePath, content };
   } catch (err) {
+    if (err instanceof NotFoundError || err instanceof BadRequestError) throw err;
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, path: requestedPath }, "Failed to read workspace file");
-    return httpError("INTERNAL_ERROR", message, 500);
+    log.error({ err, path: filePath }, "Failed to read workspace file");
+    throw new InternalError(message);
   }
 }
 
@@ -365,9 +355,6 @@ function handleWorkspaceFileRead(requestedPath: string): Response {
 // Tools
 // ---------------------------------------------------------------------------
 
-/**
- * Look up manifest metadata for a tool that isn't in the live registry.
- */
 function resolveManifestOverride(
   toolName: string,
 ): ManifestOverride | undefined {
@@ -394,7 +381,7 @@ function resolveManifestOverride(
   return undefined;
 }
 
-function handleToolNamesList(): Response {
+function handleToolNamesList() {
   const tools = getAllTools();
   const nameSet = new Set(tools.map((t) => t.name));
   type SchemaShape = {
@@ -404,7 +391,6 @@ function handleToolNamesList(): Response {
   };
   const schemas: Record<string, SchemaShape> = {};
 
-  // Collect raw definitions from the registry so we can transform them.
   const rawDefs: ToolDefinition[] = [];
   for (const tool of tools) {
     try {
@@ -414,17 +400,11 @@ function handleToolNamesList(): Response {
     }
   }
 
-  // Apply activity injection so settings/debug schemas match runtime behavior.
   const transformedDefs = injectActivityField(rawDefs, ACTIVITY_SKIP_SET);
   for (const def of transformedDefs) {
     schemas[def.name] = def.input_schema as SchemaShape;
   }
 
-  // Skill manifest schemas are served raw (untransformed). Unlike runtime tool
-  // schemas which have `activity` injected via injectActivityField(), skill
-  // manifests reflect the original TOOLS.json content. This is intentional:
-  // skill tools are invoked through skill_execute (which has its own activity
-  // field), so their individual schemas are never sent to the LLM directly.
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {
@@ -447,55 +427,53 @@ function handleToolNamesList(): Response {
   }
 
   const names = Array.from(nameSet).sort((a, b) => a.localeCompare(b));
-  return Response.json({ names, schemas });
+  return { names, schemas };
 }
 
-async function handleToolPermissionSimulate(body: {
-  toolName?: string;
-  input?: Record<string, unknown>;
-  workingDir?: string;
-  isInteractive?: boolean;
-}): Promise<Response> {
-  if (!body.toolName || typeof body.toolName !== "string") {
-    return httpError("BAD_REQUEST", "toolName is required", 400);
+async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
+  const { toolName, input, workingDir: rawWorkingDir, isInteractive } =
+    body as {
+      toolName?: string;
+      input?: Record<string, unknown>;
+      workingDir?: string;
+      isInteractive?: boolean;
+    };
+
+  if (!toolName || typeof toolName !== "string") {
+    throw new BadRequestError("toolName is required");
   }
-  if (!body.input || typeof body.input !== "object") {
-    return httpError(
-      "BAD_REQUEST",
-      "input is required and must be an object",
-      400,
-    );
+  if (!input || typeof input !== "object") {
+    throw new BadRequestError("input is required and must be an object");
   }
 
-  const workingDir = body.workingDir ?? process.cwd();
+  const workingDir = rawWorkingDir ?? process.cwd();
 
   try {
-    const manifestOverride = resolveManifestOverride(body.toolName);
+    const manifestOverride = resolveManifestOverride(toolName);
     const executionTarget = resolveExecutionTarget(
-      body.toolName,
+      toolName,
       manifestOverride,
     );
     const executionContext =
-      body.isInteractive === false ? "headless" : "conversation";
+      isInteractive === false ? "headless" : "conversation";
     const policyContext = { executionTarget, executionContext } as const;
 
     const { level: riskLevel } = await classifyRisk(
-      body.toolName,
-      body.input,
+      toolName,
+      input,
       workingDir,
       undefined,
       manifestOverride,
     );
     const result = await check(
-      body.toolName,
-      body.input,
+      toolName,
+      input,
       workingDir,
       policyContext,
       manifestOverride,
     );
 
-    // Non-interactive override
-    if (body.isInteractive === false && result.decision === "prompt") {
+    if (isInteractive === false && result.decision === "prompt") {
       result.decision = "deny";
       result.reason = "Non-interactive session: no client to approve prompt";
     }
@@ -514,10 +492,10 @@ async function handleToolPermissionSimulate(body: {
 
     if (result.decision === "prompt") {
       const allowlistOptions = await generateAllowlistOptions(
-        body.toolName,
-        body.input,
+        toolName,
+        input,
       );
-      const scopeOptions = generateScopeOptions(workingDir, body.toolName);
+      const scopeOptions = generateScopeOptions(workingDir, toolName);
       promptPayload = {
         allowlistOptions,
         scopeOptions,
@@ -525,7 +503,7 @@ async function handleToolPermissionSimulate(body: {
       };
     }
 
-    return Response.json({
+    return {
       success: true,
       decision: result.decision,
       riskLevel,
@@ -533,11 +511,12 @@ async function handleToolPermissionSimulate(body: {
       executionTarget,
       matchedRuleId: result.matchedRule?.id,
       promptPayload,
-    });
+    };
   } catch (err) {
+    if (err instanceof BadRequestError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to simulate tool permission");
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new InternalError(message);
   }
 }
 
@@ -545,14 +524,6 @@ async function handleToolPermissionSimulate(body: {
 // Environment variables
 // ---------------------------------------------------------------------------
 
-/**
- * Allowlist of env-var names safe to expose via diagnostics.
- * Everything else is redacted to prevent secret leakage.
- *
- * IMPORTANT: Exact names use strict `===` matching so that e.g. "HOME" does
- * not also expose "HOME_SECRET". Only entries in the *prefixes* list (which
- * all end with `_`) use `startsWith`.
- */
 const SAFE_ENV_VAR_EXACT_NAMES = new Set([
   "LANG",
   "TERM",
@@ -591,315 +562,278 @@ function isEnvVarSafe(key: string): boolean {
   );
 }
 
-function handleEnvVars(): Response {
+function handleEnvVars() {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && isEnvVarSafe(key)) {
       vars[key] = value;
     }
   }
-  return Response.json({ vars });
+  return { vars };
+}
+
+// ---------------------------------------------------------------------------
+// Platform config
+// ---------------------------------------------------------------------------
+
+function handleGetPlatformConfig() {
+  const raw = loadRawConfig();
+  const platform = (raw?.platform ?? {}) as Record<string, unknown>;
+  const baseUrl =
+    (platform.baseUrl as string | undefined) || getPlatformBaseUrl();
+  return { baseUrl, success: true };
+}
+
+function handleUpdatePlatformConfig({ body = {} }: RouteHandlerArgs) {
+  try {
+    const { baseUrl: rawBaseUrl } = body as { baseUrl?: string };
+    const value = (rawBaseUrl ?? "").trim().replace(/\/+$/, "");
+    const raw = loadRawConfig();
+    const platform = (raw?.platform ?? {}) as Record<string, unknown>;
+    platform.baseUrl = value || undefined;
+    saveRawConfig({ ...raw, platform });
+    return { baseUrl: value, success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to update platform config");
+    throw new InternalError(message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Ingress config
+// ---------------------------------------------------------------------------
+
+function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
+  try {
+    const { publicBaseUrl: rawUrl, enabled } = body as {
+      publicBaseUrl?: string;
+      enabled?: boolean;
+    };
+    const value = (rawUrl ?? "").trim().replace(/\/+$/, "");
+    const raw = loadRawConfig();
+    const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+    ingress.publicBaseUrl = value || undefined;
+    if (enabled !== undefined) {
+      ingress.enabled = enabled;
+    }
+    saveRawConfig({ ...raw, ingress });
+
+    const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
+    if (value && isEnabled) {
+      setIngressPublicBaseUrl(value);
+    } else {
+      setIngressPublicBaseUrl(undefined);
+    }
+
+    return {
+      enabled: isEnabled,
+      publicBaseUrl: value,
+      localGatewayTarget: computeGatewayTarget(),
+      success: true,
+    };
+  } catch (err) {
+    if (err instanceof InternalError) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, "Failed to update ingress config");
+    throw new InternalError(message);
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function settingsRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    // Voice config
-    {
-      endpoint: "settings/voice",
-      method: "PUT",
-      policyKey: "settings/voice",
-      summary: "Update voice activation key",
-      description: "Validate and normalize a voice activation key.",
-      tags: ["settings"],
-      requestBody: z.object({
-        activationKey: z.string(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as { activationKey?: string };
-        if (!body.activationKey) {
-          return httpError("BAD_REQUEST", "activationKey is required", 400);
-        }
-        return handleVoiceConfigUpdate(body.activationKey);
-      },
-    },
-
-    // Avatar generation
-    {
-      endpoint: "settings/avatar/generate",
-      method: "POST",
-      policyKey: "settings/avatar/generate",
-      summary: "Generate avatar",
-      description: "Generate an AI avatar image from a text description.",
-      tags: ["settings"],
-      requestBody: z.object({
-        description: z.string(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as { description?: string };
-        return handleGenerateAvatar(body.description ?? "");
-      },
-    },
-
-    // Client settings update
-    {
-      endpoint: "settings/client",
-      method: "PUT",
-      policyKey: "settings/client",
-      summary: "Update client setting",
-      description: "Set a single client-side setting key/value pair.",
-      tags: ["settings"],
-      requestBody: z.object({
-        key: z.string(),
-        value: z.string(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as { key?: string; value?: string };
-        if (!body.key || body.value === undefined) {
-          return httpError("BAD_REQUEST", "key and value are required", 400);
-        }
-        return handleClientSettingsUpdate(body.key, body.value);
-      },
-    },
-
-    // OAuth connect
-    {
-      endpoint: "oauth/start",
-      method: "POST",
-      policyKey: "oauth/start",
-      summary: "Start OAuth flow",
-      description:
-        "Initiate an OAuth authorization flow for a third-party service.",
-      tags: ["oauth"],
-      requestBody: z.object({
-        service: z.string(),
-        requestedScopes: z.array(z.unknown()),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          service?: string;
-          requestedScopes?: string[];
-        };
-        return handleOAuthConnectStart(body);
-      },
-    },
-    // Legacy alias for oauth/start (kept for backwards compatibility with
-    // older clients and platform proxy routes)
-    {
-      endpoint: "integrations/oauth/start",
-      method: "POST",
-      policyKey: "integrations/oauth/start",
-      summary: "Start OAuth flow (legacy)",
-      description: "Legacy alias for oauth/start.",
-      tags: ["oauth"],
-      requestBody: z.object({
-        service: z.string(),
-        requestedScopes: z.array(z.unknown()),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          service?: string;
-          requestedScopes?: string[];
-        };
-        return handleOAuthConnectStart(body);
-      },
-    },
-
-    // Workspace files (list/read -- distinct from workspace-routes.ts tree/file)
-    {
-      endpoint: "workspace-files",
-      method: "GET",
-      policyKey: "workspace-files",
-      summary: "List workspace files",
-      description: "Return an array of files in the workspace directory.",
-      tags: ["workspace"],
-      handler: () => handleWorkspaceFilesList(),
-    },
-    {
-      endpoint: "workspace-files/read",
-      method: "GET",
-      policyKey: "workspace-files/read",
-      summary: "Read a workspace file",
-      description: "Return the contents of a single file by path.",
-      tags: ["workspace"],
-      handler: ({ url }) => {
-        const filePath = url.searchParams.get("path") ?? "";
-        if (!filePath) {
-          return httpError(
-            "BAD_REQUEST",
-            "path query parameter is required",
-            400,
-          );
-        }
-        return handleWorkspaceFileRead(filePath);
-      },
-    },
-
-    // Tool names list
-    {
-      endpoint: "tools",
-      method: "GET",
-      policyKey: "tools",
-      summary: "List tools",
-      description:
-        "Return available tool names with their descriptions, risk levels, and categories.",
-      tags: ["tools"],
-      handler: () => handleToolNamesList(),
-    },
-
-    // Tool permission simulate
-    {
-      endpoint: "tools/simulate-permission",
-      method: "POST",
-      policyKey: "tools/simulate-permission",
-      summary: "Simulate tool permission check",
-      description:
-        "Dry-run a permission check for a tool invocation without executing it.",
-      tags: ["tools"],
-      requestBody: z.object({
-        toolName: z.string(),
-        input: z.object({}).passthrough(),
-        workingDir: z.string(),
-        isInteractive: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as {
-          toolName?: string;
-          input?: Record<string, unknown>;
-          workingDir?: string;
-          isInteractive?: boolean;
-        };
-        return handleToolPermissionSimulate(body);
-      },
-    },
-
-    // Environment variables
-    {
-      endpoint: "diagnostics/env-vars",
-      method: "GET",
-      policyKey: "diagnostics/env-vars",
-      summary: "List safe environment variables",
-      description:
-        "Return environment variable names and values that are safe to expose (no secrets).",
-      tags: ["diagnostics"],
-      handler: () => handleEnvVars(),
-    },
-
-    // Platform config (GET / PUT)
-    {
-      endpoint: "config/platform",
-      method: "GET",
-      policyKey: "config/platform:GET",
-      summary: "Get platform config",
-      description: "Return the platform base URL configuration.",
-      tags: ["config"],
-      responseBody: z.object({
-        baseUrl: z.string(),
-        success: z.boolean(),
-      }),
-      handler: () => {
-        const raw = loadRawConfig();
-        const platform = (raw?.platform ?? {}) as Record<string, unknown>;
-        const baseUrl =
-          (platform.baseUrl as string | undefined) || getPlatformBaseUrl();
-        return Response.json({ baseUrl, success: true });
-      },
-    },
-    {
-      endpoint: "config/platform",
-      method: "PUT",
-      policyKey: "config/platform",
-      summary: "Update platform config",
-      description: "Set the platform base URL.",
-      tags: ["config"],
-      requestBody: z.object({
-        baseUrl: z.string(),
-      }),
-      handler: async ({ req }) => {
-        try {
-          const body = (await req.json()) as { baseUrl?: string };
-          const value = (body.baseUrl ?? "").trim().replace(/\/+$/, "");
-          const raw = loadRawConfig();
-          const platform = (raw?.platform ?? {}) as Record<string, unknown>;
-          platform.baseUrl = value || undefined;
-          saveRawConfig({ ...raw, platform });
-          return Response.json({ baseUrl: value, success: true });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.error({ err }, "Failed to update platform config via HTTP");
-          return Response.json(
-            { baseUrl: "", success: false, error: message },
-            { status: 500 },
-          );
-        }
-      },
-    },
-
-    // Ingress config (GET / PUT)
-    {
-      endpoint: "integrations/ingress/config",
-      method: "GET",
-      policyKey: "integrations/ingress/config:GET",
-      summary: "Get ingress config",
-      description: "Return the current ingress tunnel configuration.",
-      tags: ["config"],
-      handler: () => Response.json(getIngressConfigResult()),
-    },
-    {
-      endpoint: "integrations/ingress/config",
-      method: "PUT",
-      policyKey: "integrations/ingress/config",
-      summary: "Update ingress config",
-      description: "Set the ingress public base URL and enabled state.",
-      tags: ["config"],
-      requestBody: z.object({
-        publicBaseUrl: z.string(),
-        enabled: z.boolean(),
-      }),
-      responseBody: z.object({
-        enabled: z.boolean(),
-        publicBaseUrl: z.string(),
-        localGatewayTarget: z.string(),
-        managedCallbacks: z.boolean().optional(),
-        success: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        try {
-          const body = (await req.json()) as {
-            publicBaseUrl?: string;
-            enabled?: boolean;
-          };
-          const value = (body.publicBaseUrl ?? "").trim().replace(/\/+$/, "");
-          const raw = loadRawConfig();
-          const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-          ingress.publicBaseUrl = value || undefined;
-          if (body.enabled !== undefined) {
-            ingress.enabled = body.enabled;
-          }
-          saveRawConfig({ ...raw, ingress });
-
-          const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
-          if (value && isEnabled) {
-            setIngressPublicBaseUrl(value);
-          } else {
-            setIngressPublicBaseUrl(undefined);
-          }
-
-          return Response.json({
-            enabled: isEnabled,
-            publicBaseUrl: value,
-            localGatewayTarget: computeGatewayTarget(),
-            success: true,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          log.error({ err }, "Failed to update ingress config via HTTP");
-          return httpError("INTERNAL_ERROR", message, 500);
-        }
-      },
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "settings_voice_put",
+    endpoint: "settings/voice",
+    method: "PUT",
+    summary: "Update voice activation key",
+    description: "Validate and normalize a voice activation key.",
+    tags: ["settings"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      activationKey: z.string(),
+    }),
+    handler: handleVoiceConfigUpdate,
+  },
+  {
+    operationId: "settings_avatar_generate_post",
+    endpoint: "settings/avatar/generate",
+    method: "POST",
+    summary: "Generate avatar",
+    description: "Generate an AI avatar image from a text description.",
+    tags: ["settings"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      description: z.string(),
+    }),
+    handler: handleGenerateAvatar,
+  },
+  {
+    operationId: "settings_client_put",
+    endpoint: "settings/client",
+    method: "PUT",
+    summary: "Update client setting",
+    description: "Set a single client-side setting key/value pair.",
+    tags: ["settings"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      key: z.string(),
+      value: z.string(),
+    }),
+    handler: handleClientSettingsUpdate,
+  },
+  {
+    operationId: "oauth_start_post",
+    endpoint: "oauth/start",
+    method: "POST",
+    summary: "Start OAuth flow",
+    description:
+      "Initiate an OAuth authorization flow for a third-party service.",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      service: z.string(),
+      requestedScopes: z.array(z.unknown()),
+    }),
+    handler: handleOAuthConnectStart,
+  },
+  {
+    operationId: "integrations_oauth_start_post",
+    endpoint: "integrations/oauth/start",
+    method: "POST",
+    summary: "Start OAuth flow (legacy)",
+    description: "Legacy alias for oauth/start.",
+    tags: ["oauth"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      service: z.string(),
+      requestedScopes: z.array(z.unknown()),
+    }),
+    handler: handleOAuthConnectStart,
+  },
+  {
+    operationId: "workspacefiles_get",
+    endpoint: "workspace-files",
+    method: "GET",
+    summary: "List workspace files",
+    description: "Return an array of files in the workspace directory.",
+    tags: ["workspace"],
+    requirePolicyEnforcement: true,
+    handler: () => handleWorkspaceFilesList(),
+  },
+  {
+    operationId: "workspacefiles_read_get",
+    endpoint: "workspace-files/read",
+    method: "GET",
+    summary: "Read a workspace file",
+    description: "Return the contents of a single file by path.",
+    tags: ["workspace"],
+    requirePolicyEnforcement: true,
+    queryParams: [
+      { name: "path", type: "string", required: true, description: "File path to read" },
+    ],
+    handler: handleWorkspaceFileRead,
+  },
+  {
+    operationId: "tools_get",
+    endpoint: "tools",
+    method: "GET",
+    summary: "List tools",
+    description:
+      "Return available tool names with their descriptions, risk levels, and categories.",
+    tags: ["tools"],
+    requirePolicyEnforcement: true,
+    handler: () => handleToolNamesList(),
+  },
+  {
+    operationId: "tools_simulate_permission_post",
+    endpoint: "tools/simulate-permission",
+    method: "POST",
+    summary: "Simulate tool permission check",
+    description:
+      "Dry-run a permission check for a tool invocation without executing it.",
+    tags: ["tools"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      toolName: z.string(),
+      input: z.object({}).passthrough(),
+      workingDir: z.string(),
+      isInteractive: z.boolean(),
+    }),
+    handler: handleToolPermissionSimulate,
+  },
+  {
+    operationId: "diagnostics_envvars_get",
+    endpoint: "diagnostics/env-vars",
+    method: "GET",
+    summary: "List safe environment variables",
+    description:
+      "Return environment variable names and values that are safe to expose (no secrets).",
+    tags: ["diagnostics"],
+    requirePolicyEnforcement: true,
+    handler: () => handleEnvVars(),
+  },
+  {
+    operationId: "config_platform_get",
+    endpoint: "config/platform",
+    method: "GET",
+    policyKey: "config/platform:GET",
+    summary: "Get platform config",
+    description: "Return the platform base URL configuration.",
+    tags: ["config"],
+    requirePolicyEnforcement: true,
+    responseBody: z.object({
+      baseUrl: z.string(),
+      success: z.boolean(),
+    }),
+    handler: () => handleGetPlatformConfig(),
+  },
+  {
+    operationId: "config_platform_put",
+    endpoint: "config/platform",
+    method: "PUT",
+    summary: "Update platform config",
+    description: "Set the platform base URL.",
+    tags: ["config"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      baseUrl: z.string(),
+    }),
+    handler: handleUpdatePlatformConfig,
+  },
+  {
+    operationId: "integrations_ingress_config_get",
+    endpoint: "integrations/ingress/config",
+    method: "GET",
+    policyKey: "integrations/ingress/config:GET",
+    summary: "Get ingress config",
+    description: "Return the current ingress tunnel configuration.",
+    tags: ["config"],
+    requirePolicyEnforcement: true,
+    handler: () => getIngressConfigResult(),
+  },
+  {
+    operationId: "integrations_ingress_config_put",
+    endpoint: "integrations/ingress/config",
+    method: "PUT",
+    summary: "Update ingress config",
+    description: "Set the ingress public base URL and enabled state.",
+    tags: ["config"],
+    requirePolicyEnforcement: true,
+    requestBody: z.object({
+      publicBaseUrl: z.string(),
+      enabled: z.boolean(),
+    }),
+    responseBody: z.object({
+      enabled: z.boolean(),
+      publicBaseUrl: z.string(),
+      localGatewayTarget: z.string(),
+      managedCallbacks: z.boolean().optional(),
+      success: z.boolean(),
+    }),
+    handler: handleUpdateIngressConfig,
+  },
+];

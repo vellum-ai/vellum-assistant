@@ -23,8 +23,8 @@ import {
   createGuardianBinding,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
-
+import { getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 initializeDb();
 
 function resetContactTables(): void {

@@ -23,7 +23,8 @@ import {
   createConversation,
   getAssistantMessageIdsInTurn,
 } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
 
 initializeDb();

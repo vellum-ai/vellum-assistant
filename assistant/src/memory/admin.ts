@@ -7,7 +7,7 @@ import { deleteMemoryCheckpoint } from "./checkpoints.js";
 import { runDeterministicRecallSearch } from "./context-search/search.js";
 import type { RecallEvidence } from "./context-search/types.js";
 import { getConversationMemoryScopeId } from "./conversation-crud.js";
-import { getDb, rawGet } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
 import {
   type CompactionOptions,
@@ -22,6 +22,7 @@ import {
 import { enqueueMemoryJob, getMemoryJobCounts } from "./jobs-store.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { getQdrantClient } from "./qdrant-client.js";
+import { rawGet } from "./raw-query.js";
 import {
   conversations,
   memorySegments,

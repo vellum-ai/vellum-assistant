@@ -3,9 +3,7 @@
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { CesClient } from "../credential-execution/client.js";
 import type { Conversation } from "../daemon/conversation.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type {
   ConversationCreateOptions,
   SlackInboundMessageMetadata,
@@ -14,34 +12,25 @@ import type {
 // Re-export so route modules (background-dispatch, etc.) can pull the type
 // from the runtime barrel without reaching into daemon internals.
 export type { SlackInboundMessageMetadata };
-import type { ModelSetContext } from "../daemon/handlers/config-model.js";
-import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import type {
-  SurfaceData,
-  SurfaceType,
-} from "../daemon/message-types/surfaces.js";
-import type { FilingService } from "../filing/filing-service.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import type {
-  ApprovalMessageContext,
-  ComposeApprovalMessageGenerativeOptions,
-} from "./approval-message-composer.js";
 import type { AssistantEventHub } from "./assistant-event-hub.js";
 import type {
-  ComposeGuardianActionMessageOptions,
-  GuardianActionMessageContext,
-} from "./guardian-action-message-composer.js";
+  ApprovalCopyGenerator,
+  GuardianActionCopyGenerator,
+} from "./message-composer-types.js";
 import type { ConversationManagementDeps } from "./routes/conversation-management-routes.js";
-import type { RecordingDeps } from "./routes/recording-routes.js";
-/**
- * Daemon-injected function that generates approval copy using a provider.
- * Returns generated text or `null` on failure (caller falls back to deterministic text).
- */
-export type ApprovalCopyGenerator = (
-  context: ApprovalMessageContext,
-  options?: ComposeApprovalMessageGenerativeOptions,
-) => Promise<string | null>;
+
+export type {
+  ApprovalCopyGenerator,
+  ApprovalMessageContext,
+  ApprovalMessageScenario,
+  ComposeApprovalMessageGenerativeOptions,
+  ComposeGuardianActionMessageOptions,
+  GuardianActionCopyGenerator,
+  GuardianActionMessageContext,
+  GuardianActionMessageScenario,
+} from "./message-composer-types.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 
 // ---------------------------------------------------------------------------
 // Approval conversation flow types
@@ -77,15 +66,6 @@ export interface ApprovalConversationContext {
 export type ApprovalConversationGenerator = (
   context: ApprovalConversationContext,
 ) => Promise<ApprovalConversationResult>;
-
-/**
- * Daemon-injected function that generates guardian action copy using a provider.
- * Returns generated text or `null` on failure (caller falls back to deterministic text).
- */
-export type GuardianActionCopyGenerator = (
-  context: GuardianActionMessageContext,
-  options?: ComposeGuardianActionMessageOptions,
-) => Promise<string | null>;
 
 // ---------------------------------------------------------------------------
 // Guardian follow-up conversation flow types
@@ -205,61 +185,8 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
-  /** Context provider for skill management HTTP routes. */
-  getSkillContext?: () => SkillOperationContext;
-  /** Lookup an active conversation by ID (for surface actions and content fetches). */
-  findConversation?: (conversationId: string) =>
-    | {
-        handleSurfaceAction(
-          surfaceId: string,
-          actionId: string,
-          data?: Record<string, unknown>,
-        ): void | Promise<unknown>;
-        surfaceState: Map<
-          string,
-          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-        >;
-        currentTurnSurfaces?: Array<{
-          surfaceId: string;
-          surfaceType: SurfaceType;
-          title?: string;
-          data: SurfaceData;
-          actions?: Array<{ id: string; label: string; style?: string }>;
-        }>;
-        removeQueuedMessage?: (requestId: string) => boolean;
-      }
-    | undefined;
-  /** Lookup an active conversation by surfaceId (fallback when conversationId is absent). */
-  findConversationBySurfaceId?: (surfaceId: string) =>
-    | {
-        handleSurfaceAction(
-          surfaceId: string,
-          actionId: string,
-          data?: Record<string, unknown>,
-        ): void | Promise<unknown>;
-        surfaceState: Map<
-          string,
-          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
-        >;
-      }
-    | undefined;
   /** Dependencies for conversation management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   conversationManagementDeps?: ConversationManagementDeps;
-  /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
-  getModelSetContext?: () => ModelSetContext;
-  /** Provider for recording dependencies (recording routes). */
-  getRecordingDeps?: () => RecordingDeps;
-  /** Accessor for the CES client, used to push API key updates to CES after hatch. */
-  getCesClient?: () => CesClient | undefined;
-  /**
-   * Called after provider-affecting credentials reload so live conversations
-   * can be recreated with fresh provider instances.
-   */
-  onProviderCredentialsChanged?: () => void | Promise<void>;
-  /** Accessor for the heartbeat service (for run-now and config routes). */
-  getHeartbeatService?: () => HeartbeatService | undefined;
-  /** Accessor for the filing service (for run-now and config routes). */
-  getFilingService?: () => FilingService | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

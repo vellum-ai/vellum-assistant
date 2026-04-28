@@ -19,4 +19,8 @@ extension Notification.Name {
     /// state for the missing assistant and switch to a replacement or show
     /// onboarding.
     public static let managedAssistantRetiredRemotely = Notification.Name("managedAssistantRetiredRemotely")
+
+    /// Posted after the user updates global risk thresholds in Settings.
+    /// Composer threshold pickers listen for this to refresh inherited state.
+    public static let globalRiskThresholdsDidChange = Notification.Name("globalRiskThresholdsDidChange")
 }

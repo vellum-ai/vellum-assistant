@@ -186,8 +186,8 @@ const { _resetMemoryV2QdrantForTests } = await import("../../v2/qdrant.js");
 // others. A live mutable holder lets each `beforeEach` swap the handle
 // without re-registering the mock.
 let testDbHandle: DrizzleDb | null = null;
-const realDbModule = await import("../../db.js");
-mock.module("../../db.js", () => ({
+const realDbModule = await import("../../db-connection.js");
+mock.module("../../db-connection.js", () => ({
   ...realDbModule,
   getDb: () => {
     if (!testDbHandle) throw new Error("test db not initialized");

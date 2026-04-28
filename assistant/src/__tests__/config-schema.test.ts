@@ -674,177 +674,6 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("defaults permissions.mode to workspace", () => {
-    const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({
-      mode: "workspace",
-      autoApproveUpTo: {
-        conversation: "low",
-        background: "medium",
-        headless: "none",
-      },
-    });
-  });
-
-  test("accepts explicit permissions.mode strict", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "strict" },
-    });
-    expect(result.permissions.mode).toBe("strict");
-  });
-
-  test("rejects permissions.mode legacy", () => {
-    expect(() =>
-      AssistantConfigSchema.parse({
-        permissions: { mode: "legacy" },
-      }),
-    ).toThrow();
-  });
-
-  test("accepts explicit permissions.mode workspace", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "workspace" },
-    });
-    expect(result.permissions.mode).toBe("workspace");
-  });
-
-  test("rejects invalid permissions.mode", () => {
-    const result = AssistantConfigSchema.safeParse({
-      permissions: { mode: "permissive" },
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("permissions.mode"))).toBe(true);
-    }
-  });
-
-  test("defaults autoApproveUpTo to per-context object when not specified", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { mode: "workspace" },
-    });
-    expect(result.permissions.autoApproveUpTo).toEqual({
-      conversation: "low",
-      background: "medium",
-      headless: "none",
-    });
-  });
-
-  test("accepts autoApproveUpTo none", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { autoApproveUpTo: "none" },
-    });
-    expect(result.permissions.autoApproveUpTo).toBe("none");
-  });
-
-  test("accepts autoApproveUpTo low", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { autoApproveUpTo: "low" },
-    });
-    expect(result.permissions.autoApproveUpTo).toBe("low");
-  });
-
-  test("accepts autoApproveUpTo medium", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { autoApproveUpTo: "medium" },
-    });
-    expect(result.permissions.autoApproveUpTo).toBe("medium");
-  });
-
-  test("accepts autoApproveUpTo high", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: { autoApproveUpTo: "high" },
-    });
-    expect(result.permissions.autoApproveUpTo).toBe("high");
-  });
-
-  test("rejects invalid autoApproveUpTo string", () => {
-    const result = AssistantConfigSchema.safeParse({
-      permissions: { autoApproveUpTo: "everything" },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("autoApproveUpTo round-trips through JSON serialization", () => {
-    const original = AssistantConfigSchema.parse({
-      permissions: { autoApproveUpTo: "medium" },
-    });
-    const json = JSON.stringify(original);
-    const parsed = AssistantConfigSchema.parse(JSON.parse(json));
-    expect(parsed.permissions.autoApproveUpTo).toBe("medium");
-  });
-
-  test("accepts autoApproveUpTo as per-context object", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: {
-        autoApproveUpTo: {
-          conversation: "low",
-          background: "medium",
-          headless: "none",
-        },
-      },
-    });
-    expect(result.permissions.autoApproveUpTo).toEqual({
-      conversation: "low",
-      background: "medium",
-      headless: "none",
-    });
-  });
-
-  test("per-context object applies defaults for omitted keys", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: {
-        autoApproveUpTo: {},
-      },
-    });
-    expect(result.permissions.autoApproveUpTo).toEqual({
-      conversation: "low",
-      background: "medium",
-      headless: "none",
-    });
-  });
-
-  test("per-context object rejects invalid enum values", () => {
-    const result = AssistantConfigSchema.safeParse({
-      permissions: {
-        autoApproveUpTo: { conversation: "extreme" },
-      },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("per-context object accepts high enum value", () => {
-    const result = AssistantConfigSchema.parse({
-      permissions: {
-        autoApproveUpTo: { conversation: "high" },
-      },
-    });
-    expect(result.permissions.autoApproveUpTo).toEqual({
-      conversation: "high",
-      background: "medium",
-      headless: "none",
-    });
-  });
-
-  test("per-context object round-trips through JSON serialization", () => {
-    const original = AssistantConfigSchema.parse({
-      permissions: {
-        autoApproveUpTo: {
-          conversation: "none",
-          background: "low",
-          headless: "medium",
-        },
-      },
-    });
-    const json = JSON.stringify(original);
-    const parsed = AssistantConfigSchema.parse(JSON.parse(json));
-    expect(parsed.permissions.autoApproveUpTo).toEqual({
-      conversation: "none",
-      background: "low",
-      headless: "medium",
-    });
-  });
-
   test("applies workspaceGit defaults including interactiveGitTimeoutMs", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.workspaceGit).toEqual({
@@ -2383,31 +2212,6 @@ describe("loadConfig with schema validation", () => {
     expect(config.auditLog.retentionDays).toBe(0);
   });
 
-  test("defaults permissions.mode to workspace when not specified", () => {
-    writeConfig({});
-    const config = loadConfig();
-    expect(config.permissions).toEqual({
-      mode: "workspace",
-      autoApproveUpTo: {
-        conversation: "low",
-        background: "medium",
-        headless: "none",
-      },
-    });
-  });
-
-  test("loads explicit permissions.mode strict", () => {
-    writeConfig({ permissions: { mode: "strict" } });
-    const config = loadConfig();
-    expect(config.permissions.mode).toBe("strict");
-  });
-
-  test("falls back for invalid permissions.mode", () => {
-    writeConfig({ permissions: { mode: "yolo" } });
-    const config = loadConfig();
-    expect(config.permissions.mode).toBe("workspace");
-  });
-
   // ── Calls config (loader integration) ──────────────────────────────
 
   test("loads calls config from file", () => {
@@ -2579,26 +2383,29 @@ describe("Call entrypoint gating", () => {
     expect(config.calls.enabled).toBe(false);
   });
 
-  test("handleStartCall route returns 403 when calls.enabled is false", async () => {
+  test("calls_start route throws ForbiddenError when calls.enabled is false", async () => {
     writeConfig({ calls: { enabled: false } });
     loadConfig();
 
-    const { handleStartCall } =
-      await import("../runtime/routes/call-routes.js");
-    const req = new Request("http://localhost/v1/calls/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        phoneNumber: "+14155551234",
-        task: "Test call",
-        conversationId: "test-conv-id",
-      }),
-    });
+    const { ROUTES } = await import("../runtime/routes/call-routes.js");
+    const { RouteError } = await import("../runtime/routes/errors.js");
+    const startRoute = ROUTES.find((r) => r.operationId === "calls_start");
+    expect(startRoute).toBeDefined();
 
-    const response = await handleStartCall(req);
-    expect(response.status).toBe(403);
-
-    const body = (await response.json()) as { error: { message: string } };
-    expect(body.error.message).toContain("disabled");
+    try {
+      await startRoute!.handler({
+        body: {
+          phoneNumber: "+14155551234",
+          task: "Test call",
+          conversationId: "test-conv-id",
+        },
+      });
+      throw new Error("Expected handler to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(RouteError);
+      const routeErr = err as InstanceType<typeof RouteError>;
+      expect(routeErr.statusCode).toBe(403);
+      expect(routeErr.message).toContain("disabled");
+    }
   });
 });

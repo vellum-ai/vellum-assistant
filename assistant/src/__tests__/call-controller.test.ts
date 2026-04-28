@@ -243,12 +243,15 @@ import {
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 import { loadConfig } from "../config/loader.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
+import { resetTestTables } from "../memory/raw-query.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -341,7 +344,17 @@ function resetTables() {
     "tool_invocations",
     "messages",
     "conversations",
+    "contact_channels",
+    "contacts",
   );
+  // Seed the vellum guardian binding (gateway does this at startup in production)
+  createGuardianBinding({
+    channel: "vellum",
+    guardianExternalUserId: "test-principal-id",
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId: "test-principal-id",
+    verifiedVia: "bootstrap",
+  });
   ensuredConvIds = new Set();
 }
 
@@ -371,7 +384,7 @@ function setupController(
   task?: string,
   opts?: {
     assistantId?: string;
-    trustContext?: import("../daemon/conversation-runtime-assembly.js").TrustContext;
+    trustContext?: import("../daemon/trust-context.js").TrustContext;
   },
 ) {
   ensureConversation("conv-ctrl-test");

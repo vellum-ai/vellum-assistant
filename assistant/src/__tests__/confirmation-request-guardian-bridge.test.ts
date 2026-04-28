@@ -70,13 +70,15 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listCanonicalGuardianDeliveries,
 } from "../memory/canonical-guardian-store.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
 initializeDb();

@@ -11,7 +11,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationMemoryScopeId } from "../conversation-crud.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { asString, truncate } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { memorySegments, memorySummaries } from "../schema.js";

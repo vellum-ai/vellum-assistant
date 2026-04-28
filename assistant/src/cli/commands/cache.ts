@@ -212,7 +212,9 @@ Examples:
       if (ttl_ms !== undefined) params.ttl_ms = ttl_ms;
       if (opts.key) params.key = opts.key;
 
-      const result = await cliIpcCall<{ key: string }>("cache/set", params);
+      const result = await cliIpcCall<{ key: string }>("cache_set", {
+        body: params,
+      });
 
       if (!result.ok) {
         if (opts.json) {
@@ -257,8 +259,8 @@ Examples:
   $ assistant cache get my-key --json`,
     )
     .action(async (key: string, opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ data: unknown } | null>("cache/get", {
-        key,
+      const result = await cliIpcCall<{ data: unknown } | null>("cache_get", {
+        body: { key },
       });
 
       if (!result.ok) {
@@ -310,8 +312,8 @@ Examples:
   $ assistant cache delete my-key --json`,
     )
     .action(async (key: string, opts: { json?: boolean }) => {
-      const result = await cliIpcCall<{ deleted: boolean }>("cache/delete", {
-        key,
+      const result = await cliIpcCall<{ deleted: boolean }>("cache_delete", {
+        body: { key },
       });
 
       if (!result.ok) {

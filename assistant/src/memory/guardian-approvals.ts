@@ -9,7 +9,7 @@
 import { and, desc, eq, gt, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { channelGuardianApprovalRequests } from "./schema.js";
 
 // ---------------------------------------------------------------------------

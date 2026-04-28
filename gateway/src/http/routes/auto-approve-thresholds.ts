@@ -46,16 +46,14 @@ export function createGlobalThresholdGetHandler() {
       if (!row) {
         // Return defaults when no row exists yet
         return Response.json({
-          interactive: "low",
-          background: "medium",
-          headless: "none",
+          interactive: "medium",
+          autonomous: "low",
         });
       }
 
       return Response.json({
         interactive: row.interactive,
-        background: row.background,
-        headless: row.headless,
+        autonomous: row.autonomous,
       });
     } catch (err) {
       log.error({ err }, "Failed to read global thresholds");
@@ -87,10 +85,7 @@ export function createGlobalThresholdPutHandler() {
       );
     }
 
-    const { interactive, background, headless } = body as Record<
-      string,
-      unknown
-    >;
+    const { interactive, autonomous } = body as Record<string, unknown>;
 
     if (interactive !== undefined && !isValidThreshold(interactive)) {
       return Response.json(
@@ -100,17 +95,11 @@ export function createGlobalThresholdPutHandler() {
         { status: 400 },
       );
     }
-    if (background !== undefined && !isValidThreshold(background)) {
+    if (autonomous !== undefined && !isValidThreshold(autonomous)) {
       return Response.json(
         {
-          error: `"background" must be one of: ${VALID_THRESHOLDS.join(", ")}`,
+          error: `"autonomous" must be one of: ${VALID_THRESHOLDS.join(", ")}`,
         },
-        { status: 400 },
-      );
-    }
-    if (headless !== undefined && !isValidThreshold(headless)) {
-      return Response.json(
-        { error: `"headless" must be one of: ${VALID_THRESHOLDS.join(", ")}` },
         { status: 400 },
       );
     }
@@ -122,15 +111,13 @@ export function createGlobalThresholdPutHandler() {
         .values({
           id: 1,
           ...(interactive ? { interactive } : {}),
-          ...(background ? { background } : {}),
-          ...(headless ? { headless } : {}),
+          ...(autonomous ? { autonomous } : {}),
         })
         .onConflictDoUpdate({
           target: autoApproveThresholds.id,
           set: {
             ...(interactive ? { interactive } : {}),
-            ...(background ? { background } : {}),
-            ...(headless ? { headless } : {}),
+            ...(autonomous ? { autonomous } : {}),
             updatedAt: sql`datetime('now')`,
           },
         })
@@ -139,8 +126,7 @@ export function createGlobalThresholdPutHandler() {
 
       return Response.json({
         interactive: row.interactive,
-        background: row.background,
-        headless: row.headless,
+        autonomous: row.autonomous,
       });
     } catch (err) {
       log.error({ err }, "Failed to upsert global thresholds");

@@ -16,7 +16,7 @@ import {
   generateUserFileSlug,
   listGuardianChannels,
 } from "../../contacts/contact-store.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { contacts } from "../../memory/schema/contacts.js";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";

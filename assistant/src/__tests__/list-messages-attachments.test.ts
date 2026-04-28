@@ -31,7 +31,8 @@ import {
   uploadAttachment,
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 initializeDb();

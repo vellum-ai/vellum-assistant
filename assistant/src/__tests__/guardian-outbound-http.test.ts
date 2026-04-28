@@ -88,13 +88,15 @@ globalThis.fetch = (async (
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, resetDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
   handleCancelVerificationSession,
   handleCreateVerificationSession,
   handleResendVerificationSession,
 } from "../runtime/routes/channel-verification-routes.js";
+import { BadRequestError } from "../runtime/routes/errors.js";
 import {
   cancelOutbound,
   resendOutbound,
@@ -127,14 +129,6 @@ function resetTables(): void {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function jsonRequest(body: Record<string, unknown>): Request {
-  return new Request("http://localhost/test", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
 
 // Reset mutable state between tests
 beforeEach(() => {
@@ -418,126 +412,98 @@ describe("cancelOutbound", () => {
 // ===========================================================================
 
 describe("HTTP route: handleCreateVerificationSession (guardian path)", () => {
-  test("returns 400 when channel is missing", async () => {
-    const req = jsonRequest({ destination: "+15551234567" });
-    const resp = await handleCreateVerificationSession(req, "self");
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as {
-      error: { message: string; code: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("channel");
+  test("throws BadRequestError when channel is missing", async () => {
+    await expect(
+      handleCreateVerificationSession({
+        body: { destination: "+15551234567" },
+      }),
+    ).rejects.toThrow(BadRequestError);
   });
 
   test("creates inbound challenge when destination is absent", async () => {
-    // Without a destination, the unified handler takes the inbound challenge path.
-    const req = jsonRequest({ channel: "phone" });
-    const resp = await handleCreateVerificationSession(req, "self");
-    expect(resp.status).toBe(200);
-    const body = (await resp.json()) as Record<string, unknown>;
-    expect(body.success).toBe(true);
-    expect(body.channel).toBe("phone");
+    const result = (await handleCreateVerificationSession({
+      body: { channel: "phone" },
+    })) as Record<string, unknown>;
+    expect(result.success).toBe(true);
+    expect(result.channel).toBe("phone");
   });
 
-  test("returns 200 for valid voice start", async () => {
-    const req = jsonRequest({ channel: "phone", destination: "+15559999999" });
-    const resp = await handleCreateVerificationSession(req, "self");
-    expect(resp.status).toBe(200);
-    const body = (await resp.json()) as Record<string, unknown>;
-    expect(body.success).toBe(true);
-    expect(body.verificationSessionId).toBeDefined();
+  test("returns success for valid voice start", async () => {
+    const result = (await handleCreateVerificationSession({
+      body: { channel: "phone", destination: "+15559999999" },
+    })) as Record<string, unknown>;
+    expect(result.success).toBe(true);
+    expect(result.verificationSessionId).toBeDefined();
   });
 });
 
 describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
-  test("returns 400 when channel is missing", async () => {
-    const req = jsonRequest({});
-    const resp = await handleResendVerificationSession(req);
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as {
-      error: { message: string; code: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("channel");
+  test("throws BadRequestError when channel is missing", async () => {
+    await expect(
+      handleResendVerificationSession({ body: {} }),
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("returns 400 for no_active_session", async () => {
-    const req = jsonRequest({ channel: "phone" });
-    const resp = await handleResendVerificationSession(req);
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as { error?: string };
-    expect(body.error).toBe("no_active_session");
+  test("throws BadRequestError for no_active_session", async () => {
+    await expect(
+      handleResendVerificationSession({ body: { channel: "phone" } }),
+    ).rejects.toThrow(BadRequestError);
   });
 
   test("passes originConversationId through on successful resend", async () => {
     // Start a session first
-    const startReq = jsonRequest({
-      channel: "phone",
-      destination: "+15556667777",
-    });
-    const startResp = await handleCreateVerificationSession(startReq, "self");
-    expect(startResp.status).toBe(200);
-    const startBody = (await startResp.json()) as Record<string, unknown>;
+    const startResult = (await handleCreateVerificationSession({
+      body: { channel: "phone", destination: "+15556667777" },
+    })) as Record<string, unknown>;
+    expect(startResult.success).toBe(true);
 
     // Expire the cooldown so resend is allowed
-    if (startBody.verificationSessionId) {
+    if (startResult.verificationSessionId) {
       updateSessionDelivery(
-        startBody.verificationSessionId as string,
+        startResult.verificationSessionId as string,
         Date.now() - 60_000,
         1,
         Date.now() - 1,
       );
     }
 
-    const resendReq = jsonRequest({
-      channel: "phone",
-      originConversationId: "conv-resend-http-origin",
-    });
-    const resendResp = await handleResendVerificationSession(resendReq);
-    expect(resendResp.status).toBe(200);
-    const resendBody = (await resendResp.json()) as Record<string, unknown>;
-    expect(resendBody.success).toBe(true);
-    expect(resendBody.originConversationId).toBe("conv-resend-http-origin");
+    const resendResult = (await handleResendVerificationSession({
+      body: {
+        channel: "phone",
+        originConversationId: "conv-resend-http-origin",
+      },
+    })) as Record<string, unknown>;
+    expect(resendResult.success).toBe(true);
+    expect(resendResult.originConversationId).toBe("conv-resend-http-origin");
   });
 });
 
 describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
-  test("returns 400 when channel is missing", async () => {
-    const req = jsonRequest({});
-    const resp = await handleCancelVerificationSession(req);
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as {
-      error: { message: string; code: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("channel");
+  test("throws BadRequestError when channel is missing", async () => {
+    await expect(
+      handleCancelVerificationSession({ body: {} }),
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("returns 200 even when no active session exists", async () => {
-    // The unified cancel handler silently cancels both inbound and outbound —
-    // no error if nothing is active.
-    const req = jsonRequest({ channel: "phone" });
-    const resp = await handleCancelVerificationSession(req);
-    expect(resp.status).toBe(200);
-    const body = (await resp.json()) as Record<string, unknown>;
-    expect(body.success).toBe(true);
+  test("returns success even when no active session exists", async () => {
+    const result = (await handleCancelVerificationSession({
+      body: { channel: "phone" },
+    })) as Record<string, unknown>;
+    expect(result.success).toBe(true);
   });
 
-  test("returns 200 when active session is cancelled", async () => {
+  test("returns success when active session is cancelled", async () => {
     // Start a session
-    const startReq = jsonRequest({
-      channel: "phone",
-      destination: "+15558887777",
-    });
-    const startResp = await handleCreateVerificationSession(startReq, "self");
-    expect(startResp.status).toBe(200);
+    const startResult = (await handleCreateVerificationSession({
+      body: { channel: "phone", destination: "+15558887777" },
+    })) as Record<string, unknown>;
+    expect(startResult.success).toBe(true);
 
     // Cancel it
-    const cancelReq = jsonRequest({ channel: "phone" });
-    const cancelResp = await handleCancelVerificationSession(cancelReq);
-    expect(cancelResp.status).toBe(200);
-    const body = (await cancelResp.json()) as Record<string, unknown>;
-    expect(body.success).toBe(true);
+    const cancelResult = (await handleCancelVerificationSession({
+      body: { channel: "phone" },
+    })) as Record<string, unknown>;
+    expect(cancelResult.success).toBe(true);
   });
 });
 
@@ -586,16 +552,15 @@ describe("origin conversation linkage", () => {
   });
 
   test("HTTP handleCreateVerificationSession passes originConversationId through", async () => {
-    const req = jsonRequest({
-      channel: "phone",
-      destination: "+15557776666",
-      originConversationId: "conv-origin-http-test",
-    });
-    const resp = await handleCreateVerificationSession(req, "self");
-    expect(resp.status).toBe(200);
-    const body = (await resp.json()) as Record<string, unknown>;
-    expect(body.success).toBe(true);
-    expect(body.originConversationId).toBe("conv-origin-http-test");
+    const result = (await handleCreateVerificationSession({
+      body: {
+        channel: "phone",
+        destination: "+15557776666",
+        originConversationId: "conv-origin-http-test",
+      },
+    })) as Record<string, unknown>;
+    expect(result.success).toBe(true);
+    expect(result.originConversationId).toBe("conv-origin-http-test");
   });
 
   test("voice call initiation receives originConversationId", async () => {

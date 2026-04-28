@@ -31,10 +31,8 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "../daemon/context-overflow-reducer.js";
-import type {
-  InjectionMode,
-  TrustContext,
-} from "../daemon/conversation-runtime-assembly.js";
+import type { InjectionMode } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultOverflowReduceMiddleware,
   defaultOverflowReducePlugin,

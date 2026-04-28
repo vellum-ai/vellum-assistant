@@ -64,7 +64,8 @@ mock.module("../../acp/index.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb, getSqlite, initializeDb } from "../../memory/db.js";
+import { getDb, getSqlite } from "../../memory/db-connection.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 
 const { ROUTES } = await import("./acp-routes.js");
@@ -207,7 +208,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-initializing", "initializing", 5000);
 
     const handler = getBulkDeleteHandler();
-    const result = (await handler({ params: { status: "completed" } })) as {
+    const result = (await handler({ queryParams: { status: "completed" } })) as {
       deleted: number;
     };
     expect(result.deleted).toBe(3);
@@ -223,7 +224,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-running", "running", 1000);
 
     const handler = getBulkDeleteHandler();
-    const result = (await handler({ params: { status: "completed" } })) as {
+    const result = (await handler({ queryParams: { status: "completed" } })) as {
       deleted: number;
     };
     expect(result.deleted).toBe(0);
@@ -246,7 +247,7 @@ describe("DELETE /v1/acp/sessions?status=completed", () => {
     seedHistoryRow("row-completed", "completed", 1000);
 
     const handler = getBulkDeleteHandler();
-    expect(() => handler({ params: { status: "failed" } })).toThrow("status");
+    expect(() => handler({ queryParams: { status: "failed" } })).toThrow("status");
     expect(listRows()).toHaveLength(1);
   });
 });
@@ -299,7 +300,7 @@ describe("DELETE /v1/acp/sessions/:id", () => {
     insertHistoryRow({ id: "sess-completed", status: "completed" });
 
     const handler = getDeleteSessionHandler();
-    const result = (await handler({ params: { id: "sess-completed" } })) as {
+    const result = (await handler({ pathParams: { id: "sess-completed" } })) as {
       deleted: boolean;
     };
     expect(result.deleted).toBe(true);
@@ -327,7 +328,7 @@ describe("DELETE /v1/acp/sessions/:id", () => {
       insertHistoryRow({ id: "sess-active", status: "completed" });
 
       const handler = getDeleteSessionHandler();
-      expect(() => handler({ params: { id: "sess-active" } })).toThrow(
+      expect(() => handler({ pathParams: { id: "sess-active" } })).toThrow(
         `still ${status}`,
       );
 
@@ -344,7 +345,7 @@ describe("DELETE /v1/acp/sessions/:id", () => {
   test("idempotent for unknown id — returns { deleted: false }", async () => {
     const handler = getDeleteSessionHandler();
     const result = (await handler({
-      params: { id: "does-not-exist" },
+      pathParams: { id: "does-not-exist" },
     })) as { deleted: boolean };
     expect(result.deleted).toBe(false);
   });
@@ -363,7 +364,7 @@ describe("DELETE /v1/acp/sessions/:id", () => {
 
     const handler = getDeleteSessionHandler();
     const result = (await handler({
-      params: { id: "sess-cancelled" },
+      pathParams: { id: "sess-cancelled" },
     })) as { deleted: boolean };
     expect(result.deleted).toBe(true);
   });

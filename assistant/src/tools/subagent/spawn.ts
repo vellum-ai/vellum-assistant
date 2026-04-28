@@ -1,3 +1,4 @@
+import { findConversation } from "../../daemon/conversation-store.js";
 import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
 import type { Message } from "../../providers/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
@@ -48,14 +49,12 @@ export async function executeSubagentSpawn(
     | undefined;
 
   if (fork) {
-    const parentConversation = manager.resolveParentConversation?.(
-      context.conversationId,
-    );
+    const parentConversation = findConversation(context.conversationId);
     if (!parentConversation) {
       return {
         content:
           "Cannot fork: parent conversation could not be resolved. " +
-          "This may happen if the conversation was evicted or the resolveParentConversation callback is not wired.",
+          "This may happen if the conversation was evicted.",
         isError: true,
       };
     }

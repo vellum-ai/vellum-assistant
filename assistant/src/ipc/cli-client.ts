@@ -12,7 +12,7 @@
 import { connect, type Socket } from "node:net";
 
 import { getLogger } from "../util/logger.js";
-import { getAssistantSocketPath } from "./assistant-server.js";
+import { getAssistantSocketPath } from "./socket-path.js";
 
 const log = getLogger("cli-ipc-client");
 

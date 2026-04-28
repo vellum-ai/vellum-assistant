@@ -83,12 +83,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// Mock guardian-vellum-migration to use a stable principal matching the one
-// in createCanonicalGuardianRequest calls below ('test-principal-id').
-mock.module("../runtime/guardian-vellum-migration.js", () => ({
-  ensureVellumGuardianBinding: () => "test-principal-id",
-}));
-
 // Mock local-actor-identity to return a stable guardian context that uses
 // the same principal as the canonical requests created in tests.
 mock.module("../runtime/local-actor-identity.js", () => ({
@@ -100,7 +94,8 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";

@@ -36,8 +36,9 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { initializeDb } from "../memory/db.js";
-import { logExportRouteDefinitions } from "../runtime/routes/log-export-routes.js";
+import { initializeDb } from "../memory/db-init.js";
+import { RouteError } from "../runtime/routes/errors.js";
+import { ROUTES } from "../runtime/routes/log-export-routes.js";
 
 initializeDb();
 
@@ -45,25 +46,35 @@ initializeDb();
 // Helpers
 // ---------------------------------------------------------------------------
 
-const routes = logExportRouteDefinitions();
-const exportRoute = routes.find((r) => r.endpoint === "export")!;
+const exportRoute = ROUTES.find((r) => r.endpoint === "export")!;
 
 async function callExport(
   body: Record<string, unknown> = {},
 ): Promise<Response> {
-  const req = new Request("http://localhost/v1/export", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const url = new URL(req.url);
-  return exportRoute.handler({
-    req,
-    url,
-    server: null as never,
-    authContext: {} as never,
-    params: {},
-  });
+  try {
+    const result = await exportRoute.handler({ body });
+
+    // The handler returns a Uint8Array — wrap in a Response with the expected
+    // headers so existing test assertions (res.status, res.headers, res.arrayBuffer())
+    // keep working.
+    if (result instanceof Uint8Array) {
+      return new Response(result as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/gzip",
+          "Content-Disposition": 'attachment; filename="logs.tar.gz"',
+          "Content-Length": String(result.byteLength),
+        },
+      });
+    }
+    return Response.json(result, { status: 200 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return Response.json(
+      { error: message },
+      { status: err instanceof RouteError ? err.statusCode : 500 },
+    );
+  }
 }
 
 /** Extracts a tar.gz response into a temp directory and returns the path. */

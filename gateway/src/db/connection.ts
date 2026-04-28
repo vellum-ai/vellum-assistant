@@ -10,6 +10,66 @@ import { TrustRuleStore } from "./trust-rule-store.js";
 
 export type GatewayDb = ReturnType<typeof drizzle<typeof schema>>;
 
+/**
+ * drizzle-kit's pushSQLiteSchema prompts interactively on stdin when it
+ * detects ambiguous column changes (new column vs rename of an existing
+ * one). In a headless container the prompt hangs forever.
+ *
+ * Our policy: always "create column", never rename. This wrapper spoofs a
+ * TTY and emits Enter keypresses on a timer so drizzle-kit's hanji prompt
+ * auto-selects the first option (index 0 = "create column") without human
+ * interaction. Works across all current and future ambiguous schema diffs.
+ */
+async function pushSchemaNoPrompt(
+  imports: Record<string, unknown>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pushSQLiteSchema types against LibSQLDatabase; BunSQLiteDatabase is duck-type compatible
+  drizzleInstance: any,
+): Promise<{ statementsToExecute: string[]; apply: () => Promise<void> }> {
+  const stdin = process.stdin as typeof process.stdin & {
+    isTTY?: boolean;
+    setRawMode?: (mode: boolean) => typeof process.stdin;
+  };
+  const origStdinTTY = stdin.isTTY;
+  const origStdoutTTY = process.stdout.isTTY;
+  const origSetRawMode = stdin.setRawMode;
+
+  // Spoof TTY so hanji's render() doesn't reject / hang
+  Object.defineProperty(stdin, "isTTY", {
+    value: true,
+    configurable: true,
+  });
+  Object.defineProperty(process.stdout, "isTTY", {
+    value: true,
+    configurable: true,
+  });
+  if (!origSetRawMode) {
+    stdin.setRawMode = () => stdin;
+  }
+
+  // Emit Enter at 50ms intervals — auto-selects "create column" (idx 0)
+  const interval = setInterval(() => {
+    stdin.emit("keypress", "\r", { name: "return" });
+  }, 50);
+
+  try {
+    const { pushSQLiteSchema } = await import("drizzle-kit/api");
+    return await pushSQLiteSchema(imports, drizzleInstance);
+  } finally {
+    clearInterval(interval);
+    Object.defineProperty(stdin, "isTTY", {
+      value: origStdinTTY,
+      configurable: true,
+    });
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: origStdoutTTY,
+      configurable: true,
+    });
+    if (!origSetRawMode) {
+      stdin.setRawMode = undefined as unknown as typeof stdin.setRawMode;
+    }
+  }
+}
+
 let db: GatewayDb | null = null;
 
 /**
@@ -70,12 +130,7 @@ export async function initGatewayDb(): Promise<void> {
 
   db = drizzle(raw, { schema });
 
-  const { pushSQLiteSchema } = await import("drizzle-kit/api");
-  const { statementsToExecute, apply } = await pushSQLiteSchema(
-    schema,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pushSQLiteSchema types against LibSQLDatabase; BunSQLiteDatabase is duck-type compatible
-    db as any,
-  );
+  const { statementsToExecute, apply } = await pushSchemaNoPrompt(schema, db);
   if (statementsToExecute.length > 0) {
     await apply();
   }

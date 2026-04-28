@@ -109,54 +109,38 @@ import {
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
-import {
-  handleAddSecret,
-  handleDeleteSecret,
-} from "../runtime/routes/secret-routes.js";
+import { ROUTES } from "../runtime/routes/secret-routes.js";
+import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 
-function makeAddCredentialRequest(name: string, value: string): Request {
-  return new Request("http://localhost/v1/secrets", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "credential",
-      name,
-      value,
-    }),
+const addRoute = ROUTES.find(
+  (r) => r.method === "POST" && r.endpoint === "secrets",
+)!;
+
+const deleteRoute = ROUTES.find(
+  (r) => r.method === "DELETE" && r.endpoint === "secrets",
+)!;
+
+function addCredential(name: string, value: string) {
+  return addRoute.handler({
+    body: { type: "credential", name, value },
   });
 }
 
-function makeDeleteCredentialRequest(name: string): Request {
-  return new Request("http://localhost/v1/secrets", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "credential",
-      name,
-    }),
+function deleteCredential(name: string) {
+  return deleteRoute.handler({
+    body: { type: "credential", name },
   });
 }
 
-function makeAddApiKeyRequest(name: string, value: string): Request {
-  return new Request("http://localhost/v1/secrets", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "api_key",
-      name,
-      value,
-    }),
+function addApiKey(name: string, value: string) {
+  return addRoute.handler({
+    body: { type: "api_key", name, value },
   });
 }
 
-function makeDeleteApiKeyRequest(name: string): Request {
-  return new Request("http://localhost/v1/secrets", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "api_key",
-      name,
-    }),
+function deleteApiKey(name: string) {
+  return deleteRoute.handler({
+    body: { type: "api_key", name },
   });
 }
 
@@ -168,17 +152,24 @@ describe("secret routes managed proxy registry sync", () => {
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
     providerRefreshCalls = 0;
+    registerSecretsDeps({
+      getCesClient: () => undefined,
+      onProviderCredentialsChanged: () => {
+        providerRefreshCalls++;
+      },
+    });
     await initializeProviders(mockConfig);
   });
 
   test("adding vellum:assistant_api_key bootstraps managed fallback providers immediately", async () => {
     expect(listProviders()).toEqual([]);
 
-    const res = await handleAddSecret(
-      makeAddCredentialRequest("vellum:assistant_api_key", "ast-managed-key"),
+    const result = await addCredential(
+      "vellum:assistant_api_key",
+      "ast-managed-key",
     );
 
-    expect(res.status).toBe(201);
+    expect(result).toEqual(expect.objectContaining({ success: true }));
     expect(secureKeyStore[ASSISTANT_API_KEY_PATH]).toBe("ast-managed-key");
     expect(metadataUpserts).toEqual([
       { service: "vellum", field: "assistant_api_key" },
@@ -194,29 +185,13 @@ describe("secret routes managed proxy registry sync", () => {
   });
 
   test("provider API key writes notify live-conversation refresh listeners", async () => {
-    const res = await handleAddSecret(
-      makeAddApiKeyRequest("fireworks", "fw-key"),
-      {
-        onProviderCredentialsChanged: () => {
-          providerRefreshCalls++;
-        },
-      },
-    );
+    await addApiKey("fireworks", "fw-key");
 
-    expect(res.status).toBe(201);
     expect(secureKeyStore.fireworks).toBe("fw-key");
     expect(providerRefreshCalls).toBe(1);
 
-    const deleteRes = await handleDeleteSecret(
-      makeDeleteApiKeyRequest("fireworks"),
-      {
-        onProviderCredentialsChanged: () => {
-          providerRefreshCalls++;
-        },
-      },
-    );
+    await deleteApiKey("fireworks");
 
-    expect(deleteRes.status).toBe(200);
     expect(providerRefreshCalls).toBe(2);
   });
 
@@ -229,11 +204,8 @@ describe("secret routes managed proxy registry sync", () => {
       expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
     }
 
-    const res = await handleDeleteSecret(
-      makeDeleteCredentialRequest("vellum:assistant_api_key"),
-    );
+    await deleteCredential("vellum:assistant_api_key");
 
-    expect(res.status).toBe(200);
     expect(secureKeyStore[ASSISTANT_API_KEY_PATH]).toBeUndefined();
     expect(metadataDeletes).toEqual([
       { service: "vellum", field: "assistant_api_key" },
@@ -242,40 +214,21 @@ describe("secret routes managed proxy registry sync", () => {
   });
 
   test("managed proxy credential writes notify live-conversation refresh listeners", async () => {
-    const res = await handleAddSecret(
-      makeAddCredentialRequest("vellum:assistant_api_key", "ast-managed-key"),
-      {
-        onProviderCredentialsChanged: () => {
-          providerRefreshCalls++;
-        },
-      },
-    );
+    await addCredential("vellum:assistant_api_key", "ast-managed-key");
 
-    expect(res.status).toBe(201);
     expect(providerRefreshCalls).toBe(1);
 
-    const deleteRes = await handleDeleteSecret(
-      makeDeleteCredentialRequest("vellum:assistant_api_key"),
-      {
-        onProviderCredentialsChanged: () => {
-          providerRefreshCalls++;
-        },
-      },
-    );
+    await deleteCredential("vellum:assistant_api_key");
 
-    expect(deleteRes.status).toBe(200);
     expect(providerRefreshCalls).toBe(2);
   });
 
   test("storing vellum:platform_base_url sets override and triggers initializeProviders", async () => {
-    const res = await handleAddSecret(
-      makeAddCredentialRequest(
-        "vellum:platform_base_url",
-        "https://managed.example.com",
-      ),
+    await addCredential(
+      "vellum:platform_base_url",
+      "https://managed.example.com",
     );
 
-    expect(res.status).toBe(201);
     expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBe(
       "https://managed.example.com",
     );
@@ -288,19 +241,14 @@ describe("secret routes managed proxy registry sync", () => {
   test("storing both vellum:platform_base_url and vellum:assistant_api_key enables managed proxy", async () => {
     expect(listProviders()).toEqual([]);
 
-    await handleAddSecret(
-      makeAddCredentialRequest(
-        "vellum:platform_base_url",
-        "https://managed.example.com",
-      ),
+    await addCredential(
+      "vellum:platform_base_url",
+      "https://managed.example.com",
     );
     expect(platformBaseUrlOverride).toBe("https://managed.example.com");
 
-    const res = await handleAddSecret(
-      makeAddCredentialRequest("vellum:assistant_api_key", "ast-managed-key"),
-    );
+    await addCredential("vellum:assistant_api_key", "ast-managed-key");
 
-    expect(res.status).toBe(201);
     const providers = listProviders();
     expect(providers).toHaveLength(MANAGED_PROVIDERS.length);
     for (const provider of MANAGED_PROVIDERS) {
@@ -310,15 +258,11 @@ describe("secret routes managed proxy registry sync", () => {
   });
 
   test("deleting vellum:platform_base_url clears override and re-initializes providers", async () => {
-    // Set up: store the platform URL credential first
     secureKeyStore[PLATFORM_BASE_URL_PATH] = "https://managed.example.com";
     platformBaseUrlOverride = "https://managed.example.com";
 
-    const res = await handleDeleteSecret(
-      makeDeleteCredentialRequest("vellum:platform_base_url"),
-    );
+    await deleteCredential("vellum:platform_base_url");
 
-    expect(res.status).toBe(200);
     expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBeUndefined();
     expect(platformBaseUrlOverride).toBeUndefined();
     expect(metadataDeletes).toEqual([

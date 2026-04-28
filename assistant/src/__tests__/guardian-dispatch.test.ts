@@ -24,13 +24,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-// Mock guardian-vellum-migration to use a stable principal, avoiding UNIQUE
-// constraint errors when ensureVellumGuardianBinding is called across tests.
-// Returns a known principal so guardian-dispatch can attribute requests.
-mock.module("../runtime/guardian-vellum-migration.js", () => ({
-  ensureVellumGuardianBinding: () => "test-principal-id",
-}));
-
 const emitCalls: unknown[] = [];
 let conversationCreatedFromMock: ConversationCreatedInfo | null = null;
 let mockEmitResult: {
@@ -71,7 +64,9 @@ import {
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { createGuardianBinding } from "../contacts/contacts-write.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -99,9 +94,17 @@ function resetTables(): void {
   db.run("DELETE FROM call_events");
   db.run("DELETE FROM call_sessions");
   db.run("DELETE FROM conversations");
+  db.run("DELETE FROM contact_channels");
+  db.run("DELETE FROM contacts");
 
-  // Note: mockTelegramBinding/mockVoiceBinding/mockVellumBinding assignments
-  // removed — they only fed the stale channel-guardian-store mock.
+  // Seed the vellum guardian binding (gateway does this at startup in production)
+  createGuardianBinding({
+    channel: "vellum",
+    guardianExternalUserId: "test-principal-id",
+    guardianDeliveryChatId: "local",
+    guardianPrincipalId: "test-principal-id",
+    verifiedVia: "bootstrap",
+  });
   emitCalls.length = 0;
   conversationCreatedFromMock = null;
   mockEmitResult = {

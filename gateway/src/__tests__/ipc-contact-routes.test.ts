@@ -1,4 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+} from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -17,12 +25,17 @@ import { testWorkspaceDir } from "./test-preload.js";
 
 const socketPath = join(testWorkspaceDir, "gateway.sock");
 
-beforeEach(async () => {
-  resetGatewayDb();
+beforeAll(async () => {
   await initGatewayDb();
 });
 
-afterEach(() => {
+beforeEach(() => {
+  const db = getGatewayDb();
+  db.delete(contactChannels).run();
+  db.delete(contacts).run();
+});
+
+afterAll(() => {
   resetGatewayDb();
 });
 

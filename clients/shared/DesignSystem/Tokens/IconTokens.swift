@@ -72,6 +72,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     // MARK: - Security
 
     case shield = "lucide-shield"
+    case shieldBan = "lucide-shield-ban"
     case shieldCheck = "lucide-shield-check"
     case shieldAlert = "lucide-shield-alert"
     case shieldOff = "lucide-shield-off"

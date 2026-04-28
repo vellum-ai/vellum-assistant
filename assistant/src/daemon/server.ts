@@ -24,11 +24,9 @@ import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { CesProcessManager } from "../credential-execution/process-manager.js";
-import type { FilingService } from "../filing/filing-service.js";
-import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { AssistantIpcServer } from "../ipc/assistant-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
-import { registerSecretRouteDeps } from "../ipc/routes/secrets.js";
 import { registerDestroyConversation } from "../ipc/routes/wipe-conversation.js";
 import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -55,10 +53,7 @@ import {
 } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
-import { RateLimitProvider } from "../providers/ratelimit.js";
-import { getProvider, initializeProviders } from "../providers/registry.js";
+import { initializeProviders } from "../providers/registry.js";
 import {
   registerDefaultWakeResolver,
   type WakeTarget,
@@ -83,7 +78,6 @@ import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   getAvatarImagePath,
-  getSandboxWorkingDir,
   getWorkspacePromptPath,
 } from "../util/platform.js";
 import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
@@ -91,18 +85,30 @@ import {
   AppSourceWatcher,
   setEnsureAppSourceWatcher,
 } from "./app-source-watcher.js";
-import { ConfigWatcher } from "./config-watcher.js";
-import {
-  Conversation,
-  type ConversationMemoryPolicy,
-  DEFAULT_MEMORY_POLICY,
-} from "./conversation.js";
+import { getConfigWatcher } from "./config-watcher.js";
+import { Conversation } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
+import {
+  allConversations,
+  clearConversationOptions,
+  clearConversations,
+  conversationCount,
+  conversationEntries,
+  conversationIds,
+  deleteConversation,
+  deleteConversationOptions,
+  findConversation,
+  getConversationMap,
+  getOrCreateConversation as getOrCreateActiveConversation,
+  initConversationLifecycle,
+  mergeConversationOptions,
+  setCesClientPromise,
+} from "./conversation-store.js";
 import {
   refreshSurfacesForApp,
   showStandaloneSurface,
@@ -113,7 +119,6 @@ import {
   type ConversationCreateOptions,
   type HandlerContext,
 } from "./handlers/shared.js";
-import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostBrowserProxy } from "./host-browser-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
@@ -124,7 +129,6 @@ import type {
   ServerMessage,
   UserMessageAttachment,
 } from "./message-protocol.js";
-import { buildTransportHints } from "./transport-hints.js";
 
 const log = getLogger("server");
 
@@ -310,16 +314,13 @@ function makePendingInteractionRegistrar(
 }
 
 export class DaemonServer {
-  private conversations = new Map<string, Conversation>();
-  private conversationOptions = new Map<string, ConversationCreateOptions>();
-  private conversationCreating = new Map<string, Promise<Conversation>>();
   private sharedRequestTimestamps: number[] = [];
   private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
   private _hubChain: Promise<void> = Promise.resolve();
 
   // Composed subsystems
-  private configWatcher = new ConfigWatcher();
+  private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
@@ -366,6 +367,7 @@ export class DaemonServer {
         }
         return client;
       });
+      setCesClientPromise(this.cesClientPromise);
     }
   }
 
@@ -388,60 +390,14 @@ export class DaemonServer {
     this.cesClientRef = client;
   }
 
-  /** Optional heartbeat service reference for "Run Now" from the UI. */
-  private _heartbeatService?: HeartbeatService;
-
-  setHeartbeatService(service: HeartbeatService): void {
-    this._heartbeatService = service;
-  }
-
-  getHeartbeatService(): HeartbeatService | undefined {
-    return this._heartbeatService;
-  }
-
-  /** Optional filing service reference for "Run Now" from the UI. */
-  private _filingService?: FilingService;
-
-  setFilingService(service: FilingService): void {
-    this._filingService = service;
-  }
-
-  getFilingService(): FilingService | undefined {
-    return this._filingService;
-  }
-
-  private deriveMemoryPolicy(
-    _conversationId: string,
-  ): ConversationMemoryPolicy {
-    return DEFAULT_MEMORY_POLICY;
-  }
-
-  private applyTransportMetadata(
-    conversation: Conversation,
-    options: ConversationCreateOptions | undefined,
-  ): void {
-    const transport = options?.transport;
-    if (!transport) return;
-    log.debug(
-      { channelId: transport.channelId },
-      "Transport metadata received",
-    );
-    conversation.setTransportHints(buildTransportHints(transport));
-    // Route client-reported host env through the capability-gated setter on
-    // Conversation so both the create/reuse path here and the queue-drain
-    // path in conversation-process share one implementation. The method
-    // gates on `supportsHostProxy` (not a specific interface name), so any
-    // new host-capable client added to `HostProxyInterfaceId` will flow its
-    // host env through automatically.
-    conversation.applyHostEnvFromTransport(transport);
-  }
-
   constructor() {
-    this.evictor = new ConversationEvictor(this.conversations);
+    this.evictor = new ConversationEvictor(getConversationMap());
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
     getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
-    getSubagentManager().resolveParentConversation = (id) =>
-      this.conversations.get(id);
+    initConversationLifecycle({
+      evictor: this.evictor,
+      sharedRequestTimestamps: this.sharedRequestTimestamps,
+    });
     setBroadcastToAllClients((msg) => this.broadcast(msg));
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     // Wire the skill IPC server into the meet-host supervisor's lazy
@@ -465,7 +421,7 @@ export class DaemonServer {
       sendToClient,
       notification,
     ) => {
-      const parentConversation = this.conversations.get(parentConversationId);
+      const parentConversation = findConversation(parentConversationId);
       if (!parentConversation) {
         log.warn(
           { parentConversationId },
@@ -506,7 +462,7 @@ export class DaemonServer {
       message,
       sendToClient,
     ) => {
-      const parentConversation = this.conversations.get(parentConversationId);
+      const parentConversation = findConversation(parentConversationId);
       if (!parentConversation) {
         log.warn(
           { parentConversationId },
@@ -645,7 +601,7 @@ export class DaemonServer {
     if (!app) return;
 
     const doRefresh = () => {
-      for (const conversation of this.conversations.values()) {
+      for (const conversation of allConversations()) {
         refreshSurfacesForApp(conversation, appId, { fileChange: true });
       }
       this.broadcast({ type: "app_files_changed", appId });
@@ -685,12 +641,12 @@ export class DaemonServer {
 
     registerDaemonCallbacks({
       getOrCreateConversation: (conversationId) =>
-        this.getOrCreateConversation(conversationId),
+        getOrCreateActiveConversation(conversationId),
       broadcast: (msg) => this.broadcast(msg),
     });
 
     registerCancelCallback((conversationId) => {
-      const conversation = this.conversations.get(conversationId);
+      const conversation = findConversation(conversationId);
       if (!conversation) return false;
       this.evictor.touch(conversationId);
       conversation.abort(
@@ -724,7 +680,7 @@ export class DaemonServer {
       const { conversationId } = getOrCreateConversation(
         params.conversationKey,
       );
-      const conversation = await this.getOrCreateConversation(conversationId);
+      const conversation = await getOrCreateActiveConversation(conversationId);
 
       // Register file-backed attachments so they flow through the send
       // pipeline as images the LLM can see directly.
@@ -845,7 +801,8 @@ export class DaemonServer {
           );
           return "archived";
         }
-        const conversation = await this.getOrCreateConversation(conversationId);
+        const conversation =
+          await getOrCreateActiveConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
         log.warn(
@@ -868,7 +825,7 @@ export class DaemonServer {
     // cancelled with no_interactive_surface. We skip that wasted work
     // and return conversation_not_found directly.
     registerInteractiveUiResolver(async (request) => {
-      const conversation = this.conversations.get(request.conversationId);
+      const conversation = findConversation(request.conversationId);
 
       if (!conversation) {
         log.warn(
@@ -899,7 +856,7 @@ export class DaemonServer {
     // extension connectivity instead of always falling back to a synthetic
     // browser-cli session that has no hostBrowserProxy.
     registerBrowserIpcContextResolver((conversationId) => {
-      const conversation = this.conversations.get(conversationId);
+      const conversation = findConversation(conversationId);
       if (!conversation) return null;
       return {
         conversationId,
@@ -911,11 +868,6 @@ export class DaemonServer {
     });
 
     registerDestroyConversation((id) => this.destroyConversation(id));
-    registerSecretRouteDeps({
-      getCesClient: () => this.getCesClient(),
-      onProviderCredentialsChanged: () =>
-        this.refreshConversationsForProviderChange(),
-    });
     await this.cliIpc.start();
 
     // Start the skill IPC server. First-party skill processes connect to this
@@ -928,7 +880,7 @@ export class DaemonServer {
     // handleSurfaceAction can spawn conversations through it.
     registerLaunchConversationDeps({
       getOrCreateConversation: (id, options) =>
-        this.getOrCreateConversation(id, options),
+        getOrCreateActiveConversation(id, options),
       persistAndProcessMessage: (
         conversationId,
         content,
@@ -984,10 +936,10 @@ export class DaemonServer {
       this.unsubscribeContactChange = null;
     }
 
-    for (const conversation of this.conversations.values()) {
+    for (const conversation of allConversations()) {
       conversation.dispose();
     }
-    this.conversations.clear();
+    clearConversations();
 
     // Abort any in-flight CES initialization so it fails fast instead of
     // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
@@ -1012,6 +964,7 @@ export class DaemonServer {
     if (this.cesClientPromise) {
       await this.cesClientPromise.catch(() => undefined);
       this.cesClientPromise = undefined;
+      setCesClientPromise(undefined);
     }
     if (this.cesProcessManager) {
       this.cesProcessManager = undefined;
@@ -1031,17 +984,17 @@ export class DaemonServer {
   }
 
   clearAllConversations(): number {
-    const count = this.conversations.size;
+    const count = conversationCount();
     const subagentManager = getSubagentManager();
-    for (const id of this.conversations.keys()) {
+    for (const id of conversationIds()) {
       this.evictor.remove(id);
       subagentManager.abortAllForParent(id);
     }
-    for (const conversation of this.conversations.values()) {
+    for (const conversation of allConversations()) {
       conversation.dispose();
     }
-    this.conversations.clear();
-    this.conversationOptions.clear();
+    clearConversations();
+    clearConversationOptions();
     return count;
   }
 
@@ -1050,22 +1003,22 @@ export class DaemonServer {
    * conversation map. No-op if no conversation exists for the given ID.
    */
   destroyConversation(conversationId: string): void {
-    const conversation = this.conversations.get(conversationId);
+    const conversation = findConversation(conversationId);
     if (!conversation) return;
     this.evictor.remove(conversationId);
     getSubagentManager().abortAllForParent(conversationId);
     conversation.dispose();
-    this.conversations.delete(conversationId);
-    this.conversationOptions.delete(conversationId);
+    deleteConversation(conversationId);
+    deleteConversationOptions(conversationId);
   }
 
   private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
-    for (const [id, conversation] of this.conversations) {
+    for (const [id, conversation] of conversationEntries()) {
       if (!conversation.isProcessing()) {
         subagentManager.abortAllForParent(id);
         conversation.dispose();
-        this.conversations.delete(id);
+        deleteConversation(id);
         this.evictor.remove(id);
       } else {
         conversation.markStale();
@@ -1095,144 +1048,10 @@ export class DaemonServer {
     this.evictConversationsForReload();
   }
 
-  private async getOrCreateConversation(
-    conversationId: string,
-    options?: ConversationCreateOptions,
-  ): Promise<Conversation> {
-    let conversation = this.conversations.get(conversationId);
-    const sendToClient = () => {};
-
-    const { taskRunId: _taskRunId, ...persistentOptions } = options ?? {};
-    if (Object.values(persistentOptions).some((v) => v !== undefined)) {
-      this.conversationOptions.set(conversationId, {
-        ...this.conversationOptions.get(conversationId),
-        ...persistentOptions,
-      });
-    }
-
-    if (
-      !conversation ||
-      (conversation.isStale() && !conversation.isProcessing())
-    ) {
-      if (conversation) {
-        getSubagentManager().abortAllForParent(conversationId);
-        conversation.dispose();
-      }
-
-      const pending = this.conversationCreating.get(conversationId);
-      if (pending) {
-        conversation = await pending;
-        return conversation;
-      }
-
-      const storedOptions = this.conversationOptions.get(conversationId);
-
-      const createPromise = (async () => {
-        const config = getConfig();
-        let provider = getProvider(config.llm.default.provider);
-        // Per-call `options.config.callSite` can resolve to a provider name
-        // that differs from `llm.default.provider`. Wrap the default
-        // provider so the actual transport routes correctly per call,
-        // rather than only forwarding metadata to the default's HTTP
-        // client. See `providers/call-site-routing.ts`.
-        provider = new CallSiteRoutingProvider(provider, (name) => {
-          try {
-            return getProvider(name);
-          } catch {
-            return undefined;
-          }
-        });
-        const { rateLimit } = config;
-        if (rateLimit.maxRequestsPerMinute > 0) {
-          provider = new RateLimitProvider(
-            provider,
-            rateLimit,
-            this.sharedRequestTimestamps,
-          );
-        }
-        const workingDir = getSandboxWorkingDir();
-
-        const systemPrompt =
-          storedOptions?.systemPromptOverride ?? buildSystemPrompt();
-        const maxTokens =
-          storedOptions?.maxResponseTokens ?? config.llm.default.maxTokens;
-
-        const memoryPolicy = this.deriveMemoryPolicy(conversationId);
-        // Resolve the shared CES client (may still be initializing).
-        const sharedCesClient = this.cesClientPromise
-          ? await this.cesClientPromise
-          : undefined;
-        const newConversation = new Conversation(
-          conversationId,
-          provider,
-          systemPrompt,
-          maxTokens,
-          sendToClient,
-          workingDir,
-          (msg) => this.broadcast(msg),
-          memoryPolicy,
-          sharedCesClient,
-          storedOptions?.speed,
-          undefined,
-          storedOptions?.modelOverride,
-        );
-        newConversation.updateClient(sendToClient, true);
-        await newConversation.loadFromDb();
-        // Restore trust/auth context and assistant ID from stored options so
-        // that evicted sessions rehydrated by undo/regenerate don't run with
-        // unscoped history.  Without this, an untrusted actor could operate
-        // on the full conversation after eviction.
-        if (storedOptions?.assistantId) {
-          newConversation.setAssistantId(storedOptions.assistantId);
-        }
-        if (storedOptions?.trustContext) {
-          newConversation.setTrustContext(storedOptions.trustContext);
-        }
-        if (storedOptions?.authContext) {
-          newConversation.setAuthContext(storedOptions.authContext);
-        }
-        if (storedOptions?.trustContext || storedOptions?.authContext) {
-          await newConversation.ensureActorScopedHistory();
-        }
-        this.applyTransportMetadata(newConversation, storedOptions);
-        this.conversations.set(conversationId, newConversation);
-        return newConversation;
-      })();
-
-      this.conversationCreating.set(conversationId, createPromise);
-      try {
-        conversation = await createPromise;
-      } finally {
-        this.conversationCreating.delete(conversationId);
-      }
-      this.evictor.touch(conversationId);
-    } else {
-      // Only apply transport metadata when the conversation is idle.
-      // When processing, the hints are stored on the queued message and
-      // will be applied at dequeue time — applying them here would
-      // overwrite the in-flight conversation's transportHints.
-      if (!conversation.isProcessing()) {
-        this.applyTransportMetadata(conversation, options);
-        // trustContext is reapplied here only when the conversation is idle,
-        // so concurrent requests cannot overwrite an in-flight turn's guardian
-        // scope. Direct callers (e.g. schedule-routes run-now) that invoke
-        // processMessage without going through prepareConversationForMessage
-        // rely on this to pick up the trustContext passed in options.
-        // prepareConversationForMessage also reapplies after its own idle check.
-        if (options?.trustContext !== undefined) {
-          conversation.setTrustContext(options.trustContext);
-        }
-      }
-      this.evictor.touch(conversationId);
-    }
-    return conversation;
-  }
-
   // ── Handler context ────────────────────────────────────────────────
 
   private handlerContext(): HandlerContext {
     return {
-      conversations: this.conversations,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
       debounceTimers: this.configWatcher.timers,
       suppressConfigReload: this.configWatcher.suppressConfigReload,
@@ -1246,23 +1065,9 @@ export class DaemonServer {
       broadcast: (msg) => this.broadcast(msg),
       clearAllConversations: () => this.clearAllConversations(),
       getOrCreateConversation: (id, options?) =>
-        this.getOrCreateConversation(id, options),
+        getOrCreateActiveConversation(id, options),
       touchConversation: (id) => this.evictor.touch(id),
-      heartbeatService: this._heartbeatService,
-    };
-  }
-
-  /** Public subset of handler context for skill management HTTP routes. */
-  getSkillContext(): SkillOperationContext {
-    return {
-      debounceTimers: this.configWatcher.timers,
-      setSuppressConfigReload: (value: boolean) => {
-        this.configWatcher.suppressConfigReload = value;
-      },
-      updateConfigFingerprint: () => {
-        this.configWatcher.updateFingerprint();
-      },
-      broadcast: (msg) => this.broadcast(msg),
+      heartbeatService: HeartbeatService.getInstance(),
     };
   }
 
@@ -1285,7 +1090,7 @@ export class DaemonServer {
       filePath?: string;
     }[];
   }> {
-    const conversation = await this.getOrCreateConversation(
+    const conversation = await getOrCreateActiveConversation(
       conversationId,
       options,
     );
@@ -1318,8 +1123,7 @@ export class DaemonServer {
     // eviction and recreation. The restore path in getOrCreateConversation
     // reads from storedOptions.trustContext / storedOptions.authContext.
     // Always write — including null — so explicit clearing isn't lost.
-    this.conversationOptions.set(conversationId, {
-      ...this.conversationOptions.get(conversationId),
+    mergeConversationOptions(conversationId, {
       trustContext: conversation.trustContext,
       authContext: conversation.authContext,
     });
@@ -1797,44 +1601,7 @@ export class DaemonServer {
     conversationId: string,
     options?: ConversationCreateOptions,
   ): Promise<Conversation> {
-    return this.getOrCreateConversation(conversationId, options);
-  }
-
-  /**
-   * Look up an active conversation by ID without creating one.
-   */
-  findConversation(conversationId: string): Conversation | undefined {
-    return this.conversations.get(conversationId);
-  }
-
-  /**
-   * Look up an active conversation that owns a given surfaceId.
-   */
-  findConversationBySurfaceId(surfaceId: string): Conversation | undefined {
-    // Fast path: exact surfaceId match in surfaceState
-    for (const c of this.conversations.values()) {
-      if (c.surfaceState.has(surfaceId)) return c;
-    }
-
-    // Fallback: standalone app surfaces use "app-open-{appId}" IDs that
-    // were never part of any conversation.  Extract the appId and find
-    // a conversation whose surfaceState has a surface for that app.
-    const appOpenPrefix = "app-open-";
-    if (surfaceId.startsWith(appOpenPrefix)) {
-      const appId = surfaceId.slice(appOpenPrefix.length);
-      for (const c of this.conversations.values()) {
-        for (const [, state] of c.surfaceState.entries()) {
-          const data = state.data as unknown as Record<string, unknown>;
-          if (data?.appId === appId) {
-            // Register this surfaceId so subsequent lookups are O(1)
-            c.surfaceState.set(surfaceId, state);
-            return c;
-          }
-        }
-      }
-    }
-
-    return undefined;
+    return getOrCreateActiveConversation(conversationId, options);
   }
 
   /**

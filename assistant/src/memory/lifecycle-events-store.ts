@@ -2,7 +2,7 @@ import { and, asc, eq, gt, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { lifecycleEvents } from "./schema.js";
 
 export interface LifecycleEvent {

@@ -1,5 +1,5 @@
 /**
- * Tests for profiler HTTP route handlers: empty-state listings, missing-run
+ * Tests for profiler route handlers: empty-state listings, missing-run
  * 404s, active-run delete rejection, tarball export success, archive failure
  * when a run directory exceeds the configured bundle size cap, and post-delete
  * budget recalculation.
@@ -11,9 +11,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { ProfilerRunManifest } from "../daemon/profiler-run-store.js";
-import type { AuthContext } from "../runtime/auth/types.js";
-import type { RouteContext, RouteParams } from "../runtime/http-router.js";
-import { profilerRouteDefinitions } from "../runtime/routes/profiler-routes.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalError,
+  NotFoundError,
+} from "../runtime/routes/errors.js";
+import { ROUTES } from "../runtime/routes/profiler-routes.js";
+import type { RouteDefinition } from "../runtime/routes/types.js";
 
 // ── Test scaffolding ────────────────────────────────────────────────────
 
@@ -21,36 +26,10 @@ let testDir: string;
 let runsDir: string;
 let origEnv: Record<string, string | undefined>;
 
-const routes = profilerRouteDefinitions();
-
 function findRoute(
-  endpoint: string,
-  method: string,
-): (typeof routes)[number] | undefined {
-  return routes.find((r) => r.endpoint === endpoint && r.method === method);
-}
-
-/**
- * Build a minimal RouteContext for testing route handlers.
- */
-function makeCtx(
-  params: RouteParams = {},
-  method: string = "GET",
-): RouteContext {
-  return {
-    req: new Request("http://localhost:7821/v1/profiler/runs", { method }),
-    url: new URL("http://localhost:7821/v1/profiler/runs"),
-    server: {} as ReturnType<typeof Bun.serve>,
-    authContext: {
-      subject: "svc:gateway:self",
-      principalType: "svc_gateway",
-      assistantId: "self",
-      scopeProfile: "gateway_service_v1",
-      scopes: new Set(["internal.write"]),
-      policyEpoch: 1,
-    } as AuthContext,
-    params,
-  };
+  operationId: string,
+): RouteDefinition | undefined {
+  return ROUTES.find((r) => r.operationId === operationId);
 }
 
 /**
@@ -138,22 +117,20 @@ afterEach(() => {
 
 describe("Profiler routes", () => {
   describe("GET /v1/profiler/runs (list)", () => {
-    test("returns empty list when no runs exist", async () => {
-      const route = findRoute("profiler/runs", "GET")!;
-      const response = await route.handler(makeCtx());
-      const body = (await response.json()) as {
+    test("returns empty list when no runs exist", () => {
+      const route = findRoute("profiler_runs_get")!;
+      const result = route.handler({}) as {
         runs: unknown[];
         totalRuns: number;
         activeRunId: string | null;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.runs).toEqual([]);
-      expect(body.totalRuns).toBe(0);
-      expect(body.activeRunId).toBeNull();
+      expect(result.runs).toEqual([]);
+      expect(result.totalRuns).toBe(0);
+      expect(result.activeRunId).toBeNull();
     });
 
-    test("returns runs sorted newest-first", async () => {
+    test("returns runs sorted newest-first", () => {
       createRun("old-run", {
         sizeBytes: 1024,
         manifest: {
@@ -169,30 +146,27 @@ describe("Profiler routes", () => {
         },
       });
 
-      const route = findRoute("profiler/runs", "GET")!;
-      const response = await route.handler(makeCtx());
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_get")!;
+      const result = route.handler({}) as {
         runs: ProfilerRunManifest[];
         totalRuns: number;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.totalRuns).toBe(2);
-      expect(body.runs[0]!.runId).toBe("new-run");
-      expect(body.runs[1]!.runId).toBe("old-run");
+      expect(result.totalRuns).toBe(2);
+      expect(result.runs[0]!.runId).toBe("new-run");
+      expect(result.runs[1]!.runId).toBe("old-run");
     });
 
-    test("reports active run ID when set", async () => {
+    test("reports active run ID when set", () => {
       process.env.VELLUM_PROFILER_RUN_ID = "active-run";
       createRun("active-run", { sizeBytes: 512 });
 
-      const route = findRoute("profiler/runs", "GET")!;
-      const response = await route.handler(makeCtx());
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_get")!;
+      const result = route.handler({}) as {
         activeRunId: string | null;
       };
 
-      expect(body.activeRunId).toBe("active-run");
+      expect(result.activeRunId).toBe("active-run");
     });
   });
 
@@ -206,43 +180,38 @@ describe("Profiler routes", () => {
     ];
 
     for (const payload of traversalPayloads) {
-      test(`GET rejects runId "${payload}"`, async () => {
-        const route = findRoute("profiler/runs/:runId", "GET")!;
-        const response = await route.handler(makeCtx({ runId: payload }));
-        expect(response.status).toBe(400);
+      test(`GET rejects runId "${payload}"`, () => {
+        const route = findRoute("profiler_runs_by_runId_get")!;
+        expect(() =>
+          route.handler({ pathParams: { runId: payload } }),
+        ).toThrow(BadRequestError);
       });
 
-      test(`POST export rejects runId "${payload}"`, async () => {
-        const route = findRoute("profiler/runs/:runId/export", "POST")!;
-        const response = await route.handler(
-          makeCtx({ runId: payload }, "POST"),
-        );
-        expect(response.status).toBe(400);
+      test(`POST export rejects runId "${payload}"`, () => {
+        const route = findRoute("profiler_runs_by_runId_export_post")!;
+        expect(() =>
+          route.handler({ pathParams: { runId: payload } }),
+        ).toThrow(BadRequestError);
       });
 
-      test(`DELETE rejects runId "${payload}"`, async () => {
-        const route = findRoute("profiler/runs/:runId", "DELETE")!;
-        const response = await route.handler(
-          makeCtx({ runId: payload }, "DELETE"),
-        );
-        expect(response.status).toBe(400);
+      test(`DELETE rejects runId "${payload}"`, () => {
+        const route = findRoute("profiler_runs_by_runId_delete")!;
+        expect(() =>
+          route.handler({ pathParams: { runId: payload } }),
+        ).toThrow(BadRequestError);
       });
     }
   });
 
   describe("GET /v1/profiler/runs/:runId (detail)", () => {
-    test("returns 404 for missing run", async () => {
-      const route = findRoute("profiler/runs/:runId", "GET")!;
-      const response = await route.handler(makeCtx({ runId: "nonexistent" }));
-
-      expect(response.status).toBe(404);
-      const body = (await response.json()) as {
-        error: { code: string };
-      };
-      expect(body.error.code).toBe("NOT_FOUND");
+    test("returns 404 for missing run", () => {
+      const route = findRoute("profiler_runs_by_runId_get")!;
+      expect(() =>
+        route.handler({ pathParams: { runId: "nonexistent" } }),
+      ).toThrow(NotFoundError);
     });
 
-    test("returns manifest metadata and markdown summary", async () => {
+    test("returns manifest metadata and markdown summary", () => {
       createRun("run-with-summary", {
         sizeBytes: 2048,
         manifest: {
@@ -252,96 +221,81 @@ describe("Profiler routes", () => {
         markdownSummary: "# CPU Profile\n\nTop functions by self-time...",
       });
 
-      const route = findRoute("profiler/runs/:runId", "GET")!;
-      const response = await route.handler(
-        makeCtx({ runId: "run-with-summary" }),
-      );
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_by_runId_get")!;
+      const result = route.handler({
+        pathParams: { runId: "run-with-summary" },
+      }) as {
         runId: string;
         status: string;
         summary: string | null;
         isActive: boolean;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.runId).toBe("run-with-summary");
-      expect(body.status).toBe("completed");
-      expect(body.summary).toContain("CPU Profile");
-      expect(body.isActive).toBe(false);
+      expect(result.runId).toBe("run-with-summary");
+      expect(result.status).toBe("completed");
+      expect(result.summary).toContain("CPU Profile");
+      expect(result.isActive).toBe(false);
     });
 
-    test("returns null summary when no markdown file exists", async () => {
+    test("returns null summary when no markdown file exists", () => {
       createRun("run-no-summary", {
         sizeBytes: 1024,
         manifest: { status: "completed" },
       });
 
-      const route = findRoute("profiler/runs/:runId", "GET")!;
-      const response = await route.handler(
-        makeCtx({ runId: "run-no-summary" }),
-      );
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_by_runId_get")!;
+      const result = route.handler({
+        pathParams: { runId: "run-no-summary" },
+      }) as {
         summary: string | null;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.summary).toBeNull();
+      expect(result.summary).toBeNull();
     });
 
-    test("marks active run correctly", async () => {
+    test("marks active run correctly", () => {
       process.env.VELLUM_PROFILER_RUN_ID = "live-run";
       createRun("live-run", {
         sizeBytes: 1024,
         manifest: { status: "active" },
       });
 
-      const route = findRoute("profiler/runs/:runId", "GET")!;
-      const response = await route.handler(makeCtx({ runId: "live-run" }));
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_by_runId_get")!;
+      const result = route.handler({
+        pathParams: { runId: "live-run" },
+      }) as {
         isActive: boolean;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.isActive).toBe(true);
+      expect(result.isActive).toBe(true);
     });
   });
 
   describe("POST /v1/profiler/runs/:runId/export", () => {
-    test("returns 404 for missing run", async () => {
-      const route = findRoute("profiler/runs/:runId/export", "POST")!;
-      const response = await route.handler(
-        makeCtx({ runId: "nonexistent" }, "POST"),
-      );
-
-      expect(response.status).toBe(404);
+    test("returns 404 for missing run", () => {
+      const route = findRoute("profiler_runs_by_runId_export_post")!;
+      expect(() =>
+        route.handler({ pathParams: { runId: "nonexistent" } }),
+      ).toThrow(NotFoundError);
     });
 
-    test("returns tar.gz for a valid run", async () => {
+    test("returns tar.gz bytes for a valid run", () => {
       createRun("exportable-run", {
         sizeBytes: 512,
         manifest: { status: "completed" },
       });
 
-      const route = findRoute("profiler/runs/:runId/export", "POST")!;
-      const response = await route.handler(
-        makeCtx({ runId: "exportable-run" }, "POST"),
-      );
+      const route = findRoute("profiler_runs_by_runId_export_post")!;
+      const result = route.handler({
+        pathParams: { runId: "exportable-run" },
+      }) as Uint8Array;
 
-      expect(response.status).toBe(200);
-      expect(response.headers.get("Content-Type")).toBe("application/gzip");
-      expect(response.headers.get("Content-Disposition")).toContain(
-        "profiler-exportable-run.tar.gz",
-      );
-
-      const arrayBuffer = await response.arrayBuffer();
-      expect(arrayBuffer.byteLength).toBeGreaterThan(0);
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(result.byteLength).toBeGreaterThan(0);
     });
 
-    test("returns 500 when archive exceeds size limit", async () => {
+    test("returns 500 when archive exceeds size limit", () => {
       // Create a run with a very large file that will exceed the 50MB archive cap.
-      // We mock this by creating a run directory and writing enough data to push
-      // past the limit. Since createTarGz uses MAX_ARCHIVE_BYTES as the maxBuffer,
-      // a large-enough payload will trigger the failure path.
       const runDir = join(runsDir, "huge-run");
       mkdirSync(runDir, { recursive: true });
 
@@ -372,53 +326,38 @@ describe("Profiler routes", () => {
         writeFileSync(join(runDir, `chunk-${i}.bin`), buf);
       }
 
-      const route = findRoute("profiler/runs/:runId/export", "POST")!;
-      const response = await route.handler(
-        makeCtx({ runId: "huge-run" }, "POST"),
-      );
-
-      expect(response.status).toBe(500);
-      const body = (await response.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("INTERNAL_ERROR");
-      expect(body.error.message).toContain("archive size");
+      const route = findRoute("profiler_runs_by_runId_export_post")!;
+      expect(() =>
+        route.handler({ pathParams: { runId: "huge-run" } }),
+      ).toThrow(InternalError);
     }, 30000);
   });
 
   describe("DELETE /v1/profiler/runs/:runId", () => {
-    test("returns 404 for missing run", async () => {
-      const route = findRoute("profiler/runs/:runId", "DELETE")!;
-      const response = await route.handler(
-        makeCtx({ runId: "nonexistent" }, "DELETE"),
-      );
-
-      expect(response.status).toBe(404);
+    test("returns 404 for missing run", () => {
+      const route = findRoute("profiler_runs_by_runId_delete")!;
+      expect(() =>
+        route.handler({ pathParams: { runId: "nonexistent" } }),
+      ).toThrow(NotFoundError);
     });
 
-    test("rejects deletion of the currently active run", async () => {
+    test("rejects deletion of the currently active run", () => {
       process.env.VELLUM_PROFILER_RUN_ID = "active-run";
       createRun("active-run", {
         sizeBytes: 1024,
         manifest: { status: "active" },
       });
 
-      const route = findRoute("profiler/runs/:runId", "DELETE")!;
-      const response = await route.handler(
-        makeCtx({ runId: "active-run" }, "DELETE"),
-      );
-
-      expect(response.status).toBe(409);
-      const body = (await response.json()) as {
-        error: { code: string };
-      };
-      expect(body.error.code).toBe("CONFLICT");
+      const route = findRoute("profiler_runs_by_runId_delete")!;
+      expect(() =>
+        route.handler({ pathParams: { runId: "active-run" } }),
+      ).toThrow(ConflictError);
 
       // Run directory should still exist
       expect(existsSync(join(runsDir, "active-run"))).toBe(true);
     });
 
-    test("deletes a completed run and returns budget state", async () => {
+    test("deletes a completed run and returns budget state", () => {
       process.env.VELLUM_PROFILER_MAX_BYTES = "999999999";
       process.env.VELLUM_PROFILER_MAX_RUNS = "100";
       process.env.VELLUM_PROFILER_MIN_FREE_MB = "0";
@@ -438,22 +377,20 @@ describe("Profiler routes", () => {
         },
       });
 
-      const route = findRoute("profiler/runs/:runId", "DELETE")!;
-      const response = await route.handler(
-        makeCtx({ runId: "completed-run" }, "DELETE"),
-      );
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_by_runId_delete")!;
+      const result = route.handler({
+        pathParams: { runId: "completed-run" },
+      }) as {
         deleted: boolean;
         runId: string;
         remainingRuns: number;
         activeRunOverBudget: boolean;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.deleted).toBe(true);
-      expect(body.runId).toBe("completed-run");
-      expect(body.remainingRuns).toBe(1);
-      expect(body.activeRunOverBudget).toBe(false);
+      expect(result.deleted).toBe(true);
+      expect(result.runId).toBe("completed-run");
+      expect(result.remainingRuns).toBe(1);
+      expect(result.activeRunOverBudget).toBe(false);
 
       // Run directory should be gone
       expect(existsSync(join(runsDir, "completed-run"))).toBe(false);
@@ -461,7 +398,7 @@ describe("Profiler routes", () => {
       expect(existsSync(join(runsDir, "other-run"))).toBe(true);
     });
 
-    test("post-delete budget recalculation reflects freed space", async () => {
+    test("post-delete budget recalculation reflects freed space", () => {
       process.env.VELLUM_PROFILER_MAX_BYTES = "5000";
       process.env.VELLUM_PROFILER_MAX_RUNS = "100";
       process.env.VELLUM_PROFILER_MIN_FREE_MB = "0";
@@ -483,19 +420,17 @@ describe("Profiler routes", () => {
       });
 
       // Delete one of the runs
-      const route = findRoute("profiler/runs/:runId", "DELETE")!;
-      const response = await route.handler(
-        makeCtx({ runId: "over-budget-a" }, "DELETE"),
-      );
-      const body = (await response.json()) as {
+      const route = findRoute("profiler_runs_by_runId_delete")!;
+      const result = route.handler({
+        pathParams: { runId: "over-budget-a" },
+      }) as {
         deleted: boolean;
         remainingRuns: number;
       };
 
-      expect(response.status).toBe(200);
-      expect(body.deleted).toBe(true);
+      expect(result.deleted).toBe(true);
       // The remaining run should survive since it's within budget now
-      expect(body.remainingRuns).toBe(1);
+      expect(result.remainingRuns).toBe(1);
       expect(existsSync(join(runsDir, "over-budget-b"))).toBe(true);
     });
   });

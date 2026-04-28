@@ -80,7 +80,7 @@ mock.module("../contacts/contact-store.js", () => ({
 //   db.update(contacts).set({ userFile: slug }).where(eq(contacts.id, guardian.id)).run();
 // The stub captures the payload into `updatedUserFiles` and also mutates
 // the active mock guardian in place so downstream reads observe the new slug.
-mock.module("../memory/db.js", () => ({
+mock.module("../memory/db-connection.js", () => ({
   getDb: () => ({
     update: () => ({
       set: (values: { userFile: string }) => ({

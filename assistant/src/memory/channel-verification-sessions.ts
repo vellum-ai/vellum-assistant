@@ -8,7 +8,7 @@
 
 import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 
-import { getDb } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { channelVerificationSessions } from "./schema.js";
 
 // ---------------------------------------------------------------------------

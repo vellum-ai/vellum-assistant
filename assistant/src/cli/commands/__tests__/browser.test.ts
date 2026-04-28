@@ -25,6 +25,11 @@ let lastIpcCall: {
   params?: Record<string, unknown>;
 } | null = null;
 
+/** Access the body bag from the last IPC call params. */
+function lastBody(): Record<string, unknown> {
+  return lastIpcCall!.params!.body as Record<string, unknown>;
+}
+
 /** The result that cliIpcCall will return. */
 let mockIpcResult: {
   ok: boolean;
@@ -211,11 +216,11 @@ describe("IPC payload mapping", () => {
     await runCommand(["browser", "navigate", "--url", "https://example.com"]);
     expect(lastIpcCall).toBeDefined();
     expect(lastIpcCall!.method).toBe("browser_execute");
-    expect(lastIpcCall!.params!.operation).toBe("navigate");
-    expect(lastIpcCall!.params!.input).toEqual({
+    expect(lastBody().operation).toBe("navigate");
+    expect(lastBody().input).toEqual({
       url: "https://example.com",
     });
-    expect(lastIpcCall!.params!.sessionId).toBe("default");
+    expect(lastBody().sessionId).toBe("default");
   });
 
   test("navigate with --allow-private-network maps to allow_private_network", async () => {
@@ -226,7 +231,7 @@ describe("IPC payload mapping", () => {
       "http://localhost:3000",
       "--allow-private-network",
     ]);
-    expect(lastIpcCall!.params!.input).toEqual({
+    expect(lastBody().input).toEqual({
       url: "http://localhost:3000",
       allow_private_network: true,
     });
@@ -242,8 +247,8 @@ describe("IPC payload mapping", () => {
       "e14",
       "--clear-first",
     ]);
-    expect(lastIpcCall!.params!.operation).toBe("type");
-    expect(lastIpcCall!.params!.input).toEqual({
+    expect(lastBody().operation).toBe("type");
+    expect(lastBody().input).toEqual({
       text: "hello world",
       element_id: "e14",
       clear_first: true,
@@ -259,8 +264,8 @@ describe("IPC payload mapping", () => {
       "--amount",
       "300",
     ]);
-    expect(lastIpcCall!.params!.operation).toBe("scroll");
-    const input = lastIpcCall!.params!.input as Record<string, unknown>;
+    expect(lastBody().operation).toBe("scroll");
+    const input = lastBody().input as Record<string, unknown>;
     expect(input.direction).toBe("down");
     expect(input.amount).toBe(300);
     expect(typeof input.amount).toBe("number");
@@ -268,8 +273,8 @@ describe("IPC payload mapping", () => {
 
   test("press-key maps --key", async () => {
     await runCommand(["browser", "press-key", "--key", "Enter"]);
-    expect(lastIpcCall!.params!.operation).toBe("press_key");
-    expect(lastIpcCall!.params!.input).toEqual({ key: "Enter" });
+    expect(lastBody().operation).toBe("press_key");
+    expect(lastBody().input).toEqual({ key: "Enter" });
   });
 
   test("fill-credential maps --service, --field, --press-enter", async () => {
@@ -282,8 +287,8 @@ describe("IPC payload mapping", () => {
       "token",
       "--press-enter",
     ]);
-    expect(lastIpcCall!.params!.operation).toBe("fill_credential");
-    expect(lastIpcCall!.params!.input).toEqual({
+    expect(lastBody().operation).toBe("fill_credential");
+    expect(lastBody().input).toEqual({
       service: "github",
       field: "token",
       press_enter: true,
@@ -299,8 +304,8 @@ describe("IPC payload mapping", () => {
       "--selector",
       "#country",
     ]);
-    expect(lastIpcCall!.params!.operation).toBe("select_option");
-    expect(lastIpcCall!.params!.input).toEqual({
+    expect(lastBody().operation).toBe("select_option");
+    expect(lastBody().input).toEqual({
       value: "us",
       selector: "#country",
     });
@@ -315,33 +320,33 @@ describe("IPC payload mapping", () => {
       "--timeout",
       "5000",
     ]);
-    expect(lastIpcCall!.params!.operation).toBe("wait_for");
-    const input = lastIpcCall!.params!.input as Record<string, unknown>;
+    expect(lastBody().operation).toBe("wait_for");
+    const input = lastBody().input as Record<string, unknown>;
     expect(input.selector).toBe(".loaded");
     expect(input.timeout).toBe(5000);
   });
 
   test("wait-for-download maps to wait_for_download operation", async () => {
     await runCommand(["browser", "wait-for-download"]);
-    expect(lastIpcCall!.params!.operation).toBe("wait_for_download");
+    expect(lastBody().operation).toBe("wait_for_download");
   });
 
   test("snapshot sends empty input", async () => {
     await runCommand(["browser", "snapshot"]);
-    expect(lastIpcCall!.params!.operation).toBe("snapshot");
-    expect(lastIpcCall!.params!.input).toEqual({});
+    expect(lastBody().operation).toBe("snapshot");
+    expect(lastBody().input).toEqual({});
   });
 
   test("screenshot sends empty input by default", async () => {
     await runCommand(["browser", "screenshot"]);
-    expect(lastIpcCall!.params!.operation).toBe("screenshot");
-    expect(lastIpcCall!.params!.input).toEqual({});
+    expect(lastBody().operation).toBe("screenshot");
+    expect(lastBody().input).toEqual({});
   });
 
   test("status maps --check-local-launch", async () => {
     await runCommand(["browser", "status", "--check-local-launch"]);
-    expect(lastIpcCall!.params!.operation).toBe("status");
-    expect(lastIpcCall!.params!.input).toEqual({
+    expect(lastBody().operation).toBe("status");
+    expect(lastBody().input).toEqual({
       check_local_launch: true,
     });
   });
@@ -355,12 +360,12 @@ describe("IPC payload mapping", () => {
       "--url",
       "https://example.com",
     ]);
-    expect(lastIpcCall!.params!.sessionId).toBe("myflow");
+    expect(lastBody().sessionId).toBe("myflow");
   });
 
   test("default session is 'default'", async () => {
     await runCommand(["browser", "snapshot"]);
-    expect(lastIpcCall!.params!.sessionId).toBe("default");
+    expect(lastBody().sessionId).toBe("default");
   });
 
   test("uses __CONVERSATION_ID for browser_execute when available", async () => {
@@ -368,7 +373,7 @@ describe("IPC payload mapping", () => {
 
     await runCommand(["browser", "status"]);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("conv-from-env");
+    expect(lastBody().conversationId).toBe("conv-from-env");
   });
 
   test("prefers __SKILL_CONTEXT_JSON.conversationId over __CONVERSATION_ID", async () => {
@@ -379,7 +384,7 @@ describe("IPC payload mapping", () => {
 
     await runCommand(["browser", "status"]);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("conv-from-skill");
+    expect(lastBody().conversationId).toBe("conv-from-skill");
   });
 
   test("falls back to __CONVERSATION_ID when __SKILL_CONTEXT_JSON is invalid", async () => {
@@ -388,7 +393,7 @@ describe("IPC payload mapping", () => {
 
     await runCommand(["browser", "status"]);
 
-    expect(lastIpcCall!.params!.conversationId).toBe("conv-fallback");
+    expect(lastBody().conversationId).toBe("conv-fallback");
   });
 
   test("--browser-mode injects browser_mode into input", async () => {
@@ -400,15 +405,15 @@ describe("IPC payload mapping", () => {
       "--url",
       "http://localhost:3000",
     ]);
-    expect(lastIpcCall!.params!.operation).toBe("navigate");
-    const input = lastIpcCall!.params!.input as Record<string, unknown>;
+    expect(lastBody().operation).toBe("navigate");
+    const input = lastBody().input as Record<string, unknown>;
     expect(input.browser_mode).toBe("local");
     expect(input.url).toBe("http://localhost:3000");
   });
 
   test("--browser-mode is omitted from input when not specified", async () => {
     await runCommand(["browser", "snapshot"]);
-    const input = lastIpcCall!.params!.input as Record<string, unknown>;
+    const input = lastBody().input as Record<string, unknown>;
     expect(input.browser_mode).toBeUndefined();
   });
 

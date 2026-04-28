@@ -2,7 +2,7 @@
  * `assistant attachment` CLI namespace.
  *
  * Subcommands: register, lookup — thin wrappers over the daemon's
- * attachment IPC routes (`attachment/register`, `attachment/lookup`).
+ * attachment routes (`attachment_register`, `attachment_lookup`).
  */
 
 import type { Command } from "commander";
@@ -84,10 +84,12 @@ Examples:
           kind: string;
           filePath: string;
           createdAt: number;
-        }>("attachment/register", {
-          path: opts.path,
-          mimeType: opts.mime,
-          filename: opts.filename,
+        }>("attachment_register", {
+          body: {
+            path: opts.path,
+            mimeType: opts.mime,
+            filename: opts.filename,
+          },
         });
 
         if (!result.ok) {
@@ -152,10 +154,12 @@ Examples:
         const jsonOutput = opts.json || shouldOutputJson(cmd);
 
         const result = await cliIpcCall<{ filePath: string }>(
-          "attachment/lookup",
+          "attachment_lookup",
           {
-            sourcePath: opts.source,
-            conversationId: opts.conversation,
+            body: {
+              sourcePath: opts.source,
+              conversationId: opts.conversation,
+            },
           },
         );
 

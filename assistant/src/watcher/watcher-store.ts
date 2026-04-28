@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { rawChanges } from "../memory/raw-query.js";
 import { watcherEvents, watchers } from "../memory/schema.js";
 import { truncate } from "../util/truncate.js";
 import { DEFAULT_POLL_INTERVAL_MS } from "./constants.js";

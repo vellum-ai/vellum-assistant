@@ -43,10 +43,12 @@ export const SEEDS: Record<string, EnvironmentDefinition> = {
   production: {
     name: "production",
     platformUrl: "https://platform.vellum.ai",
+    webUrl: "https://www.vellum.ai",
   },
   staging: {
     name: "staging",
     platformUrl: "https://staging-platform.vellum.ai",
+    webUrl: "https://staging-assistant.vellum.ai",
     portsOverride: portBlock(17000),
   },
   test: {
@@ -54,16 +56,19 @@ export const SEEDS: Record<string, EnvironmentDefinition> = {
     // Non-functional URL — used only by unit tests for URL resolution, never
     // hit in production.
     platformUrl: "https://test-platform.vellum.ai",
+    webUrl: "https://dev-assistant.vellum.ai",
     portsOverride: portBlock(19000),
   },
   dev: {
     name: "dev",
     platformUrl: "https://dev-platform.vellum.ai",
+    webUrl: "https://dev-assistant.vellum.ai",
     portsOverride: portBlock(18000),
   },
   local: {
     name: "local",
     platformUrl: "http://localhost:8000",
+    webUrl: "http://localhost:3000",
     // assistantPlatformUrl: "http://host.docker.internal:8000",
     // ^ uncomment this once dockerized hatch path is live.
     // The assistant runs in a different network namespace than the host.

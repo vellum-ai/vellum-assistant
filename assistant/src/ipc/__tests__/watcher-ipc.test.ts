@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { initializeDb } from "../../memory/db.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { registerWatcherProvider } from "../../watcher/provider-registry.js";
 import type { WatcherProvider } from "../../watcher/provider-types.js";
 import type { Watcher, WatcherEvent } from "../../watcher/watcher-store.js";

@@ -34,14 +34,12 @@ mock.module("../util/logger.js", () => ({
 }));
 
 interface TestConfig {
-  permissions: { mode: "strict" | "workspace" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
   [key: string]: unknown;
 }
 
 const testConfig: TestConfig = {
-  permissions: { mode: "workspace" },
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
 };
@@ -67,11 +65,17 @@ mockIpcResponse("classify_risk", {
   reason: "skill_load",
   matchType: "unknown",
 });
+mockIpcResponse("get_global_thresholds", {
+  interactive: "low",
+  background: "medium",
+  headless: "none",
+});
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
 import { check, generateAllowlistOptions } from "../permissions/checker.js";
 import { clearRiskCache } from "../permissions/checker.js";
+import { _clearGlobalCacheForTesting } from "../permissions/gateway-threshold-reader.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -113,7 +117,12 @@ function writeDynamicSkill(
 describe("inline-command skill_load permissions", () => {
   beforeEach(() => {
     clearRiskCache();
-    testConfig.permissions = { mode: "workspace" };
+    _clearGlobalCacheForTesting();
+    mockIpcResponse("get_global_thresholds", {
+      interactive: "low",
+      background: "medium",
+      headless: "none",
+    });
     testConfig.skills = { load: { extraDirs: [] } };
     _setOverridesForTesting({
       "inline-skill-commands": true,
@@ -148,7 +157,12 @@ describe("inline-command skill_load permissions", () => {
     test("dynamic skill prompts in strict mode (no matching rule)", async () => {
       ensureSkillsDir();
       writeDynamicSkill("dynamic-strict", "Dynamic Strict Skill");
-      testConfig.permissions.mode = "strict";
+      mockIpcResponse("get_global_thresholds", {
+        interactive: "none",
+        background: "none",
+        headless: "none",
+      });
+      _clearGlobalCacheForTesting();
 
       const result = await check(
         "skill_load",
@@ -156,7 +170,7 @@ describe("inline-command skill_load permissions", () => {
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("Strict mode");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
   });
 

@@ -8,8 +8,8 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { countConversations } from "../../memory/conversation-queries.js";
-import { rawAll } from "../../memory/db.js";
 import { getMemoryJobCounts } from "../../memory/jobs-store.js";
+import { rawAll } from "../../memory/raw-query.js";
 import {
   getProviderRoutingSource,
   listProviders,

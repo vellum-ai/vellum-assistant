@@ -24,7 +24,7 @@ import type { AssistantConfig } from "../../config/types.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import {
   embedWithBackend,
   generateSparseEmbedding,

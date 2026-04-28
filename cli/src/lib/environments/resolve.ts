@@ -28,6 +28,7 @@ export function getSeed(name: string): EnvironmentDefinition | undefined {
  * Per-field env-var overrides are honored on the resolved definition as
  * ad-hoc escape hatches (they do not materialize new environments):
  *   - `VELLUM_PLATFORM_URL` overrides `platformUrl`
+ *   - `VELLUM_WEB_URL` overrides `webUrl`
  *   - `VELLUM_ASSISTANT_PLATFORM_URL` overrides `assistantPlatformUrl`
  *   - `VELLUM_LOCKFILE_DIR` overrides `lockfileDirOverride` (legacy e2e
  *     test hook)
@@ -66,6 +67,11 @@ export function getCurrentEnvironment(
   const platformUrlOverride = process.env.VELLUM_PLATFORM_URL?.trim();
   if (platformUrlOverride) {
     resolved.platformUrl = platformUrlOverride;
+  }
+
+  const webUrlOverride = process.env.VELLUM_WEB_URL?.trim();
+  if (webUrlOverride) {
+    resolved.webUrl = webUrlOverride;
   }
 
   const assistantPlatformUrlOverride =

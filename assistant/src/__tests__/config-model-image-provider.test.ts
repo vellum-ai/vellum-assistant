@@ -32,7 +32,6 @@ function readConfig(): Record<string, unknown> {
 
 function makeCtx(): ModelSetContext {
   return {
-    conversations: new Map(),
     suppressConfigReload: false,
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},

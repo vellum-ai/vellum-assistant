@@ -324,6 +324,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.pendingUserMessageAutomated = false
                     self.pendingUserMessageClientMessageId = nil
                     self.pendingUserInferenceProfile = nil
+                    self.pendingUserInteractiveThresholdOverride = nil
                     // Queue tracking state
                     self.pendingQueuedCount = 0
                     self.pendingMessageIds.removeAll()
@@ -709,6 +710,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// in the first POST so the first assistant turn uses the staged profile.
     public var pendingInferenceProfile: String?
     @ObservationIgnored var pendingUserInferenceProfile: String?
+    /// Interactive auto-approve threshold selected while this chat is still a
+    /// draft conversation. When non-nil, it is sent as `riskThreshold` in the
+    /// first message POST so conversation creation can persist it atomically.
+    public var pendingInteractiveThresholdOverride: String?
+    @ObservationIgnored var pendingUserInteractiveThresholdOverride: String?
     /// Optional callback for sending notifications when tool-use messages complete
     @ObservationIgnored public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.

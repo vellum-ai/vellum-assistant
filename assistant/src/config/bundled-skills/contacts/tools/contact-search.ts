@@ -47,10 +47,7 @@ export async function executeContactSearch(
   }
 
   const res = await cliIpcCall<ContactWithChannels[]>("search_contacts", {
-    query,
-    channelAddress,
-    channelType,
-    limit,
+    body: { query, channelAddress, channelType, limit },
   });
 
   if (!res.ok) {

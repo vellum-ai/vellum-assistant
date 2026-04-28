@@ -51,9 +51,7 @@ const mockConfig = {
     action: "warn" as const,
     entropyThreshold: 4.0,
   },
-  permissions: {
-    mode: "workspace" as const,
-  },
+  permissions: {},
 };
 
 let fakeToolResult: ToolExecutionResult = { content: "ok", isError: false };

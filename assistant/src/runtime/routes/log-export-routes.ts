@@ -1,5 +1,5 @@
 /**
- * HTTP route handler for exporting audit data and daemon log files.
+ * Route handler for exporting audit data and daemon log files.
  *
  * A single POST /v1/export endpoint allows clients (e.g. macOS Export Logs)
  * to retrieve audit database records, daemon log files, and a sanitized
@@ -22,7 +22,7 @@ import { join } from "node:path";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   llmRequestLogs,
   llmUsageEvents,
@@ -36,10 +36,10 @@ import {
   getWorkspaceConfigPath,
 } from "../../util/platform.js";
 import { APP_VERSION, COMMIT_SHA } from "../../version.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
 import { createTarGz } from "./archive-utils.js";
+import { InternalError } from "./errors.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("log-export-routes");
 
@@ -48,30 +48,30 @@ const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
 interface ExportRequestBody {
   auditLimit?: number;
-  conversationId?: string; // scope to a single conversation
-  full?: boolean; // include all conversation data (messages + LLM logs) — use for test data debugging
-  startTime?: number; // epoch ms — lower bound (inclusive)
-  endTime?: number; // epoch ms — upper bound (inclusive)
+  conversationId?: string;
+  full?: boolean;
+  startTime?: number;
+  endTime?: number;
 }
 
 /**
  * Collect audit data, daemon log files, and a sanitized config snapshot,
  * then package everything into a tar.gz archive.
  *
- * Archive layout:
- *   audit-data.json                 — tool invocation records
- *   config-snapshot.json            — sanitized workspace config
- *   daemon-logs/<name>              — daemon log files
- *   workspace/conversations/<dir>/  — allowlisted workspace data (see ./log-export/AGENTS.md)
+ * Returns the archive as a Uint8Array — the HTTP adapter handles binary
+ * responses natively.
  */
-async function handleExport(body: ExportRequestBody): Promise<Response> {
+async function handleExport({
+  body = {},
+}: RouteHandlerArgs): Promise<Uint8Array> {
+  const { conversationId, full, startTime, endTime, auditLimit } =
+    body as ExportRequestBody;
+
   const staging = mkdtempSync(join(tmpdir(), "vellum-export-"));
 
   try {
-    const { conversationId, full, startTime, endTime } = body;
-
     // --- Audit data ---
-    const limit = body.auditLimit ?? 1000;
+    const limit = auditLimit ?? 1000;
     const db = getDb();
 
     const auditQuery = db.select().from(toolInvocations);
@@ -100,7 +100,6 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     );
 
     // --- Conversation data tables ---
-    // Included when scoped to a single conversation OR when all conversations are requested.
     if (conversationId || full) {
       const conversationFilter = conversationId
         ? [eq(messages.conversationId, conversationId)]
@@ -182,13 +181,12 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     if (existsSync(logsDir)) {
       const entries = readdirSync(logsDir);
       for (const entry of entries) {
-        // Filter dated log files by time range
         const dateMatch = entry.match(LOG_FILE_PATTERN);
         if (dateMatch && (startDate || endDate)) {
-          const fileDate = new Date(dateMatch[1] + "T23:59:59.999Z"); // end of day
+          const fileDate = new Date(dateMatch[1] + "T23:59:59.999Z");
           const fileDateStart = new Date(dateMatch[1] + "T00:00:00.000Z");
-          if (startDate && fileDate < startDate) continue; // entire day is before range
-          if (endDate && fileDateStart > endDate) continue; // entire day is after range
+          if (startDate && fileDate < startDate) continue;
+          if (endDate && fileDateStart > endDate) continue;
         }
         const filePath = join(logsDir, entry);
         try {
@@ -245,9 +243,6 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
         );
       }
 
-      // Remove full unfiltered log files — conversation-scoped exports
-      // should only include conversation-filtered.jsonl to avoid leaking
-      // data from unrelated conversations.
       for (const logFile of collectedLogFiles) {
         try {
           rmSync(logFile, { force: true });
@@ -258,9 +253,6 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     }
 
     // --- Workspace allowlist ---
-    // Includes specific subpaths from <workspace>/ governed by the rules in
-    // ./log-export/AGENTS.md. Honors the same time + conversation filters as
-    // the rest of the export.
     const workspaceResult = collectWorkspaceData({
       staging,
       conversationId: conversationId || undefined,
@@ -315,23 +307,17 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
     );
 
     // --- Create tar.gz archive ---
-    const archiveBytes = createTarGz(staging);
-    if (!archiveBytes) {
-      return httpError("INTERNAL_ERROR", "Failed to create archive", 500);
+    const archiveBuffer = createTarGz(staging);
+    if (!archiveBuffer) {
+      throw new InternalError("Failed to create archive");
     }
 
-    return new Response(archiveBytes, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/gzip",
-        "Content-Disposition": 'attachment; filename="logs.tar.gz"',
-        "Content-Length": String(archiveBytes.byteLength),
-      },
-    });
+    return new Uint8Array(archiveBuffer);
   } catch (err) {
+    if (err instanceof InternalError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to export");
-    return httpError("INTERNAL_ERROR", `Failed to export: ${message}`, 500);
+    throw new InternalError(`Failed to export: ${message}`);
   } finally {
     try {
       rmSync(staging, { recursive: true, force: true });
@@ -341,17 +327,14 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
   }
 }
 
-/**
- * Replaces a string value with a presence flag: "(set)" if truthy, "(empty)" otherwise.
- */
+// ---------------------------------------------------------------------------
+// Config sanitization helpers
+// ---------------------------------------------------------------------------
+
 function redactStringValue(val: unknown): string {
   return val ? "(set)" : "(empty)";
 }
 
-/**
- * Reads the workspace config.json and strips sensitive fields.
- * Returns undefined if the file is missing or unreadable.
- */
 function readSanitizedConfig(): Record<string, unknown> | undefined {
   const configPath = getWorkspaceConfigPath();
   if (!existsSync(configPath)) return undefined;
@@ -360,10 +343,8 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
     const raw = readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw) as Record<string, unknown>;
 
-    // Strip legacy apiKeys (removed from schema but may still exist in old config files)
     delete config.apiKeys;
 
-    // Strip ingress webhook secret
     if (config.ingress && typeof config.ingress === "object") {
       const ingress = config.ingress as Record<string, unknown>;
       if (ingress.webhook && typeof ingress.webhook === "object") {
@@ -374,7 +355,6 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       config.ingress = ingress;
     }
 
-    // Strip skill-level API keys and env vars
     if (config.skills && typeof config.skills === "object") {
       const skills = config.skills as Record<string, unknown>;
       if (skills.entries && typeof skills.entries === "object") {
@@ -395,14 +375,12 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       }
     }
 
-    // Strip Twilio accountSid
     if (config.twilio && typeof config.twilio === "object") {
       const twilio = config.twilio as Record<string, unknown>;
       twilio.accountSid = redactStringValue(twilio.accountSid);
       config.twilio = twilio;
     }
 
-    // Strip MCP transport headers (SSE/streamable-http) and env vars (stdio)
     if (config.mcp && typeof config.mcp === "object") {
       const mcp = config.mcp as Record<string, unknown>;
       if (mcp.servers && typeof mcp.servers === "object") {
@@ -444,55 +422,67 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function logExportRouteDefinitions(): HTTPRouteDefinition[] {
-  const exportRequestBody = z.object({
-    auditLimit: z
-      .number()
-      .int()
-      .optional()
-      .describe("Max audit records (default 1000)"),
-    conversationId: z
-      .string()
-      .optional()
-      .describe("Scope to a single conversation"),
-    full: z
-      .boolean()
-      .optional()
-      .describe(
-        "Full export — include messages, LLM request logs, and usage events for all conversations. Use for test data debugging.",
-      ),
-    startTime: z.number().optional().describe("Lower bound epoch ms"),
-    endTime: z.number().optional().describe("Upper bound epoch ms"),
-  });
+const exportRequestBody = z.object({
+  auditLimit: z
+    .number()
+    .int()
+    .optional()
+    .describe("Max audit records (default 1000)"),
+  conversationId: z
+    .string()
+    .optional()
+    .describe("Scope to a single conversation"),
+  full: z
+    .boolean()
+    .optional()
+    .describe(
+      "Full export — include messages, LLM request logs, and usage events for all conversations.",
+    ),
+  startTime: z.number().optional().describe("Lower bound epoch ms"),
+  endTime: z.number().optional().describe("Upper bound epoch ms"),
+});
 
-  return [
-    {
-      endpoint: "export",
-      method: "POST",
-      policyKey: "export",
-      summary: "Export logs and audit data",
-      description:
-        "Export audit records, assistant logs, and config as a tar.gz archive.",
-      tags: ["export"],
-      requestBody: exportRequestBody,
-      handler: async ({ req }) => {
-        const body = (await req.json()) as ExportRequestBody;
-        return handleExport(body);
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "export_logs",
+    endpoint: "export",
+    method: "POST",
+    policyKey: "export",
+    handler: handleExport,
+    summary: "Export logs and audit data",
+    description:
+      "Export audit records, assistant logs, and config as a tar.gz archive.",
+    tags: ["export"],
+    requestBody: exportRequestBody,
+    responseHeaders: {
+      "Content-Type": "application/gzip",
+      "Content-Disposition": 'attachment; filename="logs.tar.gz"',
+    },
+    additionalResponses: {
+      "500": {
+        description: "Failed to create archive",
       },
     },
-    {
-      endpoint: "logs/export",
-      method: "POST",
-      policyKey: "export",
-      summary: "Export logs and audit data (alias)",
-      description:
-        "Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.",
-      tags: ["export"],
-      requestBody: exportRequestBody,
-      handler: async ({ req }) => {
-        const body = (await req.json()) as ExportRequestBody;
-        return handleExport(body);
+  },
+  {
+    operationId: "export_logs_alias",
+    endpoint: "logs/export",
+    method: "POST",
+    policyKey: "export",
+    handler: handleExport,
+    summary: "Export logs and audit data (alias)",
+    description:
+      "Alias for /v1/export. Export audit records, assistant logs, and config as a tar.gz archive.",
+    tags: ["export"],
+    requestBody: exportRequestBody,
+    responseHeaders: {
+      "Content-Type": "application/gzip",
+      "Content-Disposition": 'attachment; filename="logs.tar.gz"',
+    },
+    additionalResponses: {
+      "500": {
+        description: "Failed to create archive",
       },
     },
-  ];
-}
+  },
+];

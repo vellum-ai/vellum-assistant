@@ -29,7 +29,7 @@ import {
   estimatePromptTokensRaw,
   estimateToolsTokens,
 } from "../context/token-estimator.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultTokenEstimatePlugin,
   defaultTokenEstimateTerminal,

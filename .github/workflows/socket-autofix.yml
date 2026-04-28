@@ -1,0 +1,65 @@
+name: Socket Fix
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Mondays at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: socket-autofix
+  # Don't cancel mid-run: socket-fix opens PRs as it goes; cancelling leaves
+  # half-created branches / partial manifest state.
+  cancel-in-progress: false
+
+jobs:
+  socket-fix:
+    name: Socket Fix (dep upgrades)
+    if: github.repository == 'vellum-ai/vellum-assistant'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Multi-workspace monorepo (no root package.json). See docs/socket.md.
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - assistant
+          - cli
+          - credential-executor
+          - gateway
+          - clients/chrome-extension
+          - clients/chrome-extension/native-host
+          - packages/ces-contracts
+          - packages/credential-storage
+          - packages/egress-proxy
+          - skills/meet-join
+          - skills/meet-join/bot
+          - skills/meet-join/meet-controller-ext
+    defaults:
+      run:
+        working-directory: ${{ matrix.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      # See docs/socket.md for rationale (cross-workspace postinstall side-effects).
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Run socket fix
+        run: bunx @socketsecurity/cli fix --autopilot --pr-limit 3 --minimum-release-age 1w
+        env:
+          SOCKET_CLI_API_TOKEN: ${{ secrets.SOCKET_CLI_API_TOKEN }}
+          SOCKET_CLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOCKET_CLI_GIT_USER_NAME: socket-fix[bot]
+          SOCKET_CLI_GIT_USER_EMAIL: socket-fix[bot]@users.noreply.github.com

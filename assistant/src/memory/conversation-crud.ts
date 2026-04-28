@@ -22,7 +22,7 @@ import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { TrustContext } from "../daemon/trust-context.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
@@ -45,8 +45,9 @@ import {
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { getDb, rawExec, rawGet, rawRun } from "./db.js";
+import { getDb } from "./db-connection.js";
 import { indexMessageNow } from "./indexer.js";
+import { rawExec, rawGet, rawRun } from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,

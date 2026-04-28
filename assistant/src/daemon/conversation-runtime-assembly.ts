@@ -46,6 +46,7 @@ import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
 import { type PkbContextConversation } from "./pkb-context-tracker.js";
+import type { TrustContext } from "./trust-context.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -64,50 +65,6 @@ export interface ChannelCapabilities {
   clientOS?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup", "channel", "im", "mpim"). */
   chatType?: string;
-}
-
-/**
- * Runtime trust context for an inbound actor conversation.
- *
- * Carries the resolved trust classification, guardian binding metadata, and
- * requester identity for the current conversation. This is the canonical trust
- * shape used by conversations, tool execution, memory gating, and channel routing.
- *
- * Produced by {@link resolveActorTrust} -> {@link toTrustContext}, or by
- * the convenience wrapper {@link resolveTrustContext}.
- *
- * The `trustClass` field determines the actor's permission level:
- * - `'guardian'`: full access, self-approves tool invocations
- * - `'trusted_contact'`: non-guardian contact; the assistant should confirm guardian intent when appropriate
- * - `'unknown'`: fail-closed, no escalation
- *
- * Guardian-specific fields (`guardianChatId`, `guardianExternalUserId`,
- * `guardianPrincipalId`) describe the guardian binding for this channel,
- * NOT the current actor (unless the actor IS the guardian).
- */
-export interface TrustContext {
-  /** Channel through which the inbound message arrived. */
-  sourceChannel: ChannelId;
-  /** Trust classification -- see {@link TrustClass} for semantics. */
-  trustClass: "guardian" | "trusted_contact" | "unknown";
-  /** Chat/conversation ID for delivering guardian notifications. */
-  guardianChatId?: string;
-  /** Canonical external user ID of the guardian for this (assistant, channel) binding. */
-  guardianExternalUserId?: string;
-  /** Internal principal ID of the guardian. */
-  guardianPrincipalId?: string;
-  /** Human-readable identifier for the requester (e.g. @username or phone number). */
-  requesterIdentifier?: string;
-  /** Preferred display name for the requester (member name or sender name). */
-  requesterDisplayName?: string;
-  /** Raw sender display name as provided by the channel transport. */
-  requesterSenderDisplayName?: string;
-  /** Guardian-managed display name from the contact record. */
-  requesterMemberDisplayName?: string;
-  /** Canonical external user ID of the requester (the current actor). */
-  requesterExternalUserId?: string;
-  /** Chat/conversation ID the requester is interacting through. */
-  requesterChatId?: string;
 }
 
 /**

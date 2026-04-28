@@ -1,5 +1,5 @@
 /**
- * Home activity feed HTTP routes.
+ * Home activity feed routes.
  *
  * Exposes the three endpoints the macOS Home page uses to render and
  * interact with the activity feed:
@@ -37,8 +37,8 @@ import {
   createConversation,
 } from "../../memory/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("home-feed-routes");
 
@@ -85,17 +85,9 @@ const patchFeedItemRequestSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Pure helpers (exported for direct testing — see home-feed-routes.test.ts)
+// Pure helpers (exported for direct testing)
 // ---------------------------------------------------------------------------
 
-/**
- * Map the server's wall-clock hour to a human greeting. Pure function;
- * no LLM. The buckets match the plan:
- *   - 05:00–11:59 → "Good morning"
- *   - 12:00–16:59 → "Good afternoon"
- *   - 17:00–21:59 → "Good evening"
- *   - otherwise   → "Welcome back"
- */
 export function computeGreeting(now: Date): string {
   const hour = now.getHours();
   if (hour >= 5 && hour < 12) return "Good morning";
@@ -104,11 +96,6 @@ export function computeGreeting(now: Date): string {
   return "Welcome back";
 }
 
-/**
- * Format a `timeAwaySeconds` value as a coarse relative-time label.
- * Kept in-file since no other caller needs it yet; extract to a shared
- * util module when a second caller appears.
- */
 export function formatRelativeTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 60) return "just now";
   if (seconds < 3600) {
@@ -124,10 +111,6 @@ export function formatRelativeTime(seconds: number): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-/**
- * Bucket `timeAwaySeconds` into coarse ranges used only for debug
- * logging cardinality control. Not exposed to clients.
- */
 function timeAwayBucket(seconds: number): string {
   if (seconds < 1800) return "<1800";
   if (seconds < 14400) return "1800-14400";
@@ -140,31 +123,18 @@ function timeAwayBucket(seconds: number): string {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/**
- * `GET /v1/home/feed`.
- *
- * Required query param: `timeAwaySeconds` (non-negative integer). The
- * handler reads the feed via `readHomeFeed()` (which has already
- * applied TTL filtering), drops items whose `minTimeAway` exceeds the
- * client-reported time away, then computes the context banner.
- */
-export async function handleGetHomeFeed(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const raw = url.searchParams.get("timeAwaySeconds");
-  if (raw === null) {
-    return httpError(
-      "BAD_REQUEST",
+export async function handleGetHomeFeed({
+  queryParams = {},
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const raw = queryParams.timeAwaySeconds;
+  if (raw === undefined) {
+    throw new BadRequestError(
       "Missing required query parameter: timeAwaySeconds",
-      400,
     );
   }
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    return httpError(
-      "BAD_REQUEST",
-      "timeAwaySeconds must be a non-negative integer",
-      400,
-    );
+    throw new BadRequestError("timeAwaySeconds must be a non-negative integer");
   }
   const timeAwaySeconds = parsed;
 
@@ -174,9 +144,6 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     return item.minTimeAway <= timeAwaySeconds;
   });
 
-  // Compute low-priority metadata the client can use to decide how
-  // to render collapsed sections. All items stay in the response —
-  // the client handles collapsing in the UI layer.
   const LOW_PRIORITY_THRESHOLD = 30;
   const lowPriorityItems = filtered.filter(
     (item) => item.priority < LOW_PRIORITY_THRESHOLD,
@@ -208,46 +175,17 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     "GET /v1/home/feed",
   );
 
-  // Fire the on-visit rollup refresh AFTER computing the response so
-  // nothing in the trigger path can delay the GET. The rollup runs
-  // fire-and-forget; its writes will publish `home_feed_updated` via
-  // the writer's SSE path, and the client auto-refreshes.
   maybeTriggerOnVisitRollupRefresh(now);
 
-  return Response.json({
+  return {
     items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
     suggestedPrompts,
     lowPriorityCollapsed,
-  });
+  };
 }
 
-/**
- * Fire the rollup producer fire-and-forget when the debounce window
- * has elapsed since the last trigger. Returns immediately — the
- * caller never awaits the rollup, and any error inside the producer
- * is swallowed into a warn log so an LLM hiccup can never turn a
- * GET /v1/home/feed into a 500.
- *
- * The debounce is deliberately set in this module rather than the
- * producer itself so the producer stays reusable from the scheduler
- * (which has its own separate 2h safety-net cadence). The
- * producer's internal in-flight guard handles the rare race where
- * both the scheduler and the route fire at the same instant.
- *
- * Debounce semantics: we eager-advance `lastOnVisitRefreshAt` before
- * awaiting the producer so concurrent GETs during the LLM call are
- * blocked at the guard check above. When the producer returns with
- * a skip reason that short-circuited BEFORE the LLM call
- * (`no_provider`, `no_actions`, `in_flight`) we roll the gate back
- * to its previous value — burning the full 10-minute window on a
- * daemon that hasn't finished booting would leave Home stale the
- * whole time the user is actively trying to refresh. Real LLM
- * attempts (success / `empty_items` / `malformed_output` /
- * `provider_error`) keep the advanced gate so a broken producer
- * can't be hammered by an aggressive client.
- */
 function maybeTriggerOnVisitRollupRefresh(now: Date): void {
   const nowMs = now.getTime();
   if (nowMs - lastOnVisitRefreshAt < ON_VISIT_REFRESH_DEBOUNCE_MS) return;
@@ -260,12 +198,6 @@ function maybeTriggerOnVisitRollupRefresh(now: Date): void {
         result.skippedReason === "no_actions" ||
         result.skippedReason === "in_flight";
       if (skippedBeforeLLM) {
-        // Only roll back if no subsequent GET has since advanced the
-        // gate past our eager value. Defensive: given the guard at
-        // the top of this function a concurrent GET shouldn't be
-        // able to advance past our `nowMs`, but if some future
-        // refactor changes that we don't want to silently clobber a
-        // newer timestamp.
         if (lastOnVisitRefreshAt === nowMs) {
           lastOnVisitRefreshAt = previousRefreshAt;
         }
@@ -290,45 +222,22 @@ function maybeTriggerOnVisitRollupRefresh(now: Date): void {
     });
 }
 
-/**
- * `PATCH /v1/home/feed/:id`.
- *
- * Body: `{ status: "new" | "seen" | "acted_on" | "dismissed" }`. Returns the updated
- * `FeedItem` on success.
- *
- * Disambiguates the writer's `null` return by looking up the item via
- * `readHomeFeed()` first — if the lookup finds the item and the patch
- * still returns null, it's a write failure (500), not a missing id
- * (404).
- */
-export async function handlePatchFeedItem(
-  req: Request,
-  itemId: string,
-): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-  }
+export async function handlePatchFeedItem({
+  pathParams = {},
+  body,
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const itemId = pathParams.id;
 
   const parsed = patchFeedItemRequestSchema.safeParse(body);
   if (!parsed.success) {
-    return httpError("BAD_REQUEST", "Invalid request body", 400, {
-      issues: parsed.error.issues,
-    });
+    throw new BadRequestError("Invalid request body");
   }
   const status: FeedItemStatus = parsed.data.status;
 
-  // Pre-check for existence so we can distinguish "unknown id" (404)
-  // from "found, but write failed" (500). The writer applies the patch
-  // inside its coalescing queue against the same on-disk state we just
-  // read, so a race where the item disappears between the check and
-  // the write resolves cleanly as a 500 (write failed / no such item).
   const currentFeed = readHomeFeed();
   const existing = currentFeed.items.find((i) => i.id === itemId);
   if (!existing) {
-    return httpError("NOT_FOUND", `Feed item not found: ${itemId}`, 404);
+    throw new NotFoundError(`Feed item not found: ${itemId}`);
   }
 
   const updated = await patchFeedItemStatus(itemId, status);
@@ -337,42 +246,27 @@ export async function handlePatchFeedItem(
       { itemId, status },
       "patchFeedItemStatus returned null despite pre-check — treating as write failure",
     );
-    return httpError(
-      "INTERNAL_ERROR",
-      "Failed to persist feed item status",
-      500,
-    );
+    throw new InternalError("Failed to persist feed item status");
   }
 
-  return Response.json(updated);
+  return updated as unknown as Record<string, unknown>;
 }
 
-/**
- * `POST /v1/home/feed/:id/actions/:actionId`.
- *
- * Looks up the item + action, creates a new conversation pre-seeded
- * with the action's `prompt` as the first user message, and returns
- * `{ conversationId }`. Any lookup failure → 404; conversation create
- * error → 500.
- */
-export async function handlePostFeedAction(
-  _req: Request,
-  itemId: string,
-  actionId: string,
-): Promise<Response> {
+export async function handlePostFeedAction({
+  pathParams = {},
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const itemId = pathParams.id;
+  const actionId = pathParams.actionId;
+
   const feed = readHomeFeed();
   const item: FeedItem | undefined = feed.items.find((i) => i.id === itemId);
   if (!item) {
-    return httpError("NOT_FOUND", `Feed item not found: ${itemId}`, 404);
+    throw new NotFoundError(`Feed item not found: ${itemId}`);
   }
 
   const action = item.actions?.find((a) => a.id === actionId);
   if (!action) {
-    return httpError(
-      "NOT_FOUND",
-      `Action not found on item ${itemId}: ${actionId}`,
-      404,
-    );
+    throw new NotFoundError(`Action not found on item ${itemId}: ${actionId}`);
   }
 
   try {
@@ -385,17 +279,13 @@ export async function handlePostFeedAction(
       "user",
       JSON.stringify([{ type: "text", text: action.prompt }]),
     );
-    return Response.json({ conversationId: conversation.id });
+    return { conversationId: conversation.id };
   } catch (err) {
     log.warn(
       { err, itemId, actionId },
       "Failed to create conversation from feed action",
     );
-    return httpError(
-      "INTERNAL_ERROR",
-      "Failed to create conversation for feed action",
-      500,
-    );
+    throw new InternalError("Failed to create conversation for feed action");
   }
 }
 
@@ -403,50 +293,58 @@ export async function handlePostFeedAction(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function homeFeedRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "home/feed",
-      method: "GET",
-      handler: ({ req }) => handleGetHomeFeed(req),
-      summary: "Get home activity feed",
-      description:
-        "Return the current Home activity feed with TTL + time-away filtering applied. Also returns a context banner (greeting, relative time-away label, new-item count).",
-      tags: ["home"],
-      queryParams: [
-        {
-          name: "timeAwaySeconds",
-          type: "integer",
-          required: true,
-          description:
-            "Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to compute the context-banner relative-time label.",
-        },
-      ],
-      responseBody: getHomeFeedResponseSchema,
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "get_home_feed",
+    endpoint: "home/feed",
+    method: "GET",
+    handler: handleGetHomeFeed,
+    summary: "Get home activity feed",
+    description:
+      "Return the current Home activity feed with TTL + time-away filtering applied. Also returns a context banner (greeting, relative time-away label, new-item count).",
+    tags: ["home"],
+    queryParams: [
+      {
+        name: "timeAwaySeconds",
+        type: "integer",
+        required: true,
+        description:
+          "Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to compute the context-banner relative-time label.",
+      },
+    ],
+    responseBody: getHomeFeedResponseSchema,
+  },
+  {
+    operationId: "patch_home_feed_item",
+    endpoint: "home/feed/:id",
+    method: "PATCH",
+    handler: handlePatchFeedItem,
+    summary: "Patch home feed item status",
+    description:
+      "Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item on success, 404 if the item does not exist, 500 if the underlying write fails.",
+    tags: ["home"],
+    requestBody: patchFeedItemRequestSchema,
+    responseBody: feedItemSchema,
+    additionalResponses: {
+      "404": { description: "Feed item not found" },
+      "500": { description: "Failed to persist feed item status" },
     },
-    {
-      endpoint: "home/feed/:id",
-      method: "PATCH",
-      handler: ({ req, params }) => handlePatchFeedItem(req, params.id),
-      summary: "Patch home feed item status",
-      description:
-        "Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item on success, 404 if the item does not exist, 500 if the underlying write fails.",
-      tags: ["home"],
-      requestBody: patchFeedItemRequestSchema,
-      responseBody: feedItemSchema,
+  },
+  {
+    operationId: "trigger_home_feed_action",
+    endpoint: "home/feed/:id/actions/:actionId",
+    method: "POST",
+    handler: handlePostFeedAction,
+    summary: "Trigger home feed action",
+    description:
+      "Create a new conversation pre-seeded with the action's prompt as the first user message. Returns the new `conversationId`.",
+    tags: ["home"],
+    responseBody: z.object({
+      conversationId: z.string(),
+    }),
+    additionalResponses: {
+      "404": { description: "Feed item or action not found" },
+      "500": { description: "Failed to create conversation" },
     },
-    {
-      endpoint: "home/feed/:id/actions/:actionId",
-      method: "POST",
-      handler: ({ req, params }) =>
-        handlePostFeedAction(req, params.id, params.actionId),
-      summary: "Trigger home feed action",
-      description:
-        "Create a new conversation pre-seeded with the action's prompt as the first user message. Returns the new `conversationId`.",
-      tags: ["home"],
-      responseBody: z.object({
-        conversationId: z.string(),
-      }),
-    },
-  ];
-}
+  },
+];

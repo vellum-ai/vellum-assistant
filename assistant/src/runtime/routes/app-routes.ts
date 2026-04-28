@@ -21,8 +21,12 @@ import {
   incrementDownloadCount,
 } from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
+import type {
+  ResponseHeaderArgs,
+  RouteDefinition,
+  RouteHandlerArgs,
+} from "./types.js";
 
 const log = getLogger("runtime-http");
 
@@ -50,10 +54,47 @@ function loadDesignSystemCss(): string {
   return designSystemCssCache;
 }
 
-export function handleServePage(appId: string): Response {
+// ---------------------------------------------------------------------------
+// CSP helpers (shared between handlers and responseHeaders)
+// ---------------------------------------------------------------------------
+
+function buildCsp(scriptSrc: string): string {
+  return [
+    "default-src 'self'",
+    `style-src 'self' 'unsafe-inline'`,
+    `script-src ${scriptSrc}`,
+    "img-src 'self' data: https:",
+    "font-src 'self' data: https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+}
+
+function servePageHeaders({ pathParams }: ResponseHeaderArgs): Record<string, string> {
+  const appId = pathParams?.appId as string;
+  const app = getApp(appId);
+  // Multifile apps use external scripts — no 'unsafe-inline' for script-src.
+  // Legacy apps contain inline event handlers that require 'unsafe-inline'.
+  const scriptSrc = app && isMultifileApp(app)
+    ? "'self'"
+    : "'self' 'unsafe-inline'";
+  return {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": buildCsp(scriptSrc),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Handlers (return body only)
+// ---------------------------------------------------------------------------
+
+function handleServePage({ pathParams }: RouteHandlerArgs): string {
+  const appId = pathParams?.appId as string;
   const app = getApp(appId);
   if (!app) {
-    return httpError("NOT_FOUND", "App not found", 404);
+    throw new NotFoundError("App not found");
   }
 
   // Multifile apps serve the compiled dist/index.html directly.
@@ -77,7 +118,7 @@ export function handleServePage(appId: string): Response {
     `<script nonce="${nonce}"`,
   );
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -89,36 +130,13 @@ export function handleServePage(appId: string): Response {
 ${noncedHtml}
 </body>
 </html>`;
-
-  // App HTML is user- or LLM-generated and commonly contains inline event
-  // handlers (onclick, onkeydown, etc.). Nonce-only script-src blocks those
-  // because CSP nonces only authorize <script> blocks, not handler attributes.
-  // We keep 'unsafe-inline' so arbitrary app content works.
-  const csp = [
-    "default-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https:",
-    "font-src 'self' data: https:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-  ].join("; ");
-
-  return new Response(html, {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": csp,
-    },
-  });
 }
 
 /**
  * Serve compiled output for multifile TSX apps.
  * Falls back to a "not compiled yet" message if dist/index.html is missing.
  */
-function serveMultifileApp(appId: string, appName: string): Response {
+function serveMultifileApp(appId: string, appName: string): string {
   const distDir = join(getAppDirPath(appId), "dist");
   const indexPath = join(distDir, "index.html");
 
@@ -127,12 +145,9 @@ function serveMultifileApp(appId: string, appName: string): Response {
       /[<>&"]/g,
       (c) => HTML_ESCAPE_MAP[c] ?? c,
     );
-    return new Response(
+    return (
       `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
-        `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`,
-      {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      },
+      `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`
     );
   }
 
@@ -149,27 +164,7 @@ function serveMultifileApp(appId: string, appName: string): Response {
     },
   );
 
-  // Compiled apps use external scripts so 'unsafe-inline' is not needed for
-  // script-src; however we keep it for style-src since the app HTML may use
-  // inline styles.
-  const csp = [
-    "default-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "script-src 'self'",
-    "img-src 'self' data: https:",
-    "font-src 'self' data: https:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "frame-ancestors 'self'",
-  ].join("; ");
-
-  return new Response(html, {
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      "Content-Security-Policy": csp,
-    },
-  });
+  return html;
 }
 
 /** Content-Type map for static dist/ assets. */
@@ -190,7 +185,12 @@ const DIST_CONTENT_TYPES: Record<string, string> = {
  * Serve a static file from an app's dist/ directory.
  * Validates the filename to prevent path traversal.
  */
-export function handleServeDistFile(appId: string, filename: string): Response {
+function handleServeDistFile({
+  pathParams,
+}: RouteHandlerArgs): Uint8Array {
+  const appId = pathParams?.appId as string;
+  const filename = pathParams?.filename as string;
+
   // Reject any traversal attempts on appId
   if (
     !appId ||
@@ -199,7 +199,7 @@ export function handleServeDistFile(appId: string, filename: string): Response {
     appId.includes("\\") ||
     appId !== appId.trim()
   ) {
-    return httpError("BAD_REQUEST", "Invalid appId", 400);
+    throw new BadRequestError("Invalid appId");
   }
 
   // Reject any traversal attempts on filename
@@ -210,43 +210,41 @@ export function handleServeDistFile(appId: string, filename: string): Response {
     filename.includes("\\") ||
     filename !== filename.trim()
   ) {
-    return httpError("BAD_REQUEST", "Invalid filename", 400);
+    throw new BadRequestError("Invalid filename");
   }
 
   const filePath = join(getAppDirPath(appId), "dist", filename);
   if (!existsSync(filePath)) {
-    return httpError("NOT_FOUND", "File not found", 404);
+    throw new NotFoundError("File not found");
   }
 
-  const ext = extname(filename).toLowerCase();
-  const contentType = DIST_CONTENT_TYPES[ext] ?? "application/octet-stream";
-  const content = readFileSync(filePath);
-
-  return new Response(content, {
-    headers: {
-      "Content-Type": contentType,
-      "Cache-Control": "no-cache",
-    },
-  });
+  return new Uint8Array(readFileSync(filePath));
 }
 
 /** 50 MB — generous cap for zip app bundles. */
 const MAX_SHARE_BODY_BYTES = 50 * 1024 * 1024;
 
-async function handleShareApp(req: Request): Promise<Response> {
-  const rawBody = await req.arrayBuffer();
+async function handleShareApp({
+  rawBody,
+}: RouteHandlerArgs): Promise<{
+  shareToken: string;
+  shareUrl: string;
+  bundleSizeBytes: number;
+}> {
+  if (!rawBody) {
+    throw new BadRequestError("Expected binary body");
+  }
+
   if (rawBody.byteLength > MAX_SHARE_BODY_BYTES) {
-    return httpError(
-      "BAD_REQUEST",
+    throw new BadRequestError(
       `Request body too large (limit: ${MAX_SHARE_BODY_BYTES} bytes)`,
-      413,
     );
   }
 
   const bundleData = Buffer.from(rawBody);
 
   if (bundleData.length === 0) {
-    return httpError("BAD_REQUEST", "Empty body", 400);
+    throw new BadRequestError("Empty body");
   }
 
   // Validate it's a valid zip with a manifest.json
@@ -255,145 +253,160 @@ async function handleShareApp(req: Request): Promise<Response> {
     const zip = await JSZip.loadAsync(bundleData);
     const manifestFile = zip.file("manifest.json");
     if (!manifestFile) {
-      return httpError(
-        "BAD_REQUEST",
-        "Invalid bundle: missing manifest.json",
-        400,
-      );
+      throw new BadRequestError("Invalid bundle: missing manifest.json");
     }
     const manifestText = await manifestFile.async("text");
     manifest = JSON.parse(manifestText) as AppManifest;
     if (!manifest.name || !manifest.entry) {
-      return httpError(
-        "BAD_REQUEST",
-        "Invalid manifest: missing required fields",
-        400,
-      );
+      throw new BadRequestError("Invalid manifest: missing required fields");
     }
   } catch (err) {
-    if (err instanceof Response) throw err;
-    return httpError("BAD_REQUEST", "Invalid zip file", 400);
+    if (err instanceof RouteError) throw err;
+    throw new BadRequestError("Invalid zip file");
   }
 
   const { shareToken } = createSharedAppLink(bundleData, manifest);
 
-  return Response.json({
+  return {
     shareToken,
     shareUrl: `/v1/apps/shared/${shareToken}`,
     bundleSizeBytes: bundleData.length,
-  });
+  };
 }
 
-function handleDownloadSharedApp(shareToken: string): Response {
+function handleDownloadSharedApp({
+  pathParams,
+}: RouteHandlerArgs): Uint8Array {
+  const shareToken = pathParams?.token as string;
   const record = getSharedAppLink(shareToken);
   if (!record) {
-    return httpError("NOT_FOUND", "Shared app not found", 404);
+    throw new NotFoundError("Shared app not found");
   }
 
   incrementDownloadCount(shareToken);
 
-  return new Response(new Uint8Array(record.bundleData), {
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": 'attachment; filename="app.vellum"',
-    },
-  });
+  return new Uint8Array(record.bundleData);
 }
 
-function handleGetSharedAppMetadata(shareToken: string): Response {
+function handleGetSharedAppMetadata({ pathParams }: RouteHandlerArgs) {
+  const shareToken = pathParams?.token as string;
   const record = getSharedAppLink(shareToken);
   if (!record) {
-    return httpError("NOT_FOUND", "Shared app not found", 404);
+    throw new NotFoundError("Shared app not found");
   }
 
   let manifest: AppManifest;
   try {
     manifest = JSON.parse(record.manifestJson) as AppManifest;
   } catch {
-    return httpError("INTERNAL_ERROR", "Corrupted manifest data", 500);
+    throw new RouteError("Corrupted manifest data", "INTERNAL_ERROR", 500);
   }
 
-  return Response.json({
+  return {
     name: manifest.name,
     description: manifest.description,
     icon: manifest.icon,
     bundleSizeBytes: record.bundleSizeBytes,
-  });
+  };
 }
 
-function handleDeleteSharedApp(shareToken: string): Response {
+function handleDeleteSharedApp({ pathParams }: RouteHandlerArgs) {
+  const shareToken = pathParams?.token as string;
   const deleted = deleteSharedAppLinkByToken(shareToken);
   if (!deleted) {
-    return httpError("NOT_FOUND", "Shared app not found", 404);
+    throw new NotFoundError("Shared app not found");
   }
-  return Response.json({ success: true });
+  return { success: true };
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function appRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "apps/:appId/dist/:filename",
-      method: "GET",
-      policyKey: "apps/dist",
-      summary: "Serve app dist file",
-      description:
-        "Serve a static asset from an app's compiled dist/ directory.",
-      tags: ["apps"],
-      handler: ({ params }) =>
-        handleServeDistFile(params.appId, params.filename),
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "pages_serve",
+    endpoint: "pages/:appId",
+    method: "GET",
+    policyKey: "pages",
+    summary: "Serve app page",
+    description: "Render and serve a shareable app page as HTML.",
+    tags: ["apps"],
+    responseHeaders: servePageHeaders,
+    handler: handleServePage,
+  },
+  {
+    operationId: "apps_dist_file",
+    endpoint: "apps/:appId/dist/:filename",
+    method: "GET",
+    policyKey: "apps/dist",
+    summary: "Serve app dist file",
+    description:
+      "Serve a static asset from an app's compiled dist/ directory.",
+    tags: ["apps"],
+    responseHeaders: ({ pathParams }) => ({
+      "Content-Type":
+        DIST_CONTENT_TYPES[extname(pathParams?.filename ?? "").toLowerCase()] ??
+        "application/octet-stream",
+      "Cache-Control": "no-cache",
+    }),
+    handler: handleServeDistFile,
+  },
+  {
+    operationId: "apps_share",
+    endpoint: "apps/share",
+    method: "POST",
+    summary: "Share an app",
+    description: "Upload a zip app bundle and create a shareable link.",
+    tags: ["apps"],
+    responseBody: z.object({
+      shareToken: z.string(),
+      shareUrl: z.string(),
+      bundleSizeBytes: z.number(),
+    }),
+    handler: handleShareApp,
+  },
+  {
+    operationId: "apps_shared_metadata",
+    endpoint: "apps/shared/:token/metadata",
+    method: "GET",
+    policyKey: "apps/shared/metadata",
+    summary: "Get shared app metadata",
+    description: "Return metadata for a shared app bundle.",
+    tags: ["apps"],
+    responseBody: z.object({
+      name: z.string(),
+      description: z.string(),
+      icon: z.string(),
+      bundleSizeBytes: z.number(),
+    }),
+    handler: handleGetSharedAppMetadata,
+  },
+  {
+    operationId: "apps_shared_download",
+    endpoint: "apps/shared/:token",
+    method: "GET",
+    policyKey: "apps/shared",
+    summary: "Download shared app",
+    description: "Download a shared app bundle as a zip file.",
+    tags: ["apps"],
+    responseHeaders: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": 'attachment; filename="app.vellum"',
     },
-    {
-      endpoint: "apps/share",
-      method: "POST",
-      summary: "Share an app",
-      description: "Upload a zip app bundle and create a shareable link.",
-      tags: ["apps"],
-      responseBody: z.object({
-        shareToken: z.string(),
-        shareUrl: z.string(),
-        bundleSizeBytes: z.number(),
-      }),
-      handler: async ({ req }) => handleShareApp(req),
-    },
-    {
-      endpoint: "apps/shared/:token/metadata",
-      method: "GET",
-      policyKey: "apps/shared/metadata",
-      summary: "Get shared app metadata",
-      description: "Return metadata for a shared app bundle.",
-      tags: ["apps"],
-      responseBody: z.object({
-        name: z.string(),
-        description: z.string(),
-        icon: z.string(),
-        bundleSizeBytes: z.number(),
-      }),
-      handler: ({ params }) => handleGetSharedAppMetadata(params.token),
-    },
-    {
-      endpoint: "apps/shared/:token",
-      method: "GET",
-      policyKey: "apps/shared",
-      summary: "Download shared app",
-      description: "Download a shared app bundle as a zip file.",
-      tags: ["apps"],
-      handler: ({ params }) => handleDownloadSharedApp(params.token),
-    },
-    {
-      endpoint: "apps/shared/:token",
-      method: "DELETE",
-      policyKey: "apps/shared",
-      summary: "Delete shared app",
-      description: "Remove a shared app link.",
-      tags: ["apps"],
-      responseBody: z.object({
-        success: z.boolean(),
-      }),
-      handler: ({ params }) => handleDeleteSharedApp(params.token),
-    },
-  ];
-}
+    handler: handleDownloadSharedApp,
+  },
+  {
+    operationId: "apps_shared_delete",
+    endpoint: "apps/shared/:token",
+    method: "DELETE",
+    policyKey: "apps/shared",
+    summary: "Delete shared app",
+    description: "Remove a shared app link.",
+    tags: ["apps"],
+    responseBody: z.object({
+      success: z.boolean(),
+    }),
+    handler: handleDeleteSharedApp,
+  },
+];

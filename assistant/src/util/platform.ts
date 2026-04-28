@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -145,45 +145,6 @@ export function getXdgVellumConfigDirName(): string {
   if (!raw || raw === "production") return "vellum";
   if (!KNOWN_ENVIRONMENTS.has(raw)) return "vellum";
   return `vellum-${raw}`;
-}
-
-/**
- * Returns the XDG-compliant path for the platform API token. Resolves to
- * `$XDG_CONFIG_HOME/vellum/platform-token` in production and
- * `$XDG_CONFIG_HOME/vellum-<env>/platform-token` otherwise, matching the
- * Swift client and CLI.
- */
-export function getXdgPlatformTokenPath(): string {
-  const configHome =
-    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
-  return join(configHome, getXdgVellumConfigDirName(), "platform-token");
-}
-
-/**
- * Returns the instance-scoped path to the platform API token file
- * (~/.vellum/platform-token). Used as a fallback for local assistant
- * instances that may have the token written here by the desktop app.
- */
-function getPlatformTokenPath(): string {
-  return join(VELLUM_ROOT, "platform-token");
-}
-
-/**
- * Read the platform API token from disk. Checks the instance-scoped
- * path first, then falls back to the XDG-compliant shared location.
- * Returns null if neither file exists or can be read.
- */
-export function readPlatformToken(): string | null {
-  try {
-    return readFileSync(getPlatformTokenPath(), "utf-8").trim();
-  } catch {
-    // Instance-scoped token not found; try XDG path
-  }
-  try {
-    return readFileSync(getXdgPlatformTokenPath(), "utf-8").trim();
-  } catch {
-    return null;
-  }
 }
 
 export function getPidPath(): string {

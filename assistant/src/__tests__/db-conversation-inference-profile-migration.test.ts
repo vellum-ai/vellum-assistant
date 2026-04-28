@@ -14,8 +14,9 @@ mock.module("../util/logger.js", () => ({
 
 import { _resetDisplayOrderMigrationForTests } from "../memory/conversation-display-order-migration.js";
 import { _resetGroupMigrationForTests } from "../memory/conversation-group-migration.js";
-import { initializeDb, resetDb } from "../memory/db.js";
+import { resetDb } from "../memory/db-connection.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { migrateAddConversationInferenceProfile } from "../memory/migrations/227-add-conversation-inference-profile.js";
 import * as schema from "../memory/schema.js";
 import { getDbPath } from "../util/platform.js";

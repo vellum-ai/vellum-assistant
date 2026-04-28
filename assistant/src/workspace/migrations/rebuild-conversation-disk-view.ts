@@ -16,7 +16,7 @@ import {
   syncMessageToDisk,
   updateMetaFile,
 } from "../../memory/conversation-disk-view.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { conversations, messages } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 

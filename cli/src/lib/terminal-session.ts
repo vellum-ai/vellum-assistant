@@ -365,9 +365,19 @@ export async function nonInteractiveExec(
 
   const lines = clean.split("\n");
 
-  // Find output between sentinels
-  const startIdx = lines.findIndex((l) => l.includes(startSentinel));
-  const endIdx = lines.findIndex((l) => l.includes(endSentinel));
+  // Find output between sentinels. Search backwards because each sentinel
+  // string appears twice: once in the shell command echo and once in the
+  // actual output. We want the last occurrence (the output line).
+  let startIdx = -1;
+  let endIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (endIdx < 0 && lines[i].includes(endSentinel)) {
+      endIdx = i;
+    }
+    if (startIdx < 0 && lines[i].includes(startSentinel)) {
+      startIdx = i;
+    }
+  }
   const start = startIdx >= 0 ? startIdx + 1 : 0;
   const end = endIdx >= 0 ? endIdx : lines.length;
   const result = lines.slice(start, end).join("\n").trim();
@@ -376,13 +386,15 @@ export async function nonInteractiveExec(
     process.stdout.write(result + "\n");
   }
 
-  // Extract exit code from sentinel
+  // Extract exit code from sentinel (also search backwards)
   let exitCode = 0;
-  const exitLine = lines.find((l) => l.includes(exitCodeSentinel));
-  if (exitLine) {
-    const match = exitLine.match(/__VELLUM_EXIT_(\d+)/);
-    if (match) {
-      exitCode = parseInt(match[1], 10);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes(exitCodeSentinel)) {
+      const match = lines[i].match(/__VELLUM_EXIT_(\d+)/);
+      if (match) {
+        exitCode = parseInt(match[1], 10);
+      }
+      break;
     }
   }
 

@@ -14,7 +14,7 @@ import {
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,
@@ -147,7 +147,9 @@ Examples:
 
       const ipcResult = await cliIpcCall<{ ok: boolean; error?: string }>(
         "rename_conversation",
-        { conversationId, title: trimmedTitle },
+        {
+          body: { conversationId, title: trimmedTitle },
+        },
       );
 
       if (!ipcResult.ok) {
@@ -486,9 +488,11 @@ Examples:
           producedToolCalls: boolean;
           reason?: "not_found" | "archived" | "timeout" | "no_resolver";
         }>("wake_conversation", {
-          conversationId,
-          hint: opts.hint,
-          source: opts.source,
+          body: {
+            conversationId,
+            hint: opts.hint,
+            source: opts.source,
+          },
         });
 
         if (!result.ok) {

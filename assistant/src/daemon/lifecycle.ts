@@ -50,7 +50,7 @@ import {
 import { expireAllPendingCanonicalRequests } from "../memory/canonical-guardian-store.js";
 import { deleteMessageById, getMessages } from "../memory/conversation-crud.js";
 import { resolveConversationId } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   selectEmbeddingBackend,
   SPARSE_EMBEDDING_VERSION,
@@ -79,6 +79,7 @@ import {
 } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
+import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -973,12 +974,6 @@ export async function runDaemon(): Promise<void> {
           }));
         },
       },
-      findConversation: (conversationId) =>
-        server.findConversation(conversationId),
-      findConversationBySurfaceId: (surfaceId) =>
-        server.findConversationBySurfaceId(surfaceId),
-      getSkillContext: () => server.getSkillContext(),
-      getModelSetContext: () => server.getHandlerContext(),
       conversationManagementDeps: {
         switchConversation: (conversationId) =>
           switchConversation(conversationId, server.getHandlerContext()),
@@ -1023,14 +1018,13 @@ export async function runDaemon(): Promise<void> {
           );
         },
       },
-      getRecordingDeps: () => ({
-        getHandlerContext: () => server.getHandlerContext(),
-      }),
+    });
+
+    // Wire secrets route deps now that the server is available.
+    registerSecretsDeps({
       getCesClient: () => server.getCesClient(),
       onProviderCredentialsChanged: () =>
         server.refreshConversationsForProviderChange(),
-      getHeartbeatService: () => server.getHeartbeatService(),
-      getFilingService: () => server.getFilingService(),
     });
 
     // Fire-and-forget: Qdrant init and memory worker startup run concurrently
@@ -1321,7 +1315,6 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     heartbeat.start();
-    server.setHeartbeatService(heartbeat);
     log.info(
       {
         enabled: heartbeatConfig.enabled,
@@ -1342,7 +1335,6 @@ export async function runDaemon(): Promise<void> {
         }),
     });
     filing.start();
-    server.setFilingService(filing);
     log.info(
       {
         enabled: filingConfig.enabled,

@@ -40,6 +40,19 @@ export function getPlatformUrl(): string {
   );
 }
 
+/**
+ * Resolve the web app (Next.js) base URL for browser-facing pages like
+ * `/account/login`. Mirrors `VellumEnvironment.resolvedWebURL` on the
+ * Swift side.
+ *
+ * Resolution order:
+ *   1. `VELLUM_WEB_URL` env var (explicit override)
+ *   2. The current environment's seed web URL
+ */
+export function getWebUrl(): string {
+  return process.env.VELLUM_WEB_URL?.trim() || getCurrentEnvironment().webUrl;
+}
+
 export function readPlatformToken(): string | null {
   try {
     return readFileSync(getPlatformTokenPath(), "utf-8").trim();
@@ -514,6 +527,30 @@ export async function checkExistingPlatformAssistant(
   };
   const active = body.results?.find((a) => a.status === "active");
   return active ?? null;
+}
+
+/**
+ * Fetch all active assistants for the authenticated user from the platform.
+ * Returns an empty array on failure (non-fatal).
+ */
+export async function fetchPlatformAssistants(
+  token: string,
+  platformUrl?: string,
+): Promise<HatchedAssistant[]> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/`;
+
+  const response = await fetch(url, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (!response.ok) return [];
+
+  const body = (await response.json()) as {
+    results?: HatchedAssistant[];
+  };
+
+  return (body.results ?? []).filter((a) => a.status === "active");
 }
 
 export interface PlatformUser {

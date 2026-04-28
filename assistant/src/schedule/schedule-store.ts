@@ -2,7 +2,7 @@ import { Cron } from "croner";
 import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import { rawChanges } from "../memory/raw-query.js";
 import { scheduleJobs, scheduleRuns } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
@@ -498,6 +498,43 @@ export function failOneShot(id: string): void {
   db.update(scheduleJobs)
     .set({
       status: "active",
+      updatedAt: now,
+    })
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+    .run();
+}
+
+/**
+ * Revert a one-shot from 'firing' back to 'active' and increment its
+ * retry count. Used when a wake times out waiting for an idle conversation
+ * — the job should be retried on the next scheduler tick.
+ */
+export function retryOneShot(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "active",
+      retryCount: sql`${scheduleJobs.retryCount} + 1`,
+      updatedAt: now,
+    })
+    .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))
+    .run();
+}
+
+/**
+ * Permanently fail a one-shot schedule by marking it as cancelled and
+ * disabled. Used when a wake has exceeded its retry cap and should not
+ * be retried further.
+ */
+export function failOneShotPermanently(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "cancelled",
+      enabled: false,
+      lastStatus: "error",
       updatedAt: now,
     })
     .where(and(eq(scheduleJobs.id, id), eq(scheduleJobs.status, "firing")))

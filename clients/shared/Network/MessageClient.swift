@@ -40,7 +40,8 @@ public protocol MessageClientProtocol {
         bypassSecretCheck: Bool?,
         onboarding: PreChatOnboardingContext?,
         clientMessageId: String?,
-        inferenceProfile: String?
+        inferenceProfile: String?,
+        riskThreshold: String?
     ) async -> MessageSendResult
 }
 
@@ -175,7 +176,8 @@ public struct MessageClient: MessageClientProtocol {
         bypassSecretCheck: Bool? = nil,
         onboarding: PreChatOnboardingContext? = nil,
         clientMessageId: String? = nil,
-        inferenceProfile: String? = nil
+        inferenceProfile: String? = nil,
+        riskThreshold: String? = nil
     ) async -> MessageSendResult {
         log.info("[send-pipeline] message request start — uploadedAttachmentIds=\(attachmentIds.count)")
 
@@ -204,6 +206,9 @@ public struct MessageClient: MessageClientProtocol {
         }
         if let inferenceProfile {
             body["inferenceProfile"] = inferenceProfile
+        }
+        if let riskThreshold {
+            body["riskThreshold"] = riskThreshold
         }
         if let hostHomeDir = Self.hostHomeDir {
             body["hostHomeDir"] = hostHomeDir

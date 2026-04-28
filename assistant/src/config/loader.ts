@@ -231,6 +231,12 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "permissions.dangerouslySkipPermissions has been removed. " +
     "Permission prompts are now always shown when required. " +
     "The field will be removed from your config file.",
+  "permissions.mode":
+    "permissions.mode has been removed. The gateway now controls all auto-approve " +
+    "thresholds. The field will be removed from your config file.",
+  "permissions.autoApproveUpTo":
+    "permissions.autoApproveUpTo has been removed. The gateway now controls all " +
+    "auto-approve thresholds. The field will be removed from your config file.",
 };
 
 /**
@@ -238,6 +244,7 @@ const DEPRECATED_FIELDS: Record<string, string> = {
  * and strip them from both the in-memory object and the on-disk config file
  * so the warning is only emitted once.
  */
+
 function warnAndStripDeprecatedFields(
   fileConfig: Record<string, unknown>,
   configPath: string,

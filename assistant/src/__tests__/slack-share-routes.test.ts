@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import {
+  BadRequestError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "../runtime/routes/errors.js";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be declared before any imports that pull in mocked modules
 // ---------------------------------------------------------------------------
@@ -73,18 +79,6 @@ const { handleListSlackChannels, handleShareToSlackChannel } =
   await import("../runtime/routes/integrations/slack/share.js");
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeRequest(body: unknown): Request {
-  return new Request("http://localhost/v1/slack/share", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -103,11 +97,8 @@ beforeEach(() => {
 });
 
 describe("handleListSlackChannels", () => {
-  test("returns 503 when no token is configured", async () => {
-    const res = await handleListSlackChannels();
-    expect(res.status).toBe(503);
-    const json = (await res.json()) as { error: { code: string } };
-    expect(json.error.code).toBe("SERVICE_UNAVAILABLE");
+  test("throws ServiceUnavailableError when no token is configured", async () => {
+    expect(handleListSlackChannels()).rejects.toThrow(ServiceUnavailableError);
   });
 
   test("returns channels sorted by type then name", async () => {
@@ -142,9 +133,7 @@ describe("handleListSlackChannels", () => {
       },
     });
 
-    const res = await handleListSlackChannels();
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as {
+    const result = (await handleListSlackChannels()) as {
       channels: Array<{
         id: string;
         name: string;
@@ -153,29 +142,26 @@ describe("handleListSlackChannels", () => {
       }>;
     };
 
-    expect(json.channels).toHaveLength(4);
-    // Channels first (alphabetical)
-    expect(json.channels[0]).toEqual({
+    expect(result.channels).toHaveLength(4);
+    expect(result.channels[0]).toEqual({
       id: "C1",
       name: "alpha-channel",
       type: "channel",
       isPrivate: false,
     });
-    expect(json.channels[1]).toEqual({
+    expect(result.channels[1]).toEqual({
       id: "C2",
       name: "beta-channel",
       type: "channel",
       isPrivate: false,
     });
-    // Groups
-    expect(json.channels[2]).toEqual({
+    expect(result.channels[2]).toEqual({
       id: "G1",
       name: "group-chat",
       type: "group",
       isPrivate: true,
     });
-    // DMs (name resolved from userInfo)
-    expect(json.channels[3]).toEqual({
+    expect(result.channels[3]).toEqual({
       id: "D1",
       name: "Alice Smith",
       type: "dm",
@@ -185,50 +171,37 @@ describe("handleListSlackChannels", () => {
 });
 
 describe("handleShareToSlackChannel", () => {
-  test("returns 503 when no token is configured", async () => {
-    const req = makeRequest({ appId: "app1", channelId: "C1" });
-    const res = await handleShareToSlackChannel(req);
-    expect(res.status).toBe(503);
+  test("throws ServiceUnavailableError when no token is configured", async () => {
+    expect(
+      handleShareToSlackChannel({
+        body: { appId: "app1", channelId: "C1" },
+      }),
+    ).rejects.toThrow(ServiceUnavailableError);
   });
 
-  test("returns 400 for malformed JSON", async () => {
+  test("throws BadRequestError when missing required fields", async () => {
     connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
-    const req = new Request("http://localhost/v1/slack/share", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "not json",
-    });
-    const res = await handleShareToSlackChannel(req);
-    expect(res.status).toBe(400);
+    expect(
+      handleShareToSlackChannel({ body: { appId: "app1" } }),
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("returns 400 when missing required fields", async () => {
-    connectionByProvider["slack"] = { id: "conn-slack-1" };
-    secureKeyValues.set(
-      "oauth_connection/conn-slack-1/access_token",
-      "xoxb-test",
-    );
-    const req = makeRequest({ appId: "app1" });
-    const res = await handleShareToSlackChannel(req);
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: { message: string } };
-    expect(json.error.message).toContain("Missing required fields");
-  });
-
-  test("returns 404 when app not found", async () => {
+  test("throws NotFoundError when app not found", async () => {
     connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
     );
     appStoreResult = null;
-    const req = makeRequest({ appId: "missing-app", channelId: "C1" });
-    const res = await handleShareToSlackChannel(req);
-    expect(res.status).toBe(404);
+    expect(
+      handleShareToSlackChannel({
+        body: { appId: "missing-app", channelId: "C1" },
+      }),
+    ).rejects.toThrow(NotFoundError);
   });
 
   test("posts message and returns success", async () => {
@@ -247,20 +220,12 @@ describe("handleShareToSlackChannel", () => {
       updatedAt: 0,
     };
 
-    const req = makeRequest({
-      appId: "app1",
-      channelId: "C123",
-      message: "Check this out!",
-    });
-    const res = await handleShareToSlackChannel(req);
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as {
-      ok: boolean;
-      ts: string;
-      channel: string;
-    };
-    expect(json.ok).toBe(true);
-    expect(json.ts).toBe("1234567890.123456");
-    expect(json.channel).toBe("C123");
+    const result = (await handleShareToSlackChannel({
+      body: { appId: "app1", channelId: "C123", message: "Check this out!" },
+    })) as { ok: boolean; ts: string; channel: string };
+
+    expect(result.ok).toBe(true);
+    expect(result.ts).toBe("1234567890.123456");
+    expect(result.channel).toBe("C123");
   });
 });

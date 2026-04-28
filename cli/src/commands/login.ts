@@ -6,6 +6,10 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadLatestAssistant,
+  loadAllAssistants,
+  removeAssistantEntry,
+  saveAssistantEntry,
+  setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
 import {
@@ -13,7 +17,9 @@ import {
   ensureSelfHostedLocalRegistration,
   fetchCurrentUser,
   fetchOrganizationId,
+  fetchPlatformAssistants,
   getPlatformUrl,
+  getWebUrl,
   injectCredentialsIntoAssistant,
   readGatewayCredential,
   readPlatformToken,
@@ -45,7 +51,7 @@ function openBrowser(url: string): void {
  * Start a local HTTP server, open the browser to the platform login page,
  * and wait for the platform to redirect back with the session token.
  */
-function browserLogin(platformUrl: string): Promise<string> {
+function browserLogin(webUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const state = randomBytes(32).toString("hex");
 
@@ -112,7 +118,7 @@ function browserLogin(platformUrl: string): Promise<string> {
 
       const port = addr.port;
       const returnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
-      const loginUrl = `${platformUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
+      const loginUrl = `${webUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
 
       console.log("Opening browser for login...");
       console.log(`If the browser doesn't open, visit: ${loginUrl}`);
@@ -125,22 +131,30 @@ export async function login(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum login [--token <session-token>]");
+    console.log("Usage: vellum login [--token <session-token>] [--force]");
     console.log("");
     console.log("Log in to the Vellum platform.");
     console.log("");
     console.log("By default, opens a browser window for authentication.");
     console.log("Alternatively, pass a session token directly with --token.");
     console.log("");
+    console.log("On success, syncs cloud-managed assistants to the local");
+    console.log("lockfile so they appear in `vellum ps`.");
+    console.log("");
     console.log("Options:");
     console.log("  --token <token>    Session token from the Vellum platform");
+    console.log(
+      "  --force, -f        Re-authenticate even if already logged in",
+    );
     console.log("");
     console.log("Examples:");
     console.log("  vellum login");
     console.log("  vellum login --token <session-token>");
+    console.log("  vellum login --force");
     process.exit(0);
   }
 
+  const forceFlag = args.includes("--force") || args.includes("-f");
   let token: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -154,11 +168,27 @@ export async function login(): Promise<void> {
     }
   }
 
+  // Block if already authenticated (unless --force)
+  if (!forceFlag && !token) {
+    const existingToken = readPlatformToken();
+    if (existingToken) {
+      try {
+        const existingUser = await fetchCurrentUser(existingToken);
+        console.error(
+          `Already logged in as ${existingUser.email}. Run \`vellum logout\` first, or use \`vellum login --force\` to re-authenticate.`,
+        );
+        process.exit(1);
+      } catch {
+        // Token is stale/invalid — proceed with login
+      }
+    }
+  }
+
   // If no --token flag, use browser-based login
   if (!token) {
-    const platformUrl = getPlatformUrl();
+    const webUrl = getWebUrl();
     try {
-      token = await browserLogin(platformUrl);
+      token = await browserLogin(webUrl);
     } catch (error) {
       console.error(`❌ ${error instanceof Error ? error.message : error}`);
       process.exit(1);
@@ -247,6 +277,45 @@ export async function login(): Promise<void> {
     } catch {
       // Non-fatal — login succeeded even if registration fails
     }
+
+    // Sync cloud assistants from the platform into the local lockfile.
+    // This ensures `vellum ps` shows managed assistants immediately
+    // after login (e.g. after a retire-and-rehatch cycle).
+    try {
+      const platformAssistants = await fetchPlatformAssistants(token);
+      const existingIds = new Set(
+        loadAllAssistants()
+          .filter((a) => a.cloud === "vellum")
+          .map((a) => a.assistantId),
+      );
+
+      let synced = 0;
+      for (const pa of platformAssistants) {
+        if (!existingIds.has(pa.id)) {
+          saveAssistantEntry({
+            assistantId: pa.id,
+            runtimeUrl: getPlatformUrl(),
+            cloud: "vellum",
+            species: "vellum",
+            hatchedAt: new Date().toISOString(),
+          });
+          synced++;
+        }
+      }
+
+      if (synced > 0) {
+        console.log(
+          `Synced ${synced} cloud assistant${synced > 1 ? "s" : ""} to local lockfile.`,
+        );
+      }
+
+      // If no active assistant is set, activate the first cloud one.
+      if (!getActiveAssistant() && platformAssistants.length > 0) {
+        setActiveAssistant(platformAssistants[0].id);
+      }
+    } catch {
+      // Non-fatal — login succeeded even if sync fails
+    }
   } catch (error) {
     console.error(
       `❌ Login failed: ${error instanceof Error ? error.message : error}`,
@@ -261,9 +330,23 @@ export async function logout(): Promise<void> {
     console.log("Usage: vellum logout");
     console.log("");
     console.log(
-      "Log out of the Vellum platform and remove the stored session token.",
+      "Log out of the Vellum platform, remove the stored session token,",
     );
+    console.log("and remove cloud-managed assistants from the local lockfile.");
     process.exit(0);
+  }
+
+  // Remove cloud-managed assistants from the lockfile.
+  const cloudAssistants = loadAllAssistants().filter(
+    (a) => a.cloud === "vellum",
+  );
+  for (const a of cloudAssistants) {
+    removeAssistantEntry(a.assistantId);
+  }
+  if (cloudAssistants.length > 0) {
+    console.log(
+      `Removed ${cloudAssistants.length} cloud assistant${cloudAssistants.length > 1 ? "s" : ""} from local lockfile.`,
+    );
   }
 
   clearPlatformToken();

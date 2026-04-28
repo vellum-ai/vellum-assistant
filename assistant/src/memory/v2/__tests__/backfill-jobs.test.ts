@@ -202,7 +202,8 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { getDb, initializeDb, resetDb } = await import("../../db.js");
+const { getDb, resetDb } = await import("../../db-connection.js");
+const { initializeDb } = await import("../../db-init.js");
 const { rawExec } = await import("../../raw-query.js");
 const { conversations, memoryJobs, messages } = await import("../../schema.js");
 const { readPage, writePage } = await import("../page-store.js");

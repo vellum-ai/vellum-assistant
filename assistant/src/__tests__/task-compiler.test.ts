@@ -21,7 +21,8 @@ mock.module("./indexer.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   compileTaskFromConversation,
   saveCompiledTask,

@@ -1,12 +1,6 @@
 /**
  * Upgrade broadcast endpoint — publishes service group update lifecycle
  * events (starting / progress / complete) to all connected SSE clients.
- *
- * Protected by a route policy restricting access to gateway service
- * principals only (`svc_gateway` with `internal.write` scope), following
- * the same pattern as other gateway-forwarded control-plane endpoints.
- * The gateway requires a valid edge JWT and forwards the request with a
- * minted service token.
  */
 
 import { z } from "zod";
@@ -19,195 +13,160 @@ import type {
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { BadRequestError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-export function upgradeBroadcastRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "admin/upgrade-broadcast",
-      method: "POST",
-      summary: "Broadcast upgrade lifecycle event",
-      description:
-        "Publish a service group update lifecycle event (starting, progress, or complete) to all connected SSE clients.",
-      tags: ["admin"],
-      requestBody: z.object({
-        type: z
-          .string()
-          .describe('Event type: "starting", "progress", or "complete"'),
-        targetVersion: z
-          .string()
-          .describe("Target version (required for starting)")
-          .optional(),
-        expectedDowntimeSeconds: z
-          .number()
-          .describe("Expected downtime in seconds (starting, default 60)")
-          .optional(),
-        statusMessage: z
-          .string()
-          .describe("Status message (required for progress)")
-          .optional(),
-        installedVersion: z
-          .string()
-          .describe("Installed version (required for complete)")
-          .optional(),
-        success: z
-          .boolean()
-          .describe("Whether upgrade succeeded (required for complete)")
-          .optional(),
-        rolledBackToVersion: z
-          .string()
-          .describe("Version rolled back to, if any (complete)")
-          .optional(),
-      }),
-      responseBody: z.object({
-        ok: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        let body: unknown;
-        try {
-          body = await req.json();
-        } catch {
-          return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-        }
+async function handleUpgradeBroadcast({ body }: RouteHandlerArgs) {
+  if (!body || typeof body !== "object") {
+    throw new BadRequestError("Request body must be a JSON object");
+  }
 
-        if (!body || typeof body !== "object") {
-          return httpError(
-            "BAD_REQUEST",
-            "Request body must be a JSON object",
-            400,
-          );
-        }
+  const { type } = body as { type?: unknown };
 
-        const { type } = body as { type?: unknown };
+  if (type === "starting") {
+    const { targetVersion, expectedDowntimeSeconds } = body as {
+      targetVersion?: unknown;
+      expectedDowntimeSeconds?: unknown;
+    };
 
-        if (type === "starting") {
-          const { targetVersion, expectedDowntimeSeconds } = body as {
-            targetVersion?: unknown;
-            expectedDowntimeSeconds?: unknown;
-          };
+    if (typeof targetVersion !== "string" || targetVersion.length === 0) {
+      throw new BadRequestError(
+        "targetVersion is required and must be a non-empty string",
+      );
+    }
 
-          if (typeof targetVersion !== "string" || targetVersion.length === 0) {
-            return httpError(
-              "BAD_REQUEST",
-              "targetVersion is required and must be a non-empty string",
-              400,
-            );
-          }
+    const downtime =
+      expectedDowntimeSeconds === undefined ? 60 : expectedDowntimeSeconds;
 
-          const downtime =
-            expectedDowntimeSeconds === undefined
-              ? 60
-              : expectedDowntimeSeconds;
+    if (typeof downtime !== "number" || !isFinite(downtime) || downtime < 0) {
+      throw new BadRequestError(
+        "expectedDowntimeSeconds must be a non-negative number",
+      );
+    }
 
-          if (
-            typeof downtime !== "number" ||
-            !isFinite(downtime) ||
-            downtime < 0
-          ) {
-            return httpError(
-              "BAD_REQUEST",
-              "expectedDowntimeSeconds must be a non-negative number",
-              400,
-            );
-          }
+    const message: ServiceGroupUpdateStarting = {
+      type: "service_group_update_starting",
+      targetVersion,
+      expectedDowntimeSeconds: downtime,
+    };
 
-          const message: ServiceGroupUpdateStarting = {
-            type: "service_group_update_starting",
-            targetVersion,
-            expectedDowntimeSeconds: downtime,
-          };
+    await assistantEventHub.publish(
+      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
+    );
 
-          await assistantEventHub.publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
-          );
+    return { ok: true };
+  }
 
-          return Response.json({ ok: true });
-        }
+  if (type === "progress") {
+    const { statusMessage } = body as { statusMessage?: unknown };
 
-        if (type === "progress") {
-          const { statusMessage } = body as { statusMessage?: unknown };
+    if (typeof statusMessage !== "string" || statusMessage.length === 0) {
+      throw new BadRequestError(
+        "statusMessage is required and must be a non-empty string",
+      );
+    }
 
-          if (typeof statusMessage !== "string" || statusMessage.length === 0) {
-            return httpError(
-              "BAD_REQUEST",
-              "statusMessage is required and must be a non-empty string",
-              400,
-            );
-          }
+    const message: ServiceGroupUpdateProgress = {
+      type: "service_group_update_progress",
+      statusMessage,
+    };
 
-          const message: ServiceGroupUpdateProgress = {
-            type: "service_group_update_progress",
-            statusMessage,
-          };
+    await assistantEventHub.publish(
+      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
+    );
 
-          await assistantEventHub.publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
-          );
+    return { ok: true };
+  }
 
-          return Response.json({ ok: true });
-        }
+  if (type === "complete") {
+    const { installedVersion, success, rolledBackToVersion } = body as {
+      installedVersion?: unknown;
+      success?: unknown;
+      rolledBackToVersion?: unknown;
+    };
 
-        if (type === "complete") {
-          const { installedVersion, success, rolledBackToVersion } = body as {
-            installedVersion?: unknown;
-            success?: unknown;
-            rolledBackToVersion?: unknown;
-          };
+    if (typeof installedVersion !== "string" || installedVersion.length === 0) {
+      throw new BadRequestError(
+        "installedVersion is required and must be a non-empty string",
+      );
+    }
 
-          if (
-            typeof installedVersion !== "string" ||
-            installedVersion.length === 0
-          ) {
-            return httpError(
-              "BAD_REQUEST",
-              "installedVersion is required and must be a non-empty string",
-              400,
-            );
-          }
+    if (typeof success !== "boolean") {
+      throw new BadRequestError("success is required and must be a boolean");
+    }
 
-          if (typeof success !== "boolean") {
-            return httpError(
-              "BAD_REQUEST",
-              "success is required and must be a boolean",
-              400,
-            );
-          }
+    if (
+      rolledBackToVersion !== undefined &&
+      (typeof rolledBackToVersion !== "string" ||
+        rolledBackToVersion.length === 0)
+    ) {
+      throw new BadRequestError(
+        "rolledBackToVersion must be a non-empty string when provided",
+      );
+    }
 
-          if (
-            rolledBackToVersion !== undefined &&
-            (typeof rolledBackToVersion !== "string" ||
-              rolledBackToVersion.length === 0)
-          ) {
-            return httpError(
-              "BAD_REQUEST",
-              "rolledBackToVersion must be a non-empty string when provided",
-              400,
-            );
-          }
+    const message: ServiceGroupUpdateComplete = {
+      type: "service_group_update_complete",
+      installedVersion,
+      success,
+      ...(typeof rolledBackToVersion === "string"
+        ? { rolledBackToVersion }
+        : {}),
+    };
 
-          const message: ServiceGroupUpdateComplete = {
-            type: "service_group_update_complete",
-            installedVersion,
-            success,
-            ...(typeof rolledBackToVersion === "string"
-              ? { rolledBackToVersion }
-              : {}),
-          };
+    await assistantEventHub.publish(
+      buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
+    );
 
-          await assistantEventHub.publish(
-            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
-          );
+    return { ok: true };
+  }
 
-          return Response.json({ ok: true });
-        }
-
-        return httpError(
-          "BAD_REQUEST",
-          'type must be "starting", "progress", or "complete"',
-          400,
-        );
-      },
-    },
-  ];
+  throw new BadRequestError(
+    'type must be "starting", "progress", or "complete"',
+  );
 }
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "upgrade_broadcast",
+    endpoint: "admin/upgrade-broadcast",
+    method: "POST",
+    summary: "Broadcast upgrade lifecycle event",
+    description:
+      "Publish a service group update lifecycle event (starting, progress, or complete) to all connected SSE clients.",
+    tags: ["admin"],
+    requestBody: z.object({
+      type: z
+        .string()
+        .describe('Event type: "starting", "progress", or "complete"'),
+      targetVersion: z
+        .string()
+        .describe("Target version (required for starting)")
+        .optional(),
+      expectedDowntimeSeconds: z
+        .number()
+        .describe("Expected downtime in seconds (starting, default 60)")
+        .optional(),
+      statusMessage: z
+        .string()
+        .describe("Status message (required for progress)")
+        .optional(),
+      installedVersion: z
+        .string()
+        .describe("Installed version (required for complete)")
+        .optional(),
+      success: z
+        .boolean()
+        .describe("Whether upgrade succeeded (required for complete)")
+        .optional(),
+      rolledBackToVersion: z
+        .string()
+        .describe("Version rolled back to, if any (complete)")
+        .optional(),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+    }),
+    handler: handleUpgradeBroadcast,
+  },
+];

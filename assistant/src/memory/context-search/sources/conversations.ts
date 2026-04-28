@@ -3,7 +3,7 @@ import {
   buildExcerpt,
   buildFtsMatchQuery,
 } from "../../conversation-queries.js";
-import { rawAll } from "../../db.js";
+import { rawAll } from "../../raw-query.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const SUBAGENT_SOURCE = "subagent";

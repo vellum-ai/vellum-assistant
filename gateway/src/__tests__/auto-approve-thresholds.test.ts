@@ -50,9 +50,8 @@ describe("auto-approve thresholds", () => {
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
-        interactive: "low",
-        background: "medium",
-        headless: "none",
+        interactive: "medium",
+        autonomous: "low",
       });
     });
 
@@ -61,16 +60,15 @@ describe("auto-approve thresholds", () => {
       const getHandler = createGlobalThresholdGetHandler();
 
       // First PUT to set values
-      await putHandler(makeRequest({ interactive: "medium" }));
+      await putHandler(makeRequest({ interactive: "none" }));
 
       // GET should reflect the update
       const res = await getHandler(makeRequest(undefined, "GET"));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
-        interactive: "medium",
-        background: "medium",
-        headless: "none",
+        interactive: "none",
+        autonomous: "low",
       });
     });
   });
@@ -79,13 +77,12 @@ describe("auto-approve thresholds", () => {
     test("partial update only changes provided fields", async () => {
       const handler = createGlobalThresholdPutHandler();
 
-      const res = await handler(makeRequest({ interactive: "medium" }));
+      const res = await handler(makeRequest({ interactive: "none" }));
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
-        interactive: "medium",
-        background: "medium",
-        headless: "none",
+        interactive: "none",
+        autonomous: "low",
       });
     });
 
@@ -107,8 +104,7 @@ describe("auto-approve thresholds", () => {
       const data = await res.json();
       expect(data).toEqual({
         interactive: "high",
-        background: "medium",
-        headless: "none",
+        autonomous: "low",
       });
     });
 
@@ -143,22 +139,22 @@ describe("auto-approve thresholds", () => {
       expect(data.error).toContain("JSON object");
     });
 
-    test("returns 400 for invalid background value", async () => {
+    test("returns 400 for invalid autonomous value", async () => {
       const handler = createGlobalThresholdPutHandler();
 
-      const res = await handler(makeRequest({ background: "invalid" }));
+      const res = await handler(makeRequest({ autonomous: "invalid" }));
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toContain("background");
+      expect(data.error).toContain("autonomous");
     });
 
-    test("returns 400 for invalid headless value", async () => {
+    test("returns 400 for non-string autonomous value", async () => {
       const handler = createGlobalThresholdPutHandler();
 
-      const res = await handler(makeRequest({ headless: 42 }));
+      const res = await handler(makeRequest({ autonomous: 42 }));
       expect(res.status).toBe(400);
       const data = await res.json();
-      expect(data.error).toContain("headless");
+      expect(data.error).toContain("autonomous");
     });
 
     test("upserts correctly — first write creates, second write updates", async () => {
@@ -166,26 +162,24 @@ describe("auto-approve thresholds", () => {
 
       // First write — creates the row
       const res1 = await handler(
-        makeRequest({ interactive: "none", background: "low" }),
+        makeRequest({ interactive: "none", autonomous: "low" }),
       );
       expect(res1.status).toBe(200);
       const data1 = await res1.json();
       expect(data1).toEqual({
         interactive: "none",
-        background: "low",
-        headless: "none",
+        autonomous: "low",
       });
 
       // Second write — updates the existing row
       const res2 = await handler(
-        makeRequest({ background: "medium", headless: "low" }),
+        makeRequest({ autonomous: "medium" }),
       );
       expect(res2.status).toBe(200);
       const data2 = await res2.json();
       expect(data2).toEqual({
         interactive: "none",
-        background: "medium",
-        headless: "low",
+        autonomous: "medium",
       });
     });
 
@@ -195,16 +189,14 @@ describe("auto-approve thresholds", () => {
       const res = await handler(
         makeRequest({
           interactive: "medium",
-          background: "none",
-          headless: "low",
+          autonomous: "low",
         }),
       );
       expect(res.status).toBe(200);
       const data = await res.json();
       expect(data).toEqual({
         interactive: "medium",
-        background: "none",
-        headless: "low",
+        autonomous: "low",
       });
     });
 
@@ -215,8 +207,7 @@ describe("auto-approve thresholds", () => {
       await putHandler(
         makeRequest({
           interactive: "medium",
-          background: "none",
-          headless: "low",
+          autonomous: "low",
         }),
       );
 
@@ -226,8 +217,7 @@ describe("auto-approve thresholds", () => {
       const data = await res.json();
       expect(data).toEqual({
         interactive: "medium",
-        background: "none",
-        headless: "low",
+        autonomous: "low",
       });
     });
 

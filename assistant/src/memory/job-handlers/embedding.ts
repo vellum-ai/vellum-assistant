@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getConversationMemoryScopeId } from "../conversation-crud.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import type { EmbeddingInput } from "../embedding-types.js";
 import { asString, embedAndUpsert } from "../job-utils.js";
 import type { MemoryJob } from "../jobs-store.js";

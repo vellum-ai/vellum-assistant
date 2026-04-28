@@ -30,72 +30,47 @@ mock.module("../../../providers/speech-to-text/resolve.js", () => ({
 // Import under test — after mocks
 // ---------------------------------------------------------------------------
 
-import type { RouteContext } from "../../http-router.js";
-import { sttRouteDefinitions } from "../stt-routes.js";
+import { RouteError } from "../errors.js";
+import { ROUTES } from "../stt-routes.js";
+import type { RouteHandlerArgs } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getTranscribeHandler() {
-  const routes = sttRouteDefinitions();
-  const transcribe = routes.find((r) => r.endpoint === "stt/transcribe");
-  if (!transcribe) throw new Error("stt/transcribe route not found");
-  return transcribe.handler;
+function getRoute(endpoint: string) {
+  const route = ROUTES.find((r) => r.endpoint === endpoint);
+  if (!route) throw new Error(`Route ${endpoint} not found`);
+  return route;
 }
 
-function makeRouteContext(body: unknown): RouteContext {
-  const url = new URL("http://localhost/v1/stt/transcribe");
+function makeArgs(body: unknown): RouteHandlerArgs {
   return {
-    req: new Request(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: typeof body === "string" ? body : JSON.stringify(body),
-    }),
-    url,
-    server: {} as RouteContext["server"],
-    authContext: {
-      subject: "test-user",
-      principalType: "local",
-      assistantId: "self",
-      scopeProfile: "local_v1",
-      scopes: new Set(["local.all" as const]),
-      policyEpoch: 0,
-    },
-    params: {},
-  } as unknown as RouteContext;
-}
-
-function makeInvalidJsonContext(): RouteContext {
-  const url = new URL("http://localhost/v1/stt/transcribe");
-  return {
-    req: new Request(url, {
-      method: "POST",
-      body: "not-json",
-    }),
-    url,
-    server: {} as RouteContext["server"],
-    authContext: {
-      subject: "test-user",
-      principalType: "local",
-      assistantId: "self",
-      scopeProfile: "local_v1",
-      scopes: new Set(["local.all" as const]),
-      policyEpoch: 0,
-    },
-    params: {},
-  } as unknown as RouteContext;
-}
-
-async function readErrorBody(
-  response: Response,
-): Promise<{ error: { code: string; message: string } }> {
-  return response.json();
+    body: body as Record<string, unknown>,
+    headers: {},
+  };
 }
 
 /** Encode a string to base64 to simulate valid audio data. */
 function toBase64(data: string): string {
   return Buffer.from(data).toString("base64");
+}
+
+async function expectRouteError(
+  fn: () => unknown,
+  statusCode: number,
+  code?: string,
+) {
+  try {
+    await fn();
+    throw new Error("Expected RouteError to be thrown");
+  } catch (err) {
+    expect(err).toBeInstanceOf(RouteError);
+    const re = err as InstanceType<typeof RouteError>;
+    expect(re.statusCode).toBe(statusCode);
+    if (code) expect(re.code).toBe(code);
+    return re;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -125,203 +100,175 @@ describe("stt-routes", () => {
   // -- Route metadata -------------------------------------------------------
 
   test("exports route definitions for stt/providers and stt/transcribe", () => {
-    const routes = sttRouteDefinitions();
-    expect(routes).toHaveLength(2);
+    expect(ROUTES).toHaveLength(2);
 
-    const providers = routes.find((r) => r.endpoint === "stt/providers");
-    expect(providers).toBeDefined();
-    expect(providers!.method).toBe("GET");
-    expect(providers!.policyKey).toBe("stt/providers");
+    const providers = getRoute("stt/providers");
+    expect(providers.method).toBe("GET");
+    expect(providers.policyKey).toBe("stt/providers");
 
-    const transcribe = routes.find((r) => r.endpoint === "stt/transcribe");
-    expect(transcribe).toBeDefined();
-    expect(transcribe!.method).toBe("POST");
-    expect(transcribe!.policyKey).toBe("stt/transcribe");
+    const transcribe = getRoute("stt/transcribe");
+    expect(transcribe.method).toBe("POST");
+    expect(transcribe.policyKey).toBe("stt/transcribe");
   });
 
   // -- Success path ---------------------------------------------------------
 
   test("returns transcribed text with provider and boundary ids", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
+    const { handler } = getRoute("stt/transcribe");
+    const result = (await handler(
+      makeArgs({
         audioBase64: toBase64("fake-audio-data"),
         mimeType: "audio/wav",
       }),
-    );
+    )) as { text: string; providerId: string; boundaryId: string };
 
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      text: string;
-      providerId: string;
-      boundaryId: string;
-    };
-    expect(body.text).toBe("hello world");
-    expect(body.providerId).toBe("openai-whisper");
-    expect(body.boundaryId).toBe("daemon-batch");
+    expect(result.text).toBe("hello world");
+    expect(result.providerId).toBe("openai-whisper");
+    expect(result.boundaryId).toBe("daemon-batch");
   });
 
   test("accepts optional source parameter", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
+    const { handler } = getRoute("stt/transcribe");
+    const result = await handler(
+      makeArgs({
         audioBase64: toBase64("fake-audio-data"),
         mimeType: "audio/wav",
         source: "dictation",
       }),
     );
 
-    expect(res.status).toBe(200);
+    expect(result).toBeDefined();
   });
 
   // -- Malformed body -------------------------------------------------------
 
-  test("returns 400 for invalid JSON body", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(makeInvalidJsonContext());
-
-    expect(res.status).toBe(400);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("Invalid JSON");
-  });
-
-  test("returns 400 when audioBase64 is missing", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(makeRouteContext({ mimeType: "audio/wav" }));
-
-    expect(res.status).toBe(400);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("audioBase64");
-  });
-
-  test("returns 400 when audioBase64 is empty string", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({ audioBase64: "", mimeType: "audio/wav" }),
+  test("throws 400 when audioBase64 is missing", async () => {
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () => handler(makeArgs({ mimeType: "audio/wav" })),
+      400,
+      "BAD_REQUEST",
     );
-
-    expect(res.status).toBe(400);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("audioBase64");
+    expect(err.message).toContain("audioBase64");
   });
 
-  test("returns 400 when mimeType is missing", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({ audioBase64: toBase64("data") }),
+  test("throws 400 when audioBase64 is empty string", async () => {
+    const { handler } = getRoute("stt/transcribe");
+    await expectRouteError(
+      () => handler(makeArgs({ audioBase64: "", mimeType: "audio/wav" })),
+      400,
+      "BAD_REQUEST",
     );
-
-    expect(res.status).toBe(400);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("mimeType");
   });
 
-  test("returns 400 when mimeType does not start with audio/", async () => {
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("data"),
-        mimeType: "text/plain",
-      }),
+  test("throws 400 when mimeType is missing", async () => {
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () => handler(makeArgs({ audioBase64: toBase64("data") })),
+      400,
+      "BAD_REQUEST",
     );
+    expect(err.message).toContain("mimeType");
+  });
 
-    expect(res.status).toBe(400);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("mimeType");
-    expect(body.error.message).toContain("audio/");
+  test("throws 400 when mimeType does not start with audio/", async () => {
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({ audioBase64: toBase64("data"), mimeType: "text/plain" }),
+        ),
+      400,
+      "BAD_REQUEST",
+    );
+    expect(err.message).toContain("mimeType");
+    expect(err.message).toContain("audio/");
   });
 
   // -- Empty audio after decode ---------------------------------------------
 
-  test("returns 400 when decoded audio payload is empty", async () => {
-    const handler = getTranscribeHandler();
-    // An empty base64 string "" is caught by the non-empty check above.
-    // Use a base64 that decodes to empty buffer — this is actually impossible
-    // for valid base64. But we can test with a base64 of zero-length content
-    // by using the base64 of an empty string.
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: Buffer.from("").toString("base64"), // ""
-        mimeType: "audio/wav",
-      }),
+  test("throws 400 when decoded audio payload is empty", async () => {
+    const { handler } = getRoute("stt/transcribe");
+    await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: Buffer.from("").toString("base64"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      400,
     );
-
-    // The empty base64 "" is caught by the non-empty string check
-    expect(res.status).toBe(400);
   });
 
   // -- Missing provider (503) -----------------------------------------------
 
-  test("returns 503 when no STT provider is configured", async () => {
+  test("throws 503 when no STT provider is configured", async () => {
     mockTranscriber = null;
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      503,
+      "SERVICE_UNAVAILABLE",
     );
-
-    expect(res.status).toBe(503);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
-    expect(body.error.message).toContain("configured");
+    expect(err.message).toContain("configured");
   });
 
-  test("returns 503 when transcriber resolution throws", async () => {
+  test("throws 503 when transcriber resolution throws", async () => {
     mockResolveError = new Error("credential store unavailable");
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      503,
+      "SERVICE_UNAVAILABLE",
     );
-
-    expect(res.status).toBe(503);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
-    expect(body.error.message).toContain("not available");
+    expect(err.message).toContain("not available");
   });
 
   // -- Timeout --------------------------------------------------------------
 
-  test("returns 504 when transcription times out", async () => {
+  test("throws 504 when transcription times out", async () => {
     mockTranscriber = {
       providerId: "openai-whisper",
       boundaryId: "daemon-batch",
-      transcribe: async (_request) => {
-        // Simulate timeout by checking if abort signal fires
+      transcribe: async () => {
         const err = new Error("The operation was aborted");
         err.name = "AbortError";
         throw err;
       },
     };
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      504,
+      "GATEWAY_TIMEOUT",
     );
-
-    expect(res.status).toBe(504);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(body.error.message).toContain("timed out");
   });
 
   // -- Provider failure (various categories) --------------------------------
 
-  test("returns 401 for auth errors from provider", async () => {
+  test("throws 401 for auth errors from provider", async () => {
     mockTranscriber = {
       providerId: "openai-whisper",
       boundaryId: "daemon-batch",
@@ -330,21 +277,22 @@ describe("stt-routes", () => {
       },
     };
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      401,
+      "UNAUTHORIZED",
     );
-
-    expect(res.status).toBe(401);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("UNAUTHORIZED");
-    expect(body.error.message).toContain("credentials");
+    expect(err.message).toContain("credentials");
   });
 
-  test("returns 429 for rate-limit errors from provider", async () => {
+  test("throws 429 for rate-limit errors from provider", async () => {
     mockTranscriber = {
       providerId: "openai-whisper",
       boundaryId: "daemon-batch",
@@ -353,21 +301,22 @@ describe("stt-routes", () => {
       },
     };
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      429,
+      "RATE_LIMITED",
     );
-
-    expect(res.status).toBe(429);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("RATE_LIMITED");
-    expect(body.error.message).toContain("rate limit");
+    expect(err.message).toContain("rate limit");
   });
 
-  test("returns 400 for invalid-audio errors from provider", async () => {
+  test("throws 400 for invalid-audio errors from provider", async () => {
     mockTranscriber = {
       providerId: "openai-whisper",
       boundaryId: "daemon-batch",
@@ -376,21 +325,22 @@ describe("stt-routes", () => {
       },
     };
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    const err = await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      400,
+      "BAD_REQUEST",
     );
-
-    expect(res.status).toBe(400);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("rejected");
+    expect(err.message).toContain("rejected");
   });
 
-  test("returns 502 for generic provider errors", async () => {
+  test("throws 502 for generic provider errors", async () => {
     mockTranscriber = {
       providerId: "openai-whisper",
       boundaryId: "daemon-batch",
@@ -399,17 +349,17 @@ describe("stt-routes", () => {
       },
     };
 
-    const handler = getTranscribeHandler();
-    const res = await handler(
-      makeRouteContext({
-        audioBase64: toBase64("audio-data"),
-        mimeType: "audio/wav",
-      }),
+    const { handler } = getRoute("stt/transcribe");
+    await expectRouteError(
+      () =>
+        handler(
+          makeArgs({
+            audioBase64: toBase64("audio-data"),
+            mimeType: "audio/wav",
+          }),
+        ),
+      502,
+      "BAD_GATEWAY",
     );
-
-    expect(res.status).toBe(502);
-    const body = await readErrorBody(res);
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(body.error.message).toContain("provider error");
   });
 });

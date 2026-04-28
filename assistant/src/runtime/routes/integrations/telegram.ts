@@ -15,95 +15,114 @@ import {
   setTelegramConfig,
   setupTelegram,
 } from "../../../daemon/handlers/config-telegram.js";
-import type { HTTPRouteDefinition } from "../../http-router.js";
+import { BadRequestError } from "../errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
-/**
- * GET /v1/integrations/telegram/config
- */
-async function handleGetTelegramConfig(): Promise<Response> {
-  const result = await getTelegramConfig();
-  return Response.json(result);
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+async function handleGetTelegramConfig() {
+  return getTelegramConfig();
 }
 
-/**
- * POST /v1/integrations/telegram/config
- *
- * Body: { botToken?: string }
- */
-async function handleSetTelegramConfig(req: Request): Promise<Response> {
-  const body = (await req.json()) as { botToken?: string };
-  const result = await setTelegramConfig(body.botToken);
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+async function handleSetTelegramConfig({ body = {} }: RouteHandlerArgs) {
+  const { botToken } = body as { botToken?: string };
+  const result = await setTelegramConfig(botToken);
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { error?: string }).error ??
+        "Failed to set Telegram config",
+    );
+  }
+  return result;
 }
 
-/**
- * DELETE /v1/integrations/telegram/config
- */
-async function handleClearTelegramConfig(): Promise<Response> {
-  const result = await clearTelegramConfig();
-  return Response.json(result);
+async function handleClearTelegramConfig() {
+  return clearTelegramConfig();
 }
 
-/**
- * POST /v1/integrations/telegram/commands
- *
- * Body: { commands?: Array<{ command: string; description: string }> }
- */
-async function handleSetTelegramCommands(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
+async function handleSetTelegramCommands({ body = {} }: RouteHandlerArgs) {
+  const { commands } = body as {
     commands?: Array<{ command: string; description: string }>;
   };
-  const result = await setTelegramCommands(body.commands);
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+  const result = await setTelegramCommands(commands);
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { error?: string }).error ??
+        "Failed to set Telegram commands",
+    );
+  }
+  return result;
 }
 
-/**
- * POST /v1/integrations/telegram/setup
- *
- * Body: { botToken?: string; commands?: Array<{ command: string; description: string }> }
- */
-async function handleSetupTelegram(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
+async function handleSetupTelegram({ body = {} }: RouteHandlerArgs) {
+  const { botToken, commands } = body as {
     botToken?: string;
     commands?: Array<{ command: string; description: string }>;
   };
-  const result = await setupTelegram(body.commands, body.botToken);
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
+  const result = await setupTelegram(commands, botToken);
+  if (!result.success) {
+    throw new BadRequestError(
+      (result as { error?: string }).error ?? "Telegram setup failed",
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function telegramRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "integrations/telegram/config",
-      method: "GET",
-      handler: () => handleGetTelegramConfig(),
-    },
-    {
-      endpoint: "integrations/telegram/config",
-      method: "POST",
-      handler: async ({ req }) => handleSetTelegramConfig(req),
-    },
-    {
-      endpoint: "integrations/telegram/config",
-      method: "DELETE",
-      handler: async () => handleClearTelegramConfig(),
-    },
-    {
-      endpoint: "integrations/telegram/commands",
-      method: "POST",
-      handler: async ({ req }) => handleSetTelegramCommands(req),
-    },
-    {
-      endpoint: "integrations/telegram/setup",
-      method: "POST",
-      handler: async ({ req }) => handleSetupTelegram(req),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "integrations_telegram_config_get",
+    endpoint: "integrations/telegram/config",
+    method: "GET",
+    summary: "Get Telegram config",
+    description: "Check current Telegram bot configuration status.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleGetTelegramConfig(),
+  },
+  {
+    operationId: "integrations_telegram_config_post",
+    endpoint: "integrations/telegram/config",
+    method: "POST",
+    summary: "Set Telegram config",
+    description: "Set bot token and configure webhook.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleSetTelegramConfig,
+  },
+  {
+    operationId: "integrations_telegram_config_delete",
+    endpoint: "integrations/telegram/config",
+    method: "DELETE",
+    summary: "Clear Telegram config",
+    description: "Clear credentials and deregister webhook.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: () => handleClearTelegramConfig(),
+  },
+  {
+    operationId: "integrations_telegram_commands_post",
+    endpoint: "integrations/telegram/commands",
+    method: "POST",
+    summary: "Register Telegram commands",
+    description: "Register bot commands with the Telegram API.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleSetTelegramCommands,
+  },
+  {
+    operationId: "integrations_telegram_setup_post",
+    endpoint: "integrations/telegram/setup",
+    method: "POST",
+    summary: "Setup Telegram",
+    description: "Composite: set config + register commands.",
+    tags: ["integrations"],
+    requirePolicyEnforcement: true,
+    handler: handleSetupTelegram,
+  },
+];

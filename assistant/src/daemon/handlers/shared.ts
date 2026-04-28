@@ -11,11 +11,11 @@ import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { Conversation } from "../conversation.js";
-import type { TrustContext } from "../conversation-runtime-assembly.js";
 import type {
   ConversationTransportMetadata,
   ServerMessage,
 } from "../message-protocol.js";
+import type { TrustContext } from "../trust-context.js";
 
 const log = getLogger("handlers");
 
@@ -160,7 +160,6 @@ export interface ConversationCreateOptions {
  * Keeps handlers decoupled from the server class itself.
  */
 export interface HandlerContext {
-  conversations: Map<string, Conversation>;
   sharedRequestTimestamps: number[];
   debounceTimers: DebouncerMap;
   suppressConfigReload: boolean;

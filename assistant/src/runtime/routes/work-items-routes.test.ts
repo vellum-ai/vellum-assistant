@@ -19,14 +19,11 @@ mock.module("../../permissions/checker.js", () => ({
   classifyRisk: async () => ({ level: "high" }),
 }));
 
-import { initializeDb } from "../../memory/db.js";
+import { initializeDb } from "../../memory/db-init.js";
 import { createTask } from "../../tasks/task-store.js";
 import { createWorkItem } from "../../work-items/work-item-store.js";
-import type { RouteContext } from "../http-router.js";
-import {
-  preflightWorkItem,
-  workItemRouteDefinitions,
-} from "./work-items-routes.js";
+import { ForbiddenError } from "./errors.js";
+import { preflightWorkItem, ROUTES } from "./work-items-routes.js";
 
 initializeDb();
 
@@ -63,22 +60,15 @@ describe("empty required_tools snapshot bypass", () => {
       requiredTools: JSON.stringify([]),
     });
 
-    const routes = workItemRouteDefinitions();
-    const runRoute = routes.find(
+    const runRoute = ROUTES.find(
       (r) => r.endpoint === "work-items/:id/run" && r.method === "POST",
     )!;
 
-    const response = await runRoute.handler({
-      params: { id: workItem.id },
-      req: new Request(
-        "http://localhost/v1/work-items/" + workItem.id + "/run",
-        {
-          method: "POST",
-        },
-      ),
-      url: new URL("http://localhost/v1/work-items/" + workItem.id + "/run"),
-    } as unknown as RouteContext);
-
-    expect(response.status).toBe(403);
+    await expect(
+      runRoute.handler({
+        pathParams: { id: workItem.id },
+        headers: {},
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
   });
 });

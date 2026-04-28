@@ -133,6 +133,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations/analyze", scopes: ["chat.write"] },
   { endpoint: "conversations/switch", scopes: ["chat.write"] },
   { endpoint: "conversations/name", scopes: ["chat.write"] },
+  { endpoint: "conversations/rename", scopes: ["chat.write"] },
+  { endpoint: "conversations/wake", scopes: ["chat.write"] },
 
   { endpoint: "conversations/inference-profile", scopes: ["chat.write"] },
   { endpoint: "conversations/cancel", scopes: ["chat.write"] },
@@ -194,6 +196,9 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "contacts:POST", scopes: ["settings.write"] },
   { endpoint: "contacts:DELETE", scopes: ["settings.write"] },
   { endpoint: "contacts/merge", scopes: ["settings.write"] },
+  { endpoint: "contacts/search", scopes: ["settings.read"] },
+  { endpoint: "contacts/upsert", scopes: ["settings.write"] },
+  { endpoint: "contacts/merge-by-id", scopes: ["settings.write"] },
   { endpoint: "contacts:GET", scopes: ["settings.read"] },
   { endpoint: "contact-channels", scopes: ["settings.write"] },
   { endpoint: "contacts/invites", scopes: ["settings.read"] },
@@ -307,6 +312,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
   { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
   { endpoint: "apps/dist", scopes: ["settings.read"] },
+  { endpoint: "pages", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
   { endpoint: "usage/totals", scopes: ["settings.read"] },
@@ -316,7 +322,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Lifecycle telemetry
   { endpoint: "telemetry/lifecycle", scopes: ["settings.write"] },
 
-  // Debug
+  // Debug / introspection
+  { endpoint: "clients", scopes: ["settings.read"] },
   { endpoint: "debug", scopes: ["settings.read"] },
 
   // Workspace file browsing
@@ -585,6 +592,77 @@ registerPolicy("profiler/runs", {
 registerPolicy("profiler/runs/export", {
   requiredScopes: ["internal.write"],
   allowedPrincipalTypes: ["svc_gateway"],
+});
+
+// Attachment management: local-only (CLI / IPC callers)
+registerPolicy("attachments/register", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("attachments/lookup", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("avatar/notify-updated", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Notification pipeline: local-only (CLI / IPC callers)
+registerPolicy("notifications/emit", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("notifications/events", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Defer operations: local-only (CLI / IPC callers)
+registerPolicy("defer/create", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("defer/list", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("defer/cancel", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Credential prompt: local-only (CLI / IPC callers)
+registerPolicy("credentials/prompt", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Cache operations: local-only (CLI / IPC callers)
+registerPolicy("cache/set", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("cache/get", {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ["local"],
+});
+
+registerPolicy("cache/delete", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
+// Browser operations: local-only (CLI / IPC callers)
+registerPolicy("browser/execute", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
 });
 
 // User-defined routes under /x/*

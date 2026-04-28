@@ -97,6 +97,13 @@ export interface HeartbeatDeps {
 }
 
 export class HeartbeatService {
+  private static instance?: HeartbeatService;
+
+  /** Access the running HeartbeatService instance (set at startup). */
+  static getInstance(): HeartbeatService | undefined {
+    return HeartbeatService.instance;
+  }
+
   private readonly deps: HeartbeatDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeRun: Promise<void> | null = null;
@@ -105,6 +112,7 @@ export class HeartbeatService {
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
+    HeartbeatService.instance = this;
   }
 
   /** Epoch-ms timestamp of the last completed heartbeat run. */

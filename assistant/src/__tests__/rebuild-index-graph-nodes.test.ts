@@ -126,7 +126,7 @@ function createTestDb() {
   return { sqlite, db };
 }
 
-mock.module("../memory/db.js", () => ({
+mock.module("../memory/db-connection.js", () => ({
   getDb: () => db,
 }));
 

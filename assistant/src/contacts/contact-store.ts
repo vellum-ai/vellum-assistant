@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
 import {
   assistantContactMetadata,
   contactChannels,

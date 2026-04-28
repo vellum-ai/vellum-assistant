@@ -45,13 +45,10 @@ import { getConfig, invalidateConfigCache } from "../../config/loader.js";
 import type { BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getWorkspaceDir,
-  getWorkspaceHooksDir,
-} from "../../util/platform.js";
-import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { DefaultPathResolver } from "../migrations/vbundle-import-analyzer.js";
+import { BadRequestError, ConflictError, RouteError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("backup-routes");
 
@@ -62,11 +59,6 @@ const LAST_RUN_CHECKPOINT_KEY = "backup:last_run_at";
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve an absolute path via `realpath`, following symlinks. Returns `null`
- * when the path does not exist or any component is missing. Callers that need
- * to distinguish missing-file from other errors should check separately.
- */
 async function safeRealpath(path: string): Promise<string | null> {
   try {
     return await fs.realpath(path);
@@ -75,22 +67,11 @@ async function safeRealpath(path: string): Promise<string | null> {
   }
 }
 
-/**
- * Check whether `candidate` is contained inside `root`. Containment is
- * inclusive of `root` itself (so `root === candidate` is accepted) and uses
- * the platform path separator so a root of `/a` doesn't accidentally match
- * `/a-evil/`. Callers must pass already-realpath'd inputs.
- */
 function isInside(candidate: string, root: string): boolean {
   if (candidate === root) return true;
   return candidate.startsWith(root + sep);
 }
 
-/**
- * Build the list of absolute directories a restore/verify target is allowed
- * to live inside. Includes the local backups directory plus every configured
- * offsite destination (after resolving the null → iCloud default).
- */
 function computeAllowedRoots(): string[] {
   const config = getConfig();
   const roots: string[] = [getLocalBackupsDir(config.backup.localDirectory)];
@@ -103,37 +84,20 @@ function computeAllowedRoots(): string[] {
 }
 
 /**
- * Resolve a caller-supplied snapshot path against the allowed roots. Returns
- * the realpath'd candidate on success, or an `Response` error envelope if the
- * path is missing, outside every root, or a symlink that escapes.
- *
- * Symlink handling: we realpath both the candidate and every root, then
- * compare. A symlink inside an allowed root pointing at `/etc/passwd` would
- * be caught here because `realpath(candidate)` returns `/etc/passwd` which
- * is not inside any allowed root.
+ * Resolve a caller-supplied snapshot path against the allowed roots.
+ * Throws BadRequestError if the path is missing, outside every root,
+ * or a symlink that escapes.
  */
-async function validateSnapshotPath(
-  rawPath: unknown,
-): Promise<{ path: string } | { error: Response }> {
+async function validateSnapshotPath(rawPath: unknown): Promise<string> {
   if (typeof rawPath !== "string" || rawPath.length === 0) {
-    return {
-      error: httpError(
-        "BAD_REQUEST",
-        "Request body must include a non-empty `path` field",
-        400,
-      ),
-    };
+    throw new BadRequestError(
+      "Request body must include a non-empty `path` field",
+    );
   }
 
   const realCandidate = await safeRealpath(rawPath);
   if (realCandidate == null) {
-    return {
-      error: httpError(
-        "BAD_REQUEST",
-        `Snapshot path does not exist: ${rawPath}`,
-        400,
-      ),
-    };
+    throw new BadRequestError(`Snapshot path does not exist: ${rawPath}`);
   }
 
   const allowedRoots = computeAllowedRoots();
@@ -141,58 +105,39 @@ async function validateSnapshotPath(
     const realRoot = await safeRealpath(root);
     if (realRoot == null) continue;
     if (isInside(realCandidate, realRoot)) {
-      return { path: realCandidate };
+      return realCandidate;
     }
   }
 
-  return {
-    error: httpError(
-      "BAD_REQUEST",
-      "Snapshot path is outside the configured backup directories",
-      400,
-    ),
-  };
+  throw new BadRequestError(
+    "Snapshot path is outside the configured backup directories",
+  );
 }
 
 /**
- * Load the backup decryption key iff the target snapshot is encrypted. Returns
- * `{ key: null }` for plaintext bundles without touching the filesystem.
- * Returns `{ error }` with a clear 400 envelope when an encrypted bundle is
- * supplied but no key file exists (an unrecoverable user-facing state that
- * should not silently 500).
+ * Load the backup decryption key iff the target snapshot is encrypted.
+ * Returns null for plaintext bundles. Throws BadRequestError when an
+ * encrypted bundle is supplied but no key file exists.
  */
 async function loadKeyIfEncrypted(
   snapshotPath: string,
-): Promise<{ key: Buffer | null } | { error: Response }> {
+): Promise<Buffer | null> {
   if (!snapshotPath.endsWith(".vbundle.enc")) {
-    return { key: null };
+    return null;
   }
   const key = await readBackupKey(getBackupKeyPath());
   if (key == null) {
-    return {
-      error: httpError(
-        "BAD_REQUEST",
-        "Encrypted snapshot requires a backup key, but backup.key is missing",
-        400,
-      ),
-    };
+    throw new BadRequestError(
+      "Encrypted snapshot requires a backup key, but backup.key is missing",
+    );
   }
-  return { key };
+  return key;
 }
 
 // ---------------------------------------------------------------------------
-// GET /v1/backups
+// Handlers
 // ---------------------------------------------------------------------------
 
-/**
- * Shape returned by {@link handleBackupList}. Exported so client code (and
- * the test suite) can type the JSON response without re-deriving it.
- *
- * `offsiteEnabled` distinguishes "offsite disabled" (user turned it off — the
- * UI should hide or gray out offsite cards) from "offsite enabled but no
- * destinations configured" (the `offsite` array is empty but the UI should
- * still prompt the user to add one).
- */
 export interface BackupListResponse {
   local: SnapshotEntry[];
   offsite: Array<{
@@ -204,153 +149,64 @@ export interface BackupListResponse {
   nextRunAt: string | null;
 }
 
-/**
- * List all known backup snapshots — local and every configured offsite
- * destination — along with scheduling metadata. Per-destination `reachable`
- * reflects whether `dirname(destination.path)` exists on disk right now (the
- * same probe the offsite writer uses), so clients can distinguish "empty
- * destination" from "unavailable destination" without a second round trip.
- *
- * When `backup.offsite.enabled` is `false`, the offsite array is returned
- * empty without probing any destinations — mirroring the worker's runtime
- * logic so the UI never renders offsite cards after the user has disabled
- * offsite backups. Clients should gate offsite UI on `offsiteEnabled` rather
- * than `offsite.length`.
- */
-export async function handleBackupList(_req: Request): Promise<Response> {
-  try {
-    const config = getConfig();
-    const localDir = getLocalBackupsDir(config.backup.localDirectory);
-    const local = await listSnapshotsInDir(localDir);
+export async function handleBackupList(): Promise<BackupListResponse> {
+  const config = getConfig();
+  const localDir = getLocalBackupsDir(config.backup.localDirectory);
+  const local = await listSnapshotsInDir(localDir);
 
-    const offsiteEnabled = config.backup.offsite.enabled;
-    const offsite: BackupListResponse["offsite"] = [];
-    if (offsiteEnabled) {
-      for (const destination of resolveOffsiteDestinations(
-        config.backup.offsite.destinations,
-      )) {
-        let reachable = false;
-        try {
-          await fs.stat(dirname(destination.path));
-          reachable = true;
-        } catch {
-          reachable = false;
-        }
-        const snapshots = reachable
-          ? await listSnapshotsInDir(destination.path)
-          : [];
-        offsite.push({ destination, snapshots, reachable });
+  const offsiteEnabled = config.backup.offsite.enabled;
+  const offsite: BackupListResponse["offsite"] = [];
+  if (offsiteEnabled) {
+    for (const destination of resolveOffsiteDestinations(
+      config.backup.offsite.destinations,
+    )) {
+      let reachable = false;
+      try {
+        await fs.stat(dirname(destination.path));
+        reachable = true;
+      } catch {
+        reachable = false;
       }
+      const snapshots = reachable
+        ? await listSnapshotsInDir(destination.path)
+        : [];
+      offsite.push({ destination, snapshots, reachable });
     }
-
-    let nextRunAt: string | null = null;
-    if (config.backup.enabled) {
-      const lastRunRaw = getMemoryCheckpoint(LAST_RUN_CHECKPOINT_KEY);
-      if (lastRunRaw != null) {
-        const lastRunMs = Number.parseInt(lastRunRaw, 10);
-        if (!Number.isNaN(lastRunMs)) {
-          const intervalMs = config.backup.intervalHours * 3600 * 1000;
-          nextRunAt = new Date(lastRunMs + intervalMs).toISOString();
-        }
-      }
-    }
-
-    const body: BackupListResponse = {
-      local,
-      offsite,
-      offsiteEnabled,
-      nextRunAt,
-    };
-    return Response.json(body);
-  } catch (err) {
-    log.error({ err }, "Failed to list backups");
-    return httpError(
-      "INTERNAL_ERROR",
-      err instanceof Error ? err.message : "Failed to list backups",
-      500,
-    );
   }
+
+  let nextRunAt: string | null = null;
+  if (config.backup.enabled) {
+    const lastRunRaw = getMemoryCheckpoint(LAST_RUN_CHECKPOINT_KEY);
+    if (lastRunRaw != null) {
+      const lastRunMs = Number.parseInt(lastRunRaw, 10);
+      if (!Number.isNaN(lastRunMs)) {
+        const intervalMs = config.backup.intervalHours * 3600 * 1000;
+        nextRunAt = new Date(lastRunMs + intervalMs).toISOString();
+      }
+    }
+  }
+
+  return { local, offsite, offsiteEnabled, nextRunAt };
 }
 
-// ---------------------------------------------------------------------------
-// POST /v1/backups/create
-// ---------------------------------------------------------------------------
-
-/**
- * Trigger a manual backup snapshot immediately. This bypasses both the
- * `backup.enabled` flag and the interval gate, but still honors the
- * snapshot-in-progress mutex: a concurrent caller receives a 409.
- *
- * On success, returns the full `BackupRunResult` so the client can render
- * per-destination outcomes without re-listing.
- */
-export async function handleBackupCreate(_req: Request): Promise<Response> {
+export async function handleBackupCreate(): Promise<BackupRunResult> {
   try {
     const config = getConfig();
-    const result: BackupRunResult = await createSnapshotNow(
-      config.backup,
-      new Date(),
-    );
-    return Response.json(result);
+    return await createSnapshotNow(config.backup, new Date());
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Map the mutex rejection to 409 so clients can distinguish "try again
-    // later" from a real failure. Matches both the in-process variant
-    // (`"snapshot in progress"`) and the cross-process file-lock variant
-    // (`"snapshot in progress (locked by pid N)"`).
     if (message.startsWith("snapshot in progress")) {
-      return httpError("CONFLICT", "A snapshot is already in progress", 409);
+      throw new ConflictError("A snapshot is already in progress");
     }
     log.error({ err }, "Manual backup snapshot failed");
-    return httpError("INTERNAL_ERROR", message, 500);
+    throw new RouteError(message, "INTERNAL_ERROR", 500);
   }
 }
 
-// ---------------------------------------------------------------------------
-// POST /v1/backups/restore
-// ---------------------------------------------------------------------------
-
-interface RestoreRequestBody {
-  path: unknown;
-}
-
-/**
- * Restore a snapshot into the live workspace. Destructive: the underlying
- * `commitImport` flow backs up existing files before overwriting, but callers
- * should still treat this as an irreversible "replace the workspace" operation.
- *
- * Recovery sequence (mirroring `handleMigrationImport`):
- *   1. `restoreFromSnapshot` internally calls `resetDb()` BEFORE the commit
- *      step so the live SQLite singleton closes its handle before
- *      `assistant.db` is overwritten. Without this, the daemon would keep a
- *      reference to the old inode and subsequent writes could silently
- *      corrupt the restored state.
- *   2. `invalidateConfigCache()` is called AFTER a successful restore so the
- *      daemon re-reads the restored `config.json` from disk instead of
- *      serving a stale in-process cache.
- *
- * Credentials are intentionally excluded from backups — they live in the OS
- * keychain / CES and are not restored by this path. Users re-authenticate
- * integrations after a restore.
- */
-export async function handleBackupRestore(req: Request): Promise<Response> {
-  let body: RestoreRequestBody;
-  try {
-    body = (await req.json()) as RestoreRequestBody;
-  } catch {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body must be valid JSON with a `path` field",
-      400,
-    );
-  }
-
-  const validated = await validateSnapshotPath(body.path);
-  if ("error" in validated) return validated.error;
-  const snapshotPath = validated.path;
-
-  const keyResult = await loadKeyIfEncrypted(snapshotPath);
-  if ("error" in keyResult) return keyResult.error;
+export async function handleBackupRestore({ body }: RouteHandlerArgs) {
+  const path = body?.path;
+  const snapshotPath = await validateSnapshotPath(path);
+  const key = await loadKeyIfEncrypted(snapshotPath);
 
   try {
     const pathResolver = new DefaultPathResolver(
@@ -358,78 +214,42 @@ export async function handleBackupRestore(req: Request): Promise<Response> {
       getWorkspaceHooksDir(),
     );
 
-    // `restoreFromSnapshot` internally calls `resetDb()` before the commit
-    // step so the live SQLite connection is closed before assistant.db is
-    // overwritten. The singleton will be lazily reopened on the next getDb()
-    // call, after the restored file is in place.
-
     const result = await restoreFromSnapshot(snapshotPath, {
-      key: keyResult.key ?? undefined,
+      key: key ?? undefined,
       pathResolver,
       workspaceDir: getWorkspaceDir(),
     });
 
-    // Invalidate the in-process config cache so the restored settings.json
-    // takes effect without requiring a daemon restart.
     invalidateConfigCache();
 
-    return Response.json({
+    return {
       manifest: result.manifest,
       restoredFiles: result.restoredFiles,
-    });
+    };
   } catch (err) {
     log.error({ err, snapshotPath }, "Snapshot restore failed");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new RouteError(
       err instanceof Error ? err.message : "Snapshot restore failed",
+      "INTERNAL_ERROR",
       500,
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// POST /v1/backups/verify
-// ---------------------------------------------------------------------------
-
-interface VerifyRequestBody {
-  path: unknown;
-}
-
-/**
- * Verify a snapshot (decrypts if needed, runs `validateVBundle`) without
- * touching the workspace. Does not throw on validation or decryption failure
- * — those surface as `{ valid: false, error: ... }` so callers can render a
- * uniform status for each snapshot in a list.
- */
-export async function handleBackupVerify(req: Request): Promise<Response> {
-  let body: VerifyRequestBody;
-  try {
-    body = (await req.json()) as VerifyRequestBody;
-  } catch {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body must be valid JSON with a `path` field",
-      400,
-    );
-  }
-
-  const validated = await validateSnapshotPath(body.path);
-  if ("error" in validated) return validated.error;
-  const snapshotPath = validated.path;
-
-  const keyResult = await loadKeyIfEncrypted(snapshotPath);
-  if ("error" in keyResult) return keyResult.error;
+export async function handleBackupVerify({ body }: RouteHandlerArgs) {
+  const path = body?.path;
+  const snapshotPath = await validateSnapshotPath(path);
+  const key = await loadKeyIfEncrypted(snapshotPath);
 
   try {
-    const result = await verifySnapshot(snapshotPath, {
-      key: keyResult.key ?? undefined,
+    return await verifySnapshot(snapshotPath, {
+      key: key ?? undefined,
     });
-    return Response.json(result);
   } catch (err) {
     log.error({ err, snapshotPath }, "Snapshot verification failed");
-    return httpError(
-      "INTERNAL_ERROR",
+    throw new RouteError(
       err instanceof Error ? err.message : "Snapshot verification failed",
+      "INTERNAL_ERROR",
       500,
     );
   }
@@ -439,79 +259,79 @@ export async function handleBackupVerify(req: Request): Promise<Response> {
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function backupRouteDefinitions(): HTTPRouteDefinition[] {
-  return [
-    {
-      endpoint: "backups",
-      method: "GET",
-      summary: "List backup snapshots",
-      description:
-        "Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting whether the backing volume is currently available. When `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false — clients should gate offsite UI on `offsiteEnabled` rather than `offsite.length`.",
-      tags: ["backups"],
-      responseBody: z.object({
-        local: z.array(z.unknown()),
-        offsite: z.array(
-          z.object({
-            destination: z.object({}).passthrough(),
-            snapshots: z.array(z.unknown()),
-            reachable: z.boolean(),
-          }),
-        ),
-        offsiteEnabled: z.boolean(),
-        nextRunAt: z.string().nullable(),
-      }),
-      handler: async ({ req }) => handleBackupList(req),
-    },
-    {
-      endpoint: "backups/create",
-      method: "POST",
-      summary: "Create a backup snapshot immediately",
-      description:
-        "Trigger a manual snapshot. Bypasses the enabled and interval gates, but honors the in-progress mutex — a concurrent caller receives 409.",
-      tags: ["backups"],
-      responseBody: z.object({
-        local: z.object({}).passthrough(),
-        offsite: z.array(z.unknown()),
-        durationMs: z.number(),
-      }),
-      handler: async ({ req }) => handleBackupCreate(req),
-    },
-    {
-      endpoint: "backups/restore",
-      method: "POST",
-      summary: "Restore from a backup snapshot",
-      description:
-        "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files before overwriting. The daemon closes the live SQLite handle before writing and invalidates its config/trust caches afterwards. Credentials are NOT included — users re-authenticate integrations after a restore.",
-      tags: ["backups"],
-      requestBody: z.object({
-        path: z
-          .string()
-          .describe("Absolute path to the snapshot file to restore"),
-      }),
-      responseBody: z.object({
-        manifest: z.object({}).passthrough(),
-        restoredFiles: z.number(),
-      }),
-      handler: async ({ req }) => handleBackupRestore(req),
-    },
-    {
-      endpoint: "backups/verify",
-      method: "POST",
-      summary: "Verify a backup snapshot",
-      description:
-        "Validates a snapshot without restoring. Decrypts encrypted bundles to a temp file, runs the vbundle validator, and returns a pass/fail status.",
-      tags: ["backups"],
-      requestBody: z.object({
-        path: z
-          .string()
-          .describe("Absolute path to the snapshot file to verify"),
-      }),
-      responseBody: z.object({
-        valid: z.boolean(),
-        manifest: z.object({}).passthrough().optional(),
-        error: z.string().optional(),
-      }),
-      handler: async ({ req }) => handleBackupVerify(req),
-    },
-  ];
-}
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "backups_list",
+    endpoint: "backups",
+    method: "GET",
+    handler: handleBackupList,
+    summary: "List backup snapshots",
+    description:
+      "Lists local and offsite backup snapshots. Each offsite destination includes a `reachable` flag reflecting whether the backing volume is currently available. When `backup.offsite.enabled` is false the `offsite` array is empty and `offsiteEnabled` is false — clients should gate offsite UI on `offsiteEnabled` rather than `offsite.length`.",
+    tags: ["backups"],
+    responseBody: z.object({
+      local: z.array(z.unknown()),
+      offsite: z.array(
+        z.object({
+          destination: z.object({}).passthrough(),
+          snapshots: z.array(z.unknown()),
+          reachable: z.boolean(),
+        }),
+      ),
+      offsiteEnabled: z.boolean(),
+      nextRunAt: z.string().nullable(),
+    }),
+  },
+  {
+    operationId: "backups_create",
+    endpoint: "backups/create",
+    method: "POST",
+    handler: handleBackupCreate,
+    summary: "Create a backup snapshot immediately",
+    description:
+      "Trigger a manual snapshot. Bypasses the enabled and interval gates, but honors the in-progress mutex — a concurrent caller receives 409.",
+    tags: ["backups"],
+    responseBody: z.object({
+      local: z.object({}).passthrough(),
+      offsite: z.array(z.unknown()),
+      durationMs: z.number(),
+    }),
+  },
+  {
+    operationId: "backups_restore",
+    endpoint: "backups/restore",
+    method: "POST",
+    handler: handleBackupRestore,
+    summary: "Restore from a backup snapshot",
+    description:
+      "Restores a snapshot into the workspace. Destructive: the underlying commit flow backs up existing files before overwriting. The daemon closes the live SQLite handle before writing and invalidates its config/trust caches afterwards. Credentials are NOT included — users re-authenticate integrations after a restore.",
+    tags: ["backups"],
+    requestBody: z.object({
+      path: z
+        .string()
+        .describe("Absolute path to the snapshot file to restore"),
+    }),
+    responseBody: z.object({
+      manifest: z.object({}).passthrough(),
+      restoredFiles: z.number(),
+    }),
+  },
+  {
+    operationId: "backups_verify",
+    endpoint: "backups/verify",
+    method: "POST",
+    handler: handleBackupVerify,
+    summary: "Verify a backup snapshot",
+    description:
+      "Validates a snapshot without restoring. Decrypts encrypted bundles to a temp file, runs the vbundle validator, and returns a pass/fail status.",
+    tags: ["backups"],
+    requestBody: z.object({
+      path: z.string().describe("Absolute path to the snapshot file to verify"),
+    }),
+    responseBody: z.object({
+      valid: z.boolean(),
+      manifest: z.object({}).passthrough().optional(),
+      error: z.string().optional(),
+    }),
+  },
+];

@@ -23,6 +23,7 @@ let cacheTimestamp = 0;
  */
 export async function getCatalog(): Promise<CatalogSkill[]> {
   if (cachedCatalog && Date.now() - cacheTimestamp < CACHE_TTL_MS) {
+    log.info({ source: "memory-cache", count: cachedCatalog.length }, "Resolved skills catalog from in-memory cache");
     return cachedCatalog;
   }
   const repoSkillsDir = getRepoSkillsDir();
@@ -58,6 +59,12 @@ export async function getCatalog(): Promise<CatalogSkill[]> {
       return [];
     }
   }
+  const source = local.length > 0 ? "local+remote" : "remote";
+  log.info(
+    { source, count: catalog.length, localCount: local.length },
+    "Refreshed skills catalog cache from %s",
+    source,
+  );
   cachedCatalog = catalog;
   cacheTimestamp = Date.now();
   return catalog;

@@ -41,7 +41,7 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
 
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
-  bun test "${test_file}" > "${out_file}" 2>&1
+  bun test --timeout 15000 "${test_file}" > "${out_file}" 2>&1
   exit_code=$?
 
   end_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")

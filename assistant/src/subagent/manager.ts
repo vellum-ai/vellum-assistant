@@ -15,6 +15,7 @@ import {
   Conversation,
   type ConversationMemoryPolicy,
 } from "../daemon/conversation.js";
+import { findConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
@@ -150,16 +151,6 @@ export class SubagentManager {
    */
   broadcastToAllClients?: (msg: ServerMessage) => void;
 
-  /**
-   * Resolve a live parent Conversation by conversationId.
-   * Wired by DaemonServer at startup — follows the same pattern as
-   * `onSubagentFinished`.  Used by fork spawn to resolve the parent's
-   * system prompt when `config.parentSystemPrompt` is not provided.
-   */
-  resolveParentConversation?: (
-    conversationId: string,
-  ) => Conversation | undefined;
-
   // ── Spawn ───────────────────────────────────────────────────────────
 
   /**
@@ -236,29 +227,22 @@ export class SubagentManager {
       );
     }
 
-    const parentConversation = this.resolveParentConversation?.(
-      config.parentConversationId,
-    );
+    const parentConversation = findConversation(config.parentConversationId);
 
     let systemPrompt: string;
     if (isFork) {
       // Forks use the parent's system prompt directly — no subagent preamble.
       if (config.parentSystemPrompt) {
         systemPrompt = config.parentSystemPrompt;
-      } else if (this.resolveParentConversation) {
+      } else {
         const resolved = parentConversation?.getCurrentSystemPrompt();
         if (!resolved) {
           throw new Error(
             "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
-              "nor resolveParentConversation yielded one.",
+              "nor findConversation yielded one.",
           );
         }
         systemPrompt = resolved;
-      } else {
-        throw new Error(
-          "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
-            "is set nor resolveParentConversation callback is wired.",
-        );
       }
     } else {
       systemPrompt =

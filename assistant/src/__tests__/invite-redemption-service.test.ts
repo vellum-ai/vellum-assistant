@@ -13,7 +13,8 @@ import {
   upsertContact,
 } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getSqlite, initializeDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import {
   createInvite,
   revokeInvite as revokeStoreFn,

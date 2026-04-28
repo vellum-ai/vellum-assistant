@@ -22,29 +22,26 @@ export async function executeContactMerge(
 
   // Validate both contacts exist before merging
   const [keepRes, mergeRes] = await Promise.all([
-    cliIpcCall<ContactWithChannels | null>("get_contact", { id: keepId }),
-    cliIpcCall<ContactWithChannels | null>("get_contact", { id: mergeId }),
+    cliIpcCall<{ contact: ContactWithChannels }>("getContact", {
+      pathParams: { id: keepId },
+    }),
+    cliIpcCall<{ contact: ContactWithChannels }>("getContact", {
+      pathParams: { id: mergeId },
+    }),
   ]);
 
   if (!keepRes.ok) {
     return { content: `Error: ${keepRes.error}`, isError: true };
   }
-  if (!keepRes.result) {
-    return { content: `Error: Contact "${keepId}" not found`, isError: true };
-  }
   if (!mergeRes.ok) {
     return { content: `Error: ${mergeRes.error}`, isError: true };
   }
-  if (!mergeRes.result) {
-    return { content: `Error: Contact "${mergeId}" not found`, isError: true };
-  }
 
-  const keepContact = keepRes.result;
-  const mergeContact = mergeRes.result;
+  const keepContact = keepRes.result!.contact;
+  const mergeContact = mergeRes.result!.contact;
 
   const mergeResult = await cliIpcCall<ContactWithChannels>("merge_contacts", {
-    keepId,
-    mergeId,
+    body: { keepId, mergeId },
   });
 
   if (!mergeResult.ok) {

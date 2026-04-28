@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { ClientEntryJSON } from "../../runtime/client-registry.js";
+import { optsToQueryParams } from "../lib/ipc-params.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 
@@ -46,7 +47,7 @@ Options:
 
 The table shows each client's ID, interface type, capabilities,
 connection timestamps, and host environment (when available).
-Clients are sorted by most recently active first.
+Clients are sorted by most recently connected first.
 
 Examples:
   $ assistant clients list
@@ -55,14 +56,9 @@ Examples:
     )
     .action(
       async (opts: { json?: boolean; capability?: string }, cmd: Command) => {
-        const params: Record<string, unknown> = {};
-        if (opts.capability) {
-          params.capability = opts.capability;
-        }
-
         const result = await cliIpcCall<ListClientsResponse>(
           "list_clients",
-          Object.keys(params).length > 0 ? params : undefined,
+          optsToQueryParams(opts),
         );
 
         if (!result.ok) {
@@ -73,6 +69,13 @@ Examples:
 
         const response = result.result!;
         const { clients: entries } = response;
+
+        // Sort by most recently connected first
+        entries.sort(
+          (a, b) =>
+            new Date(b.connectedAt).getTime() -
+            new Date(a.connectedAt).getTime(),
+        );
 
         if (opts.json) {
           writeOutput(cmd, response);
@@ -93,7 +96,7 @@ Examples:
           "LAST ACTIVE",
         ];
         const rows: string[][] = entries.map((e: ClientEntryJSON) => [
-          e.clientId.length > 20 ? `${e.clientId.slice(0, 17)}...` : e.clientId,
+          e.clientId,
           e.interfaceId,
           e.capabilities.length > 0 ? e.capabilities.join(", ") : "—",
           formatRelativeTime(e.connectedAt),

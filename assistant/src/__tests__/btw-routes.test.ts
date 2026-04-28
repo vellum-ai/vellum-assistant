@@ -27,8 +27,6 @@ const mockGetConversationByKey = mock(
 
 mock.module("../memory/conversation-key-store.js", () => ({
   getConversationByKey: mockGetConversationByKey,
-  // Ensure getOrCreateConversation is never called — BTW must not create
-  // persistent conversations.
   getOrCreateConversation: () => {
     throw new Error(
       "getOrCreateConversation must not be called from btw-routes",
@@ -73,13 +71,38 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveUserSlug: () => null,
 }));
 
-// Force the identity-intro fast-path to miss so the handler always falls
-// through to the LLM call — the call-site assertions need a real provider
-// invocation to inspect.
 mock.module("../runtime/routes/identity-intro-cache.js", () => ({
   getCachedIntro: () => null,
   setCachedIntro: () => {},
   computeIdentityContentHash: () => "test-hash",
+}));
+
+// Mock getOrCreateConversation from conversation-store so the handler
+// never touches DaemonServer.
+const mockGetOrCreateConversation = mock(async (_id: string) => makeMockSession());
+
+mock.module("../daemon/conversation-store.js", () => ({
+  getOrCreateConversation: mockGetOrCreateConversation,
+  findConversation: () => undefined,
+  findConversationBySurfaceId: () => undefined,
+  setConversation: () => {},
+  deleteConversation: () => false,
+  clearConversations: () => {},
+  hasConversation: () => false,
+  conversationCount: () => 0,
+  allConversations: () => [][Symbol.iterator](),
+  conversationEntries: () => [][Symbol.iterator](),
+  conversationIds: () => [][Symbol.iterator](),
+  getConversationMap: () => new Map(),
+  initConversationLifecycle: () => {},
+  registerConversationFactory: () => {},
+  getOrCreateActiveConversation: mockGetOrCreateConversation,
+  getConversationOptions: () => undefined,
+  setConversationOptions: () => {},
+  mergeConversationOptions: () => {},
+  deleteConversationOptions: () => {},
+  clearConversationOptions: () => {},
+  setCesClientPromise: () => {},
 }));
 
 // ---------------------------------------------------------------------------
@@ -90,22 +113,13 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../providers/types.js";
-import type { AuthContext, Scope } from "../runtime/auth/types.js";
-import type { SendMessageDeps } from "../runtime/http-types.js";
-import { btwRouteDefinitions } from "../runtime/routes/btw-routes.js";
+import { ROUTES } from "../runtime/routes/btw-routes.js";
+import { BadRequestError, ServiceUnavailableError } from "../runtime/routes/errors.js";
+import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const FAKE_AUTH_CONTEXT: AuthContext = {
-  subject: "test-user",
-  principalType: "local",
-  assistantId: "self",
-  scopeProfile: "local_v1",
-  scopes: new Set<Scope>(["local.all"]),
-  policyEpoch: 0,
-};
 
 function makeMockProvider(
   onSendMessage?: (
@@ -157,47 +171,38 @@ function makeMockSession(
   };
 }
 
-function makeSendMessageDeps(
-  session?: ReturnType<typeof makeMockSession>,
-): SendMessageDeps {
-  const s = session ?? makeMockSession();
-  return {
-    getOrCreateConversation: mock(
-      async (_conversationId: string) => s,
-    ) as unknown as SendMessageDeps["getOrCreateConversation"],
-    assistantEventHub: {} as never,
-    resolveAttachments: () => [],
-  };
-}
-
-function makeRequest(body: Record<string, unknown>): Request {
-  return new Request("http://localhost/v1/btw", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const route = ROUTES.find((r) => r.endpoint === "btw" && r.method === "POST");
+if (!route) throw new Error("btw route not found in ROUTES");
 
 async function callHandler(
   body: Record<string, unknown>,
-  deps: { sendMessageDeps?: SendMessageDeps },
-): Promise<Response> {
-  const routes = btwRouteDefinitions(deps);
-  const route = routes.find((r) => r.endpoint === "btw" && r.method === "POST");
-  if (!route) throw new Error("btw route not found");
-  const req = makeRequest(body);
-  const url = new URL(req.url);
-  return route.handler({
-    req,
-    url,
-    server: null as never,
-    authContext: FAKE_AUTH_CONTEXT,
-    params: {},
-  });
+): Promise<{ result: unknown; error?: unknown }> {
+  const args: RouteHandlerArgs = {
+    body,
+    headers: {},
+    abortSignal: new AbortController().signal,
+  };
+  try {
+    const result = await route!.handler(args);
+    return { result };
+  } catch (error) {
+    return { result: undefined, error };
+  }
 }
 
-async function readStream(response: Response): Promise<string> {
-  return await response.text();
+async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(
+    new Uint8Array(chunks.reduce((a, c) => a + c.length, 0)).buffer.byteLength === 0
+      ? new Uint8Array(0)
+      : Buffer.concat(chunks),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,79 +212,65 @@ async function readStream(response: Response): Promise<string> {
 describe("POST /v1/btw", () => {
   // -- Validation (400s) --
 
-  test("returns 400 for missing conversationKey", async () => {
-    const res = await callHandler(
-      { content: "hello" },
-      { sendMessageDeps: makeSendMessageDeps() },
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("conversationKey");
+  test("throws BadRequestError for missing conversationKey", async () => {
+    const { error } = await callHandler({ content: "hello" });
+    expect(error).toBeInstanceOf(BadRequestError);
+    expect((error as BadRequestError).message).toContain("conversationKey");
   });
 
-  test("returns 400 for missing content", async () => {
-    const res = await callHandler(
-      { conversationKey: "key" },
-      { sendMessageDeps: makeSendMessageDeps() },
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("content");
+  test("throws BadRequestError for missing content", async () => {
+    const { error } = await callHandler({ conversationKey: "key" });
+    expect(error).toBeInstanceOf(BadRequestError);
+    expect((error as BadRequestError).message).toContain("content");
   });
 
-  test("returns 400 for empty content", async () => {
-    const res = await callHandler(
-      { conversationKey: "key", content: "" },
-      { sendMessageDeps: makeSendMessageDeps() },
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("BAD_REQUEST");
-    expect(body.error.message).toContain("content");
+  test("throws BadRequestError for empty content", async () => {
+    const { error } = await callHandler({
+      conversationKey: "key",
+      content: "",
+    });
+    expect(error).toBeInstanceOf(BadRequestError);
+    expect((error as BadRequestError).message).toContain("content");
   });
 
   // -- Service unavailability (503) --
 
-  test("returns 503 when sendMessageDeps is unavailable", async () => {
-    const res = await callHandler(
-      { conversationKey: "key", content: "hello" },
-      { sendMessageDeps: undefined },
-    );
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe("SERVICE_UNAVAILABLE");
+  test("throws ServiceUnavailableError when conversation factory fails", async () => {
+    mockGetOrCreateConversation.mockImplementationOnce(async () => {
+      throw new Error("not initialized");
+    });
+    const { error } = await callHandler({
+      conversationKey: "key",
+      content: "hello",
+    });
+    expect(error).toBeInstanceOf(ServiceUnavailableError);
   });
 
   // -- Successful SSE streaming --
 
   test("streams btw_text_delta SSE events", async () => {
-    const res = await callHandler(
-      { conversationKey: "key", content: "hello" },
-      { sendMessageDeps: makeSendMessageDeps() },
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("text/event-stream");
+    const session = makeMockSession();
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const text = await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "key",
+      content: "hello",
+    });
+    expect(result).toBeInstanceOf(ReadableStream);
+
+    const text = await readStream(result as ReadableStream<Uint8Array>);
     expect(text).toContain(`event: btw_text_delta\ndata: {"text":"hello"}`);
   });
 
   test("response ends with btw_complete", async () => {
-    const res = await callHandler(
-      { conversationKey: "key", content: "hello" },
-      { sendMessageDeps: makeSendMessageDeps() },
-    );
-    const text = await readStream(res);
+    const session = makeMockSession();
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+    const { result } = await callHandler({
+      conversationKey: "key",
+      content: "hello",
+    });
+    const text = await readStream(result as ReadableStream<Uint8Array>);
     expect(text).toContain("event: btw_complete\ndata: {}");
   });
 
@@ -290,21 +281,19 @@ describe("POST /v1/btw", () => {
 
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
-    const deps = makeSendMessageDeps(session);
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const res = await callHandler(
-      { conversationKey: "key", content: "  my question  " },
-      { sendMessageDeps: deps },
-    );
-    // Consume the stream to ensure the provider call completes
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "key",
+      content: "  my question  ",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
 
     const [messages, tools, systemPrompt, options] =
       provider.sendMessage.mock.calls[0];
 
-    // Messages should be session messages + the new user message (trimmed)
     expect(messages).toHaveLength(3);
     expect(messages[0]).toEqual({
       role: "user",
@@ -319,10 +308,7 @@ describe("POST /v1/btw", () => {
       content: [{ type: "text", text: "my question" }],
     });
 
-    // Tools
     expect(tools).toEqual(MOCK_TOOLS);
-
-    // System prompt built by buildSystemPrompt({ excludeBootstrap: true })
     expect(systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
       channelPersona: null,
@@ -330,13 +316,7 @@ describe("POST /v1/btw", () => {
       userPersona: null,
       userSlug: null,
     });
-
-    // Options: tool_choice must be "none"
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
-    // Default call-site for the BTW side-chain is the identity intro path.
-    // `callSite` and `modelIntent` are mutually exclusive (PR 5 contract);
-    // when a caller passes neither, the default `callSite` is set and
-    // `modelIntent` stays undefined.
     expect(options!.config!.callSite).toBe("identityIntro");
     expect(options!.config!.modelIntent).toBeUndefined();
   });
@@ -344,13 +324,13 @@ describe("POST /v1/btw", () => {
   test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
-    const deps = makeSendMessageDeps(session);
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const res = await callHandler(
-      { conversationKey: "greeting", content: "Generate a greeting" },
-      { sendMessageDeps: deps },
-    );
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "greeting",
+      content: "Generate a greeting",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, , , options] = provider.sendMessage.mock.calls[0];
@@ -360,13 +340,13 @@ describe("POST /v1/btw", () => {
   test("identity intro requests pass callSite: 'identityIntro'", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
-    const deps = makeSendMessageDeps(session);
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const res = await callHandler(
-      { conversationKey: "identity-intro", content: "Generate an intro" },
-      { sendMessageDeps: deps },
-    );
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "identity-intro",
+      content: "Generate an intro",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, , , options] = provider.sendMessage.mock.calls[0];
@@ -377,12 +357,14 @@ describe("POST /v1/btw", () => {
 
   test("does not persist any messages (addMessage never called)", async () => {
     mockAddMessage.mockClear();
+    const session = makeMockSession();
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const res = await callHandler(
-      { conversationKey: "key", content: "hello" },
-      { sendMessageDeps: makeSendMessageDeps() },
-    );
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "key",
+      content: "hello",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
     expect(mockAddMessage).not.toHaveBeenCalled();
   });
@@ -391,66 +373,48 @@ describe("POST /v1/btw", () => {
 
   test("session.processing remains unchanged", async () => {
     const session = makeMockSession();
-    const deps = makeSendMessageDeps(session);
-
-    // Verify initial state
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
     expect(session.processing).toBe(false);
 
-    const res = await callHandler(
-      { conversationKey: "key", content: "hello" },
-      { sendMessageDeps: deps },
-    );
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "key",
+      content: "hello",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
-    // processing should still be false — the handler never sets it
     expect(session.processing).toBe(false);
   });
 
-  // -- No conversation creation (regression) --
+  // -- Conversation key resolution --
 
-  test("unknown conversationKey does not create a DB conversation", async () => {
-    // Simulate a greeting request for a draft thread — no conversation exists.
+  test("unknown conversationKey falls back to raw key", async () => {
     mockGetConversationByKey.mockReturnValueOnce(null);
-
     const session = makeMockSession();
-    const deps = makeSendMessageDeps(session);
-    const getOrCreateSessionSpy = deps.getOrCreateConversation as ReturnType<
-      typeof mock
-    >;
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const res = await callHandler(
-      { conversationKey: "greeting-abc123", content: "Generate a greeting" },
-      { sendMessageDeps: deps },
-    );
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "greeting-abc123",
+      content: "Generate a greeting",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
-    expect(res.status).toBe(200);
-
-    // Read-only lookup should be called
     expect(mockGetConversationByKey).toHaveBeenCalledWith("greeting-abc123");
-
-    // Conversation should be created with the raw key (no DB conversation created)
-    expect(getOrCreateSessionSpy).toHaveBeenCalledWith("greeting-abc123");
+    expect(mockGetOrCreateConversation).toHaveBeenCalledWith("greeting-abc123");
   });
 
   test("known conversationKey resolves to existing conversation ID", async () => {
     mockGetConversationByKey.mockReturnValueOnce({
       conversationId: "existing-conv-id",
     });
-
     const session = makeMockSession();
-    const deps = makeSendMessageDeps(session);
-    const getOrCreateSessionSpy = deps.getOrCreateConversation as ReturnType<
-      typeof mock
-    >;
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
 
-    const res = await callHandler(
-      { conversationKey: "my-conversation-key", content: "What is 2+2?" },
-      { sendMessageDeps: deps },
-    );
-    await readStream(res);
+    const { result } = await callHandler({
+      conversationKey: "my-conversation-key",
+      content: "What is 2+2?",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
 
-    expect(res.status).toBe(200);
-    expect(getOrCreateSessionSpy).toHaveBeenCalledWith("existing-conv-id");
+    expect(mockGetOrCreateConversation).toHaveBeenCalledWith("existing-conv-id");
   });
 });

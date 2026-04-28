@@ -98,9 +98,8 @@ export const contactChannels = sqliteTable(
 
 export const autoApproveThresholds = sqliteTable("auto_approve_thresholds", {
   id: integer("id").primaryKey().default(1),
-  interactive: text("interactive").notNull().default("low"),
-  background: text("background").notNull().default("medium"),
-  headless: text("headless").notNull().default("none"),
+  interactive: text("interactive").notNull().default("medium"),
+  autonomous: text("autonomous").notNull().default("low"),
   updatedAt: text("updated_at")
     .notNull()
     .default(sql`(datetime('now'))`),

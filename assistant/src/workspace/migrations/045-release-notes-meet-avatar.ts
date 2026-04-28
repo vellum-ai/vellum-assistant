@@ -57,10 +57,9 @@ In your Meet service config, set:
 }
 \`\`\`
 
-**Docker mode:** additionally export \`VELLUM_MEET_AVATAR=1\` in the CLI
-environment **before** spawning the instance, so the CLI bind-mounts
-\`/dev/video10\` into the assistant container. Without this, the inner
-\`dockerd\` has no device to pass through to the meet-bot.
+**Docker mode:** the CLI automatically passes \`VELLUM_AVATAR_DEVICE\`
+(default \`/dev/video10\`) to the assistant container and bind-mounts
+the device node when it exists on the host.
 
 ### New tools
 

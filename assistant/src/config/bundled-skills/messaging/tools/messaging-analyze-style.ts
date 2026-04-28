@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../../../../memory/db.js";
+import { getDb } from "../../../../memory/db-connection.js";
 import { enqueueMemoryJob } from "../../../../memory/jobs-store.js";
 import { memoryGraphNodes } from "../../../../memory/schema.js";
 import { clampUnitInterval } from "../../../../memory/validation.js";

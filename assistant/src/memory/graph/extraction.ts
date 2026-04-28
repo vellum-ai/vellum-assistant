@@ -27,7 +27,7 @@ import type {
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import { conversations, messages } from "../schema.js";
 import {
   enqueueGraphNodeEmbed,

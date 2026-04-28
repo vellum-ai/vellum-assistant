@@ -11,7 +11,7 @@ import {
   revokeVerificationForChannel,
   verifyTrustedContact,
 } from "../../daemon/handlers/config-channels.js";
-import { getDb } from "../../memory/db.js";
+import { getDb } from "../../memory/db-connection.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { revokePendingSessions } from "../../runtime/channel-verification-service.js";
 import {

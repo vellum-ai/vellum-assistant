@@ -35,7 +35,7 @@ import {
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { getDb } from "../db.js";
+import { getDb } from "../db-connection.js";
 import {
   appendBufferAndArchive,
   formatRememberEntry,

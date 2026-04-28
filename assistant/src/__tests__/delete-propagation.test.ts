@@ -24,7 +24,8 @@ mock.module("../config/env.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb, initializeDb } from "../memory/db.js";
+import { getDb } from "../memory/db-connection.js";
+import { initializeDb } from "../memory/db-init.js";
 import { linkMessage, recordInbound } from "../memory/delivery-crud.js";
 import { messages } from "../memory/schema.js";
 import {
