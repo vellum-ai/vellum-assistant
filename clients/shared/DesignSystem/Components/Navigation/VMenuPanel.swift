@@ -96,6 +96,11 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        // ARC manages the panel lifetime — disable AppKit's legacy
+        // release-on-close which adds an extra release() call inside
+        // super.close() and can conflict with ARC reference counting.
+        // Reference: https://developer.apple.com/documentation/appkit/nswindow/isreleasedwhenclosed
+        panel.isReleasedWhenClosed = false
         // Enable mouse-moved events so the coordinator's local monitor can detect
         // mouse movement over the panel and clear keyboard focus appropriately.
         panel.acceptsMouseMovedEvents = true
@@ -221,6 +226,7 @@ public class VMenuPanel: NSPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
+        panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
         panel.setAccessibilitySubrole(.standardWindow)
@@ -378,23 +384,29 @@ public class VMenuPanel: NSPanel {
             VMenuPanel.activeRootPanel = nil
         }
 
-        // Make the panel fully transparent immediately so no
-        // shadow/background artifacts persist during teardown.
-        alphaValue = 0
-
-        // Capture the coordinator before releasing contentView,
-        // because the NSHostingView (contentView) holds the only
-        // strong reference to the coordinator via the SwiftUI
-        // environment. The panel's `coordinator` property is weak,
-        // so releasing contentView would deallocate the coordinator
-        // before panelWasClosed() can fire.
+        // Capture the coordinator before releasing contentView.
+        // The NSHostingView (contentView) holds the only strong
+        // reference to the coordinator via the SwiftUI environment.
+        // The panel's `coordinator` property is weak, so releasing
+        // contentView would deallocate the coordinator before
+        // panelWasClosed() can fire.
         let coord = coordinator
+
+        // 1. Make invisible + strip SwiftUI content in one
+        //    synchronous block so the compositor never sees a
+        //    "transparent window with a shadow backing-store" frame.
+        alphaValue = 0
+        contentView = nil
+
+        // 2. Explicitly order out before super.close() so the
+        //    window server removes the surface immediately rather
+        //    than waiting for the close→orderOut path which can
+        //    leave a stale compositor entry for one frame.
+        orderOut(nil)
 
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil
 
-        // Detach from parent window before closing so the parent's
-        // child window list stays clean.
         if let parentWindow = parent {
             parentWindow.removeChildWindow(self)
         }
@@ -409,11 +421,6 @@ public class VMenuPanel: NSPanel {
         } else if !managedByCoordinator {
             handler?()
         }
-
-        // Remove the SwiftUI content after all callbacks have fired,
-        // so the coordinator (held alive by `coord`) can complete its
-        // cleanup before the NSHostingView is released.
-        contentView = nil
     }
 
     public override func cancelOperation(_ sender: Any?) {
