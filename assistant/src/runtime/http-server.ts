@@ -5,8 +5,6 @@
  * configured port (default: 7821).
  */
 
-
-
 import type { ServerWebSocket } from "bun";
 
 import {
@@ -43,10 +41,6 @@ import {
   parseLiveVoiceClientTextFrame,
 } from "../live-voice/protocol.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
-import {
-  consumeCallback,
-  consumeCallbackError,
-} from "../security/oauth-callback-registry.js";
 import {
   activeSttStreamSessions,
   SttStreamSession,
@@ -1504,38 +1498,6 @@ export class RuntimeHttpServer {
       // User-defined routes under /x/* — must be LAST so built-in routes
       // always take priority.
       ...userRouteDefinitions(),
-
-      // Internal OAuth callback (gateway -> runtime)
-      {
-        endpoint: "internal/oauth/callback",
-        method: "POST",
-        handler: async ({ req }) => {
-          const json = (await req.json()) as {
-            state: string;
-            code?: string;
-            error?: string;
-          };
-          if (!json.state)
-            return httpError("BAD_REQUEST", "Missing state parameter", 400);
-          if (json.error) {
-            const consumed = consumeCallbackError(json.state, json.error);
-            return consumed
-              ? Response.json({ ok: true })
-              : httpError("NOT_FOUND", "Unknown state", 404);
-          }
-          if (json.code) {
-            const consumed = consumeCallback(json.state, json.code);
-            return consumed
-              ? Response.json({ ok: true })
-              : httpError("NOT_FOUND", "Unknown state", 404);
-          }
-          return httpError(
-            "BAD_REQUEST",
-            "Missing code or error parameter",
-            400,
-          );
-        },
-      },
     ];
   }
 }
