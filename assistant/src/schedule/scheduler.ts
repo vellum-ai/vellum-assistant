@@ -543,7 +543,7 @@ async function runScheduleOnce(
 
   // ── Sequences (multi-step outreach) ──────────────────────────────
   try {
-    const sequenceProcessed = await runSequencesOnce(processMessage);
+    const sequenceProcessed = await runSequencesOnce();
     processed += sequenceProcessed;
   } catch (err) {
     log.error({ err }, "Sequence engine tick failed");
