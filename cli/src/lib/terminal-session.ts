@@ -6,11 +6,7 @@
  * resolver without cross-importing commands (per cli/CONTRIBUTING.md).
  */
 
-import {
-  findAssistantByName,
-  loadLatestAssistant,
-  resolveCloud,
-} from "./assistant-config.js";
+import { resolveAssistant, resolveCloud } from "./assistant-config.js";
 import { getPlatformUrl, readPlatformToken } from "./platform-client.js";
 import {
   closeTerminalSession,
@@ -42,7 +38,7 @@ export interface ResolvedManagedAssistant {
 export function resolveManagedAssistant(
   nameArg?: string,
 ): ResolvedManagedAssistant {
-  const entry = nameArg ? findAssistantByName(nameArg) : loadLatestAssistant();
+  const entry = resolveAssistant(nameArg);
 
   if (!entry) {
     if (nameArg) {

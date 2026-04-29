@@ -343,19 +343,17 @@ export function setActiveAssistant(assistantId: string): void {
 }
 
 /**
- * Resolve which assistant to target for a command. Priority:
+ * Best-effort resolution of the target assistant. Returns null when no
+ * match is found — callers decide how to handle the absence.
+ *
+ * Priority:
  * 1. Explicit name argument
  * 2. Active assistant set via `vellum use`
- * 3. Sole local assistant (when exactly one exists)
+ * 3. Sole lockfile entry (any cloud)
  */
-export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
+export function resolveAssistant(nameArg?: string): AssistantEntry | null {
   if (nameArg) {
-    const entry = findAssistantByName(nameArg);
-    if (!entry) {
-      console.error(`No assistant found with name '${nameArg}'.`);
-      process.exit(1);
-    }
-    return entry;
+    return findAssistantByName(nameArg);
   }
 
   const active = getActiveAssistant();
@@ -366,15 +364,35 @@ export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
   }
 
   const all = readAssistants();
-  const locals = all.filter((e) => e.cloud === "local");
-  if (locals.length === 1) return locals[0];
+  if (all.length === 1) return all[0];
 
-  if (locals.length === 0) {
-    console.error("No local assistant found. Run 'vellum hatch local' first.");
+  return null;
+}
+
+/**
+ * Resolve which assistant to target for a command, exiting the process
+ * with a user-facing error when resolution fails.
+ *
+ * Priority:
+ * 1. Explicit name argument
+ * 2. Active assistant set via `vellum use`
+ * 3. Sole lockfile entry (any cloud)
+ */
+export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
+  const entry = resolveAssistant(nameArg);
+  if (entry) return entry;
+
+  if (nameArg) {
+    console.error(`No assistant found with name '${nameArg}'.`);
   } else {
-    console.error(
-      `Multiple assistants found. Set an active assistant with 'vellum use <name>'.`,
-    );
+    const all = readAssistants();
+    if (all.length === 0) {
+      console.error("No assistant found. Run 'vellum hatch' first.");
+    } else {
+      console.error(
+        `Multiple assistants found. Set an active assistant with 'vellum use <name>'.`,
+      );
+    }
   }
   process.exit(1);
 }

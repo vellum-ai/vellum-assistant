@@ -3,7 +3,7 @@ import { hostname } from "os";
 import {
   findAssistantByName,
   getActiveAssistant,
-  loadLatestAssistant,
+  resolveAssistant,
 } from "../lib/assistant-config";
 import {
   DAEMON_INTERNAL_ASSISTANT_ID,
@@ -76,8 +76,8 @@ function parseArgs(): ParsedArgs {
       }
     }
     if (!entry && hasExplicitUrl) {
-      // URL provided but active assistant missing or unset — use latest for remaining defaults
-      entry = loadLatestAssistant();
+      // URL provided but active assistant missing or unset — resolve for remaining defaults
+      entry = resolveAssistant();
     } else if (!entry) {
       console.error(
         "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
