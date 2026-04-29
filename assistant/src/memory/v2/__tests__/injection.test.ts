@@ -234,6 +234,18 @@ ref_files: []
 ---
 Carol loves jazz music — Coltrane in particular.`,
   );
+  // A page with both `edges` and `ref_files` populated so the frontmatter-
+  // injection test can assert the full canonical shape.
+  writeFileSync(
+    join(tmpWorkspace, "memory", "concepts", "frontmatter-demo.md"),
+    `---
+edges:
+  - alice-vscode
+ref_files:
+  - images/demo.jpg
+---
+Demo body content.`,
+  );
 });
 
 afterAll(() => {
@@ -539,6 +551,35 @@ describe("injectMemoryV2Block", () => {
     expect(persisted!.everInjected).toEqual([
       { slug: "alice-vscode", turn: 2 },
     ]);
+  });
+
+  test("includes the page frontmatter (edges, ref_files) in each rendered section", async () => {
+    // The frontmatter (`edges`, `ref_files`) lives on disk above the page
+    // body and is part of the page's content. Injection must reproduce both
+    // fields verbatim — bracketed by the canonical `---` delimiters — so the
+    // agent sees the page's edges and any referenced media paths alongside
+    // the prose body.
+    stageTurn([{ slug: "frontmatter-demo", denseScore: 0.9 }]);
+
+    const result = await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "show me the demo",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    expect(result.block).not.toBeNull();
+    // Slug header is immediately followed by the frontmatter open delimiter.
+    expect(result.block).toContain("### frontmatter-demo\n---\n");
+    // Both fields render in YAML block style with their populated values.
+    expect(result.block).toContain("edges:\n  - alice-vscode");
+    expect(result.block).toContain("ref_files:\n  - images/demo.jpg");
+    // Body still renders after the closing delimiter.
+    expect(result.block).toContain("Demo body content.");
   });
 
   test("renders pages in activation-descending order", async () => {

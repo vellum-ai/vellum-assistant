@@ -222,7 +222,7 @@ function parsePageContent(raw: string): {
  * always frontmatter + body; even pages with empty `edges` and `ref_files`
  * keep the explicit YAML keys so callers see the canonical shape on round-trip.
  */
-function renderPageContent(page: ConceptPage): string {
+export function renderPageContent(page: ConceptPage): string {
   const frontmatter = ConceptPageFrontmatterSchema.parse(page.frontmatter);
   const yamlBlock = stringifyYaml(frontmatter, { indent: 2 }).trimEnd();
   return `---\n${yamlBlock}\n---\n${page.body}`;

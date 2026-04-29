@@ -43,7 +43,7 @@ import {
 } from "./activation.js";
 import { hydrate, save } from "./activation-store.js";
 import { readEdges } from "./edges.js";
-import { readPage } from "./page-store.js";
+import { readPage, renderPageContent } from "./page-store.js";
 import { getSkillCapability } from "./skill-store.js";
 import type { ActivationState, EverInjectedEntry } from "./types.js";
 
@@ -365,13 +365,26 @@ export async function injectMemoryV2Block(
  * the missing-pages behavior.
  *
  * The block shape is the §5 layout from the design doc, with an optional
- * trailing skills subsection:
+ * trailing skills subsection. Each concept-page section reproduces the page
+ * as it lives on disk — frontmatter (`edges`, `ref_files`) plus body — so
+ * the agent sees the page's edges and any referenced media paths alongside
+ * the prose:
  *
  *   <memory>
  *   ### <slug-1>
+ *   ---
+ *   edges:
+ *     - <neighbor-slug>
+ *   ref_files:
+ *     - <path/to/asset>
+ *   ---
  *   <body-1>
  *
  *   ### <slug-2>
+ *   ---
+ *   edges: []
+ *   ref_files: []
+ *   ---
  *   <body-2>
  *
  *   ### Skills You Can Use
@@ -391,14 +404,14 @@ async function renderInjectionBlock(
   const pages = await Promise.all(
     slugs.map(async (slug) => {
       const page = await readPage(workspaceDir, slug);
-      return page ? { slug, body: page.body.trim() } : null;
+      return page ? { slug, content: renderPageContent(page).trim() } : null;
     }),
   );
 
   const sections: string[] = [];
   for (const entry of pages) {
-    if (!entry || entry.body.length === 0) continue;
-    sections.push(`### ${entry.slug}\n${entry.body}`);
+    if (!entry || entry.content.length === 0) continue;
+    sections.push(`### ${entry.slug}\n${entry.content}`);
   }
 
   // v2's skills collection is skills-only, so the activation suffix always applies.
