@@ -246,6 +246,17 @@ const OpenRouterDeepPartialSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Profile metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Distinguishes daemon-managed profiles (overwritten on every startup) from
+ * user-created ones (never touched by the daemon).
+ */
+export const ProfileSource = z.enum(["managed", "user"]);
+export type ProfileSource = z.infer<typeof ProfileSource>;
+
+// ---------------------------------------------------------------------------
 // Pricing overrides
 // ---------------------------------------------------------------------------
 
@@ -298,6 +309,9 @@ export const LLMConfigFragment = z.object({
   thinking: ThinkingFragmentSchema.optional(),
   contextWindow: ContextWindowDeepPartialSchema.optional(),
   openrouter: OpenRouterDeepPartialSchema.optional(),
+  source: ProfileSource.optional(),
+  label: z.string().min(1).optional(),
+  description: z.string().optional(),
 });
 export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
