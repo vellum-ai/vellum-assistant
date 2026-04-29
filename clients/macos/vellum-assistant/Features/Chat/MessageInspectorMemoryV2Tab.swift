@@ -13,7 +13,7 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let k: String
         let hops: String
         let topK: String
-        let topKSkills: Int
+        let topKSkills: String
         let epsilon: String
     }
 
@@ -27,12 +27,7 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let ownActivationLabel: String
         let priorActivationLabel: String
         let spreadContributionLabel: String
-        let simUserLabel: String
-        let simAssistantLabel: String
-        let simNowLabel: String
-        let simUserRaw: String
-        let simAssistantRaw: String
-        let simNowRaw: String
+        let simBreakdownRows: [LabeledValue]
     }
 
     struct SkillRowVM: Identifiable, Equatable {
@@ -40,12 +35,12 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
         let status: String
         let activation: Double
         let activationLabel: String
-        let simUserLabel: String
-        let simAssistantLabel: String
-        let simNowLabel: String
-        let simUserRaw: String
-        let simAssistantRaw: String
-        let simNowRaw: String
+        let simBreakdownRows: [LabeledValue]
+    }
+
+    struct LabeledValue: Equatable {
+        let label: String
+        let value: String
     }
 
     let mode: String
@@ -71,12 +66,12 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                     ownActivationLabel: formatActivation(concept.ownActivation),
                     priorActivationLabel: formatActivation(concept.priorActivation),
                     spreadContributionLabel: formatActivation(concept.spreadContribution),
-                    simUserLabel: formatScaled(concept.simUser, scale: activation.config.cUser),
-                    simAssistantLabel: formatScaled(concept.simAssistant, scale: activation.config.cAssistant),
-                    simNowLabel: formatScaled(concept.simNow, scale: activation.config.cNow),
-                    simUserRaw: formatActivation(concept.simUser),
-                    simAssistantRaw: formatActivation(concept.simAssistant),
-                    simNowRaw: formatActivation(concept.simNow)
+                    simBreakdownRows: simBreakdownRows(
+                        simUser: concept.simUser,
+                        simAssistant: concept.simAssistant,
+                        simNow: concept.simNow,
+                        config: activation.config
+                    )
                 )
             }
 
@@ -88,12 +83,12 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
                     status: skill.status,
                     activation: skill.activation,
                     activationLabel: formatActivation(skill.activation),
-                    simUserLabel: formatScaled(skill.simUser, scale: activation.config.cUser),
-                    simAssistantLabel: formatScaled(skill.simAssistant, scale: activation.config.cAssistant),
-                    simNowLabel: formatScaled(skill.simNow, scale: activation.config.cNow),
-                    simUserRaw: formatActivation(skill.simUser),
-                    simAssistantRaw: formatActivation(skill.simAssistant),
-                    simNowRaw: formatActivation(skill.simNow)
+                    simBreakdownRows: simBreakdownRows(
+                        simUser: skill.simUser,
+                        simAssistant: skill.simAssistant,
+                        simNow: skill.simNow,
+                        config: activation.config
+                    )
                 )
             }
 
@@ -111,7 +106,7 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
             k: formatActivation(activation.config.k),
             hops: "\(activation.config.hops)",
             topK: "\(activation.config.topK)",
-            topKSkills: activation.config.topKSkills,
+            topKSkills: "\(activation.config.topKSkills)",
             epsilon: formatActivation(activation.config.epsilon)
         )
 
@@ -134,17 +129,43 @@ struct MessageInspectorMemoryV2TabModel: Equatable {
     static func formatScaled(_ value: Double, scale: Double) -> String {
         String(format: "%.3f", value * scale)
     }
+
+    private static func simBreakdownRows(
+        simUser: Double,
+        simAssistant: Double,
+        simNow: Double,
+        config: MemoryV2Config
+    ) -> [LabeledValue] {
+        [
+            LabeledValue(
+                label: "c_user · sim_u",
+                value: "\(formatScaled(simUser, scale: config.cUser))  (raw \(formatActivation(simUser)))"
+            ),
+            LabeledValue(
+                label: "c_assistant · sim_a",
+                value: "\(formatScaled(simAssistant, scale: config.cAssistant))  (raw \(formatActivation(simAssistant)))"
+            ),
+            LabeledValue(
+                label: "c_now · sim_n",
+                value: "\(formatScaled(simNow, scale: config.cNow))  (raw \(formatActivation(simNow)))"
+            ),
+        ]
+    }
 }
 
 // MARK: - View
 
 struct MessageInspectorMemoryV2Tab: View {
-    let activation: MemoryV2ActivationData?
+    private let model: MessageInspectorMemoryV2TabModel?
+
+    init(activation: MemoryV2ActivationData?) {
+        self.model = activation.map(MessageInspectorMemoryV2TabModel.from(activation:))
+    }
 
     var body: some View {
         Group {
-            if let activation {
-                content(model: MessageInspectorMemoryV2TabModel.from(activation: activation))
+            if let model {
+                content(model: model)
             } else {
                 noDataState
             }
@@ -233,7 +254,7 @@ struct MessageInspectorMemoryV2Tab: View {
                     metadataRow(label: "k (sharpening)", value: config.k)
                     metadataRow(label: "hops", value: config.hops)
                     metadataRow(label: "top_k", value: config.topK)
-                    metadataRow(label: "top_k_skills", value: "\(config.topKSkills)")
+                    metadataRow(label: "top_k_skills", value: config.topKSkills)
                     metadataRow(label: "epsilon", value: config.epsilon)
                 }
                 .padding(.top, VSpacing.sm)
@@ -273,7 +294,7 @@ struct MessageInspectorMemoryV2Tab: View {
 
     private func skillsCard(
         rows: [MessageInspectorMemoryV2TabModel.SkillRowVM],
-        topKSkills: Int
+        topKSkills: String
     ) -> some View {
         VCard {
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -386,50 +407,45 @@ private func activationBreakdownRow(label: String, value: String) -> some View {
     }
 }
 
-// MARK: - Concept row
+// MARK: - Activation row (shared between concepts and skills)
 
-private struct ConceptRowView: View {
-    let row: MessageInspectorMemoryV2TabModel.ConceptRowVM
+private struct ActivationRowConfig {
+    let id: String
+    let activation: Double
+    let activationLabel: String
+    let statusColor: Color
+    let sourceBadge: String?
+    let breakdownRows: [MessageInspectorMemoryV2TabModel.LabeledValue]
+    let statusLabel: String
+}
+
+private struct ActivationRowView: View {
+    let config: ActivationRowConfig
     @State private var isExpanded = false
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
-                activationBreakdownRow(label: "A_o (own)", value: row.ownActivationLabel)
-                activationBreakdownRow(label: "spread Δ", value: row.spreadContributionLabel)
-                activationBreakdownRow(label: "prior · d", value: row.priorActivationLabel)
-                activationBreakdownRow(
-                    label: "c_user · sim_u",
-                    value: "\(row.simUserLabel)  (raw \(row.simUserRaw))"
-                )
-                activationBreakdownRow(
-                    label: "c_assistant · sim_a",
-                    value: "\(row.simAssistantLabel)  (raw \(row.simAssistantRaw))"
-                )
-                activationBreakdownRow(
-                    label: "c_now · sim_n",
-                    value: "\(row.simNowLabel)  (raw \(row.simNowRaw))"
-                )
-                if row.source != "ann_top50" {
-                    activationBreakdownRow(label: "source", value: row.source)
+                ForEach(config.breakdownRows, id: \.label) { row in
+                    activationBreakdownRow(label: row.label, value: row.value)
                 }
-                activationBreakdownRow(label: "status", value: statusLabel(row.status))
+                activationBreakdownRow(label: "status", value: config.statusLabel)
             }
             .padding(.top, VSpacing.xs)
             .padding(.leading, VSpacing.md)
         } label: {
             HStack(alignment: .center, spacing: VSpacing.sm) {
                 Circle()
-                    .fill(statusColor(row.status))
+                    .fill(config.statusColor)
                     .frame(width: 8, height: 8)
 
-                Text(row.slug)
+                Text(config.id)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
 
-                if row.source != "ann_top50" {
-                    Text(row.source)
+                if let sourceBadge = config.sourceBadge {
+                    Text(sourceBadge)
                         .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentSecondary)
                         .padding(.horizontal, VSpacing.xs)
@@ -440,10 +456,10 @@ private struct ConceptRowView: View {
 
                 Spacer(minLength: VSpacing.sm)
 
-                ActivationBar(value: row.finalActivation)
+                ActivationBar(value: config.activation)
                     .frame(width: 60, height: 6)
 
-                Text(row.finalActivationLabel)
+                Text(config.activationLabel)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .monospacedDigit()
@@ -455,56 +471,50 @@ private struct ConceptRowView: View {
     }
 }
 
+// MARK: - Concept row
+
+private struct ConceptRowView: View {
+    let row: MessageInspectorMemoryV2TabModel.ConceptRowVM
+
+    var body: some View {
+        let isCustomSource = row.source != "ann_top50"
+        var breakdownRows: [MessageInspectorMemoryV2TabModel.LabeledValue] = [
+            .init(label: "A_o (own)", value: row.ownActivationLabel),
+            .init(label: "spread Δ", value: row.spreadContributionLabel),
+            .init(label: "prior · d", value: row.priorActivationLabel),
+        ]
+        breakdownRows.append(contentsOf: row.simBreakdownRows)
+        if isCustomSource {
+            breakdownRows.append(.init(label: "source", value: row.source))
+        }
+
+        return ActivationRowView(config: ActivationRowConfig(
+            id: row.slug,
+            activation: row.finalActivation,
+            activationLabel: row.finalActivationLabel,
+            statusColor: statusColor(row.status),
+            sourceBadge: isCustomSource ? row.source : nil,
+            breakdownRows: breakdownRows,
+            statusLabel: statusLabel(row.status)
+        ))
+    }
+}
+
 // MARK: - Skill row
 
 private struct SkillRowView: View {
     let row: MessageInspectorMemoryV2TabModel.SkillRowVM
-    @State private var isExpanded = false
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                activationBreakdownRow(
-                    label: "c_user · sim_u",
-                    value: "\(row.simUserLabel)  (raw \(row.simUserRaw))"
-                )
-                activationBreakdownRow(
-                    label: "c_assistant · sim_a",
-                    value: "\(row.simAssistantLabel)  (raw \(row.simAssistantRaw))"
-                )
-                activationBreakdownRow(
-                    label: "c_now · sim_n",
-                    value: "\(row.simNowLabel)  (raw \(row.simNowRaw))"
-                )
-                activationBreakdownRow(label: "status", value: statusLabel(row.status))
-            }
-            .padding(.top, VSpacing.xs)
-            .padding(.leading, VSpacing.md)
-        } label: {
-            HStack(alignment: .center, spacing: VSpacing.sm) {
-                Circle()
-                    .fill(statusColor(row.status))
-                    .frame(width: 8, height: 8)
-
-                Text(row.id)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-
-                Spacer(minLength: VSpacing.sm)
-
-                ActivationBar(value: row.activation)
-                    .frame(width: 60, height: 6)
-
-                Text(row.activationLabel)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .monospacedDigit()
-            }
-        }
-        .padding(VSpacing.sm)
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        ActivationRowView(config: ActivationRowConfig(
+            id: row.id,
+            activation: row.activation,
+            activationLabel: row.activationLabel,
+            statusColor: statusColor(row.status),
+            sourceBadge: nil,
+            breakdownRows: row.simBreakdownRows,
+            statusLabel: statusLabel(row.status)
+        ))
     }
 }
 
