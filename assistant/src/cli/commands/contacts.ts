@@ -509,6 +509,12 @@ Examples:
             blockedReason,
           });
 
+          if (!result) {
+            writeError(cmd, `Failed to update channel: ${channelId}`);
+            process.exitCode = 1;
+            return;
+          }
+
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, { ok: true, channel: result });
           } else {
@@ -580,18 +586,17 @@ Examples:
           } else if (result.data.length === 0) {
             process.stdout.write("No invites found.\n");
           } else {
-            for (const inv of result.data) {
-              const r = inv as Record<string, unknown>;
-              const parts = [
-                r.id,
-                r.sourceChannel ?? "",
-                r.status ?? "",
-                r.token ? `token:${r.token}` : "",
-              ].filter(Boolean);
-              process.stdout.write(parts.join("  ") + "\n");
+              for (const inv of result.data) {
+                const parts = [
+                  inv.id,
+                  inv.sourceChannel,
+                  inv.status,
+                  inv.token ? `token:${inv.token}` : "",
+                ].filter(Boolean);
+                process.stdout.write(parts.join("  ") + "\n");
+              }
+              process.stdout.write(`\n${result.data.length} invite(s)\n`);
             }
-            process.stdout.write(`\n${result.data.length} invite(s)\n`);
-          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeError(cmd, message);
@@ -702,14 +707,14 @@ Examples:
             return;
           }
           if (shouldOutputJson(cmd)) {
-            writeOutput(cmd, { ok: true, invite: result.data });
-          } else {
-            const r = result.data as Record<string, unknown>;
-            process.stdout.write(
-              `Created invite ${r.id} (${r.sourceChannel})\n`,
-            );
-            if (r.token) process.stdout.write(`Token: ${r.token}\n`);
-          }
+              writeOutput(cmd, { ok: true, invite: result.data });
+            } else {
+              process.stdout.write(
+                `Created invite ${result.data.id} (${result.data.sourceChannel})\n`,
+              );
+              if (result.data.token)
+                process.stdout.write(`Token: ${result.data.token}\n`);
+            }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeError(cmd, message);
