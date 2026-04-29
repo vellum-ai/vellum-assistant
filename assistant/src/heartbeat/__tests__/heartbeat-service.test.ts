@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -19,7 +19,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 // Stub workspace prompt reads so the heartbeat service doesn't try to
 // read real workspace files. Use a fallback for early module-load calls
 // (e.g. AuthSessionCache constructor) before beforeEach sets workspaceDir.
-const fallbackDir = join(tmpdir(), "vellum-hb-feed-fallback");
+const fallbackDir = join(tmpdir(), "vellum-hb-svc-fallback");
 mock.module("../../util/platform.js", () => ({
   getWorkspaceDir: () => workspaceDir ?? fallbackDir,
   getWorkspacePromptPath: (name: string) =>
@@ -73,12 +73,6 @@ mock.module("../../config/loader.js", () => ({
   _appendQuarantineBulletin: () => {},
 }));
 
-// Stub conversation bootstrap.
-const lastConversationId = "conv-heartbeat-test";
-mock.module("../../memory/conversation-bootstrap.js", () => ({
-  bootstrapConversation: () => ({ id: lastConversationId }),
-}));
-
 // Stub prompt helpers.
 mock.module("../../prompts/persona-resolver.js", () => ({
   GUARDIAN_PERSONA_TEMPLATE: "",
@@ -102,48 +96,59 @@ mock.module("../../prompts/system-prompt.js", () => ({
   stripCommentLines: (s: string) => s,
 }));
 
-// Mock processMessage — HeartbeatService now imports it directly.
-let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+// Mock runBackgroundJob — HeartbeatService now delegates the
+// bootstrap/processMessage/timeout/failure-emit boundary to it.
+const STUB_CONVERSATION_ID = "conv-heartbeat-test";
 
-mock.module("../../daemon/process-message.js", () => ({
-  processMessage: async (...args: unknown[]) => {
-    if (_testProcessMessage) return _testProcessMessage(...args);
-    return { messageId: `mock-msg-${Date.now()}` };
+interface RunBackgroundJobCall {
+  jobName: string;
+  source: string;
+  prompt: string;
+  trustContext: { sourceChannel: string; trustClass: string };
+  callSite: string;
+  timeoutMs: number;
+  origin: string;
+  groupId?: string;
+}
+
+const runBackgroundJobCalls: RunBackgroundJobCall[] = [];
+let runBackgroundJobImpl: () => Promise<{
+  conversationId: string;
+  ok: boolean;
+  error?: Error;
+  errorKind?: string;
+}> = async () => ({
+  conversationId: STUB_CONVERSATION_ID,
+  ok: true,
+});
+
+mock.module("../../runtime/background-job-runner.js", () => ({
+  runBackgroundJob: async (opts: RunBackgroundJobCall) => {
+    runBackgroundJobCalls.push(opts);
+    return runBackgroundJobImpl();
   },
-  resolveTurnChannel: () => "vellum",
-  resolveTurnInterface: () => "vellum",
-  makePendingInteractionRegistrar: () => () => {},
-  prepareConversationForMessage: async () => ({}),
 }));
 
-const { getHomeFeedPath } = await import("../../home/feed-writer.js");
+// Stub credential health service so the heartbeat doesn't spin up a
+// real check during the test.
+mock.module("../../credential-health/credential-health-service.js", () => ({
+  checkAllCredentials: async () => ({ unhealthy: [] }),
+}));
+
 const { HeartbeatService } = await import("../heartbeat-service.js");
-
-interface OnDiskItem {
-  id: string;
-  type: string;
-  source?: string;
-  title: string;
-  summary: string;
-  priority: number;
-  status: string;
-  author: string;
-  urgency?: string;
-}
-
-function readFeedItems(): OnDiskItem[] {
-  const raw = JSON.parse(readFileSync(getHomeFeedPath(), "utf-8"));
-  return raw.items as OnDiskItem[];
-}
 
 let origWorkspaceDir: string | undefined;
 
 beforeEach(() => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "vellum-hb-feed-"));
+  workspaceDir = mkdtempSync(join(tmpdir(), "vellum-hb-svc-"));
   origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   publishSpy.mockClear();
-  _testProcessMessage = undefined;
+  runBackgroundJobCalls.length = 0;
+  runBackgroundJobImpl = async () => ({
+    conversationId: STUB_CONVERSATION_ID,
+    ok: true,
+  });
 });
 
 afterEach(() => {
@@ -159,70 +164,76 @@ afterEach(() => {
   }
 });
 
-describe("heartbeat feed events", () => {
-  test("successful heartbeat emits feed event with priority 30 and no urgency", async () => {
-    _testProcessMessage = async () => ({ messageId: "msg-1" });
+describe("HeartbeatService", () => {
+  test("invokes runBackgroundJob with expected options on each tick", async () => {
     const service = new HeartbeatService({
       alerter: () => {},
     });
 
     await service.runOnce({ force: true });
 
-    // Give the fire-and-forget emitFeedEvent time to flush.
-    await new Promise((r) => setTimeout(r, 100));
-
-    const items = readFeedItems();
-    const heartbeatItem = items.find((i) => i.title === "Heartbeat");
-    expect(heartbeatItem).toBeDefined();
-    expect(heartbeatItem!.summary).toBe(
-      "Periodic check completed. Tap to see details.",
-    );
-    expect(heartbeatItem!.priority).toBe(30);
-    expect(heartbeatItem!.urgency).toBeUndefined();
-    expect(heartbeatItem!.source).toBe("assistant");
+    expect(runBackgroundJobCalls).toHaveLength(1);
+    const call = runBackgroundJobCalls[0]!;
+    expect(call.jobName).toBe("heartbeat");
+    expect(call.source).toBe("heartbeat");
+    expect(call.callSite).toBe("heartbeatAgent");
+    expect(call.origin).toBe("heartbeat");
+    expect(call.groupId).toBe("system:background");
+    expect(call.timeoutMs).toBeGreaterThan(0);
+    expect(call.trustContext).toEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+    expect(call.prompt).toContain("<heartbeat-checklist>");
+    expect(call.prompt).toContain("<heartbeat-disposition>");
   });
 
-  test("failed heartbeat emits feed event with priority 55 and urgency medium", async () => {
-    _testProcessMessage = async () => {
-      throw new Error("LLM call failed");
-    };
+  test("fires onConversationCreated with the runner-returned conversationId", async () => {
+    const created: Array<{ conversationId: string; title: string }> = [];
     const service = new HeartbeatService({
       alerter: () => {},
+      onConversationCreated: (info) => created.push(info),
     });
 
     await service.runOnce({ force: true });
 
-    // Give the fire-and-forget emitFeedEvent time to flush.
-    await new Promise((r) => setTimeout(r, 100));
-
-    const items = readFeedItems();
-    const heartbeatItem = items.find((i) => i.title === "Heartbeat");
-    expect(heartbeatItem).toBeDefined();
-    expect(heartbeatItem!.summary).toBe(
-      "Heartbeat check failed. Check logs for details.",
-    );
-    expect(heartbeatItem!.priority).toBe(55);
-    expect(heartbeatItem!.urgency).toBe("medium");
-    expect(heartbeatItem!.source).toBe("assistant");
+    expect(created).toEqual([
+      { conversationId: STUB_CONVERSATION_ID, title: "Heartbeat" },
+    ]);
   });
 
-  test("dedupKey uses date for daily dedup", async () => {
-    _testProcessMessage = async () => ({ messageId: "msg-1" });
-    const service = new HeartbeatService({
-      alerter: () => {},
+  test("calls alerter with the failure message when the runner reports ok=false", async () => {
+    runBackgroundJobImpl = async () => ({
+      conversationId: STUB_CONVERSATION_ID,
+      ok: false,
+      error: new Error("LLM call failed"),
+      errorKind: "exception",
     });
 
-    // Run twice — same day should dedup to one item.
-    await service.runOnce({ force: true });
-    await new Promise((r) => setTimeout(r, 100));
-    await service.runOnce({ force: true });
-    await new Promise((r) => setTimeout(r, 100));
+    const alerts: Array<{ type: string; title: string; body: string }> = [];
+    const service = new HeartbeatService({
+      alerter: (alert) =>
+        alerts.push(alert as { type: string; title: string; body: string }),
+    });
 
-    const items = readFeedItems();
-    const heartbeatItems = items.filter((i) => i.title === "Heartbeat");
-    expect(heartbeatItems).toHaveLength(1);
+    await service.runOnce({ force: true });
 
-    const today = new Date().toISOString().split("T")[0];
-    expect(heartbeatItems[0]!.id).toBe(`emit:assistant:heartbeat:ok:${today}`);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      type: "heartbeat_alert",
+      title: "Heartbeat Failed",
+      body: "LLM call failed",
+    });
+  });
+
+  test("does not call alerter when the runner reports ok=true", async () => {
+    const alerts: unknown[] = [];
+    const service = new HeartbeatService({
+      alerter: (alert) => alerts.push(alert),
+    });
+
+    await service.runOnce({ force: true });
+
+    expect(alerts).toHaveLength(0);
   });
 });
