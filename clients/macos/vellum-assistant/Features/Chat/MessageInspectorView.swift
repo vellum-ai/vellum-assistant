@@ -631,6 +631,7 @@ struct MessageInspectorViewState {
     private(set) var loadState: MessageInspectorLoadState = .loading
     private(set) var logs: [LLMRequestLogEntry] = []
     private(set) var memoryRecall: MemoryRecallData?
+    private(set) var memoryV2Activation: MemoryV2ActivationData?
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
     private(set) var selectedRawPane: RawPayloadPane = .response
@@ -668,6 +669,7 @@ struct MessageInspectorViewState {
             let orderedLogs = Self.ordered(response.logs)
             logs = orderedLogs
             memoryRecall = response.memoryRecall
+            memoryV2Activation = response.memoryV2Activation
 
             guard !orderedLogs.isEmpty else {
                 loadState = .empty
@@ -686,11 +688,13 @@ struct MessageInspectorViewState {
         case .empty:
             logs = []
             memoryRecall = nil
+            memoryV2Activation = nil
             loadState = .empty
             selectedLogID = nil
         case .failed:
             logs = []
             memoryRecall = nil
+            memoryV2Activation = nil
             loadState = .failed
             selectedLogID = nil
         }
