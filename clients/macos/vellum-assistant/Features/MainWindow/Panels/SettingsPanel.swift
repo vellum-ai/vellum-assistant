@@ -32,24 +32,32 @@ enum SettingsTab: String {
         }
     }
 
-    static func sidebarTopTabs(
-        billingEnabled: Bool = false,
-        soundsEnabled: Bool = true,
-        debugEnabled: Bool = false,
-        includeCompactionPlayground: Bool = false
-    ) -> [SettingsTab] {
+    struct SidebarVisibility {
+        var billingEnabled = false
+        var soundsEnabled = true
+        var debugEnabled = false
+        var developerEnabled = false
+        var compactionPlaygroundEnabled = false
+        var devModeEnabled = false
+
+        var showsCompactionPlayground: Bool {
+            developerEnabled && compactionPlaygroundEnabled && devModeEnabled
+        }
+    }
+
+    static func sidebarTopTabs(visibility: SidebarVisibility) -> [SettingsTab] {
         var tabs: [SettingsTab] = []
-        if includeCompactionPlayground {
+        if visibility.showsCompactionPlayground {
             tabs.append(.compactionPlayground)
         }
         tabs.append(contentsOf: [.general, .modelsAndServices, .integrations])
         tabs.append(.voice)
-        if soundsEnabled { tabs.append(.sounds) }
-        if billingEnabled { tabs.append(.billing) }
+        if visibility.soundsEnabled { tabs.append(.sounds) }
+        if visibility.billingEnabled { tabs.append(.billing) }
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         tabs.append(.schedules)
-        if debugEnabled { tabs.append(.debug) }
+        if visibility.debugEnabled { tabs.append(.debug) }
         return tabs
     }
 
@@ -128,12 +136,11 @@ struct SettingsPanel: View {
             // this synchronously via `isCurrentAssistantManaged` which is set
             // in `ConnectionSetup` before the settings view is presented.
             let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
-            let visibleTabs = SettingsTab.sidebarTopTabs(
+            let visibleTabs = SettingsTab.sidebarTopTabs(visibility: .init(
                 billingEnabled: canShowBilling,
                 soundsEnabled: soundsEnabled,
-                debugEnabled: debugEnabled,
-                includeCompactionPlayground: false
-            )
+                debugEnabled: debugEnabled
+            ))
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else if SettingsTab.canDeferDeepLink(pending) {
@@ -274,16 +281,16 @@ struct SettingsPanel: View {
             }
         }
         .onChange(of: billingVisible) { _, _ in
-            consumeDeferredDeepLinkIfVisible()
+            reconcileSelectedTabVisibility()
         }
         .onChange(of: isDebugVisible) { _, _ in
-            consumeDeferredDeepLinkIfVisible()
+            reconcileSelectedTabVisibility()
         }
         .onChange(of: isSoundsEnabled) { _, _ in
-            consumeDeferredDeepLinkIfVisible()
+            reconcileSelectedTabVisibility()
         }
         .onChange(of: isCompactionPlaygroundVisible) { _, _ in
-            consumeDeferredDeepLinkIfVisible()
+            reconcileSelectedTabVisibility()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
@@ -305,7 +312,7 @@ struct SettingsPanel: View {
                     visibilityMayHaveChanged = true
                 }
                 if visibilityMayHaveChanged {
-                    consumeDeferredDeepLinkIfVisible()
+                    reconcileSelectedTabVisibility()
                 }
             }
         }
@@ -321,7 +328,7 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
-            consumeDeferredDeepLinkIfVisible()
+            reconcileSelectedTabVisibility()
         }
         .sheet(isPresented: $showingTrustRules, onDismiss: { connectionManager?.isTrustRulesSheetOpen = false }) {
             TrustRulesView(trustRuleClient: TrustRuleClient())
@@ -394,19 +401,25 @@ struct SettingsPanel: View {
     /// All currently visible tabs (top nav + gated bottom nav).
     private var allVisibleTabs: [SettingsTab] {
         var tabs = visibleSidebarTopTabs
-        if isDeveloperEnabled {
+        if sidebarVisibility.developerEnabled {
             tabs.append(.developer)
         }
         return tabs
     }
 
-    private var visibleSidebarTopTabs: [SettingsTab] {
-        SettingsTab.sidebarTopTabs(
+    private var sidebarVisibility: SettingsTab.SidebarVisibility {
+        .init(
             billingEnabled: billingVisible,
             soundsEnabled: isSoundsEnabled,
             debugEnabled: isDebugVisible,
-            includeCompactionPlayground: isCompactionPlaygroundVisible
+            developerEnabled: isDeveloperEnabled,
+            compactionPlaygroundEnabled: isCompactionPlaygroundEnabled,
+            devModeEnabled: DevModeManager.shared.isDevMode
         )
+    }
+
+    private var visibleSidebarTopTabs: [SettingsTab] {
+        SettingsTab.sidebarTopTabs(visibility: sidebarVisibility)
     }
 
     private var billingVisible: Bool {
@@ -423,7 +436,7 @@ struct SettingsPanel: View {
     }
 
     private var isCompactionPlaygroundVisible: Bool {
-        isDeveloperEnabled && isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode
+        sidebarVisibility.showsCompactionPlayground
     }
 
     private var settingsNav: some View {
@@ -759,7 +772,7 @@ struct SettingsPanel: View {
                 if let soundsFlag = flags.first(where: { $0.key == Self.soundsFeatureFlagKey }) {
                     isSoundsEnabled = soundsFlag.enabled
                 }
-                consumeDeferredDeepLinkIfVisible()
+                reconcileSelectedTabVisibility()
                 return
             } catch {
                 // Fall through to local config fallback.
@@ -785,20 +798,20 @@ struct SettingsPanel: View {
         if let soundsEnabled = resolved[Self.soundsFeatureFlagKey] {
             isSoundsEnabled = soundsEnabled
         }
-        consumeDeferredDeepLinkIfVisible()
+        reconcileSelectedTabVisibility()
     }
 
-    /// If a deep-linked tab was deferred at init because its feature flag
-    /// hadn't loaded, check whether it's now visible and navigate to it.
+    private func reconcileSelectedTabVisibility() {
+        consumeDeferredDeepLinkIfVisible()
+        ensureSelectedTabIsVisible()
+    }
+
+    /// If a feature-gated deep-linked tab becomes visible, navigate to it.
     private func consumeDeferredDeepLinkIfVisible() {
-        guard let deferred = deferredDeepLinkTab else {
-            ensureSelectedTabIsVisible()
-            return
-        }
+        guard let deferred = deferredDeepLinkTab else { return }
         if allVisibleTabs.contains(deferred) {
             selectVisibleTab(deferred)
         }
-        ensureSelectedTabIsVisible()
     }
 
     private func startPermissionPolling() {

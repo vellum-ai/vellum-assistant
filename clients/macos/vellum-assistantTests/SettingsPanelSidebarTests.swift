@@ -4,16 +4,15 @@ import XCTest
 final class SettingsPanelSidebarTests: XCTestCase {
 
     func testCompactionPlaygroundPositionFollowsVisibilityGate() {
-        let cases: [(developerEnabled: Bool, playgroundEnabled: Bool, devModeEnabled: Bool, expectedVisible: Bool)] = [
-            (true, true, true, true),
-            (true, false, true, false),
-            (false, true, true, false),
-            (true, true, false, false)
+        let cases: [(visibility: SettingsTab.SidebarVisibility, expectedVisible: Bool)] = [
+            (.init(developerEnabled: true, compactionPlaygroundEnabled: true, devModeEnabled: true), true),
+            (.init(developerEnabled: true, compactionPlaygroundEnabled: false, devModeEnabled: true), false),
+            (.init(developerEnabled: false, compactionPlaygroundEnabled: true, devModeEnabled: true), false),
+            (.init(developerEnabled: true, compactionPlaygroundEnabled: true, devModeEnabled: false), false)
         ]
 
         for testCase in cases {
-            let includePlayground = testCase.developerEnabled && testCase.playgroundEnabled && testCase.devModeEnabled
-            let tabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: includePlayground)
+            let tabs = SettingsTab.sidebarTopTabs(visibility: testCase.visibility)
 
             XCTAssertEqual(tabs.contains(.compactionPlayground), testCase.expectedVisible)
             if testCase.expectedVisible {
@@ -26,7 +25,9 @@ final class SettingsPanelSidebarTests: XCTestCase {
     }
 
     func testDeveloperIsNotRenderedInTopSidebarGroup() {
-        let topTabs = SettingsTab.sidebarTopTabs(includeCompactionPlayground: true)
+        let topTabs = SettingsTab.sidebarTopTabs(
+            visibility: .init(developerEnabled: true, compactionPlaygroundEnabled: true, devModeEnabled: true)
+        )
 
         XCTAssertFalse(topTabs.contains(.developer))
     }
