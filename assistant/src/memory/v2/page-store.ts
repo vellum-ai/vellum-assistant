@@ -69,7 +69,7 @@ export function slugify(input: string): string {
 // Path helpers
 // ---------------------------------------------------------------------------
 
-function getConceptsDir(workspaceDir: string): string {
+export function getConceptsDir(workspaceDir: string): string {
   return join(workspaceDir, "memory", "concepts");
 }
 
