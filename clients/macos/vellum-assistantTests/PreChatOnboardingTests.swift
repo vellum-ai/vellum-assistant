@@ -224,7 +224,7 @@ final class PreChatOnboardingTests: XCTestCase {
         let context = PreChatOnboardingContext(
             tools: Array(state.selectedTools).sorted(),
             tasks: Array(state.selectedTasks).sorted(),
-            tone: "balanced",
+            tone: "grounded",
             userName: state.userName.isEmpty ? nil : state.userName,
             assistantName: state.assistantName.isEmpty ? nil : state.assistantName
         )
@@ -233,7 +233,7 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertNotNil(receivedContext)
         XCTAssertEqual(receivedContext?.tools, ["slack"])
         XCTAssertEqual(receivedContext?.tasks, ["writing"])
-        XCTAssertEqual(receivedContext?.tone, "balanced")
+        XCTAssertEqual(receivedContext?.tone, "grounded")
         XCTAssertEqual(receivedContext?.userName, "Alex")
         XCTAssertEqual(receivedContext?.assistantName, "Pax")
     }
