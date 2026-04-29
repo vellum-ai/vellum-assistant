@@ -9,13 +9,11 @@ import {
 import {
   readPlatformToken,
   rollbackPlatformAssistant,
-  platformImportPreflight,
-  platformImportBundle,
   platformRequestUploadUrl,
   platformUploadToSignedUrl,
   platformImportPreflightFromGcs,
   platformImportBundleFromGcs,
-  platformPollImportStatus,
+  platformPollJobStatus,
 } from "../lib/platform-client.js";
 import { performDockerRollback } from "../lib/upgrade-lifecycle.js";
 
@@ -181,24 +179,13 @@ async function restorePlatform(
     process.exit(1);
   }
 
-  // Step 1.5 — Upload to GCS via signed URL (with fallback to inline)
-  let bundleKey: string | null = null;
-  try {
-    const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
-      token,
-      entry.runtimeUrl,
-    );
-    bundleKey = key;
-    console.log("Uploading bundle...");
-    await platformUploadToSignedUrl(uploadUrl, new Uint8Array(bundleData));
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("not available")) {
-      bundleKey = null;
-    } else {
-      throw err;
-    }
-  }
+  // Step 1.5 — Upload to GCS via signed URL
+  const { uploadUrl, bundleKey } = await platformRequestUploadUrl(
+    token,
+    entry.runtimeUrl,
+  );
+  console.log("Uploading bundle...");
+  await platformUploadToSignedUrl(uploadUrl, new Uint8Array(bundleData));
 
   // Step 2 — Dry-run path
   if (opts.dryRun) {
@@ -213,17 +200,11 @@ async function restorePlatform(
 
     let preflightResult: { statusCode: number; body: Record<string, unknown> };
     try {
-      preflightResult = bundleKey
-        ? await platformImportPreflightFromGcs(
-            bundleKey,
-            token,
-            entry.runtimeUrl,
-          )
-        : await platformImportPreflight(
-            new Uint8Array(bundleData),
-            token,
-            entry.runtimeUrl,
-          );
+      preflightResult = await platformImportPreflightFromGcs(
+        bundleKey,
+        token,
+        entry.runtimeUrl,
+      );
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Preflight request timed out after 2 minutes.");
@@ -353,13 +334,11 @@ async function restorePlatform(
 
   let importResult: { statusCode: number; body: Record<string, unknown> };
   try {
-    importResult = bundleKey
-      ? await platformImportBundleFromGcs(bundleKey, token, entry.runtimeUrl)
-      : await platformImportBundle(
-          new Uint8Array(bundleData),
-          token,
-          entry.runtimeUrl,
-        );
+    importResult = await platformImportBundleFromGcs(
+      bundleKey,
+      token,
+      entry.runtimeUrl,
+    );
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       console.error("Error: Import request timed out after 5 minutes.");
@@ -420,13 +399,9 @@ async function restorePlatform(
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
-      let status: {
-        status: string;
-        result?: Record<string, unknown>;
-        error?: string;
-      };
+      let status: Awaited<ReturnType<typeof platformPollJobStatus>>;
       try {
-        status = await platformPollImportStatus(jobId, token, entry.runtimeUrl);
+        status = await platformPollJobStatus(jobId, token, entry.runtimeUrl);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("not found")) {
@@ -451,7 +426,10 @@ async function restorePlatform(
       }
 
       if (status.status === "complete") {
-        importResult = { statusCode: 200, body: status.result ?? {} };
+        importResult = {
+          statusCode: 200,
+          body: (status.result as Record<string, unknown>) ?? {},
+        };
         break;
       }
 
