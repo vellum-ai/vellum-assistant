@@ -42,6 +42,7 @@ mock.module("../daemon/process-message.js", () => ({
     _processMessageCalled = true;
     return { messageId: "mock-msg" };
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
   // Re-export other functions as pass-through stubs; only processMessage
   // is imported by inbound-message-handler.
   resolveTurnChannel: () => "telegram",
@@ -300,7 +301,9 @@ describe("Verification control messages are deterministic (guard)", () => {
         }),
       });
 
-      const response = await handleChannelInbound({ body: JSON.parse(await req.text()) });
+      const response = await handleChannelInbound({
+        body: JSON.parse(await req.text()),
+      });
       const body = response as Record<string, unknown>;
 
       // Verification should have been handled
@@ -383,7 +386,9 @@ describe("Verification control messages are deterministic (guard)", () => {
         }),
       });
 
-      const response = await handleChannelInbound({ body: JSON.parse(await req.text()) });
+      const response = await handleChannelInbound({
+        body: JSON.parse(await req.text()),
+      });
       const body = response as Record<string, unknown>;
 
       // Bootstrap should have been handled deterministically
@@ -446,7 +451,9 @@ describe("Verification control messages are deterministic (guard)", () => {
       }),
     });
 
-    const response = await handleChannelInbound({ body: JSON.parse(await req.text()) });
+    const response = await handleChannelInbound({
+      body: JSON.parse(await req.text()),
+    });
     const body = response as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);

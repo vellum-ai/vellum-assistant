@@ -83,13 +83,16 @@ mock.module("../memory/conversation-title-service.js", () => ({
 }));
 
 // Mock processMessage — FilingService now imports it directly.
-let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+let _testProcessMessage:
+  | ((...args: unknown[]) => Promise<{ messageId: string }>)
+  | undefined;
 
 mock.module("../daemon/process-message.js", () => ({
   processMessage: async (...args: unknown[]) => {
     if (_testProcessMessage) return _testProcessMessage(...args);
     return { messageId: `mock-msg-${Date.now()}` };
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
   resolveTurnChannel: () => "vellum",
   resolveTurnInterface: () => "vellum",
   makePendingInteractionRegistrar: () => () => {},
@@ -132,7 +135,9 @@ describe("FilingService", () => {
       processMessageCalls.push({
         conversationId: args[0] as string,
         content: args[1] as string,
-        options: (args[3] as { speed?: string; callSite?: string } | undefined) ?? undefined,
+        options:
+          (args[3] as { speed?: string; callSite?: string } | undefined) ??
+          undefined,
       });
       return { messageId: "msg-1" };
     });
@@ -160,9 +165,7 @@ describe("FilingService", () => {
   });
 
   function createService(overrides?: {
-    processMessage?: (
-      ...args: unknown[]
-    ) => Promise<{ messageId: string }>;
+    processMessage?: (...args: unknown[]) => Promise<{ messageId: string }>;
   }) {
     if (overrides?.processMessage) {
       setTestProcessMessage(overrides.processMessage);
@@ -175,7 +178,9 @@ describe("FilingService", () => {
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options).toMatchObject({ callSite: "filingAgent" });
+    expect(processMessageCalls[0].options).toMatchObject({
+      callSite: "filingAgent",
+    });
     expect(processMessageCalls[0].options?.callSite).toBe("filingAgent");
   });
 

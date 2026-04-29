@@ -113,6 +113,7 @@ mock.module("../../daemon/process-message.js", () => ({
     if (_testProcessMessage) return _testProcessMessage(...args);
     return { messageId: `mock-msg-${Date.now()}` };
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
   resolveTurnChannel: () => "vellum",
   resolveTurnInterface: () => "vellum",
   makePendingInteractionRegistrar: () => () => {},

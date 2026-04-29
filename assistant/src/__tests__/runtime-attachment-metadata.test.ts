@@ -37,6 +37,7 @@ mock.module("../daemon/process-message.js", () => ({
   makePendingInteractionRegistrar: () => () => {},
   prepareConversationForMessage: async () => ({}),
   processMessage: async () => ({ messageId: `mock-msg-${Date.now()}` }),
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
 }));
 
 mock.module("../daemon/approval-generators.js", () => ({

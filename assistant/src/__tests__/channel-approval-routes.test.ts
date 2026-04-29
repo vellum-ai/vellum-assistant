@@ -49,6 +49,7 @@ mock.module("../daemon/process-message.js", () => ({
     if (_testProcessMessage) return _testProcessMessage(...args);
     return Promise.resolve({ messageId: "mock-msg-1" });
   },
+  processMessageInBackground: async () => ({ messageId: "mock-bg" }),
 }));
 
 // Approval generators require a configured LLM provider. Expose module-level
