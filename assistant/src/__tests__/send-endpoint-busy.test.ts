@@ -468,7 +468,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -528,7 +527,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -596,7 +594,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, true);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -656,7 +653,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, true, { queueDepth: 2 });
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -716,7 +712,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     } = makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -774,7 +769,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     );
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });
@@ -969,7 +963,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       makePendingApprovalConversation(requestId, false);
 
     pendingInteractions.register(requestId, {
-      conversation,
       conversationId,
       kind: "confirmation",
     });

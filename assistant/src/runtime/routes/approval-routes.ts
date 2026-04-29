@@ -98,7 +98,14 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     return { accepted: true };
   }
 
-  interaction.conversation!.handleConfirmationResponse(
+  const conversation = findConversation(interaction.conversationId);
+  if (!conversation) {
+    throw new NotFoundError(
+      "Conversation not found for this pending confirmation",
+    );
+  }
+
+  conversation.handleConfirmationResponse(
     requestId,
     effectiveDecision as UserDecision,
     selectedPattern,
@@ -137,10 +144,7 @@ function handleSecret({ body }: RouteHandlerArgs) {
     throw new NotFoundError("No pending interaction found for this requestId");
   }
 
-  // Secret interactions may be registered with conversation: null (from
-  // SecretPrompter), so look up the conversation from the store.
-  const conversation =
-    interaction.conversation ?? findConversation(interaction.conversationId);
+  const conversation = findConversation(interaction.conversationId);
   if (!conversation) {
     throw new NotFoundError(
       "Conversation not found for this pending secret request",

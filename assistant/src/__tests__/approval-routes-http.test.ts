@@ -335,7 +335,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       // Manually register a pending interaction
       pendingInteractions.register("req-abc", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -384,7 +383,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-once", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
       });
@@ -427,7 +425,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-1", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -462,7 +459,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-host-access", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -500,7 +496,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-v2-invalid", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "confirmation",
         confirmationDetails: {
@@ -549,7 +544,6 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("secret-req-1", {
-        conversation: session,
         conversationId: "conv-1",
         kind: "secret",
       });
@@ -691,17 +685,14 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await startServer(() => session);
 
       pendingInteractions.register("req-a", {
-        conversation: session,
         conversationId: "conv-x",
         kind: "confirmation",
       });
       pendingInteractions.register("req-b", {
-        conversation: session,
         conversationId: "conv-x",
         kind: "secret",
       });
       pendingInteractions.register("req-c", {
-        conversation: session,
         conversationId: "conv-y",
         kind: "confirmation",
       });

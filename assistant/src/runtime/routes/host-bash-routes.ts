@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -49,8 +50,12 @@ function handleHostBashResult({ body }: RouteHandlerArgs) {
   }
 
   const interaction = pendingInteractions.resolve(requestId)!;
+  const conversation = findConversation(interaction.conversationId);
+  if (!conversation) {
+    throw new NotFoundError("Conversation not found for host bash result");
+  }
 
-  interaction.conversation!.resolveHostBash(requestId, {
+  conversation.resolveHostBash(requestId, {
     stdout: stdout ?? "",
     stderr: stderr ?? "",
     exitCode: exitCode ?? null,

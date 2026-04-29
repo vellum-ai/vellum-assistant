@@ -9,6 +9,7 @@
  *   3. Consume user decisions and apply them to the underlying session
  */
 
+import { findConversation } from "../daemon/conversation-store.js";
 import type { UserDecision } from "../permissions/types.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 import type {
@@ -165,13 +166,16 @@ export function handleChannelDecision(
 
   // Map channel-level action to the permission system's UserDecision type.
   const userDecision = mapApprovalActionToUserDecision(decision.action);
+  const conversation = findConversation(resolved.conversationId);
+  if (!conversation) return { applied: false };
+
   if (decisionContext === undefined) {
-    resolved.conversation!.handleConfirmationResponse(
+    conversation.handleConfirmationResponse(
       info.requestId,
       userDecision,
     );
   } else {
-    resolved.conversation!.handleConfirmationResponse(
+    conversation.handleConfirmationResponse(
       info.requestId,
       userDecision,
       undefined,

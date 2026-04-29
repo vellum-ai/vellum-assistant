@@ -37,7 +37,7 @@ export interface SecretPrompterChannelContext {
  * Per-conversation secret prompter.
  *
  * Promise/timer state lives here (per-conversation lifecycle), while the
- * global {@link pendingInteractions} map provides the requestId→conversation
+ * global {@link pendingInteractions} map provides the requestId→conversationId
  * lookup that standalone HTTP endpoints (POST /v1/secret) need.
  */
 export class SecretPrompter {
@@ -88,11 +88,7 @@ export class SecretPrompter {
 
       this.pending.set(requestId, { resolve, reject, timer });
 
-      // Register in the global map so POST /v1/secret can look up the
-      // conversation by conversationId. The conversation object is loaded
-      // from the conversation store at resolve time — no DI needed.
       pendingInteractions.register(requestId, {
-        conversation: null,
         conversationId: effectiveConversationId,
         kind: "secret",
       });

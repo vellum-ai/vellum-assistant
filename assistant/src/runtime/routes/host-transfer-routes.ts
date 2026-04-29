@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   BadRequestError,
@@ -24,7 +25,8 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 function findProxyByTransferId(transferId: string) {
   const interactions = pendingInteractions.getByKind("host_transfer");
   for (const interaction of interactions) {
-    const proxy = interaction.conversation?.getHostTransferProxy();
+    const conversation = findConversation(interaction.conversationId);
+    const proxy = conversation?.getHostTransferProxy();
     if (proxy?.hasPendingTransfer(transferId)) {
       return { proxy, interaction };
     }
@@ -157,8 +159,12 @@ function handleTransferResult({ body }: RouteHandlerArgs) {
   }
 
   const interaction = pendingInteractions.resolve(requestId)!;
+  const conversation = findConversation(interaction.conversationId);
+  if (!conversation) {
+    throw new NotFoundError("Conversation not found for host transfer result");
+  }
 
-  interaction.conversation!.resolveHostTransfer(requestId, {
+  conversation.resolveHostTransfer(requestId, {
     isError: isError ?? false,
     bytesWritten,
     errorMessage,

@@ -451,7 +451,6 @@ export async function startVoiceTurn(
     if (msg.type === "confirmation_request") {
       if (usesLocalInteractiveApprovals) {
         pendingInteractions.register(msg.requestId, {
-          conversation,
           conversationId: opts.conversationId,
           kind: "confirmation",
           confirmationDetails: {
