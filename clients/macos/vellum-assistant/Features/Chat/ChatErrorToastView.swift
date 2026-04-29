@@ -261,7 +261,7 @@ struct DiskPressureBanner: View {
 
             Spacer(minLength: VSpacing.lg)
 
-            VButton(label: "Review Disk Usage", style: .primary) {
+            VButton(label: "Open Workspace", style: .primary) {
                 onReviewDiskUsage()
             }
         }
@@ -279,10 +279,10 @@ struct DiskPressureBanner: View {
         .layoutHangSignpost("chat.diskPressureBanner")
     }
 
-    static let title = "💾 Disk space is running low"
+    static let title = "💾 It looks like you're running out of disk space."
 
     static func subtitle(for alert: DiskPressureAlert) -> String {
-        "Storage is \(alert.displayPercent)% full."
+        "Storage is \(alert.displayPercent)% full. Try cleaning up unused data, like logs."
     }
 }
 

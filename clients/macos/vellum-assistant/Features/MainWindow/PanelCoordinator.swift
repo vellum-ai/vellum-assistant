@@ -144,7 +144,8 @@ extension MainWindowView {
                 authManager: authManager,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil),
+                pendingTab: $windowState.pendingIntelligenceTab,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
@@ -824,7 +825,8 @@ extension MainWindowView {
                 authManager: authManager,
                 assistantFeatureFlagStore: assistantFeatureFlagStore,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                initialTab: windowState.pendingIntelligenceTab ?? (windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil),
+                pendingTab: $windowState.pendingIntelligenceTab,
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
@@ -961,8 +963,7 @@ struct ActiveChatViewWrapper: View {
                 },
                 diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
                 onReviewDiskUsage: {
-                    settingsStore.requestGeneralSection(.systemResources)
-                    windowState.selection = .panel(.settings)
+                    windowState.showWorkspace()
                 },
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .bugReport)

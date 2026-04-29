@@ -221,8 +221,8 @@ private struct ThreadWindowContentView: View {
                     },
                     diskPressureAlert: AppDelegate.shared?.services.diskPressureMonitor.alert,
                     onReviewDiskUsage: {
-                        settingsStore.requestGeneralSection(.systemResources)
-                        AppDelegate.shared?.showSettingsWindow(nil)
+                        AppDelegate.shared?.showMainWindow()
+                        AppDelegate.shared?.mainWindow?.windowState.showWorkspace()
                     },
                     recoveryMode: settingsStore.managedAssistantRecoveryMode,
                     isRecoveryModeExiting: settingsStore.recoveryModeExiting,

@@ -81,6 +81,10 @@ public final class MainWindowState {
     /// Transient skill ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/SkillsPanel, then set back to nil.
     var pendingSkillId: String?
+
+    /// Transient tab to deep-link into when the Intelligence panel opens.
+    /// Consumed once by IntelligencePanel, then set back to nil.
+    var pendingIntelligenceTab: String?
     var activeDynamicSurface: UiSurfaceShowMessage?
     var activeDynamicParsedSurface: Surface?
     var workspaceComposerExpanded = false
@@ -283,6 +287,12 @@ public final class MainWindowState {
     /// Navigate to the Intelligence panel and deep-link to a specific skill.
     func showSkill(id: String) {
         pendingSkillId = id
+        showPanel(.intelligence)
+    }
+
+    /// Navigate to the Intelligence panel and show the workspace file browser.
+    func showWorkspace() {
+        pendingIntelligenceTab = "Workspace"
         showPanel(.intelligence)
     }
 

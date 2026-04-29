@@ -5,7 +5,7 @@ import Testing
 struct ChatDiskPressureBannerTests {
     @Test
     func titleStartsWithDiskEmoji() {
-        #expect(DiskPressureBanner.title == "💾 Disk space is running low")
+        #expect(DiskPressureBanner.title == "💾 It looks like you're running out of disk space.")
     }
 
     @Test
@@ -16,16 +16,16 @@ struct ChatDiskPressureBannerTests {
             displayPercent: 93
         )
 
-        #expect(DiskPressureBanner.subtitle(for: alert) == "Storage is 93% full.")
+        #expect(DiskPressureBanner.subtitle(for: alert) == "Storage is 93% full. Try cleaning up unused data, like logs.")
     }
 
     @Test @MainActor
-    func reviewDiskUsageRequestsGeneralStorageLanding() {
-        let store = SettingsStore()
+    func reviewDiskUsageRequestsWorkspaceLanding() {
+        let windowState = MainWindowState()
 
-        store.requestGeneralSection(.systemResources)
+        windowState.showWorkspace()
 
-        #expect(store.pendingSettingsTab == .general)
-        #expect(store.pendingSettingsGeneralSection == .systemResources)
+        #expect(windowState.selection == .panel(.intelligence))
+        #expect(windowState.pendingIntelligenceTab == "Workspace")
     }
 }
