@@ -42,6 +42,22 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
+// Capture `emitNotificationSignal` calls so tests can assert that scheduled
+// task failures surface via the notification pipeline (home feed + native).
+const emitNotificationCalls: Array<Record<string, unknown>> = [];
+mock.module("../notifications/emit-signal.js", () => ({
+  emitNotificationSignal: async (params: Record<string, unknown>) => {
+    emitNotificationCalls.push(params);
+    return {
+      signalId: "stub-signal",
+      deduplicated: false,
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [],
+    };
+  },
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
@@ -147,6 +163,7 @@ describe("scheduler run_task detection", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     onRunBackgroundJobCall = null;
+    emitNotificationCalls.length = 0;
   });
 
   test("run_task:<id> messages trigger runTask instead of processMessage", async () => {
@@ -264,5 +281,21 @@ describe("scheduler run_task detection", () => {
     expect(runs.length).toBeGreaterThanOrEqual(1);
     expect(runs[0].status).toBe("error");
     expect(runs[0].error).toContain("Task not found");
+
+    // Failed scheduled tasks must surface via the notification pipeline so
+    // they reach the home feed and native macOS notifications. The shape
+    // mirrors what `runBackgroundJob` emits for its own failures.
+    const failureSignal = emitNotificationCalls.find(
+      (p) => p.sourceEventName === "activity.failed",
+    );
+    expect(failureSignal).toBeDefined();
+    expect(failureSignal?.sourceChannel).toBe("scheduler");
+    const payload = failureSignal?.contextPayload as Record<string, unknown>;
+    expect(payload.jobName).toBe("task:nonexistent-task-id");
+    expect(payload.errorKind).toBe("exception");
+    expect(typeof payload.errorMessage).toBe("string");
+    expect(failureSignal?.dedupeKey).toMatch(
+      /^activity-failed:task:nonexistent-task-id:\d{4}-\d{2}-\d{2}$/,
+    );
   });
 });

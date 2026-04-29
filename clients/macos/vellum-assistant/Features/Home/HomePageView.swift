@@ -267,19 +267,22 @@ struct HomePageView<DetailPanel: View>: View {
     /// Icon glyph for a feed item. The v2 schema collapsed all items to
     /// the single `notification` type, so every row uses the same glyph
     /// — a per-item visual language driven by `urgency` or
-    /// `detailPanel.kind` is a future iteration.
-    private func icon(for item: FeedItem) -> VIcon {
+    /// `detailPanel.kind` is a future iteration. The `FeedItem` parameter
+    /// is retained (internal name dropped to flag intentionally unused) so
+    /// a future per-urgency / per-detail-panel-kind dispatch can re-thread
+    /// it without touching every call site.
+    private func icon(for _: FeedItem) -> VIcon {
         .bell
     }
 
     /// Foreground (glyph) color for the recap icon. See the `feed*`
     /// tokens in `ColorTokens.swift`.
-    private func iconForeground(for item: FeedItem) -> Color {
+    private func iconForeground(for _: FeedItem) -> Color {
         VColor.feedDigestStrong
     }
 
     /// Background (circle fill) color for the recap icon.
-    private func iconBackground(for item: FeedItem) -> Color {
+    private func iconBackground(for _: FeedItem) -> Color {
         VColor.feedDigestWeak
     }
 
