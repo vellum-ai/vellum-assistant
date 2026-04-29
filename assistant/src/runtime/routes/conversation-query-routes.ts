@@ -78,13 +78,7 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
-// TODO: Import from ../config/seed-inference-profiles.js once that module
-// exists (PR 2 of the declarative-profile-seed plan).
-const MANAGED_PROFILE_NAMES = new Set([
-  "quality-optimized",
-  "balanced",
-  "cost-optimized",
-]);
+import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
 
 const INFERENCE_PROFILE_UI_KEYS = new Set([
   "provider",
