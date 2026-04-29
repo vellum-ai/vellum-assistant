@@ -1,13 +1,17 @@
 /**
  * Client registry routes — list connected clients and their capabilities.
+ *
+ * Queries the assistant event hub's client subscribers rather than a
+ * separate registry. Clients register as hub subscribers via SSE /events.
  */
 
 import { z } from "zod";
 
+import type { HostProxyCapability } from "../../channels/types.js";
 import {
-  ClientRegistry,
-  getClientRegistry,
-} from "../client-registry.js";
+  AssistantEventHub,
+  assistantEventHub,
+} from "../assistant-event-hub.js";
 import type { RouteDefinition } from "./types.js";
 
 export const ROUTES: RouteDefinition[] = [
@@ -31,17 +35,16 @@ export const ROUTES: RouteDefinition[] = [
       clients: z.array(z.object({}).passthrough()),
     }),
     handler: ({ queryParams }) => {
-      const registry = getClientRegistry();
-      const capability = queryParams?.capability;
+      const capability = queryParams?.capability as
+        | HostProxyCapability
+        | undefined;
 
-      const entries = capability
-        ? registry.listByCapability(
-            capability as Parameters<typeof registry.listByCapability>[0],
-          )
-        : registry.listAll();
+      const clients = capability
+        ? assistantEventHub.listClientsByCapability(capability)
+        : assistantEventHub.listClients();
 
       return {
-        clients: entries.map((e) => ClientRegistry.toJSON(e)),
+        clients: clients.map((c) => AssistantEventHub.clientToJSON(c)),
       };
     },
   },

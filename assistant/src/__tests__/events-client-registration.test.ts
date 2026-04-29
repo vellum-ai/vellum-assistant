@@ -3,14 +3,14 @@
  * headers on the /events endpoint.
  *
  * Validates:
- *   - Client is registered in ClientRegistry on SSE connect
+ *   - Client is registered as a hub subscriber on SSE connect
  *   - Client is unregistered on SSE disconnect (abort)
  *   - Client is touched on heartbeat interval
  *   - Missing interfaceId with clientId throws BadRequestError
  *   - Invalid interfaceId throws BadRequestError
  *   - Missing both headers skips registration (backwards compat)
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -33,10 +33,6 @@ mock.module("../config/loader.js", () => ({
 import { initializeDb } from "../memory/db-init.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
-  __resetClientRegistryForTests,
-  getClientRegistry,
-} from "../runtime/client-registry.js";
-import {
   BadRequestError,
   ServiceUnavailableError,
 } from "../runtime/routes/errors.js";
@@ -45,10 +41,6 @@ import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.
 initializeDb();
 
 describe("events client registration", () => {
-  beforeEach(() => {
-    __resetClientRegistryForTests();
-  });
-
   // ── Registration on connect ───────────────────────────────────────────────
 
   test("registers client when both headers are provided", () => {
@@ -68,8 +60,8 @@ describe("events client registration", () => {
 
     expect(stream).toBeInstanceOf(ReadableStream);
 
-    const registry = getClientRegistry();
-    const entry = registry.get("test-mac-001");
+    const clients = hub.listClients();
+    const entry = clients.find((c) => c.clientId === "test-mac-001");
     expect(entry).toBeDefined();
     expect(entry!.interfaceId).toBe("macos");
     expect(entry!.capabilities).toContain("host_bash");
@@ -83,7 +75,7 @@ describe("events client registration", () => {
 
     handleSubscribeAssistantEvents({ abortSignal: ac.signal }, { hub });
 
-    expect(getClientRegistry().size).toBe(0);
+    expect(hub.listClients()).toHaveLength(0);
 
     ac.abort();
   });
@@ -100,7 +92,7 @@ describe("events client registration", () => {
       { hub },
     );
 
-    expect(getClientRegistry().size).toBe(0);
+    expect(hub.listClients()).toHaveLength(0);
 
     ac.abort();
   });
@@ -118,7 +110,7 @@ describe("events client registration", () => {
         { hub },
       ),
     ).toThrow(BadRequestError);
-    expect(getClientRegistry().size).toBe(0);
+    expect(hub.listClients()).toHaveLength(0);
   });
 
   test("throws BadRequestError when interfaceId is invalid", () => {
@@ -135,7 +127,7 @@ describe("events client registration", () => {
         { hub },
       ),
     ).toThrow(BadRequestError);
-    expect(getClientRegistry().size).toBe(0);
+    expect(hub.listClients()).toHaveLength(0);
   });
 
   // ── Unregistration on disconnect ──────────────────────────────────────────
@@ -155,21 +147,20 @@ describe("events client registration", () => {
       { hub },
     );
 
-    const registry = getClientRegistry();
-    expect(registry.get("test-mac-002")).toBeDefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "test-mac-002"),
+    ).toBeDefined();
 
-    // Start reading so start() runs and the abort listener is installed
     const reader = stream.getReader();
-    // Consume the initial heartbeat
     await reader.read();
 
-    // Abort the request — simulates client disconnect
     ac.abort();
 
-    // Allow microtasks to flush
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(registry.get("test-mac-002")).toBeUndefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "test-mac-002"),
+    ).toBeUndefined();
   });
 
   test("unregisters client when stream is cancelled", async () => {
@@ -187,22 +178,23 @@ describe("events client registration", () => {
       { hub },
     );
 
-    const registry = getClientRegistry();
-    expect(registry.get("test-mac-003")).toBeDefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "test-mac-003"),
+    ).toBeDefined();
 
-    // Cancel the stream directly
     await stream.cancel();
 
-    expect(registry.get("test-mac-003")).toBeUndefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "test-mac-003"),
+    ).toBeUndefined();
   });
 
   // ── Heartbeat touch ───────────────────────────────────────────────────────
 
-  test("touches client registry on heartbeat", async () => {
+  test("touches client on heartbeat", async () => {
     const ac = new AbortController();
     const hub = new AssistantEventHub();
 
-    // Use a very short heartbeat interval for testing
     const stream = handleSubscribeAssistantEvents(
       {
         headers: {
@@ -214,19 +206,18 @@ describe("events client registration", () => {
       { hub, heartbeatIntervalMs: 50 },
     );
 
-    const registry = getClientRegistry();
-    const entry = registry.get("test-mac-004");
+    const clients = hub.listClients();
+    const entry = clients.find((c) => c.clientId === "test-mac-004");
     expect(entry).toBeDefined();
     const initialActive = entry!.lastActiveAt;
 
-    // Read the initial heartbeat to ensure start() has run
     const reader = stream.getReader();
     await reader.read();
 
-    // Wait for at least one heartbeat cycle
     await new Promise((r) => setTimeout(r, 100));
 
-    // lastActiveAt should have been touched
+    // Re-query — the entry object is the same reference, so lastActiveAt
+    // should have been bumped by touchClient().
     expect(entry!.lastActiveAt).toBeGreaterThanOrEqual(initialActive);
 
     ac.abort();
@@ -235,8 +226,6 @@ describe("events client registration", () => {
   // ── Eviction cleanup ──────────────────────────────────────────────────────
 
   test("unregisters client when evicted by hub capacity limit", async () => {
-    // Create a hub with capacity 1 — the first subscriber is evicted when
-    // the second subscribes.
     const hub = new AssistantEventHub({ maxSubscribers: 1 });
 
     const ac1 = new AbortController();
@@ -251,10 +240,10 @@ describe("events client registration", () => {
       { hub },
     );
 
-    const registry = getClientRegistry();
-    expect(registry.get("evict-me")).toBeDefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "evict-me"),
+    ).toBeDefined();
 
-    // Second subscriber evicts the first
     const ac2 = new AbortController();
     handleSubscribeAssistantEvents(
       {
@@ -267,8 +256,12 @@ describe("events client registration", () => {
       { hub },
     );
 
-    expect(registry.get("evict-me")).toBeUndefined();
-    expect(registry.get("i-stay")).toBeDefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "evict-me"),
+    ).toBeUndefined();
+    expect(
+      hub.listClients().find((c) => c.clientId === "i-stay"),
+    ).toBeDefined();
 
     ac1.abort();
     ac2.abort();
@@ -276,8 +269,7 @@ describe("events client registration", () => {
 
   // ── Capacity limit cleanup ────────────────────────────────────────────────
 
-  test("cleans up registration when hub subscribe throws RangeError", () => {
-    // A hub with 0 capacity cannot accept any subscribers.
+  test("throws ServiceUnavailableError when hub has zero capacity", () => {
     const hub = new AssistantEventHub({ maxSubscribers: 0 });
 
     expect(() =>
@@ -291,7 +283,6 @@ describe("events client registration", () => {
         { hub },
       ),
     ).toThrow(ServiceUnavailableError);
-    // Should have been cleaned up
-    expect(getClientRegistry().get("no-room")).toBeUndefined();
+    expect(hub.listClients()).toHaveLength(0);
   });
 });

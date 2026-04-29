@@ -2,7 +2,6 @@ import { v4 as uuid } from "uuid";
 
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { getClientRegistry } from "../runtime/client-registry.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -66,17 +65,22 @@ export class HostBrowserProxy {
    */
   isAvailable(): boolean {
     return (
-      getClientRegistry().getMostRecentByCapability("host_browser") != null
+      assistantEventHub.getMostRecentClientByCapability("host_browser") != null
     );
   }
 
   /**
-   * Publish a ServerMessage through the assistant event hub.
+   * Publish a ServerMessage through the assistant event hub, targeted at the
+   * chrome extension subscriber.
    */
   private sendToExtension(msg: ServerMessage): void {
-    void assistantEventHub.publish(buildAssistantEvent(msg)).catch((err) => {
-      log.warn({ err }, "failed to publish host_browser event to hub");
-    });
+    void assistantEventHub
+      .publish(buildAssistantEvent(msg), {
+        targetInterfaceId: "chrome-extension",
+      })
+      .catch((err) => {
+        log.warn({ err }, "failed to publish host_browser event to hub");
+      });
   }
 
   request(

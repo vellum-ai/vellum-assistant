@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
-import type { ClientEntryJSON } from "../../runtime/client-registry.js";
+import type { ClientEntryJSON } from "../../runtime/assistant-event-hub.js";
 import { optsToQueryParams } from "../lib/ipc-params.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";

@@ -15,23 +15,18 @@ let mockHasConnection = true;
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
-    publish: async (event: unknown) => {
+    publish: async (event: unknown, _options?: unknown) => {
       publishedEvents.push(event);
     },
+    getMostRecentClientByCapability: (cap: string) =>
+      cap === "host_browser" && mockHasConnection
+        ? { clientId: "test-client" }
+        : undefined,
   },
 }));
 
 mock.module("../runtime/assistant-event.js", () => ({
   buildAssistantEvent: (message: unknown) => ({ message }),
-}));
-
-mock.module("../runtime/client-registry.js", () => ({
-  getClientRegistry: () => ({
-    getMostRecentByCapability: (cap: string) =>
-      cap === "host_browser" && mockHasConnection
-        ? { clientId: "test-client" }
-        : undefined,
-  }),
 }));
 
 // ── Real imports (after mocks) ───────────────────────────────────────
