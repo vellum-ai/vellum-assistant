@@ -13,6 +13,7 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type {
   InteractiveUiRequest,
   InteractiveUiResult,
@@ -255,7 +256,6 @@ export interface SurfaceConversationContext {
     emit(type: string, message: string, meta?: Record<string, unknown>): void;
   };
   sendToClient(msg: ServerMessage): void;
-  broadcastToAllClients?(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
     string,
@@ -485,9 +485,7 @@ export function showStandaloneSurface(
       // the client side, preventing stale user interactions from reaching
       // handleSurfaceAction and being misrouted to the LLM.
       try {
-        const emitTimeout =
-          ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-        emitTimeout({
+        broadcastMessage({
           type: "ui_surface_complete",
           conversationId: ctx.conversationId,
           surfaceId,
@@ -523,9 +521,7 @@ export function showStandaloneSurface(
       actions,
     });
 
-    // ── Emit to client ──
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-    emit({
+    broadcastMessage({
       type: "ui_surface_show",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -994,9 +990,7 @@ export async function handleSurfaceAction(
       summary,
     };
 
-    // Emit ui_surface_complete so the client transitions the surface chip.
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-    emit({
+    broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1211,12 +1205,7 @@ export async function handleSurfaceAction(
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
-    // Use broadcastToAllClients (publishes to the SSE event hub) instead of
-    // sendToClient, which is reset to a no-op between HTTP requests. Without
-    // this, surface action responses are persisted to DB but never reach the
-    // client's SSE stream.
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
-    const onEvent = (msg: ServerMessage) => emit(msg);
+    const onEvent = (msg: ServerMessage) => broadcastMessage(msg);
 
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
@@ -1250,7 +1239,7 @@ export async function handleSurfaceAction(
     // Echo the prompt to the client so it appears in the chat UI.
     // Deferred until after rejection check to avoid ghost messages.
     if (prompt) {
-      emit({
+      broadcastMessage({
         type: "user_message_echo",
         text: prompt,
         conversationId: ctx.conversationId,
@@ -1350,16 +1339,12 @@ export async function handleSurfaceAction(
     surfaceData,
   );
 
-  // Use broadcastToAllClients so events reach the SSE hub — sendToClient is
-  // reset to a no-op between HTTP requests (see history-restored path for
-  // full rationale).
-  const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
 
   // Forms are one-shot surfaces — auto-complete immediately so the client
   // transitions from the "Submitting…" spinner to a completion chip without
   // requiring the LLM to call ui_dismiss.
   if (pending.surfaceType === "form") {
-    emit({
+    broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
@@ -1455,7 +1440,7 @@ export async function handleSurfaceAction(
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
-  const onEvent = (msg: ServerMessage) => emit(msg);
+  const onEvent = (msg: ServerMessage) => broadcastMessage(msg);
 
   ctx.traceEmitter.emit("request_received", "Surface action received", {
     requestId,
@@ -1503,7 +1488,7 @@ export async function handleSurfaceAction(
   // Echo the user's prompt to the client so it appears in the chat UI.
   // Deferred until after rejection check to avoid ghost messages.
   if (shouldRelayPrompt && prompt) {
-    emit({
+    broadcastMessage({
       type: "user_message_echo",
       text: prompt,
       conversationId: ctx.conversationId,

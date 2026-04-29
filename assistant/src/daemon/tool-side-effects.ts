@@ -8,6 +8,7 @@
  */
 
 import { generateAppIcon } from "../media/app-icon-generator.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -25,7 +26,6 @@ const log = getLogger("tool-side-effects");
 
 export interface SideEffectContext {
   ctx: ToolSetupContext;
-  broadcastToAllClients?: (msg: ServerMessage) => void;
 }
 
 export type PostExecutionHook = (
@@ -50,11 +50,10 @@ export type PostExecutionHook = (
 function notifyAppChanged(
   ctx: ToolSetupContext,
   appId: string,
-  broadcastToAllClients: ((msg: ServerMessage) => void) | undefined,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
   refreshSurfacesForApp(ctx, appId, opts);
-  broadcastToAllClients?.({ type: "app_files_changed", appId });
+  broadcastMessage({ type: "app_files_changed", appId });
   void updatePublishedAppDeployment(appId);
 }
 
@@ -79,85 +78,60 @@ function registerHook(
 // Broadcast app_files_changed when a new app is created so clients
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
 // Also kicks off async icon generation via Gemini.
-registerHook(
-  "app_create",
-  (_name, _input, result, { ctx, broadcastToAllClients }) => {
-    try {
-      const parsed = JSON.parse(result.content) as {
-        id?: string;
-        name?: string;
-        description?: string;
-      };
-      if (parsed.id) {
-        // The apps directory may have just been created — ensure the
-        // filesystem watcher is running so subsequent file edits
-        // trigger live reload.
-        ensureAppSourceWatcher();
+registerHook("app_create", (_name, _input, result, { ctx }) => {
+  try {
+    const parsed = JSON.parse(result.content) as {
+      id?: string;
+      name?: string;
+      description?: string;
+    };
+    if (parsed.id) {
+      ensureAppSourceWatcher();
 
-        notifyAppChanged(ctx, parsed.id, broadcastToAllClients);
+      notifyAppChanged(ctx, parsed.id);
 
-        // Fire-and-forget: generate an app icon in the background.
-        // When complete, broadcast again so clients pick up the new icon.
-        if (parsed.name) {
-          void generateAppIcon(parsed.id, parsed.name, parsed.description)
-            .then(() => {
-              broadcastToAllClients?.({
-                type: "app_files_changed",
-                appId: parsed.id!,
-              });
-            })
-            .catch((err) => {
-              log.warn(
-                { err, appId: parsed.id },
-                "Background icon generation failed",
-              );
+      if (parsed.name) {
+        void generateAppIcon(parsed.id, parsed.name, parsed.description)
+          .then(() => {
+            broadcastMessage({
+              type: "app_files_changed",
+              appId: parsed.id!,
             });
-        }
+          })
+          .catch((err) => {
+            log.warn(
+              { err, appId: parsed.id },
+              "Background icon generation failed",
+            );
+          });
       }
-    } catch {
-      // Result wasn't valid JSON — skip the broadcast.
     }
-  },
-);
+  } catch {
+    // Result wasn't valid JSON — skip the broadcast.
+  }
+});
 
-// Broadcast app_files_changed when an icon is (re)generated so clients refresh.
-registerHook(
-  "app_generate_icon",
-  (_name, input, _result, { broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (appId) {
-      broadcastToAllClients?.({ type: "app_files_changed", appId });
-    }
-  },
-);
+registerHook("app_generate_icon", (_name, input) => {
+  const appId = input.app_id as string | undefined;
+  if (appId) {
+    broadcastMessage({ type: "app_files_changed", appId });
+  }
+});
 
-// Broadcast app_files_changed when an app is deleted so clients remove it
-// from their cached app lists.
-registerHook(
-  "app_delete",
-  (_name, input, _result, { broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (appId) {
-      broadcastToAllClients?.({ type: "app_files_changed", appId });
-    }
-  },
-);
+registerHook("app_delete", (_name, input) => {
+  const appId = input.app_id as string | undefined;
+  if (appId) {
+    broadcastMessage({ type: "app_files_changed", appId });
+  }
+});
 
-// Trigger surface refresh + broadcast when an app is refreshed.
-registerHook(
-  "app_refresh",
-  (_name, input, _result, { ctx, broadcastToAllClients }) => {
-    const appId = input.app_id as string | undefined;
-    if (!appId) return;
-    notifyAppChanged(ctx, appId, broadcastToAllClients, { fileChange: true });
-  },
-);
+registerHook("app_refresh", (_name, input, _result, { ctx }) => {
+  const appId = input.app_id as string | undefined;
+  if (!appId) return;
+  notifyAppChanged(ctx, appId, { fileChange: true });
+});
 
-// Broadcast voice config changes to all connected clients so every window
-// picks up the updated UserDefaults value immediately.
-registerHook(
-  "voice_config_update",
-  (_name, input, _result, { broadcastToAllClients }) => {
+registerHook("voice_config_update", (_name, input) => {
     const setting = input.setting as string | undefined;
     if (!setting) return;
 
@@ -187,7 +161,7 @@ registerHook(
     } else if (setting === "tts_provider" && typeof raw === "string") {
       coerced = raw.trim();
     }
-    broadcastToAllClients?.({
+    broadcastMessage({
       type: "client_settings_update",
       key,
       value: coerced,

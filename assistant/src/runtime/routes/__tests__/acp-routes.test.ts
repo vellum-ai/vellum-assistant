@@ -41,7 +41,6 @@ mock.module("../../../acp/index.js", () => ({
   getAcpSessionManager: () => ({
     getStatus: () => fakeInMemorySessions,
   }),
-  broadcastToAllClients: null,
 }));
 
 import { getSqlite } from "../../../memory/db-connection.js";

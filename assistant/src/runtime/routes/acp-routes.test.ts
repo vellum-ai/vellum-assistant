@@ -57,9 +57,6 @@ mock.module("../../acp/index.js", () => ({
       return state;
     },
   }),
-  // Spawn and bulk-DELETE tests don't reach this code path, but the mock
-  // factory must export every name the SUT imports.
-  broadcastToAllClients: null,
 }));
 
 import { eq } from "drizzle-orm";

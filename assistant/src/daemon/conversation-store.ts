@@ -20,7 +20,6 @@ import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import {
@@ -275,7 +274,6 @@ export async function getOrCreateConversation(
         maxTokens,
         sendToClient,
         workingDir,
-        broadcastMessage,
         DEFAULT_MEMORY_POLICY,
         sharedCesClient,
         storedOptions?.speed,

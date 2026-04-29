@@ -21,7 +21,6 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
@@ -304,7 +303,6 @@ export class SubagentManager {
       maxTokens,
       wrappedSendToClient,
       workingDir,
-      broadcastMessage,
       memoryPolicy,
       undefined, // sharedCesClient
       undefined, // speedOverride

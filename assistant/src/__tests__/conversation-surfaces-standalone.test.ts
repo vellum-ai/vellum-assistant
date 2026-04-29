@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
+
+let broadcastImpl: (msg: ServerMessage) => void = () => {};
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: ServerMessage) => broadcastImpl(msg),
+}));
 
 import {
   canShowInteractiveUi,
@@ -7,8 +15,6 @@ import {
   showStandaloneSurface,
   type SurfaceConversationContext,
 } from "../daemon/conversation-surfaces.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
-import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -28,6 +34,7 @@ function createMockContext(
   enqueuedMessages: Array<{ content: string; requestId: string }>;
 } {
   const sentMessages: ServerMessage[] = [];
+  broadcastImpl = (msg: ServerMessage) => sentMessages.push(msg);
   const enqueuedMessages: Array<{ content: string; requestId: string }> = [];
 
   return {
@@ -44,7 +51,6 @@ function createMockContext(
       emit: () => {},
     },
     sendToClient: (msg: ServerMessage) => sentMessages.push(msg),
-    broadcastToAllClients: (msg: ServerMessage) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),
     surfaceState: new Map(),
@@ -291,9 +297,8 @@ describe("showStandaloneSurface", () => {
 
   test("timeout still resolves when emit throws", async () => {
     const ctx = createMockContext();
-    // Override broadcastToAllClients to throw on ui_surface_complete
     let showEmitted = false;
-    ctx.broadcastToAllClients = (msg: ServerMessage) => {
+    broadcastImpl = (msg: ServerMessage) => {
       const type = (msg as unknown as Record<string, unknown>).type;
       if (type === "ui_surface_show") {
         showEmitted = true;
@@ -518,14 +523,13 @@ describe("standalone surface cleanup on conversation dispose", () => {
 
     // Simulate conversation dispose — cancel all pending with dismiss
     // notifications, matching the Conversation.dispose() implementation.
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
     for (const [surfaceId, entry] of ctx.pendingStandaloneSurfaces!) {
       clearTimeout(entry.timer);
-      emit({
+      broadcastImpl({
         type: "ui_surface_dismiss",
         conversationId: ctx.conversationId,
         surfaceId,
-      });
+      } as ServerMessage);
       entry.resolve({ status: "cancelled", surfaceId });
     }
     ctx.pendingStandaloneSurfaces!.clear();
@@ -568,14 +572,13 @@ describe("standalone surface cleanup on conversation dispose", () => {
     ctx.sentMessages.length = 0;
 
     // Simulate the dispose path (matching Conversation.dispose())
-    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
     for (const [surfaceId, entry] of ctx.pendingStandaloneSurfaces!) {
       clearTimeout(entry.timer);
-      emit({
+      broadcastImpl({
         type: "ui_surface_dismiss",
         conversationId: ctx.conversationId,
         surfaceId,
-      });
+      } as ServerMessage);
       entry.resolve({ status: "cancelled", surfaceId });
     }
     ctx.pendingStandaloneSurfaces!.clear();

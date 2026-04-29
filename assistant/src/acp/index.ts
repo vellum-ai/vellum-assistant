@@ -2,7 +2,6 @@ export { AcpSessionManager } from "./session-manager.js";
 export type { AcpAgentConfig, AcpSessionState } from "./types.js";
 
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import { AcpSessionManager } from "./session-manager.js";
 
 /** Singleton AcpSessionManager instance shared across the daemon. */
@@ -30,15 +29,3 @@ export function disposeAcpSessionManager(): void {
   }
 }
 
-/**
- * Broadcast callback set by DaemonServer constructor so ACP session events
- * reach all connected SSE clients. Same pattern as
- * `getSubagentManager().broadcastToAllClients` in server.ts.
- */
-export let broadcastToAllClients: ((msg: ServerMessage) => void) | null = null;
-
-export function setBroadcastToAllClients(
-  fn: (msg: ServerMessage) => void,
-): void {
-  broadcastToAllClients = fn;
-}
