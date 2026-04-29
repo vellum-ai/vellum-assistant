@@ -26,7 +26,6 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemStatus,
-  lowPriorityCollapsedSchema,
   suggestedPromptSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
@@ -56,7 +55,6 @@ const getHomeFeedResponseSchema = z.object({
   updatedAt: z.string(),
   contextBanner: contextBannerSchema,
   suggestedPrompts: z.array(suggestedPromptSchema),
-  lowPriorityCollapsed: lowPriorityCollapsedSchema,
 });
 
 const patchFeedItemRequestSchema = z.object({
@@ -124,21 +122,11 @@ export async function handleGetHomeFeed({
   // context-banner relative-time label.
   const filtered = feed.items;
 
-  const LOW_PRIORITY_THRESHOLD = 30;
-  const lowPriorityItems = filtered.filter(
-    (item) => item.priority < LOW_PRIORITY_THRESHOLD,
-  );
-
   const now = new Date();
   const contextBanner = {
     greeting: computeGreeting(now),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
     newCount: filtered.filter((i) => i.status === "new").length,
-  };
-
-  const lowPriorityCollapsed = {
-    count: lowPriorityItems.length,
-    itemIds: lowPriorityItems.map((item) => item.id),
   };
 
   const suggestedPrompts = await getSuggestedPrompts();
@@ -148,7 +136,6 @@ export async function handleGetHomeFeed({
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
       totalItems: feed.items.length,
       filteredItems: filtered.length,
-      lowPriorityCount: lowPriorityItems.length,
       newCount: contextBanner.newCount,
       suggestedPromptsCount: suggestedPrompts.length,
     },
@@ -160,7 +147,6 @@ export async function handleGetHomeFeed({
     updatedAt: feed.updatedAt,
     contextBanner,
     suggestedPrompts,
-    lowPriorityCollapsed,
   };
 }
 
@@ -251,7 +237,7 @@ export const ROUTES: RouteDefinition[] = [
         type: "integer",
         required: true,
         description:
-          "Seconds since the user was last active in the client. Used to filter items with a `minTimeAway` gate and to compute the context-banner relative-time label.",
+          "Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.",
       },
     ],
     responseBody: getHomeFeedResponseSchema,
