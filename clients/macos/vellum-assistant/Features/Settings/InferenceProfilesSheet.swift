@@ -423,6 +423,9 @@ struct InferenceProfilesSheet: View {
         guard let source = store.profiles.first(where: { $0.name == name }) else { return }
         var copy = source
         copy.name = uniqueProfileName(prefix: "\(name)-copy")
+        // Clear the managed source so the duplicate is treated as a
+        // user-created profile and is fully editable.
+        copy.source = nil
         editorDraft = copy
         editorOriginalName = nil
         editorState = .duplicate(name: name)
@@ -435,6 +438,16 @@ struct InferenceProfilesSheet: View {
         // Refuse to commit empty or whitespace-only names — the daemon
         // would accept them but the row would render unusably.
         guard !name.isEmpty else { return }
+
+        // Defense-in-depth: the UI disables Edit for managed profiles, but
+        // guard here in case the method is reached through an unexpected
+        // path. The daemon also rejects writes to managed profiles.
+        if let originalName,
+           let existing = store.profiles.first(where: { $0.name == originalName }),
+           existing.isManaged {
+            actionError = "Managed profiles are read-only. Duplicate to customize."
+            return
+        }
 
         // Profile saves are upserts keyed by name, so committing under a
         // name that already belongs to a different profile would silently
