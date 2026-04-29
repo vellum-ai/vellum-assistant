@@ -26,6 +26,7 @@ import type { BackupRunResult } from "../../../backup/backup-worker.js";
 import type { RestoreResult, VerifyResult } from "../../../backup/restore.js";
 import type { BackupConfig } from "../../../config/schema.js";
 import { BackupConfigSchema } from "../../../config/schema.js";
+import type { ManifestType } from "../../migrations/vbundle-validator.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks — must appear before any imports of the module under test
@@ -144,13 +145,31 @@ interface VerifyCall {
 
 let lastRestoreArgs: RestoreCall | null = null;
 let lastVerifyArgs: VerifyCall | null = null;
-let mockRestoreResult: RestoreResult = {
-  manifest: {
-    schema_version: "1.0",
+
+function makeV1Manifest(): ManifestType {
+  return {
+    schema_version: 1,
+    bundle_id: "00000000-0000-4000-8000-000000000000",
     created_at: "2026-04-11T10:00:00.000Z",
-    files: [],
-    manifest_sha256: "0".repeat(64),
-  } as unknown as RestoreResult["manifest"],
+    assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+    origin: { mode: "self-hosted-local" },
+    compatibility: {
+      min_runtime_version: "0.0.0-test",
+      max_runtime_version: null,
+    },
+    contents: [],
+    checksum: "0".repeat(64),
+    secrets_redacted: false,
+    export_options: {
+      include_logs: false,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+  };
+}
+
+let mockRestoreResult: RestoreResult = {
+  manifest: makeV1Manifest(),
   restoredFiles: 0,
 };
 let mockRestoreError: Error | null = null;
@@ -236,12 +255,7 @@ beforeEach(() => {
   lastVerifyArgs = null;
   mockRestoreError = null;
   mockRestoreResult = {
-    manifest: {
-      schema_version: "1.0",
-      created_at: "2026-04-11T10:00:00.000Z",
-      files: [],
-      manifest_sha256: "0".repeat(64),
-    } as unknown as RestoreResult["manifest"],
+    manifest: makeV1Manifest(),
     restoredFiles: 0,
   };
   mockVerifyResult = { valid: true };
@@ -768,12 +782,7 @@ describe("handleBackupVerify", () => {
     mockReadBackupKeyCalls = 0;
     mockVerifyResult = {
       valid: true,
-      manifest: {
-        schema_version: "1.0",
-        created_at: "2026-04-11T10:00:00.000Z",
-        files: [],
-        manifest_sha256: "0".repeat(64),
-      } as unknown as VerifyResult["manifest"],
+      manifest: makeV1Manifest(),
     };
 
     const result = (await handleBackupVerify({
