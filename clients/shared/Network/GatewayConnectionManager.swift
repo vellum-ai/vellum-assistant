@@ -999,7 +999,17 @@ public final class GatewayConnectionManager {
         isConnected = connected
         if isConnecting { isConnecting = false }
         if connected {
-            NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
+            // Defer the notification to a separate main-actor turn.
+            // NotificationCenter.post is synchronous and invokes ALL observer
+            // callbacks inline — including per-ChatViewModel and per-media-
+            // attachment observers (~30-50 total). Under memory pressure the
+            // _Block_copy calls during dispatch stall the main thread for >2s
+            // (LUM-1175 / MACOS-DH). Deferring breaks the synchronous chain
+            // while preserving delivery on @MainActor.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                NotificationCenter.default.post(name: .daemonDidReconnect, object: self)
+            }
             #if os(macOS)
             handlePostSparkleUpdate()
             #endif
