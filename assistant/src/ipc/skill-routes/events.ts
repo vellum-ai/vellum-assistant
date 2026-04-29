@@ -33,7 +33,7 @@ import { z } from "zod";
 import { buildAssistantEvent } from "../../runtime/assistant-event.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
-import type { SkillIpcStreamingRoute } from "../skill-server.js";
+import type { SkillIpcStreamingRoute } from "../skill-ipc-types.js";
 
 // ---------------------------------------------------------------------------
 // Param schemas
