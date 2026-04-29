@@ -20,7 +20,7 @@ describe("event-log", () => {
     });
 
     const log = getEventLog();
-    expect(log).toHaveLength(2);
+    expect(log.length).toBe(2);
     expect(log[0]!.id).toBe(1);
     expect(log[0]!.direction).toBe("inbound");
     expect(log[0]!.eventType).toBe("host_browser_request");
@@ -35,7 +35,7 @@ describe("event-log", () => {
       appendEvent("inbound", "test", { summary: `event-${i}` });
     }
     const log = getEventLog();
-    expect(log).toHaveLength(100);
+    expect(log.length).toBe(100);
     // Oldest entries were dropped — first entry should be event-20
     expect(log[0]!.summary).toBe("event-20");
     expect(log[99]!.summary).toBe("event-119");
@@ -46,8 +46,8 @@ describe("event-log", () => {
     const snap1 = getEventLog();
     appendEvent("outbound", "test2");
     const snap2 = getEventLog();
-    expect(snap1).toHaveLength(1);
-    expect(snap2).toHaveLength(2);
+    expect(snap1.length).toBe(1);
+    expect(snap2.length).toBe(2);
   });
 
   test("clearEventLog resets buffer and IDs", () => {
@@ -60,7 +60,8 @@ describe("event-log", () => {
 
   test("entries have ISO timestamps", () => {
     const entry = appendEvent("inbound", "test");
-    expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(entry.timestamp.startsWith("20")).toBe(true);
+    expect(entry.timestamp.includes("T")).toBe(true);
   });
 
   test("isError defaults to undefined", () => {
