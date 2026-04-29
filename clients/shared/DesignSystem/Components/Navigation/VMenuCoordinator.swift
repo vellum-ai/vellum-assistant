@@ -548,28 +548,30 @@ public final class VMenuCoordinator {
 
     private func installClickMonitor() {
         removeClickMonitor()
-        DispatchQueue.main.async { [weak self] in
-            self?.clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-                guard let self else { return event }
-                let mouseLocation = NSEvent.mouseLocation
+        // Installed synchronously — addLocalMonitorForEvents only catches
+        // future events, not the current event being processed, so the
+        // opening click won't trigger an immediate dismiss.
+        // Reference: https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:)
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            let mouseLocation = NSEvent.mouseLocation
 
-                for panel in self.panels {
-                    let locationInPanel = panel.convertPoint(fromScreen: mouseLocation)
-                    let panelBounds = panel.contentView?.bounds ?? .zero
-                    if panelBounds.contains(locationInPanel) {
-                        return event
-                    }
-                }
-
-                // Skip dismiss if click is in the trigger's excluded rect — let the
-                // trigger button handle closing so it doesn't immediately reopen.
-                if let excludeRect = self.excludeRect, excludeRect.contains(mouseLocation) {
+            for panel in self.panels {
+                let locationInPanel = panel.convertPoint(fromScreen: mouseLocation)
+                let panelBounds = panel.contentView?.bounds ?? .zero
+                if panelBounds.contains(locationInPanel) {
                     return event
                 }
+            }
 
-                self.dismissAll()
+            // Skip dismiss if click is in the trigger's excluded rect — let the
+            // trigger button handle closing so it doesn't immediately reopen.
+            if let excludeRect = self.excludeRect, excludeRect.contains(mouseLocation) {
                 return event
             }
+
+            self.dismissAll()
+            return event
         }
     }
 

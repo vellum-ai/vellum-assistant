@@ -193,8 +193,14 @@ public struct VMenu<Content: View>: View {
         #endif
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        #if os(iOS)
+        // On macOS, shadow is handled natively by VMenuPanel (hasShadow = true)
+        // to avoid ghost artifacts from stale SwiftUI shadow pixels in the
+        // window's backing store. On iOS there is no VMenuPanel, so the
+        // SwiftUI shadow is still needed.
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        #endif
         #if os(macOS)
         // --- SwiftUI-native keyboard focus (WWDC23 "The SwiftUI cookbook for focus") ---
         // Primary key-handling path: the VStack receives focus and .onKeyPress fires.
@@ -318,12 +324,24 @@ public enum VMenuItemVariant {
 
 /// Size variants for `VMenuItem`.
 public enum VMenuItemSize {
-    /// Compact menu item — 13pt DM Sans, matching sidebar conversation rows.
+    /// Mini menu item — same styling as compact but without the 32pt
+    /// minimum row height. Use for single-item dropdowns where the
+    /// standard row height creates too much whitespace.
+    case mini
+    /// Compact menu item — 32pt minimum row height, matching sidebar rows.
     case compact
     /// Regular menu item — delegates to `VNavItem` (14pt `VFont.bodyMediumDefault`).
     case regular
 
     fileprivate var font: Font { VFont.bodyMediumDefault }
+
+    /// Whether to apply `VSize.rowMinHeight` as a minimum height constraint.
+    fileprivate var enforcesMinHeight: Bool {
+        switch self {
+        case .mini: return false
+        case .compact, .regular: return true
+        }
+    }
 }
 
 // MARK: - VMenuItem
@@ -476,7 +494,7 @@ public struct VMenuItem<Trailing: View>: View {
             .padding(.leading, VSpacing.xs)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
-            .frame(minHeight: VSize.rowMinHeight)
+            .frame(minHeight: size.enforcesMinHeight ? VSize.rowMinHeight : nil)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(highlightBackground)
             .animation(VAnimation.fast, value: isHovered)

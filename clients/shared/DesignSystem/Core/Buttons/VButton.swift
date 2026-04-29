@@ -4,6 +4,14 @@ public struct VButton: View {
     public enum Style: Hashable { case primary, danger, dangerOutline, dangerGhost, outlined, ghost, contrast }
     public enum Size: Hashable { case regular, compact, pill, inline, pillRegular, pillLarge }
 
+    /// Controls the outer shape of the button.
+    public enum ButtonShape: Hashable {
+        /// Pill / capsule ends (fully rounded).
+        case capsule
+        /// Rounded rectangle matching `VRadius.md`.
+        case roundedRectangle
+    }
+
     public let label: String
     public var leftIcon: String? = nil
     public var rightIcon: String? = nil
@@ -20,6 +28,7 @@ public struct VButton: View {
     public var iconRotation: Angle? = nil
     /// Override the default foreground color for both text and icons.
     public var tintColor: Color? = nil
+    public var buttonShape: ButtonShape? = nil
     public let action: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
@@ -31,7 +40,7 @@ public struct VButton: View {
     /// state (set by external `.disabled()` modifiers up the view hierarchy).
     private var effectivelyDisabled: Bool { isDisabled || !isEnabled }
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, iconRotation: Angle? = nil, tintColor: Color? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, iconRotation: Angle? = nil, tintColor: Color? = nil, buttonShape: ButtonShape? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
@@ -47,6 +56,7 @@ public struct VButton: View {
         self.iconColor = iconColor
         self.iconRotation = iconRotation
         self.tintColor = tintColor
+        self.buttonShape = buttonShape
         self.action = action
     }
 
@@ -85,7 +95,8 @@ public struct VButton: View {
             isActive: isActive,
             isFocused: isFocused,
             iconSize: iconSize,
-            tintColor: tintColor
+            tintColor: tintColor,
+            buttonShape: buttonShape
         ))
         .onHover { hovering in
             isHovered = effectivelyDisabled ? false : hovering
@@ -144,13 +155,14 @@ public struct VButtonStyle: ButtonStyle {
     let isFocused: Bool
     let iconSize: CGFloat?
     let tintColor: Color?
+    let buttonShape: VButton.ButtonShape?
 
     /// Creates an icon-only button style for custom button compositions.
     public static func iconOnly(style: VButton.Style = .ghost, isHovered: Bool, isFocused: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil) -> VButtonStyle {
-        VButtonStyle(style: style, size: .regular, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize, tintColor: nil)
+        VButtonStyle(style: style, size: .regular, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize, tintColor: nil, buttonShape: nil)
     }
 
-    init(style: VButton.Style, size: VButton.Size = .regular, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil, tintColor: Color? = nil) {
+    init(style: VButton.Style, size: VButton.Size = .regular, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil, tintColor: Color? = nil, buttonShape: VButton.ButtonShape? = nil) {
         self.style = style
         self.size = size
         self.isHovered = isHovered
@@ -160,13 +172,25 @@ public struct VButtonStyle: ButtonStyle {
         self.isFocused = isFocused
         self.iconSize = iconSize
         self.tintColor = tintColor
+        self.buttonShape = buttonShape
     }
 
     @Environment(\.isEnabled) private var isEnabled
 
     public func makeBody(configuration: Configuration) -> some View {
-        let cornerRadius: CGFloat = (size == .pill || size == .pillRegular || size == .pillLarge) ? VRadius.pill : VRadius.md
-        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        let resolvedShape: AnyInsettableShape = {
+            switch buttonShape {
+            case .capsule:
+                return AnyInsettableShape(Capsule())
+            case .roundedRectangle:
+                return AnyInsettableShape(RoundedRectangle(cornerRadius: VRadius.md))
+            case nil:
+                // Default: pill sizes get pill radius, others get VRadius.md.
+                let cornerRadius: CGFloat = (size == .pill || size == .pillRegular || size == .pillLarge) ? VRadius.pill : VRadius.md
+                return AnyInsettableShape(RoundedRectangle(cornerRadius: cornerRadius))
+            }
+        }()
+        let shape = resolvedShape
 
         configuration.label
             .foregroundStyle(foregroundColor)
