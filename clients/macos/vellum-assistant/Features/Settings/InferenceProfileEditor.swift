@@ -140,8 +140,8 @@ struct InferenceProfileEditor: View {
                 Text("Edit Inference Profile")
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
-                if builtInInferenceProfileNames.contains(profile.name) {
-                    Text("Built-in profile")
+                if profile.isManaged {
+                    Text("Managed profile")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(.secondary)
                 }

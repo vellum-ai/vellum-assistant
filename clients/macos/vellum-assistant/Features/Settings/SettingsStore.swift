@@ -3408,6 +3408,10 @@ public final class SettingsStore: ObservableObject {
         /// affordance.
         case blockedByCallSites([String])
 
+        /// Deletion blocked because the profile is managed (source ==
+        /// "managed"). Managed profiles are read-only.
+        case blockedByManaged
+
         /// Reference checks passed but the daemon PATCH failed — typically
         /// a transient connectivity issue. The caller should surface a
         /// retry affordance; the next config sync will reconcile the
@@ -3425,6 +3429,9 @@ public final class SettingsStore: ObservableObject {
     /// treats as deletion.
     @discardableResult
     func deleteProfile(name: String) async -> DeleteProfileResult {
+        if profiles.first(where: { $0.name == name })?.isManaged == true {
+            return .blockedByManaged
+        }
         if activeProfile == name {
             return .blockedByActive(activeProfile)
         }
