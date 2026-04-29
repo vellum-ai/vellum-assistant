@@ -23,7 +23,6 @@ try {
 }
 
 const gateway = (config.gateway ?? {}) as Record<string, unknown>;
-gateway.runtimeProxyEnabled = true;
 gateway.runtimeProxyRequireAuth = false;
 gateway.unmappedPolicy = "default";
 gateway.defaultAssistantId = "self";

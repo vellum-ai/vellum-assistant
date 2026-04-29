@@ -54,7 +54,6 @@ const baseConfig: GatewayConfig = {
   routingEntries: [],
   runtimeInitialBackoffMs: 500,
   runtimeMaxRetries: 2,
-  runtimeProxyEnabled: false,
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,

@@ -759,8 +759,6 @@ export function serviceDockerRunArgs(opts: {
       "-e",
       `RUNTIME_HTTP_PORT=${ASSISTANT_INTERNAL_PORT}`,
       "-e",
-      "RUNTIME_PROXY_ENABLED=true",
-      "-e",
       "CES_CREDENTIAL_URL=http://localhost:8090",
       "-e",
       "GATEWAY_IPC_SOCKET_DIR=/run/gateway-ipc",

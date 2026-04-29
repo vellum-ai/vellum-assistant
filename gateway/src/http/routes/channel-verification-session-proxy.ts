@@ -1,8 +1,8 @@
 /**
  * Gateway proxy endpoints for channel verification session control-plane routes.
  *
- * These routes remain available even when the broad runtime proxy is
- * disabled, so skills and clients can use gateway URLs exclusively.
+ * These routes are registered as explicit gateway routes for dedicated
+ * auth handling rather than falling through to the catch-all proxy.
  */
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";

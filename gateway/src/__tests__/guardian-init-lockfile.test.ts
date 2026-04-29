@@ -115,7 +115,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     defaultAssistantId: undefined,
     unmappedPolicy: "reject",
     port: 7830,
-    runtimeProxyEnabled: false,
     runtimeProxyRequireAuth: true,
     shutdownDrainMs: 5000,
     runtimeTimeoutMs: 30000,
@@ -333,9 +332,12 @@ describe("guardian/init one-time-use lockfile", () => {
     const body = await res.json();
 
     // Verify contact records were written to the assistant DB
-    const assistantDb = new Database(join(testRoot, "data", "db", "assistant.db"), {
-      readonly: true,
-    });
+    const assistantDb = new Database(
+      join(testRoot, "data", "db", "assistant.db"),
+      {
+        readonly: true,
+      },
+    );
 
     const contact = assistantDb
       .query<

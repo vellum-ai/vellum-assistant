@@ -397,9 +397,7 @@ async function main() {
 
   const audioProxy = createAudioProxyHandler(config);
 
-  const handleRuntimeProxy = config.runtimeProxyEnabled
-    ? createRuntimeProxyHandler(config)
-    : null;
+  const handleRuntimeProxy = createRuntimeProxyHandler(config);
 
   // Helper to reject when an integration isn't configured
   const requireConfigured = (
@@ -941,10 +939,10 @@ async function main() {
     },
 
     // ── Teleport-GCS migration (unified daemon-async flow) ──
-    // These are registered explicitly (not via the runtime-proxy catch-all)
-    // so local/docker teleport works whether or not `runtimeProxyEnabled`
-    // is set. The daemon returns 202 { job_id } on POST and cheap JSON on
-    // GET, so the gateway just transparently forwards without wrapping.
+    // Registered as explicit routes (not via the runtime-proxy catch-all)
+    // for dedicated auth and timeout handling. The daemon returns 202
+    // { job_id } on POST and cheap JSON on GET, so the gateway just
+    // transparently forwards without wrapping.
     {
       path: "/v1/migrations/export-to-gcs",
       method: "POST",
@@ -1241,16 +1239,13 @@ async function main() {
     },
   ];
 
-  // The runtime proxy catch-all is only added when the proxy is enabled.
-  // It must be last so that all specific routes are checked first.
-  if (handleRuntimeProxy) {
-    routes.push({
-      path: /^\//, // match everything
-      auth: "track-failures",
-      handler: (req, _params, getClientIp) =>
-        handleRuntimeProxy(req, getClientIp()),
-    });
-  }
+  // Runtime proxy catch-all — must be last so specific routes are checked first.
+  routes.push({
+    path: /^\//, // match everything
+    auth: "track-failures",
+    handler: (req, _params, getClientIp) =>
+      handleRuntimeProxy(req, getClientIp()),
+  });
 
   const router = createRouter(routes, {
     authRateLimiter,
@@ -1449,7 +1444,7 @@ async function main() {
         return undefined as unknown as Response;
       }
 
-      if (config.runtimeProxyEnabled && url.pathname === "/v1/browser-relay") {
+      if (url.pathname === "/v1/browser-relay") {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;

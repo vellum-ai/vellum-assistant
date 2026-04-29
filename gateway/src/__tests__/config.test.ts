@@ -17,7 +17,6 @@ describe("config: hardcoded defaults", () => {
       default: 100 * 1024 * 1024,
     });
     expect(config.maxAttachmentConcurrency).toBe(3);
-    expect(config.runtimeProxyEnabled).toBe(false);
     expect(config.runtimeProxyRequireAuth).toBe(true);
     expect(config.trustProxy).toBe(false);
     expect(config.unmappedPolicy).toBe("reject");
