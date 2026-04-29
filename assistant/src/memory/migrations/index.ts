@@ -183,6 +183,10 @@ export {
 } from "./232-activation-state.js";
 export { migrateCreateDocumentConversations } from "./233-document-conversations.js";
 export {
+  downMemoryV2ActivationLogs,
+  migrateMemoryV2ActivationLogs,
+} from "./234-memory-v2-activation-logs.js";
+export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,
