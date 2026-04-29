@@ -141,12 +141,6 @@ import { installSkill } from "../daemon/handlers/skills.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const dummyCtx = {
-  debounceTimers: { schedule: () => {} },
-  setSuppressConfigReload: () => {},
-  updateConfigFingerprint: () => {},
-  broadcast: () => {},
-} as unknown as Parameters<typeof installSkill>[1];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -178,7 +172,6 @@ describe("installSkill routing", () => {
         slug: "vercel-labs/agent-skills/react-best-practices",
         origin: "skillssh",
       },
-      dummyCtx,
     );
 
     expect(result.success).toBe(true);
@@ -196,7 +189,7 @@ describe("installSkill routing", () => {
   });
 
   test("install without origin falls through to clawhub for simple slugs", async () => {
-    const result = await installSkill({ slug: "some-clawhub-skill" }, dummyCtx);
+    const result = await installSkill({ slug: "some-clawhub-skill" });
 
     expect(result.success).toBe(true);
     expect(mockClawhubInstall).toHaveBeenCalledTimes(1);
@@ -210,7 +203,6 @@ describe("installSkill routing", () => {
   test("install with origin: 'clawhub' routes directly to clawhub without trying skills.sh", async () => {
     const result = await installSkill(
       { slug: "my-skill", origin: "clawhub" },
-      dummyCtx,
     );
 
     expect(result.success).toBe(true);
@@ -221,7 +213,6 @@ describe("installSkill routing", () => {
   test("multi-segment slug without explicit origin auto-routes to skills.sh", async () => {
     const result = await installSkill(
       { slug: "owner/repo/my-skill" },
-      dummyCtx,
     );
 
     expect(result.success).toBe(true);
@@ -242,7 +233,6 @@ describe("installSkill routing", () => {
     // should override the auto-detection and go to clawhub
     const result = await installSkill(
       { slug: "owner/repo/my-skill", origin: "clawhub" },
-      dummyCtx,
     );
 
     expect(result.success).toBe(true);
@@ -263,7 +253,6 @@ describe("installSkill routing", () => {
 
     const result = await installSkill(
       { slug: "bundled-skill", origin: "skillssh" },
-      dummyCtx,
     );
 
     expect(result.success).toBe(true);
@@ -282,7 +271,6 @@ describe("installSkill routing", () => {
         slug: "owner/repo/nonexistent-skill",
         origin: "skillssh",
       },
-      dummyCtx,
     );
 
     expect(result.success).toBe(false);

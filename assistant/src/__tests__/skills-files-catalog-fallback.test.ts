@@ -238,12 +238,6 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const dummyCtx = {
-  debounceTimers: { schedule: () => {} },
-  setSuppressConfigReload: () => {},
-  updateConfigFingerprint: () => {},
-  broadcast: () => {},
-} as unknown as Parameters<typeof getSkillFiles>[1];
 
 function makeSummary(overrides: Partial<SkillSummary>): SkillSummary {
   return {
@@ -318,7 +312,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("acme-seo", dummyCtx);
+    const result = await getSkillFiles("acme-seo");
 
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -348,7 +342,7 @@ describe("getSkillFiles — provider chain fallback", () => {
   test("returns 404 when skill is neither installed nor handled by any provider", async () => {
     mockResolvedStates = [];
 
-    const result = await getSkillFiles("ghost-skill", dummyCtx);
+    const result = await getSkillFiles("ghost-skill");
 
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -364,7 +358,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       toSlimSkill: async () => null,
     };
 
-    const result = await getSkillFiles("broken-skill", dummyCtx);
+    const result = await getSkillFiles("broken-skill");
 
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -404,7 +398,7 @@ describe("getSkillFiles — provider chain fallback", () => {
         },
       ];
 
-      const result = await getSkillFiles("installed-skill", dummyCtx);
+      const result = await getSkillFiles("installed-skill");
 
       expect("error" in result).toBe(false);
       if ("error" in result) return;
@@ -467,7 +461,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("ghost-installed", dummyCtx);
+    const result = await getSkillFiles("ghost-installed");
 
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -491,7 +485,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("plain-skill", dummyCtx);
+    const result = await getSkillFiles("plain-skill");
 
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -516,7 +510,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("fancy-skill", dummyCtx);
+    const result = await getSkillFiles("fancy-skill");
 
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -559,7 +553,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("owner/repo/my-skill", dummyCtx);
+    const result = await getSkillFiles("owner/repo/my-skill");
 
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -621,7 +615,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("cool-tool", dummyCtx);
+    const result = await getSkillFiles("cool-tool");
 
     expect("error" in result).toBe(false);
     if ("error" in result) return;
@@ -635,7 +629,7 @@ describe("getSkillFiles — provider chain fallback", () => {
     mockSkillsshProvider = makeNoopProvider("skillssh");
     mockClawhubProvider = makeNoopProvider("clawhub");
 
-    const result = await getSkillFiles("unknown-origin-skill", dummyCtx);
+    const result = await getSkillFiles("unknown-origin-skill");
 
     expect("error" in result).toBe(true);
     if (!("error" in result)) return;
@@ -715,7 +709,7 @@ describe("getSkillFiles — provider chain fallback", () => {
       }),
     };
 
-    const result = await getSkillFiles("contested-skill", dummyCtx);
+    const result = await getSkillFiles("contested-skill");
 
     expect("error" in result).toBe(false);
     if ("error" in result) return;

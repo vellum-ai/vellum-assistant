@@ -5,7 +5,13 @@
  * and the SSE route. No runtime route or daemon integration is wired here.
  */
 
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import { appendEventToStream } from "../signals/event-stream.js";
+import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
+import { buildAssistantEvent } from "./assistant-event.js";
+
+const log = getLogger("assistant-event-hub");
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -124,6 +130,14 @@ export class AssistantEventHub {
    * callbacks adding new subscriptions do not receive the in-flight event.
    */
   async publish(event: AssistantEvent): Promise<void> {
+    if (event.conversationId) {
+      try {
+        appendEventToStream(event.conversationId, event);
+      } catch {
+        // Best-effort; file I/O failures must not block subscriber fanout.
+      }
+    }
+
     const snapshot = Array.from(this.subscribers);
     const errors: unknown[] = [];
 
@@ -192,3 +206,42 @@ export class AssistantEventHub {
  * Import and use this in daemon send paths and the SSE route.
  */
 export const assistantEventHub = new AssistantEventHub({ maxSubscribers: 100 });
+
+// ── Convenience: ServerMessage → AssistantEvent publish ───────────────────────
+
+/**
+ * Promise chain that serializes publishes so subscribers always observe
+ * events in send order.
+ */
+let _hubChain = Promise.resolve();
+
+/**
+ * Wraps a `ServerMessage` in an `AssistantEvent` envelope and publishes it
+ * to the process-level hub.
+ *
+ * When `conversationId` is omitted, it is auto-extracted from the message
+ * payload (if present).
+ *
+ * This is the primary entrypoint for emitting events — handlers, routes, and
+ * services should call this directly instead of threading a broadcast callback.
+ */
+export function broadcastMessage(
+  msg: ServerMessage,
+  conversationId?: string,
+): void {
+  const resolvedConversationId = conversationId ?? extractConversationId(msg);
+  const event = buildAssistantEvent(msg, resolvedConversationId);
+  _hubChain = _hubChain
+    .then(() => assistantEventHub.publish(event))
+    .catch((err: unknown) => {
+      log.warn({ err }, "assistant-events hub subscriber threw during publish");
+    });
+}
+
+function extractConversationId(msg: ServerMessage): string | undefined {
+  const record = msg as unknown as Record<string, unknown>;
+  if ("conversationId" in msg && typeof record.conversationId === "string") {
+    return record.conversationId as string;
+  }
+  return undefined;
+}

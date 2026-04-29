@@ -4,7 +4,6 @@ import { join } from "node:path";
 import {
   disposeAcpSessionManager,
   getAcpSessionManager,
-  setBroadcastToAllClients,
 } from "../acp/index.js";
 import { compileApp } from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
@@ -21,14 +20,12 @@ import {
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
-import { buildAssistantEvent } from "../runtime/assistant-event.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
-import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -93,7 +90,6 @@ export class DaemonServer {
   private sharedRequestTimestamps: number[] = [];
   private unsubscribeContactChange: (() => void) | null = null;
   private evictor: ConversationEvictor;
-  private _hubChain: Promise<void> = Promise.resolve();
 
   // Composed subsystems
   private configWatcher = getConfigWatcher();
@@ -164,12 +160,12 @@ export class DaemonServer {
   constructor() {
     this.evictor = new ConversationEvictor(getConversationMap());
     getSubagentManager().sharedRequestTimestamps = this.sharedRequestTimestamps;
-    getSubagentManager().broadcastToAllClients = (msg) => this.broadcast(msg);
+
     initConversationLifecycle({
       evictor: this.evictor,
       sharedRequestTimestamps: this.sharedRequestTimestamps,
     });
-    setBroadcastToAllClients((msg) => this.broadcast(msg));
+
     setEnsureAppSourceWatcher(() => this.appSourceWatcher.ensureStarted());
     // Wire the skill IPC server into the meet-host supervisor's lazy
     // dispatch path. The supervisor is constructed in
@@ -265,42 +261,6 @@ export class DaemonServer {
     };
   }
 
-  // ── Broadcast / Event publishing ──────────────────────────────────
-
-  /**
-   * Publish `msg` as an `AssistantEvent` to the process-level hub.
-   * Publications are serialized via a promise chain so subscribers
-   * always observe events in send order.
-   */
-  private publishAssistantEvent(
-    msg: ServerMessage,
-    conversationId?: string,
-  ): void {
-    const event = buildAssistantEvent(msg, conversationId);
-    this._hubChain = this._hubChain
-      .then(() => assistantEventHub.publish(event))
-      .catch((err: unknown) => {
-        log.warn(
-          { err },
-          "assistant-events hub subscriber threw during broadcast",
-        );
-      });
-
-    // Dual-write to file-based stream for cross-process consumers.
-    // No-op when no subscriber files exist for this conversation.
-    if (conversationId) {
-      try {
-        appendEventToStream(conversationId, event);
-      } catch {
-        // Best-effort; file I/O failures must not block the hub chain.
-      }
-    }
-  }
-
-  broadcast(msg: ServerMessage): void {
-    const conversationId = extractConversationId(msg);
-    this.publishAssistantEvent(msg, conversationId);
-  }
 
   private broadcastIdentityChanged(): void {
     try {
@@ -309,7 +269,7 @@ export class DaemonServer {
         ? readFileSync(identityPath, "utf-8")
         : "";
       const fields = parseIdentityFields(content);
-      this.broadcast({
+      broadcastMessage({
         type: "identity_changed",
         name: fields.name,
         role: fields.role,
@@ -344,15 +304,15 @@ export class DaemonServer {
   }
 
   private broadcastConfigChanged(): void {
-    this.broadcast({ type: "config_changed" });
+    broadcastMessage({ type: "config_changed" });
   }
 
   private broadcastSoundsConfigUpdated(): void {
-    this.broadcast({ type: "sounds_config_updated" });
+    broadcastMessage({ type: "sounds_config_updated" });
   }
 
   private broadcastAvatarUpdated(): void {
-    this.broadcast({
+    broadcastMessage({
       type: "avatar_updated",
       avatarPath: getAvatarImagePath(),
     });
@@ -370,7 +330,7 @@ export class DaemonServer {
       for (const conversation of allConversations()) {
         refreshSurfacesForApp(conversation, appId, { fileChange: true });
       }
-      this.broadcast({ type: "app_files_changed", appId });
+      broadcastMessage({ type: "app_files_changed", appId });
       void updatePublishedAppDeployment(appId);
     };
 
@@ -408,7 +368,7 @@ export class DaemonServer {
     registerDaemonCallbacks({
       getOrCreateConversation: (conversationId) =>
         getOrCreateActiveConversation(conversationId),
-      broadcast: (msg) => this.broadcast(msg),
+      broadcast: (msg) => broadcastMessage(msg),
     });
 
     registerCancelCallback((conversationId) => {
@@ -495,7 +455,7 @@ export class DaemonServer {
             "string"
             ? (msg as { conversationId: string }).conversationId
             : undefined;
-        this.publishAssistantEvent(msg, msgConversationId ?? conversationId);
+        broadcastMessage(msg, msgConversationId ?? conversationId);
       };
 
       if (conversation.isProcessing()) {
@@ -575,7 +535,7 @@ export class DaemonServer {
           sourceInterface,
         ),
       publishAssistantEvent: (msg, conversationId) =>
-        this.publishAssistantEvent(msg, conversationId),
+        broadcastMessage(msg, conversationId),
     });
 
     this.configWatcher.start(
@@ -592,7 +552,7 @@ export class DaemonServer {
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
-      this.broadcast({ type: "contacts_changed" });
+      broadcastMessage({ type: "contacts_changed" });
     });
 
     log.info("DaemonServer started (HTTP-only mode)");
@@ -651,7 +611,7 @@ export class DaemonServer {
   // ── Conversation management ──────────────────────────────────────────────
 
   broadcastStatus(): void {
-    this.broadcast({
+    broadcastMessage({
       type: "assistant_status",
       version: daemonVersion,
       keyFingerprint: getSigningKeyFingerprint(),
@@ -776,11 +736,4 @@ export class DaemonServer {
   }
 }
 
-/** Extract conversationId from a ServerMessage if present. */
-function extractConversationId(msg: ServerMessage): string | undefined {
-  const record = msg as unknown as Record<string, unknown>;
-  if ("conversationId" in msg && typeof record.conversationId === "string") {
-    return record.conversationId as string;
-  }
-  return undefined;
-}
+

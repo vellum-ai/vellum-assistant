@@ -55,9 +55,16 @@ mock.module("../messaging/providers/telegram-bot/send.js", () => ({
 }));
 import { eq } from "drizzle-orm";
 
+// Capture broadcastMessage calls so tests can inspect responses
+const broadcastedMessages: unknown[] = [];
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: unknown) => {
+    broadcastedMessages.push(msg);
+  },
+}));
+
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
-import type { SendContext } from "../daemon/handlers/shared.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
@@ -1259,19 +1266,22 @@ describe("assistant-scoped approval request lookups", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Creates a minimal mock SendContext that captures the response sent via ctx.send().
+ * Returns a helper that reads the latest broadcastMessage call as a
+ * ChannelVerificationSessionResponse. Resets the capture array first so
+ * each test gets a clean slate.
  */
-function createMockCtx(): {
-  ctx: SendContext;
+function createResponseReader(): {
   lastResponse: () => ChannelVerificationSessionResponse | null;
 } {
-  let captured: ChannelVerificationSessionResponse | null = null;
-  const ctx: SendContext = {
-    send: (msg: unknown) => {
-      captured = msg as ChannelVerificationSessionResponse;
-    },
+  broadcastedMessages.length = 0;
+  return {
+    lastResponse: () =>
+      broadcastedMessages.length > 0
+        ? (broadcastedMessages[
+            broadcastedMessages.length - 1
+          ] as ChannelVerificationSessionResponse)
+        : null,
   };
-  return { ctx, lastResponse: () => captured };
 }
 
 describe("HTTP handler channel-aware guardian status", () => {
@@ -1280,14 +1290,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action for telegram returns channel and assistantId fields", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1299,14 +1309,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action for voice returns channel: voice and assistantId: self", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1324,14 +1334,14 @@ describe("HTTP handler channel-aware guardian status", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1376,14 +1386,14 @@ describe("HTTP handler channel-aware guardian status", () => {
       displayName: "Guardian Name",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1392,14 +1402,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action defaults channel to telegram when omitted", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       // channel omitted — should default to 'telegram'
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1408,7 +1418,7 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action defaults assistantId to self when omitted", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
@@ -1416,7 +1426,7 @@ describe("HTTP handler channel-aware guardian status", () => {
       // assistantId omitted — should default to 'self'
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1425,14 +1435,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action for unbound voice does not return guardianDeliveryChatId", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1444,14 +1454,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   test("status action includes hasPendingChallenge when challenge exists", async () => {
     createInboundVerificationSession("phone");
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1460,14 +1470,14 @@ describe("HTTP handler channel-aware guardian status", () => {
   });
 
   test("status action hasPendingChallenge is false when no challenge exists", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1909,14 +1919,14 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("create_challenge for voice returns a high-entropy hex secret", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1929,14 +1939,14 @@ describe("HTTP handler voice guardian verification", () => {
   });
 
   test("status for voice reflects unbound state", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1954,14 +1964,14 @@ describe("HTTP handler voice guardian verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1980,14 +1990,14 @@ describe("HTTP handler voice guardian verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "revoke",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2012,14 +2022,14 @@ describe("HTTP handler voice guardian verification", () => {
       guardianDeliveryChatId: "tg-chat-1",
     });
 
-    const { ctx } = createMockCtx();
+    broadcastedMessages.length = 0;
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "revoke",
       channel: "phone",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     expect(getGuardianBinding("self", "phone")).toBeNull();
     expect(getGuardianBinding("self", "telegram")).not.toBeNull();
@@ -2495,7 +2505,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound creates session with expected E.164 identity and returns code", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
@@ -2503,7 +2513,7 @@ describe("outbound voice verification", () => {
       destination: "+15551234567",
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2531,7 +2541,7 @@ describe("outbound voice verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
@@ -2540,7 +2550,7 @@ describe("outbound voice verification", () => {
       rebind: false,
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2557,7 +2567,7 @@ describe("outbound voice verification", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
@@ -2566,7 +2576,7 @@ describe("outbound voice verification", () => {
       rebind: true,
     };
 
-    await handleChannelVerificationSession(msg, ctx);
+    await handleChannelVerificationSession(msg);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2576,7 +2586,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound before cooldown is rejected", async () => {
     // Start an outbound session first
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2584,18 +2594,16 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     // Immediately try to resend (before cooldown)
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2606,7 +2614,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound after cooldown succeeds and increments sendCount", async () => {
     // Start an outbound session
-    const { ctx: startCtx, lastResponse: startResp } = createMockCtx();
+    const { lastResponse: startResp } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2614,7 +2622,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     const startResponse = startResp();
@@ -2631,14 +2638,13 @@ describe("outbound voice verification", () => {
     );
 
     // Now resend should succeed
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2650,7 +2656,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound exceeding max sends is rejected", async () => {
     // Start an outbound session
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2658,7 +2664,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
@@ -2672,14 +2677,13 @@ describe("outbound voice verification", () => {
     );
 
     // Resend should be rejected due to max sends
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2690,7 +2694,7 @@ describe("outbound voice verification", () => {
 
   test("cancel_outbound revokes active session", async () => {
     // Start an outbound session
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2698,7 +2702,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     // Verify session exists
@@ -2706,14 +2709,13 @@ describe("outbound voice verification", () => {
     expect(sessionBefore).not.toBeNull();
 
     // Cancel it
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2776,7 +2778,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound rejects unsupported channels", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2784,7 +2786,6 @@ describe("outbound voice verification", () => {
         channel: "email",
         destination: "user@example.com",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2794,7 +2795,7 @@ describe("outbound voice verification", () => {
   });
 
   test("create_session without destination falls through to inbound challenge", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2802,7 +2803,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         // no destination — unified create_session creates an inbound challenge
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2812,7 +2812,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound rejects unparseable phone number", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2820,7 +2820,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "not-a-phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2830,7 +2829,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound normalizes formatted phone number for voice", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2838,7 +2837,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "(555) 123-4567",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2863,14 +2861,13 @@ describe("outbound voice verification", () => {
   });
 
   test("cancel_session succeeds even when no active session (idempotent)", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2889,7 +2886,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram with handle returns deep link URL, no outbound message", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2897,7 +2894,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2923,7 +2919,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram with handle (no @ prefix) returns deep link", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2931,7 +2927,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "someuser",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2944,7 +2939,7 @@ describe("outbound Telegram verification", () => {
   });
 
   test("start_outbound for telegram with known chat ID sends message, no deep link", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2952,7 +2947,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -2984,7 +2978,7 @@ describe("outbound Telegram verification", () => {
   test("start_outbound for telegram without bot username fails", async () => {
     mockBotUsername = undefined;
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -2992,7 +2986,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3009,7 +3002,7 @@ describe("outbound Telegram verification", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3018,7 +3011,6 @@ describe("outbound Telegram verification", () => {
         destination: "@newuser",
         rebind: false,
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3172,7 +3164,7 @@ describe("outbound Telegram verification", () => {
 
   test("resend_outbound for telegram works with known chat ID", async () => {
     // Start an outbound session with a known chat ID
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3180,7 +3172,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      startCtx,
     );
 
     // Fast-forward the cooldown
@@ -3193,14 +3184,13 @@ describe("outbound Telegram verification", () => {
       Date.now() - 1000,
     );
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3216,7 +3206,7 @@ describe("outbound Telegram verification", () => {
 
   test("resend_outbound for pending_bootstrap session is rejected", async () => {
     // Start an outbound session with a handle (pending_bootstrap)
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3224,17 +3214,15 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      startCtx,
     );
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3245,7 +3233,7 @@ describe("outbound Telegram verification", () => {
 
   test("cancel_outbound for telegram revokes session", async () => {
     // Start an outbound session
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3253,20 +3241,18 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      startCtx,
     );
 
     const session = serviceFindActiveSession("telegram");
     expect(session).not.toBeNull();
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
         channel: "telegram",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3307,14 +3293,13 @@ describe("outbound Telegram verification", () => {
   });
 
   test("create_session for telegram without destination falls through to inbound challenge", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3325,7 +3310,7 @@ describe("outbound Telegram verification", () => {
 
   test("rate limits apply to telegram outbound (per-session send cap)", async () => {
     // Start an outbound session with a known chat ID
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3333,7 +3318,6 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      startCtx,
     );
 
     // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
@@ -3347,14 +3331,13 @@ describe("outbound Telegram verification", () => {
     );
 
     // Resend should be rejected due to max sends
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3365,7 +3348,7 @@ describe("outbound Telegram verification", () => {
 
   test("rate limits apply to telegram outbound (cooldown)", async () => {
     // Start an outbound session with a known chat ID
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3373,18 +3356,16 @@ describe("outbound Telegram verification", () => {
         channel: "telegram",
         destination: "123456789",
       },
-      startCtx,
     );
 
     // Immediately try to resend (before cooldown)
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3404,7 +3385,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice creates session with 6-digit code and initiates call", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3412,7 +3393,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3445,7 +3425,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice rejects unparseable phone number", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3453,7 +3433,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "not-a-phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3463,7 +3442,7 @@ describe("outbound voice verification", () => {
   });
 
   test("start_outbound for voice normalizes formatted phone number", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3471,7 +3450,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "555-123-4567",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3505,7 +3483,7 @@ describe("outbound voice verification", () => {
       guardianDeliveryChatId: "+15551234567",
     });
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3514,7 +3492,6 @@ describe("outbound voice verification", () => {
         destination: "+15559876543",
         rebind: false,
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3525,7 +3502,7 @@ describe("outbound voice verification", () => {
 
   test("resend_outbound for voice initiates a new call with cooldown check", async () => {
     // Start an outbound session first
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3533,18 +3510,16 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     // Immediately try to resend (before cooldown)
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3555,7 +3530,7 @@ describe("outbound voice verification", () => {
 
   test("cancel_outbound for voice cancels session", async () => {
     // Start an outbound session first
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3563,18 +3538,16 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     // Cancel the session
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3608,7 +3581,7 @@ describe("outbound voice verification", () => {
         .run();
     }
 
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3616,7 +3589,6 @@ describe("outbound voice verification", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3626,14 +3598,13 @@ describe("outbound voice verification", () => {
   });
 
   test("create_session for voice without destination falls through to inbound challenge", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3661,7 +3632,7 @@ describe("M1–M4 hardening coverage", () => {
   // ── M2: start_outbound for voice returns secret in response ──
 
   test("start_outbound for voice response includes secret", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3669,7 +3640,6 @@ describe("M1–M4 hardening coverage", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3684,7 +3654,7 @@ describe("M1–M4 hardening coverage", () => {
 
   test("resend_outbound for voice response includes secret", async () => {
     // Start a session first
-    const { ctx: startCtx } = createMockCtx();
+    broadcastedMessages.length = 0;
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3692,7 +3662,6 @@ describe("M1–M4 hardening coverage", () => {
         channel: "phone",
         destination: "+15551234567",
       },
-      startCtx,
     );
 
     // Move past cooldown
@@ -3706,14 +3675,13 @@ describe("M1–M4 hardening coverage", () => {
     );
 
     // Resend
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
         channel: "phone",
       },
-      ctx,
     );
 
     const resp = lastResponse();
@@ -3727,7 +3695,7 @@ describe("M1–M4 hardening coverage", () => {
   // ── M2: start_outbound for Telegram bootstrap does NOT return secret ──
 
   test("start_outbound for Telegram bootstrap (handle) does NOT return secret", async () => {
-    const { ctx, lastResponse } = createMockCtx();
+    const { lastResponse } = createResponseReader();
     await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
@@ -3735,7 +3703,6 @@ describe("M1–M4 hardening coverage", () => {
         channel: "telegram",
         destination: "@someuser",
       },
-      ctx,
     );
 
     const resp = lastResponse();

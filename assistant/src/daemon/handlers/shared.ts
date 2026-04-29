@@ -1,12 +1,11 @@
 import { v4 as uuid } from "uuid";
 
-import { broadcastToAllClients } from "../../acp/index.js";
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
-import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import type {
@@ -32,18 +31,6 @@ export const pendingStandaloneSecrets = new Map<
     timer: ReturnType<typeof setTimeout>;
   }
 >();
-
-// Pending signing responses (bundle signing orchestration), keyed by unique requestId
-interface PendingSigningResolve {
-  resolve: (result: {
-    signature: string;
-    keyId: string;
-    publicKey: string;
-  }) => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-const pendingSignBundlePayload = new Map<string, PendingSigningResolve>();
 
 export interface HistoryToolCall {
   name: string;
@@ -157,35 +144,6 @@ export interface ConversationCreateOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
-}
-
-// ── Narrow handler context types ─────────────────────────────────────
-//
-// Each handler declares only the server capabilities it actually uses.
-// This replaces the former monolithic HandlerContext interface.
-
-/** Handlers that only need to broadcast to all connected clients. */
-export interface BroadcastContext {
-  broadcast(msg: ServerMessage): void;
-}
-
-/** Handlers that need to send a message to the originating client. */
-export interface SendContext {
-  send(msg: ServerMessage): void;
-}
-
-/** Conversation handlers that send messages and touch eviction timers. */
-export interface ConversationHandlerContext {
-  send(msg: ServerMessage): void;
-  touchConversation(conversationId: string): void;
-}
-
-/** Config-ingress handlers that manage debounce and reload suppression. */
-export interface IngressConfigContext {
-  send(msg: ServerMessage): void;
-  debounceTimers: DebouncerMap;
-  suppressConfigReload: boolean;
-  setSuppressConfigReload(value: boolean): void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -550,10 +508,7 @@ export function requestSecretStandalone(params: {
   allowedTools?: string[];
   allowedDomains?: string[];
 }): Promise<SecretPromptResult> {
-  const broadcast = broadcastToAllClients;
-  if (!broadcast) {
-    return Promise.resolve({ value: null, delivery: "store" });
-  }
+
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {
@@ -562,7 +517,7 @@ export function requestSecretStandalone(params: {
       resolve({ value: null, delivery: "store" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingStandaloneSecrets.set(requestId, { resolve, timer });
-    broadcast({
+    broadcastMessage({
       type: "secret_request",
       requestId,
       service: params.service,
@@ -576,29 +531,6 @@ export function requestSecretStandalone(params: {
       allowOneTimeSend: config.secretDetection.allowOneTimeSend,
     });
   });
-}
-
-const SIGNING_TIMEOUT_MS = 30_000;
-
-/**
- * Create a SigningCallback that sends `sign_bundle_payload` to the Swift client
- * over HTTP and waits for the `sign_bundle_payload_response`.
- */
-export function createSigningCallback(
-  ctx: SendContext,
-): (
-  payload: string,
-) => Promise<{ signature: string; keyId: string; publicKey: string }> {
-  return (payload: string) =>
-    new Promise((resolve, reject) => {
-      const requestId = uuid();
-      const timer = setTimeout(() => {
-        pendingSignBundlePayload.delete(requestId);
-        reject(new Error("Signing request timed out"));
-      }, SIGNING_TIMEOUT_MS);
-      pendingSignBundlePayload.set(requestId, { resolve, reject, timer });
-      ctx.send({ type: "sign_bundle_payload", requestId, payload });
-    });
 }
 
 /** Get or create the skill entry object for a given skill name, creating intermediate objects as needed.

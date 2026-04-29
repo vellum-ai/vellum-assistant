@@ -188,12 +188,6 @@ const { installSkill } = await import("../daemon/handlers/skills.js");
 // Helpers
 // ---------------------------------------------------------------------------
 
-const dummyCtx = {
-  debounceTimers: { schedule: () => {} },
-  setSuppressConfigReload: () => {},
-  updateConfigFingerprint: () => {},
-  broadcast: () => {},
-} as unknown as Parameters<typeof installSkill>[1];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -213,7 +207,7 @@ describe("v2 skill re-seed gating in skill handlers", () => {
   });
 
   test("flag + config both on → maybeSeedMemoryV2Skills invoked after seedSkillGraphNodes", async () => {
-    const result = await installSkill({ slug: "bundled-skill" }, dummyCtx);
+    const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
     expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);
@@ -224,7 +218,7 @@ describe("v2 skill re-seed gating in skill handlers", () => {
   test("flag off → seed mock observes the disabled flag and skips", async () => {
     flagsState.flagEnabled = false;
 
-    const result = await installSkill({ slug: "bundled-skill" }, dummyCtx);
+    const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
     expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);
@@ -235,7 +229,7 @@ describe("v2 skill re-seed gating in skill handlers", () => {
   test("config.memory.v2.enabled off → seed mock observes config and skips", async () => {
     flagsState.configV2Enabled = false;
 
-    const result = await installSkill({ slug: "bundled-skill" }, dummyCtx);
+    const result = await installSkill({ slug: "bundled-skill" });
 
     expect(result.success).toBe(true);
     expect(mockSeedSkillGraphNodes).toHaveBeenCalledTimes(1);

@@ -14,6 +14,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
     publish: publishSpy,
     subscribe: () => () => {},
   },
+  broadcastMessage: () => {},
 }));
 
 // Stub workspace prompt reads so the heartbeat service doesn't try to
@@ -103,7 +104,9 @@ mock.module("../../prompts/system-prompt.js", () => ({
 }));
 
 // Mock processMessage — HeartbeatService now imports it directly.
-let _testProcessMessage: ((...args: unknown[]) => Promise<{ messageId: string }>) | undefined;
+let _testProcessMessage:
+  | ((...args: unknown[]) => Promise<{ messageId: string }>)
+  | undefined;
 
 mock.module("../../daemon/process-message.js", () => ({
   processMessage: async (...args: unknown[]) => {

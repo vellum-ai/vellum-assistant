@@ -21,6 +21,7 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
@@ -143,13 +144,6 @@ export class SubagentManager {
    * Set by DaemonServer at startup so subagents share the global rate limit.
    */
   sharedRequestTimestamps: number[] = [];
-
-  /**
-   * Broadcast callback from the daemon server.
-   * Set by DaemonServer at startup so subagent conversations can broadcast
-   * to all connected clients (e.g. app_files_changed side-effects).
-   */
-  broadcastToAllClients?: (msg: ServerMessage) => void;
 
   // ── Spawn ───────────────────────────────────────────────────────────
 
@@ -310,7 +304,7 @@ export class SubagentManager {
       maxTokens,
       wrappedSendToClient,
       workingDir,
-      this.broadcastToAllClients, // forward parent's broadcast so tool side-effects (e.g. app_files_changed) reach all clients
+      broadcastMessage,
       memoryPolicy,
       undefined, // sharedCesClient
       undefined, // speedOverride

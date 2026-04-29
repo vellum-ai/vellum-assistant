@@ -10,6 +10,7 @@ import {
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getSubagentManager } from "../../subagent/index.js";
@@ -30,19 +31,14 @@ import type {
   ServerMessage,
 } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
-import {
-  type ConversationHandlerContext,
-  log,
-  pendingStandaloneSecrets,
-} from "./shared.js";
+import { log, pendingStandaloneSecrets } from "./shared.js";
 
 export function makeEventSender(params: {
-  ctx: ConversationHandlerContext;
   conversation: Conversation;
   conversationId: string;
   sourceChannel: string;
 }): (event: ServerMessage) => void {
-  const { ctx, conversation, conversationId, sourceChannel } = params;
+  const { conversation, conversationId, sourceChannel } = params;
 
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
@@ -135,13 +131,12 @@ export function makeEventSender(params: {
       });
     }
 
-    ctx.send(event);
+    broadcastMessage(event);
   };
 }
 
 export function handleConfirmationResponse(
   msg: ConfirmationResponse,
-  ctx: ConversationHandlerContext,
 ): void {
   // Route by requestId to the conversation that originated the prompt, not by
   // the current conversation binding which may have changed since the
@@ -150,7 +145,7 @@ export function handleConfirmationResponse(
 
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
-      ctx.touchConversation(conversationId);
+      touchConversation(conversationId);
       conversation.handleConfirmationResponse(
         msg.requestId,
         decision,
@@ -172,7 +167,6 @@ export function handleConfirmationResponse(
 
 export function handleSecretResponse(
   msg: SecretResponse,
-  ctx: ConversationHandlerContext,
 ): void {
   // Check standalone (non-conversation) prompts first, since they use a dedicated
   // requestId that won't collide with conversation prompts.
@@ -193,7 +187,7 @@ export function handleSecretResponse(
   // request was issued (e.g. after a conversation switch).
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingSecret(msg.requestId)) {
-      ctx.touchConversation(conversationId);
+      touchConversation(conversationId);
       conversation.handleSecretResponse(msg.requestId, msg.value, msg.delivery);
       pendingInteractions.resolve(msg.requestId);
       return;
