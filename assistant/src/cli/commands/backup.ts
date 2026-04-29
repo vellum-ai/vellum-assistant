@@ -596,7 +596,7 @@ export async function handleRestore(opts: RestoreOptions): Promise<void> {
     invalidateConfigCache();
 
     log.info(`Restored from ${snapshotPath}`);
-    log.info(`  source: ${result.manifest.source ?? "unknown"}`);
+    log.info(`  bundle_id: ${result.manifest.bundle_id}`);
     log.info(`  schema_version: ${result.manifest.schema_version}`);
     log.info(`  files restored: ${result.restoredFiles}`);
   } catch (err) {
@@ -627,7 +627,7 @@ export async function handleVerify(path: string): Promise<void> {
       log.info(`OK: ${path}`);
       if (result.manifest) {
         log.info(`  schema_version: ${result.manifest.schema_version}`);
-        log.info(`  source: ${result.manifest.source ?? "unknown"}`);
+        log.info(`  bundle_id: ${result.manifest.bundle_id}`);
       }
     } else {
       log.error(`Invalid: ${path}`);

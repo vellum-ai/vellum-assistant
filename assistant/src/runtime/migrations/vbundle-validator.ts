@@ -20,23 +20,68 @@ import { gunzipSync } from "node:zlib";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// Manifest schema
+// Manifest schema (v1)
 // ---------------------------------------------------------------------------
 
 const ManifestFileEntry = z.object({
-  path: z.string(),
-  sha256: z.string(),
-  size: z.number().int().nonnegative(),
+  path: z.string().min(1),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  size_bytes: z.number().int().nonnegative(),
 });
 
-export const ManifestSchema = z.object({
-  schema_version: z.string(),
-  created_at: z.string(),
-  source: z.string().optional(),
-  description: z.string().optional(),
-  files: z.array(ManifestFileEntry),
-  manifest_sha256: z.string(),
+const AssistantInfo = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  runtime_version: z.string().min(1),
 });
+
+const Origin = z.object({
+  mode: z.enum(["managed", "self-hosted-remote", "self-hosted-local"]),
+  platform_version: z.string().optional(),
+  hostname: z.string().optional(),
+});
+
+const Compatibility = z.object({
+  min_runtime_version: z.string().min(1),
+  max_runtime_version: z.string().nullable(),
+});
+
+const ExportOptions = z.object({
+  include_logs: z.boolean(),
+  include_browser_state: z.boolean(),
+  include_memory_vectors: z.boolean(),
+});
+
+export const ManifestSchema = z
+  .object({
+    schema_version: z.literal(1),
+    bundle_id: z.string().uuid(),
+    created_at: z.string().datetime({ offset: true }),
+    assistant: AssistantInfo,
+    origin: Origin,
+    compatibility: Compatibility,
+    contents: z.array(ManifestFileEntry),
+    checksum: z.string().regex(/^[0-9a-f]{64}$/),
+    secrets_redacted: z.boolean(),
+    export_options: ExportOptions,
+  })
+  .refine((m) => m.origin.mode !== "managed" || m.secrets_redacted === true, {
+    message: "secrets_redacted must be true when origin.mode is 'managed'",
+    path: ["secrets_redacted"],
+  })
+  .refine(
+    (m) =>
+      m.contents.some(
+        (f) =>
+          f.path === "data/db/assistant.db" ||
+          f.path === "workspace/data/db/assistant.db",
+      ),
+    {
+      message:
+        "contents must include an entry for data/db/assistant.db (legacy format) or workspace/data/db/assistant.db (current format)",
+      path: ["contents"],
+    },
+  );
 
 export type ManifestFileEntryType = z.infer<typeof ManifestFileEntry>;
 export type ManifestType = z.infer<typeof ManifestSchema>;
@@ -190,14 +235,16 @@ export function canonicalizeJson(obj: unknown): string {
 }
 
 /**
- * Recompute the `manifest_sha256` field for a manifest object. Strips the
- * `manifest_sha256` property, canonicalizes the remaining JSON, and returns
- * the SHA-256 hex digest. Centralized here so the streaming validator and
- * the in-memory validator agree on the exact canonicalization.
+ * Recompute the `checksum` field for a manifest object.
+ *
+ * The v1 schema spec says the checksum is computed over the canonicalized
+ * manifest with the `checksum` field set to the empty string (not absent),
+ * so we replace it before canonicalizing — both producers and validators
+ * must agree on this exact wire shape. Centralized here so the streaming
+ * validator and the in-memory validator agree on the exact canonicalization.
  */
-export function computeManifestSha256(manifest: unknown): string {
-  const copy = { ...(manifest as Record<string, unknown>) };
-  delete copy.manifest_sha256;
+export function computeManifestChecksum(manifest: unknown): string {
+  const copy = { ...(manifest as Record<string, unknown>), checksum: "" };
   return sha256Hex(canonicalizeJson(copy));
 }
 
@@ -310,22 +357,22 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   const manifest = parseResult.data;
 
   // Step 5: Verify manifest checksum
-  // The manifest_sha256 field is the SHA-256 of the canonicalized JSON
-  // with the manifest_sha256 field itself excluded.
-  const computedManifestSha256 = computeManifestSha256(manifestRaw);
+  // The checksum field is the SHA-256 of the canonicalized JSON with the
+  // checksum field replaced by an empty string.
+  const computedChecksum = computeManifestChecksum(manifestRaw);
 
-  if (computedManifestSha256 !== manifest.manifest_sha256) {
+  if (computedChecksum !== manifest.checksum) {
     errors.push({
       code: "MANIFEST_CHECKSUM_MISMATCH",
-      message: `Manifest checksum mismatch: expected ${manifest.manifest_sha256}, computed ${computedManifestSha256}`,
+      message: `Manifest checksum mismatch: expected ${manifest.checksum}, computed ${computedChecksum}`,
       path: "manifest.json",
     });
   }
 
   // Step 6: Verify per-file content integrity
-  const manifestFilePaths = new Set(manifest.files.map((f) => f.path));
+  const manifestFilePaths = new Set(manifest.contents.map((f) => f.path));
 
-  for (const fileEntry of manifest.files) {
+  for (const fileEntry of manifest.contents) {
     const archiveEntry = entryMap.get(fileEntry.path);
     if (!archiveEntry) {
       errors.push({
@@ -337,10 +384,10 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     }
 
     // Verify size
-    if (archiveEntry.size !== fileEntry.size) {
+    if (archiveEntry.size !== fileEntry.size_bytes) {
       errors.push({
         code: "FILE_SIZE_MISMATCH",
-        message: `Size mismatch for ${fileEntry.path}: manifest declares ${fileEntry.size} bytes, archive has ${archiveEntry.size} bytes`,
+        message: `Size mismatch for ${fileEntry.path}: manifest declares ${fileEntry.size_bytes} bytes, archive has ${archiveEntry.size} bytes`,
         path: fileEntry.path,
       });
     }
@@ -364,7 +411,7 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
     if (!manifestFilePaths.has(required)) {
       errors.push({
         code: "REQUIRED_FILE_NOT_IN_MANIFEST",
-        message: `Required file ${required} exists in archive but has no checksum entry in manifest.files`,
+        message: `Required file ${required} exists in archive but has no checksum entry in manifest.contents`,
         path: required,
       });
     }

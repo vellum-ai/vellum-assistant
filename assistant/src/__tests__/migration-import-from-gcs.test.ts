@@ -109,6 +109,7 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks so module-level code picks up the stubs)
 // ---------------------------------------------------------------------------
 
+import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import {
   type MigrationJob,
   migrationJobs,
@@ -119,7 +120,6 @@ import {
   handleMigrationImportFromGcs,
 } from "../runtime/routes/migration-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-
 // ---------------------------------------------------------------------------
 // Local http fixture server
 // ---------------------------------------------------------------------------
@@ -191,6 +191,7 @@ function makeSmallValidBundlePath(parent: string): string {
         ),
       },
     ],
+    ...defaultV1Options(),
   });
   const bundlePath = join(parent, "fixture-small.vbundle");
   writeFileSync(bundlePath, archive);
@@ -313,7 +314,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         },
       );
 
-      const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationImportFromGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
       expect(body.type).toBe("import");
@@ -368,7 +374,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         },
       );
 
-      const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationImportFromGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -399,7 +410,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         },
       );
 
-      const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
+      const res = await callHandler(
+        handleMigrationImportFromGcs,
+        req,
+        undefined,
+        202,
+      );
       expect(res.status).toBe(202);
       const body = (await res.json()) as AcceptedResponse;
 
@@ -437,7 +453,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
           body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
         },
       );
-      const firstRes = await callHandler(handleMigrationImportFromGcs, firstReq, undefined, 202);
+      const firstRes = await callHandler(
+        handleMigrationImportFromGcs,
+        firstReq,
+        undefined,
+        202,
+      );
       expect(firstRes.status).toBe(202);
       const firstBody = (await firstRes.json()) as AcceptedResponse;
       firstJobId = firstBody.job_id;
@@ -450,7 +471,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
           body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
         },
       );
-      const secondRes = await callHandler(handleMigrationImportFromGcs, secondReq, undefined, 202);
+      const secondRes = await callHandler(
+        handleMigrationImportFromGcs,
+        secondReq,
+        undefined,
+        202,
+      );
       expect(secondRes.status).toBe(409);
       const secondBody = (await secondRes.json()) as ConflictResponse;
       expect(secondBody.error.code).toBe("import_in_progress");
@@ -484,7 +510,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
         }),
       },
     );
-    const badRes = await callHandler(handleMigrationImportFromGcs, badReq, undefined, 202);
+    const badRes = await callHandler(
+      handleMigrationImportFromGcs,
+      badReq,
+      undefined,
+      202,
+    );
     expect(badRes.status).toBe(400);
     const badBody = (await badRes.json()) as InvalidBundleUrlResponse;
     expect(badBody.error.code).toBe("invalid_bundle_url");
@@ -507,7 +538,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
           body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
         },
       );
-      const goodRes = await callHandler(handleMigrationImportFromGcs, goodReq, undefined, 202);
+      const goodRes = await callHandler(
+        handleMigrationImportFromGcs,
+        goodReq,
+        undefined,
+        202,
+      );
       expect(goodRes.status).toBe(202);
       const goodBody = (await goodRes.json()) as AcceptedResponse;
       expect(goodBody.type).toBe("import");
@@ -525,7 +561,12 @@ describe("POST /v1/migrations/import-from-gcs", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    const res = await callHandler(handleMigrationImportFromGcs, req, undefined, 202);
+    const res = await callHandler(
+      handleMigrationImportFromGcs,
+      req,
+      undefined,
+      202,
+    );
     expect(res.status).toBe(400);
     const body = (await res.json()) as BadRequestResponse;
     expect(body.error.code).toBe("BAD_REQUEST");

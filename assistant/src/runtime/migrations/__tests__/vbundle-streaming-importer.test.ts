@@ -41,6 +41,7 @@ import { DefaultPathResolver } from "../vbundle-import-analyzer.js";
 import { commitImport } from "../vbundle-importer.js";
 import { streamCommitImport } from "../vbundle-streaming-importer.js";
 import { canonicalizeJson } from "../vbundle-validator.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 /**
  * Fixed "customized" guardian persona content used by the USER.md-skip
@@ -131,7 +132,7 @@ function removeEntry(archive: Uint8Array, entryName: string): Uint8Array {
 
 /**
  * Update manifest.json in place to drop the entry with the given archive
- * path AND recompute manifest_sha256 so the manifest itself stays valid.
+ * path AND recompute the v1 `checksum` so the manifest itself stays valid.
  * Used to craft the "extra entry" (manifest_mismatch) fixture — the tar
  * has the file, but the manifest does not.
  */
@@ -149,15 +150,18 @@ function dropFromManifestAndRepack(
     raw.subarray(512, 512 + origSize),
   );
   const manifest = JSON.parse(manifestJson) as {
-    files: Array<{ path: string; sha256: string; size: number }>;
-    manifest_sha256: string;
+    contents: Array<{ path: string; sha256: string; size_bytes: number }>;
+    checksum: string;
     [k: string]: unknown;
   };
-  manifest.files = manifest.files.filter((f) => f.path !== pathToDrop);
-  // Recompute manifest_sha256.
-  const withoutChecksum: Record<string, unknown> = { ...manifest };
-  delete withoutChecksum.manifest_sha256;
-  manifest.manifest_sha256 = sha256Hex(canonicalizeJson(withoutChecksum));
+  manifest.contents = manifest.contents.filter((f) => f.path !== pathToDrop);
+  // Recompute checksum: place an empty-string placeholder in the canonical
+  // form, exactly mirroring the v1 emit-time canonicalization.
+  const withEmptyChecksum: Record<string, unknown> = {
+    ...manifest,
+    checksum: "",
+  };
+  manifest.checksum = sha256Hex(canonicalizeJson(withEmptyChecksum));
 
   const newJson = JSON.stringify(manifest);
   const newBytes = new TextEncoder().encode(newJson);
@@ -218,11 +222,15 @@ describe("streamCommitImport — happy path", () => {
 
     const { archive } = buildVBundle({
       files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
         { path: "workspace/a.txt", data: fileA },
         { path: "workspace/sub/b.txt", data: fileB },
         { path: "workspace/sub/c.txt", data: fileC },
       ],
-      source: "test-happy-path",
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -246,9 +254,10 @@ describe("streamCommitImport — happy path", () => {
     );
 
     expect(result.report.success).toBe(true);
-    expect(result.report.summary.total_files).toBe(3);
-    expect(result.report.summary.files_created).toBe(3);
-    expect(result.report.manifest.files).toHaveLength(3);
+    // Includes the synthetic data/db/assistant.db entry plus a/b/c.txt.
+    expect(result.report.summary.total_files).toBe(4);
+    expect(result.report.summary.files_created).toBe(4);
+    expect(result.report.manifest.contents).toHaveLength(4);
     for (const f of result.report.files) {
       expect(f.action).toBe("created");
       expect(f.backup_path).toBeNull();
@@ -261,6 +270,10 @@ describe("streamCommitImport — happy path", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/a.txt",
           data: new TextEncoder().encode("one"),
         },
@@ -269,6 +282,7 @@ describe("streamCommitImport — happy path", () => {
           data: new TextEncoder().encode("two!"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const events: Array<{
@@ -285,17 +299,22 @@ describe("streamCommitImport — happy path", () => {
 
     expect(result.ok).toBe(true);
     expect(events.map((e) => e.archivePath)).toEqual([
+      "data/db/assistant.db",
       "workspace/a.txt",
       "workspace/b.txt",
     ]);
-    expect(events[0]?.bytesWritten).toBe(3);
-    expect(events[1]?.bytesWritten).toBe(4);
+    expect(events[1]?.bytesWritten).toBe(3);
+    expect(events[2]?.bytesWritten).toBe(4);
     expect(events[0]?.entryIndex).toBeLessThan(events[1]?.entryIndex ?? -1);
   });
 
   test("forwards credentials to importCredentials callback but never writes them to disk", async () => {
     const { archive } = buildVBundle({
       files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
         {
           path: "workspace/config.json",
           data: new TextEncoder().encode("{}"),
@@ -309,6 +328,7 @@ describe("streamCommitImport — happy path", () => {
           data: new TextEncoder().encode("sk-ant-2"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const received: Array<{ account: string; value: string }> = [];
@@ -381,10 +401,15 @@ describe("streamCommitImport — failure modes", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/a.txt",
           data: new TextEncoder().encode("hello"),
         },
       ],
+      ...defaultV1Options(),
     });
     const noManifest = removeEntry(archive, "manifest.json");
 
@@ -412,20 +437,20 @@ describe("streamCommitImport — failure modes", () => {
     // Build a valid bundle with one file whose data is 32 bytes long.
     const body = new TextEncoder().encode("x".repeat(32));
     const { archive } = buildVBundle({
-      files: [{ path: "workspace/victim.txt", data: body }],
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        { path: "workspace/victim.txt", data: body },
+      ],
+      ...defaultV1Options(),
     });
 
-    // Tamper the manifest sha256 for workspace/victim.txt by substituting
-    // one hex character. Keeps the manifest valid (the substitution is
-    // same-length) — but because manifest_sha256 is recomputed over the
-    // declared data, we ALSO need to tamper manifest_sha256 to keep the
-    // manifest itself valid. Otherwise the manifest will fail its
-    // self-checksum and the test exercises the wrong path.
-    //
-    // Easier approach: build a NEW valid manifest that declares the wrong
-    // hash for victim.txt. We hand-rebuild the archive via
-    // `dropFromManifestAndRepack`-style logic: replace the existing entry
-    // in manifest.files with a different sha256, recompute manifest_sha256.
+    // Tamper the per-file sha256 for workspace/victim.txt by substituting
+    // one hex character. Keeps the manifest schema-valid (substitution is
+    // same-length) — but because the v1 `checksum` is recomputed over the
+    // declared data, we ALSO need to recompute `checksum` (with the empty
+    // placeholder) to keep the manifest itself valid. Otherwise the
+    // manifest fails its self-checksum and the test exercises the wrong
+    // path.
     const raw = gunzipSync(archive);
     const sizeStr = new TextDecoder()
       .decode(raw.subarray(124, 136))
@@ -436,11 +461,11 @@ describe("streamCommitImport — failure modes", () => {
       raw.subarray(512, 512 + origSize),
     );
     const manifest = JSON.parse(manifestJson) as {
-      files: Array<{ path: string; sha256: string; size: number }>;
-      manifest_sha256: string;
+      contents: Array<{ path: string; sha256: string; size_bytes: number }>;
+      checksum: string;
       [k: string]: unknown;
     };
-    manifest.files = manifest.files.map((f) =>
+    manifest.contents = manifest.contents.map((f) =>
       f.path === "workspace/victim.txt"
         ? {
             ...f,
@@ -449,9 +474,11 @@ describe("streamCommitImport — failure modes", () => {
           }
         : f,
     );
-    const withoutChecksum: Record<string, unknown> = { ...manifest };
-    delete withoutChecksum.manifest_sha256;
-    manifest.manifest_sha256 = sha256Hex(canonicalizeJson(withoutChecksum));
+    const withEmptyChecksum: Record<string, unknown> = {
+      ...manifest,
+      checksum: "",
+    };
+    manifest.checksum = sha256Hex(canonicalizeJson(withEmptyChecksum));
 
     const newJson = JSON.stringify(manifest);
     const newBytes = new TextEncoder().encode(newJson);
@@ -489,6 +516,10 @@ describe("streamCommitImport — failure modes", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/present.txt",
           data: new TextEncoder().encode("here"),
         },
@@ -497,6 +528,7 @@ describe("streamCommitImport — failure modes", () => {
           data: new TextEncoder().encode("gone"),
         },
       ],
+      ...defaultV1Options(),
     });
     const stripped = removeEntry(archive, "workspace/missing.txt");
 
@@ -526,6 +558,10 @@ describe("streamCommitImport — failure modes", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/declared.txt",
           data: new TextEncoder().encode("fine"),
         },
@@ -534,6 +570,7 @@ describe("streamCommitImport — failure modes", () => {
           data: new TextEncoder().encode("surprise"),
         },
       ],
+      ...defaultV1Options(),
     });
     const extraPresent = dropFromManifestAndRepack(
       archive,
@@ -569,11 +606,14 @@ describe("streamCommitImport — failure modes", () => {
  */
 function writeLargeFixtureToDisk(archivePath: string): void {
   const CHUNK = 25 * 1024 * 1024;
-  const files = [0, 1, 2, 3].map((i) => ({
-    path: `workspace/big-${i}.bin`,
-    data: new Uint8Array(CHUNK).fill(0x41 + i),
-  }));
-  const { archive } = buildVBundle({ files });
+  const files = [
+    { path: "data/db/assistant.db", data: new Uint8Array() },
+    ...[0, 1, 2, 3].map((i) => ({
+      path: `workspace/big-${i}.bin`,
+      data: new Uint8Array(CHUNK).fill(0x41 + i),
+    })),
+  ];
+  const { archive } = buildVBundle({ files, ...defaultV1Options() });
   writeFileSync(archivePath, archive);
 }
 
@@ -641,6 +681,10 @@ describe("streamCommitImport — report parity with commitImport", () => {
 
     const files = [
       {
+        path: "data/db/assistant.db",
+        data: new Uint8Array(),
+      },
+      {
         path: "workspace/a.txt",
         data: new TextEncoder().encode("alpha"),
       },
@@ -649,7 +693,7 @@ describe("streamCommitImport — report parity with commitImport", () => {
         data: new TextEncoder().encode("beta beta"),
       },
     ];
-    const { archive } = buildVBundle({ files });
+    const { archive } = buildVBundle({ files, ...defaultV1Options() });
 
     // Buffer-based path.
     mkdirSync(bufferWorkspace, { recursive: true });
@@ -689,8 +733,8 @@ describe("streamCommitImport — report parity with commitImport", () => {
 
       // Manifest payload itself should match — the streaming path parses it
       // directly from the same bytes.
-      expect(streamResult.report.manifest.manifest_sha256).toBe(
-        bufferResult.report.manifest.manifest_sha256,
+      expect(streamResult.report.manifest.checksum).toBe(
+        bufferResult.report.manifest.checksum,
       );
     } finally {
       for (const ws of [bufferWorkspace, streamWorkspace]) {
@@ -746,10 +790,15 @@ describe("streamCommitImport — no workspace entries means no swap", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "credentials/openai-key",
           data: new TextEncoder().encode("sk-test-creds-only"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const received: Array<{ account: string; value: string }> = [];
@@ -779,9 +828,14 @@ describe("streamCommitImport — no workspace entries means no swap", () => {
       { account: "openai-key", value: "sk-test-creds-only" },
     ]);
 
-    // Report should reflect "nothing imported into the workspace".
-    expect(result.report.summary.files_created).toBe(0);
+    // Report should reflect "only the synthetic data/db/assistant.db
+    // landed; no `workspace/*` entries were written".
+    expect(result.report.summary.files_created).toBe(1);
     expect(result.report.summary.files_overwritten).toBe(0);
+    expect(
+      result.report.files.find((f) => f.path === "data/db/assistant.db")
+        ?.action,
+    ).toBe("created");
 
     // Cleanup removed the temp dir — no sibling left behind.
     const parent = join(workspaceDir, "..");
@@ -818,10 +872,15 @@ describe("streamCommitImport — no workspace entries means no swap", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/something.txt",
           data: new TextEncoder().encode("ignored"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     try {
@@ -881,10 +940,15 @@ describe("streamCommitImport — config sanitization parity", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/config.json",
           data: new TextEncoder().encode(tainted),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -970,6 +1034,10 @@ describe("streamCommitImport — legacy USER.md skip on customized persona", () 
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "prompts/USER.md",
           data: legacyContent,
         },
@@ -981,6 +1049,7 @@ describe("streamCommitImport — legacy USER.md skip on customized persona", () 
           data: new TextEncoder().encode("other content"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1049,43 +1118,11 @@ describe("streamCommitImport — preserves live workspace paths when bundle omit
     }
   });
 
-  test("keeps the live data/db/assistant.db when the bundle omits data/db/*", async () => {
-    // Seed the live workspace with a fake SQLite DB whose contents we
-    // can identify post-import.
-    mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
-    const dbContent = Buffer.from("SQLite-format-3\0live-db-payload");
-    writeFileSync(join(workspaceDir, "data", "db", "assistant.db"), dbContent);
-
-    // A bundle that writes a config file but carries nothing under
-    // workspace/data/db/.
-    const { archive } = buildVBundle({
-      files: [
-        {
-          path: "workspace/skills/example.md",
-          data: new TextEncoder().encode("# skill\n"),
-        },
-      ],
-    });
-
-    const result = await streamCommitImport({
-      source: readableFrom(archive),
-      pathResolver: new DefaultPathResolver(workspaceDir),
-      workspaceDir,
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error("unreachable");
-
-    // Live DB survived the atomic swap with its exact original bytes.
-    const postDbPath = join(workspaceDir, "data", "db", "assistant.db");
-    expect(existsSync(postDbPath)).toBe(true);
-    expect(readFileSync(postDbPath)).toEqual(dbContent);
-
-    // The bundle-provided file also landed.
-    expect(
-      readFileSync(join(workspaceDir, "skills", "example.md"), "utf8"),
-    ).toBe("# skill\n");
-  });
+  // Note: the prior "bundle omits data/db/*" preserve test was retired
+  // when the v1 manifest schema started requiring `data/db/assistant.db`
+  // (or its `workspace/`-prefixed counterpart) to be present. Under v1
+  // every bundle declares the DB, so the bundle-omits-DB scenario is no
+  // longer reachable through the public emit path.
 
   test("keeps the live data/qdrant/ directory when the bundle omits qdrant entries", async () => {
     // Populate a fake qdrant store with a nested file.
@@ -1101,10 +1138,15 @@ describe("streamCommitImport — preserves live workspace paths when bundle omit
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/config.json",
           data: new TextEncoder().encode("{}"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1145,6 +1187,7 @@ describe("streamCommitImport — preserves live workspace paths when bundle omit
           data: newDbBytes,
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1217,6 +1260,7 @@ describe("streamCommitImport — legacy-only bundle writes in place", () => {
           data: newDbBytes,
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1314,6 +1358,10 @@ describe("streamCommitImport — preserved-path carry-over is per-file", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/qdrant/meta.json",
           data: newMeta,
         },
@@ -1322,6 +1370,7 @@ describe("streamCommitImport — preserved-path carry-over is per-file", () => {
           data: new TextEncoder().encode("marker\n"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1408,10 +1457,15 @@ describe("streamCommitImport — bundle resource ceilings", () => {
     // declared-count check trips before any tar entry is processed.
     const { archive } = buildVBundle({
       files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
         { path: "workspace/a.txt", data: new TextEncoder().encode("a") },
         { path: "workspace/b.txt", data: new TextEncoder().encode("b") },
         { path: "workspace/c.txt", data: new TextEncoder().encode("c") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1443,9 +1497,14 @@ describe("streamCommitImport — bundle resource ceilings", () => {
     const big = new Uint8Array(100).fill(0x41);
     const { archive } = buildVBundle({
       files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
         { path: "workspace/big1.bin", data: big },
         { path: "workspace/big2.bin", data: big },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -1506,10 +1565,15 @@ describe("streamCommitImport — report.sha256 reflects post-sanitization bytes"
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/config.json",
           data: rawArchiveBytes,
         },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({

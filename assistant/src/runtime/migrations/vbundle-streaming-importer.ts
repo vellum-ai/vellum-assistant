@@ -314,10 +314,10 @@ export async function streamCommitImport(
         // Entry-count ceiling check. The manifest declares every file the
         // bundle claims to contain, so one check here bounds the work the
         // importer is willing to do for this bundle.
-        if (manifest.files.length > bundleEntryCap) {
+        if (manifest.contents.length > bundleEntryCap) {
           throw new StreamingValidationError(
             "bundle_too_many_entries",
-            `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.files.length})`,
+            `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.contents.length})`,
           );
         }
         entryIndex += 1;
@@ -350,7 +350,7 @@ export async function streamCommitImport(
       // Non-file entries are either directory markers (empty body) or
       // pax-header / other metadata payloads we don't consume. Apply the
       // bundle byte cap to their tar-header size too — an attacker could
-      // otherwise keep `manifest.files` small while stuffing huge pax/other
+      // otherwise keep `manifest.contents` small while stuffing huge pax/other
       // entry bodies, draining the importer for free. Directory bodies are
       // reliably zero-sized; pax headers are measured in bytes, so this
       // check is effectively free in the happy path.

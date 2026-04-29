@@ -119,13 +119,13 @@ mock.module("../config/env.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { resetDb } from "../memory/db-connection.js";
+import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImport,
 } from "../runtime/routes/migration-routes.js";
 import { callHandler } from "./helpers/call-route-handler.js";
-
 // ---------------------------------------------------------------------------
 // Local http fixture server
 // ---------------------------------------------------------------------------
@@ -181,6 +181,7 @@ function makeSmallValidBundlePath(parent: string): string {
         ),
       },
     ],
+    ...defaultV1Options(),
   });
   const bundlePath = join(parent, "fixture-small.vbundle");
   writeFileSync(bundlePath, archive);
@@ -307,7 +308,9 @@ describe("handleMigrationImport — JSON {url} body", () => {
       });
 
       const res = await callHandler(handleMigrationImport, req);
-      const body = (await res.json()) as { error: { code: string; message: string } };
+      const body = (await res.json()) as {
+        error: { code: string; message: string };
+      };
 
       expect(res.status).toBe(502);
       expect(body.error.code).toBe("BAD_GATEWAY");
@@ -451,13 +454,19 @@ describe("handleMigrationImport — no-swap path omits newer-migration warning",
     // ok=true with zero files_created/overwritten (no-swap success),
     // and the credential-import callback filters every entry as a
     // platform credential so CES is never invoked.
+    //
+    // The synthetic `data/db/assistant.db` entry satisfies the v1
+    // manifest schema's contents refine; it's a no-op on disk because
+    // legacy bundles never carry workspace data.
     const { archive } = buildVBundle({
       files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
         {
           path: "credentials/vellum:device-id",
           data: new TextEncoder().encode("test-device-id"),
         },
       ],
+      ...defaultV1Options(),
     });
     const bundlePath = join(testParent, "fixture-creds-only.vbundle");
     writeFileSync(bundlePath, archive);
@@ -479,9 +488,10 @@ describe("handleMigrationImport — no-swap path omits newer-migration warning",
 
       expect(res.status).toBe(200);
       expect(body.success).toBe(true);
-      // Zero files touched — this is the no-swap success path.
-      expect(body.summary.files_created).toBe(0);
-      expect(body.summary.files_overwritten).toBe(0);
+      // Only the synthetic data/db/assistant.db lands; the credential
+      // entry is filtered out and no `workspace/*` entries exist, so
+      // the workspace itself is otherwise untouched.
+      expect(body.summary.files_overwritten).toBe(1);
 
       // The gate must suppress the newer-migration warning text. The
       // helper's wording starts with "Imported data contains" and ends
@@ -529,6 +539,7 @@ describe("handleMigrationImport — upstream body dropped mid-stream", () => {
           data: incompressible,
         },
       ],
+      ...defaultV1Options(),
     });
     // Safety net: if someone changes buildVBundle to return very small
     // outputs, drop the test early rather than flaking on a too-short
@@ -570,7 +581,9 @@ describe("handleMigrationImport — upstream body dropped mid-stream", () => {
       });
 
       const res = await callHandler(handleMigrationImport, req);
-      const body = (await res.json()) as { error: { code: string; message: string } };
+      const body = (await res.json()) as {
+        error: { code: string; message: string };
+      };
 
       expect(res.status).toBe(502);
       expect(body.error.code).toBe("BAD_GATEWAY");
@@ -593,6 +606,7 @@ describe("handleMigrationImport — raw-bytes regression", () => {
           data: new TextEncoder().encode("SQLite format 3\0"),
         },
       ],
+      ...defaultV1Options(),
     });
 
     const req = new Request("http://localhost/v1/migrations/import", {

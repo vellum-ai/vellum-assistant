@@ -31,6 +31,7 @@ import { buildVBundle } from "../vbundle-builder.js";
 import { DefaultPathResolver } from "../vbundle-import-analyzer.js";
 import { commitImport } from "../vbundle-importer.js";
 import { streamCommitImport } from "../vbundle-streaming-importer.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Metadata helpers
@@ -139,12 +140,17 @@ describe("commitImport — credential metadata merge", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/credentials/metadata.json",
           data: encode(bundleMetadata),
         },
         // Include at least one other workspace entry so Step 1b fires.
         { path: "workspace/noop.txt", data: encode("noop") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = commitImport({
@@ -180,11 +186,16 @@ describe("commitImport — credential metadata merge", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/credentials/metadata.json",
           data: encode(bundleMetadata),
         },
         { path: "workspace/noop.txt", data: encode("noop") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = commitImport({
@@ -207,7 +218,11 @@ describe("commitImport — credential metadata merge", () => {
     const metadataPath = seedTargetMetadata(workspaceDir, vellumRecords());
 
     const { archive } = buildVBundle({
-      files: [{ path: "workspace/noop.txt", data: encode("noop") }],
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        { path: "workspace/noop.txt", data: encode("noop") },
+      ],
+      ...defaultV1Options(),
     });
 
     const result = commitImport({
@@ -229,6 +244,10 @@ describe("commitImport — credential metadata merge", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/credentials/metadata.json",
           data: encode(
             metadataJson([record("telegram", "bot_token", "source")]),
@@ -236,6 +255,7 @@ describe("commitImport — credential metadata merge", () => {
         },
         { path: "workspace/noop.txt", data: encode("noop") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = commitImport({
@@ -280,11 +300,16 @@ describe("streamCommitImport — credential metadata merge", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/credentials/metadata.json",
           data: encode(bundleMetadata),
         },
         { path: "workspace/noop.txt", data: encode("noop") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -317,11 +342,16 @@ describe("streamCommitImport — credential metadata merge", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/credentials/metadata.json",
           data: encode(bundleMetadata),
         },
         { path: "workspace/noop.txt", data: encode("noop") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -344,7 +374,11 @@ describe("streamCommitImport — credential metadata merge", () => {
     const metadataPath = seedTargetMetadata(workspaceDir, vellumRecords());
 
     const { archive } = buildVBundle({
-      files: [{ path: "workspace/noop.txt", data: encode("noop") }],
+      files: [
+        { path: "data/db/assistant.db", data: new Uint8Array() },
+        { path: "workspace/noop.txt", data: encode("noop") },
+      ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({
@@ -366,6 +400,10 @@ describe("streamCommitImport — credential metadata merge", () => {
     const { archive } = buildVBundle({
       files: [
         {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
           path: "workspace/data/credentials/metadata.json",
           data: encode(
             metadataJson([record("telegram", "bot_token", "source")]),
@@ -373,6 +411,7 @@ describe("streamCommitImport — credential metadata merge", () => {
         },
         { path: "workspace/noop.txt", data: encode("noop") },
       ],
+      ...defaultV1Options(),
     });
 
     const result = await streamCommitImport({

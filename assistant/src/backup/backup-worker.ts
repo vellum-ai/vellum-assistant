@@ -26,18 +26,23 @@
  * surface against temp directories with tiny fake bundles.
  */
 
+import { hostname } from "node:os";
 import { Database } from "bun:sqlite";
 
 import { getConfig } from "../config/loader.js";
 import type { BackupConfig } from "../config/schema.js";
+import { getAssistantName } from "../daemon/identity-helpers.js";
 import {
   getMemoryCheckpoint as realGetMemoryCheckpoint,
   setMemoryCheckpoint as realSetMemoryCheckpoint,
 } from "../memory/checkpoints.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import { getOriginMode } from "../runtime/migrations/origin-mode.js";
 import type { StreamExportVBundleResult } from "../runtime/migrations/vbundle-builder.js";
 import { streamExportVBundle as realStreamExportVBundle } from "../runtime/migrations/vbundle-builder.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath, getWorkspaceDir } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
 import { ensureBackupKey as realEnsureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
 import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
@@ -185,10 +190,34 @@ async function performBackup(
   // mirrors the pattern in `handleMigrationExport`: open a fresh Database
   // handle, run PRAGMA wal_checkpoint(TRUNCATE), close it. Any failure is
   // best-effort — the export still proceeds with whatever is on disk.
+  //
+  // The backup worker bundles credentials by design (its purpose is local
+  // recovery), so `secretsRedacted: false`. `origin.mode` is derived
+  // truthfully via `getOriginMode()` even though the worker only runs
+  // self-hosted in practice — keeping a single derivation path avoids
+  // drift if managed deployments ever schedule backups locally.
+  const originMode = await getOriginMode();
   const result = await streamExport({
     workspaceDir,
-    source: "backup-worker",
-    description: "Automated backup snapshot",
+    assistant: {
+      id: DAEMON_INTERNAL_ASSISTANT_ID,
+      name: getAssistantName() ?? "Assistant",
+      runtime_version: APP_VERSION,
+    },
+    origin: {
+      mode: originMode,
+      hostname: hostname(),
+    },
+    compatibility: {
+      min_runtime_version: APP_VERSION,
+      max_runtime_version: null,
+    },
+    exportOptions: {
+      include_logs: true,
+      include_browser_state: false,
+      include_memory_vectors: false,
+    },
+    secretsRedacted: false,
     checkpoint: () => {
       const dbPath = getDbPath();
       try {

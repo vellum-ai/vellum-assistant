@@ -29,6 +29,7 @@ import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
+import type { VBundleOriginMode } from "./origin-mode.js";
 import type {
   ManifestFileEntryType,
   ManifestType,
@@ -43,15 +44,50 @@ export interface VBundleFileEntry {
   data: Uint8Array;
 }
 
+/** v1 manifest `assistant` block. */
+export interface VBundleAssistantInfo {
+  id: string;
+  name: string;
+  runtime_version: string;
+}
+
+/** v1 manifest `origin` block. */
+export interface VBundleOriginInfo {
+  mode: VBundleOriginMode;
+  platform_version?: string;
+  hostname?: string;
+}
+
+/** v1 manifest `compatibility` block. */
+export interface VBundleCompatibility {
+  min_runtime_version: string;
+  max_runtime_version: string | null;
+}
+
+/** v1 manifest `export_options` block. */
+export interface VBundleExportOptions {
+  include_logs: boolean;
+  include_browser_state: boolean;
+  include_memory_vectors: boolean;
+}
+
 export interface BuildVBundleOptions {
   /** Files to include in the archive. Must include data/db/assistant.db. */
   files: VBundleFileEntry[];
-  /** Schema version for the manifest. Defaults to "1.0". */
-  schemaVersion?: string;
-  /** Source identifier (e.g. "runtime-export"). */
-  source?: string;
-  /** Human-readable description. */
-  description?: string;
+  /** Identity of the assistant that produced this bundle. */
+  assistant: VBundleAssistantInfo;
+  /** Where this bundle was produced. */
+  origin: VBundleOriginInfo;
+  /** Runtime-version compatibility window for importers. */
+  compatibility: VBundleCompatibility;
+  /** Which optional bundle contents this export carries. */
+  exportOptions: VBundleExportOptions;
+  /**
+   * Whether secrets were stripped from the bundle before archiving.
+   * Required at the type level — defaulting silently is exactly how the
+   * prior schema mismatch went unnoticed.
+   */
+  secretsRedacted: boolean;
 }
 
 export interface BuildVBundleResult {
@@ -285,37 +321,40 @@ function createTarArchive(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the manifest object and its serialized JSON bytes for a vbundle.
+ * Build the v1 manifest object and its serialized JSON bytes for a vbundle.
  *
  * Shared by the buffered (`buildVBundle`) and streaming
  * (`streamExportVBundle`) emit sites so the manifest shape and self-checksum
  * computation live in exactly one place.
+ *
+ * The checksum is computed over the canonicalized manifest with the
+ * `checksum` field set to the empty string (per the schema spec) — both
+ * producers and the validator agree on this exact wire shape.
  */
 function buildManifestObject(input: {
-  fileEntries: ManifestFileEntryType[];
-  schemaVersion: string;
-  source: string;
-  description: string;
+  contents: ManifestFileEntryType[];
+  assistant: VBundleAssistantInfo;
+  origin: VBundleOriginInfo;
+  compatibility: VBundleCompatibility;
+  exportOptions: VBundleExportOptions;
+  secretsRedacted: boolean;
   now: Date;
 }): { manifest: ManifestType; manifestData: Uint8Array } {
-  const { fileEntries, schemaVersion, source, description, now } = input;
-
-  const manifestWithoutChecksum = {
-    schema_version: schemaVersion,
-    created_at: now.toISOString(),
-    source,
-    description,
-    files: fileEntries,
+  const manifestWithEmptyChecksum = {
+    schema_version: 1 as const,
+    bundle_id: randomUUID(),
+    created_at: input.now.toISOString(),
+    assistant: input.assistant,
+    origin: input.origin,
+    compatibility: input.compatibility,
+    contents: input.contents,
+    checksum: "",
+    secrets_redacted: input.secretsRedacted,
+    export_options: input.exportOptions,
   };
-
-  const manifestSha256 = sha256Hex(canonicalizeJson(manifestWithoutChecksum));
-  const manifest: ManifestType = {
-    ...manifestWithoutChecksum,
-    manifest_sha256: manifestSha256,
-  };
-
+  const checksum = sha256Hex(canonicalizeJson(manifestWithEmptyChecksum));
+  const manifest: ManifestType = { ...manifestWithEmptyChecksum, checksum };
   const manifestData = new TextEncoder().encode(JSON.stringify(manifest));
-
   return { manifest, manifestData };
 }
 
@@ -329,23 +368,27 @@ function buildManifestObject(input: {
 export function buildVBundle(options: BuildVBundleOptions): BuildVBundleResult {
   const {
     files,
-    schemaVersion = "1.0",
-    source = "runtime-export",
-    description = "Runtime export bundle",
+    assistant,
+    origin,
+    compatibility,
+    exportOptions,
+    secretsRedacted,
   } = options;
 
   // Build file entries for the manifest
   const fileEntries: ManifestFileEntryType[] = files.map((f) => ({
     path: f.path,
     sha256: sha256Hex(f.data),
-    size: f.data.length,
+    size_bytes: f.data.length,
   }));
 
   const { manifest, manifestData } = buildManifestObject({
-    fileEntries,
-    schemaVersion,
-    source,
-    description,
+    contents: fileEntries,
+    assistant,
+    origin,
+    compatibility,
+    exportOptions,
+    secretsRedacted,
     now: new Date(),
   });
 
@@ -448,10 +491,16 @@ function walkDirectory(
 // ---------------------------------------------------------------------------
 
 export interface BuildExportVBundleOptions {
-  /** Source identifier. Defaults to "runtime-export". */
-  source?: string;
-  /** Human-readable description. */
-  description?: string;
+  /** Identity of the assistant that produced this bundle. */
+  assistant: VBundleAssistantInfo;
+  /** Where this bundle was produced. */
+  origin: VBundleOriginInfo;
+  /** Runtime-version compatibility window for importers. */
+  compatibility: VBundleCompatibility;
+  /** Which optional bundle contents this export carries. */
+  exportOptions: VBundleExportOptions;
+  /** Whether secrets were stripped from the bundle before archiving. */
+  secretsRedacted: boolean;
   /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
   trustPath?: string;
   /**
@@ -489,8 +538,11 @@ export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
   const {
-    source,
-    description,
+    assistant,
+    origin,
+    compatibility,
+    exportOptions,
+    secretsRedacted,
     checkpoint,
     trustPath,
     workspaceDir,
@@ -545,8 +597,11 @@ export function buildExportVBundle(
 
   return buildVBundle({
     files,
-    source: source ?? "runtime-export",
-    description: description ?? "Runtime export bundle",
+    assistant,
+    origin,
+    compatibility,
+    exportOptions,
+    secretsRedacted,
   });
 }
 
@@ -824,8 +879,11 @@ export async function streamExportVBundle(
   options: BuildExportVBundleOptions,
 ): Promise<StreamExportVBundleResult> {
   const {
-    source,
-    description,
+    assistant,
+    origin,
+    compatibility,
+    exportOptions,
+    secretsRedacted,
     checkpoint,
     trustPath,
     workspaceDir,
@@ -911,7 +969,7 @@ export async function streamExportVBundle(
     fileEntries.push({
       path: file.archivePath,
       sha256,
-      size: file.size,
+      size_bytes: file.size,
     });
   }
 
@@ -921,15 +979,17 @@ export async function streamExportVBundle(
     fileEntries.push({
       path: entry.archivePath,
       sha256,
-      size: entry.size,
+      size_bytes: entry.size,
     });
   }
 
   const { manifest, manifestData } = buildManifestObject({
-    fileEntries,
-    schemaVersion: "1.0",
-    source: source ?? "runtime-export",
-    description: description ?? "Runtime export bundle",
+    contents: fileEntries,
+    assistant,
+    origin,
+    compatibility,
+    exportOptions,
+    secretsRedacted,
     now: new Date(),
   });
 

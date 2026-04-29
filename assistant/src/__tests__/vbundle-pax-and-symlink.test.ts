@@ -42,12 +42,12 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
+import { defaultV1Options } from "../runtime/migrations/__tests__/v1-test-helpers.js";
 import {
   buildExportVBundle,
   buildVBundle,
 } from "../runtime/migrations/vbundle-builder.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
-
 // ---------------------------------------------------------------------------
 // PAX header round-trip
 // ---------------------------------------------------------------------------
@@ -71,6 +71,7 @@ describe("PAX extended header round-trip", () => {
         { path: "data/db/assistant.db", data: dbData },
         { path: longPath, data: fileData },
       ],
+      ...defaultV1Options(),
     });
 
     // Validate: should succeed — validator must parse the PAX header
@@ -99,6 +100,7 @@ describe("PAX extended header round-trip", () => {
         { path: "data/db/assistant.db", data: dbData },
         { path: longPath, data: fileData },
       ],
+      ...defaultV1Options(),
     });
 
     const result = validateVBundle(archive);
@@ -117,6 +119,7 @@ describe("PAX extended header round-trip", () => {
         { path: "data/db/assistant.db", data: dbData },
         { path: shortPath, data: fileData },
       ],
+      ...defaultV1Options(),
     });
 
     const result = validateVBundle(archive);
@@ -143,8 +146,14 @@ describe("buildExportVBundle with symlinked skills directory", () => {
     writeFileSync(join(wsDir, "skills", "real-skill.md"), "# Real");
     symlinkSync(realSkillsDir, join(wsDir, "linked-skills"));
 
+    // Add a DB so the v1 manifest schema's `data/db/assistant.db` refine
+    // accepts the bundle.
+    mkdirSync(join(wsDir, "data", "db"), { recursive: true });
+    writeFileSync(join(wsDir, "data", "db", "assistant.db"), "fake-db");
+
     const { archive, manifest } = buildExportVBundle({
       workspaceDir: wsDir,
+      ...defaultV1Options(),
     });
 
     // Validate archive
@@ -152,13 +161,13 @@ describe("buildExportVBundle with symlinked skills directory", () => {
     expect(result.is_valid).toBe(true);
 
     // Real skill file is in the manifest under workspace/ prefix
-    const realSkill = manifest.files.find(
+    const realSkill = manifest.contents.find(
       (f) => f.path === "workspace/skills/real-skill.md",
     );
     expect(realSkill).toBeDefined();
 
     // Symlinked directory is skipped
-    const linkedSkill = manifest.files.find(
+    const linkedSkill = manifest.contents.find(
       (f) => f.path === "workspace/linked-skills/my-skill.md",
     );
     expect(linkedSkill).toBeUndefined();

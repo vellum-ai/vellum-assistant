@@ -24,7 +24,7 @@ import { Transform, type TransformCallback } from "node:stream";
 
 import type { StreamedTarEntry } from "./vbundle-tar-stream.js";
 import {
-  computeManifestSha256,
+  computeManifestChecksum,
   ManifestSchema,
   type ManifestType,
 } from "./vbundle-validator.js";
@@ -147,23 +147,23 @@ export async function readAndValidateManifest(
   // Recompute the self-referencing checksum using the exact canonicalization
   // that vbundle-validator.ts uses. Any drift here would silently reject
   // valid bundles produced by buildVBundle.
-  const computed = computeManifestSha256(manifestRaw);
-  if (computed !== manifest.manifest_sha256) {
+  const computed = computeManifestChecksum(manifestRaw);
+  if (computed !== manifest.checksum) {
     throw new StreamingValidationError(
       "manifest_sha256",
-      `Manifest checksum mismatch: expected ${manifest.manifest_sha256}, computed ${computed}`,
+      `Manifest checksum mismatch: expected ${manifest.checksum}, computed ${computed}`,
     );
   }
 
   const expected = new Map<string, { sha256: string; size: number }>();
-  for (const file of manifest.files) {
+  for (const file of manifest.contents) {
     if (expected.has(file.path)) {
       throw new StreamingValidationError(
         "manifest_duplicate_path",
         `Manifest contains duplicate entry for path: ${file.path}`,
       );
     }
-    expected.set(file.path, { sha256: file.sha256, size: file.size });
+    expected.set(file.path, { sha256: file.sha256, size: file.size_bytes });
   }
 
   return { manifest, expected };

@@ -246,7 +246,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // valid disk path. This prevents path-traversal entries (e.g.
   // "workspace/../../etc/passwd") from triggering a workspace purge while
   // resolving to nothing.
-  const hasWorkspaceEntries = manifest.files.some(
+  const hasWorkspaceEntries = manifest.contents.some(
     (f) => f.path.startsWith("workspace/") && !!pathResolver.resolve(f.path),
   );
 
@@ -314,7 +314,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   const warnings: string[] = [];
   let backupsCreated = 0;
 
-  for (const fileEntry of manifest.files) {
+  for (const fileEntry of manifest.contents) {
     // Credential entries are handled separately by extractCredentialsFromBundle()
     // in migration-routes.ts — skip them silently without warnings or skip counts.
     if (fileEntry.path.startsWith("credentials/")) {
@@ -329,7 +329,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         path: fileEntry.path,
         disk_path: "",
         action: "skipped",
-        size: fileEntry.size,
+        size: fileEntry.size_bytes,
         sha256: fileEntry.sha256,
         backup_path: null,
       });
@@ -347,7 +347,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         path: fileEntry.path,
         disk_path: diskPath,
         action: "skipped",
-        size: fileEntry.size,
+        size: fileEntry.size_bytes,
         sha256: fileEntry.sha256,
         backup_path: null,
       });
@@ -377,7 +377,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         path: fileEntry.path,
         disk_path: diskPath,
         action: "skipped",
-        size: fileEntry.size,
+        size: fileEntry.size_bytes,
         sha256: fileEntry.sha256,
         backup_path: null,
       });
@@ -536,7 +536,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   // run (e.g. workspaceDir unset) the live metadata.json is still on
   // disk untouched — we must not rewrite it here or we would drop the
   // non-vellum entries the caller chose to keep.
-  const bundleHadMetadata = manifest.files.some(
+  const bundleHadMetadata = manifest.contents.some(
     (f) => f.path === CREDENTIAL_METADATA_ARCHIVE_PATH,
   );
   if (
@@ -595,7 +595,7 @@ export function extractCredentialsFromBundle(
   entries: Map<string, VBundleTarEntry>,
   manifest: ManifestType,
 ): Array<{ account: string; value: string }> {
-  const manifestPaths = new Set(manifest.files.map((f) => f.path));
+  const manifestPaths = new Set(manifest.contents.map((f) => f.path));
   const credentials: Array<{ account: string; value: string }> = [];
   for (const [path, entry] of entries) {
     if (path.startsWith("credentials/") && manifestPaths.has(path)) {

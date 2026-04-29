@@ -19,6 +19,7 @@ import {
   parseVBundleStream,
   type StreamedTarEntry,
 } from "../vbundle-tar-stream.js";
+import { defaultV1Options } from "./v1-test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,8 +47,7 @@ function buildMinimalVBundle(
 ): Uint8Array {
   const { archive } = buildVBundle({
     files: extraFiles,
-    source: "test",
-    description: "test bundle",
+    ...defaultV1Options(),
   });
   return archive;
 }

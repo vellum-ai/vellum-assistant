@@ -115,12 +115,23 @@ function makeStreamExportStub(): {
       tempPath,
       size: 16,
       manifest: {
-        schema_version: "1.0",
+        schema_version: 1,
+        bundle_id: "00000000-0000-4000-8000-000000000000",
         created_at: new Date().toISOString(),
-        source: "test",
-        description: "test stub",
-        files: [],
-        manifest_sha256: "0".repeat(64),
+        assistant: { id: "self", name: "Test", runtime_version: "0.0.0-test" },
+        origin: { mode: "self-hosted-local" },
+        compatibility: {
+          min_runtime_version: "0.0.0-test",
+          max_runtime_version: null,
+        },
+        contents: [],
+        checksum: "0".repeat(64),
+        secrets_redacted: false,
+        export_options: {
+          include_logs: false,
+          include_browser_state: false,
+          include_memory_vectors: false,
+        },
       },
       cleanup: async () => {
         try {
@@ -539,10 +550,27 @@ describe("createSnapshotNow", () => {
         tempPath,
         size: 7,
         manifest: {
-          schema_version: "1.0",
+          schema_version: 1,
+          bundle_id: "00000000-0000-4000-8000-000000000000",
           created_at: new Date().toISOString(),
-          files: [],
-          manifest_sha256: "0".repeat(64),
+          assistant: {
+            id: "self",
+            name: "Test",
+            runtime_version: "0.0.0-test",
+          },
+          origin: { mode: "self-hosted-local" },
+          compatibility: {
+            min_runtime_version: "0.0.0-test",
+            max_runtime_version: null,
+          },
+          contents: [],
+          checksum: "0".repeat(64),
+          secrets_redacted: false,
+          export_options: {
+            include_logs: false,
+            include_browser_state: false,
+            include_memory_vectors: false,
+          },
         },
         cleanup: async () => {
           try {
