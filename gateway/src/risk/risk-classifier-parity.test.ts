@@ -70,8 +70,6 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["chgrp group file.txt", RiskLevel.High],
   ['eval "ls"', RiskLevel.High],
   ['bash -c "echo hi"', RiskLevel.High],
-  ["assistant trust add", RiskLevel.High],
-  ["assistant trust update", RiskLevel.High],
   ["sudo rm -rf /", RiskLevel.High],
   ["rm -rf /tmp/stuff", RiskLevel.High],
   ["rm -r directory", RiskLevel.High],

@@ -214,9 +214,6 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "task queue run",
   "trust",
   "trust list",
-  "trust add",
-  "trust update",
-  "trust remove",
   "tts",
   "tts synthesize",
   "ui",
@@ -338,22 +335,6 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "high",
     reason: "Deletes API key material",
   },
-  {
-    path: "trust add",
-    risk: "high",
-    reason: "Creates trust rule that affects auto-approve behavior",
-  },
-  {
-    path: "trust update",
-    risk: "high",
-    reason: "Modifies trust rule risk level or description",
-  },
-  {
-    path: "trust remove",
-    risk: "high",
-    reason: "Removes trust rule",
-  },
-
   // Destructive assistant-state operations
   {
     path: "backup restore",

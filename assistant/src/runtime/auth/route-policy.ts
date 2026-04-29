@@ -419,11 +419,8 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "memory/v2/validate:POST", scopes: ["settings.read"] },
   { endpoint: "memory/v2/reembed-skills:POST", scopes: ["settings.write"] },
 
-  // Trust rule CRUD management
+  // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },
-  { endpoint: "trust-rules/manage:POST", scopes: ["settings.write"] },
-  { endpoint: "trust-rules/manage:DELETE", scopes: ["settings.write"] },
-  { endpoint: "trust-rules/manage:PATCH", scopes: ["settings.write"] },
 
   // Computer use
   { endpoint: "computer-use/sessions", scopes: ["chat.write"] },
