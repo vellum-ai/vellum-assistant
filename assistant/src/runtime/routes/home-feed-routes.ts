@@ -30,7 +30,6 @@ import {
   suggestedPromptSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
-import { runRollupProducer } from "../../home/rollup-producer.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
@@ -41,26 +40,6 @@ import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("home-feed-routes");
-
-/**
- * Debounce window for the on-visit rollup refresh. A GET on the feed
- * route fires the rollup producer fire-and-forget at most once per
- * window — repeat GETs within this interval (e.g. from a client that
- * polls aggressively, or from multiple panels opening in rapid
- * succession) skip the trigger and just return the cached feed.
- */
-const ON_VISIT_REFRESH_DEBOUNCE_MS = 10 * 60 * 1000;
-
-let lastOnVisitRefreshAt = 0;
-
-/**
- * Reset the on-visit debounce gate. Test-only — production callers
- * should never touch this. Exported with an underscore-prefixed name
- * so lint rules can flag misuse.
- */
-export function __resetOnVisitRefreshStateForTests(): void {
-  lastOnVisitRefreshAt = 0;
-}
 
 // ---------------------------------------------------------------------------
 // Response / request schemas
@@ -175,8 +154,6 @@ export async function handleGetHomeFeed({
     "GET /v1/home/feed",
   );
 
-  maybeTriggerOnVisitRollupRefresh(now);
-
   return {
     items: filtered,
     updatedAt: feed.updatedAt,
@@ -184,42 +161,6 @@ export async function handleGetHomeFeed({
     suggestedPrompts,
     lowPriorityCollapsed,
   };
-}
-
-function maybeTriggerOnVisitRollupRefresh(now: Date): void {
-  const nowMs = now.getTime();
-  if (nowMs - lastOnVisitRefreshAt < ON_VISIT_REFRESH_DEBOUNCE_MS) return;
-  const previousRefreshAt = lastOnVisitRefreshAt;
-  lastOnVisitRefreshAt = nowMs;
-  void runRollupProducer(now)
-    .then((result) => {
-      const skippedBeforeLLM =
-        result.skippedReason === "no_provider" ||
-        result.skippedReason === "no_actions" ||
-        result.skippedReason === "in_flight";
-      if (skippedBeforeLLM) {
-        if (lastOnVisitRefreshAt === nowMs) {
-          lastOnVisitRefreshAt = previousRefreshAt;
-        }
-        log.debug(
-          { skippedReason: result.skippedReason },
-          "On-visit rollup refresh skipped; debounce gate rolled back",
-        );
-      } else if (result.skippedReason !== null) {
-        log.debug(
-          { skippedReason: result.skippedReason },
-          "On-visit rollup refresh skipped",
-        );
-      } else {
-        log.info(
-          { wroteCount: result.wroteCount },
-          "On-visit rollup refresh completed",
-        );
-      }
-    })
-    .catch((err) => {
-      log.warn({ err }, "On-visit rollup refresh failed");
-    });
 }
 
 export async function handlePatchFeedItem({
