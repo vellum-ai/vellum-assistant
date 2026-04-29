@@ -198,7 +198,7 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
   return parsed;
 }
 
-export function normalizeWebFetchUrl(rawUrl: string): URL | null {
+function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 

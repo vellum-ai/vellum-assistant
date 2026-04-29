@@ -1,10 +1,6 @@
 import { v4 as uuid } from "uuid";
 
-import {
-  clearAll,
-  getConversation,
-  updateConversationTitle,
-} from "../../memory/conversation-crud.js";
+import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
@@ -89,21 +85,6 @@ export async function switchConversation(conversationId: string): Promise<{
     inferenceProfile: conversation.inferenceProfile ?? undefined,
   };
 }
-/**
- * Rename a conversation. Returns true on success, false if not found.
- */
-export function renameConversation(
-  conversationId: string,
-  name: string,
-): boolean {
-  const conversation = getConversation(conversationId);
-  if (!conversation) {
-    return false;
-  }
-  updateConversationTitle(conversationId, name, 0);
-  return true;
-}
-
 /**
  * Cancel generation for a conversation. Returns true if a conversation was found and cancelled.
  */

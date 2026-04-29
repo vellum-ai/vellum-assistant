@@ -298,4 +298,4 @@ export function redactSecrets(text: string): string {
 }
 
 // Exported for testing only
-export { isPlaceholder as _isPlaceholder, PATTERNS as _PATTERNS };
+export { isPlaceholder as _isPlaceholder };

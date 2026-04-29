@@ -2,152 +2,17 @@ import { z } from "zod";
 
 import { getDataDir } from "../util/platform.js";
 
-// Re-export all domain schemas
+// Re-export domain schemas that have external consumers
 export { AnalysisConfigSchema } from "./schemas/analysis.js";
 export type { BackupConfig, BackupDestination } from "./schemas/backup.js";
 export { BackupConfigSchema } from "./schemas/backup.js";
 export { VALID_CALLER_IDENTITY_MODES } from "./schemas/calls.js";
 export { DEFAULT_ELEVENLABS_VOICE_ID } from "./schemas/elevenlabs.js";
 export type {
-  ContextOverflowRecoveryConfig,
   ContextWindowConfig,
   ModelPricingOverride,
-  ThinkingConfig,
 } from "./schemas/inference.js";
-export {
-  ContextOverflowRecoveryConfigSchema,
-  ContextWindowConfigSchema,
-  ModelPricingOverrideSchema,
-  ThinkingConfigSchema,
-} from "./schemas/inference.js";
-export type {
-  IngressConfig,
-  IngressRateLimitConfig,
-  IngressWebhookConfig,
-} from "./schemas/ingress.js";
-export { IngressConfigSchema } from "./schemas/ingress.js";
-export type { JournalConfig } from "./schemas/journal.js";
-export { JournalConfigSchema } from "./schemas/journal.js";
-export type {
-  LLMCallSite,
-  LLMCallSiteConfig,
-  LLMConfig,
-  LLMConfigBase,
-  LLMConfigFragment,
-  ProfileEntry,
-} from "./schemas/llm.js";
-export { LLMCallSiteEnum, LLMSchema } from "./schemas/llm.js";
-export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
-export {
-  AuditLogConfigSchema,
-  LogFileConfigSchema,
-} from "./schemas/logging.js";
-export type {
-  McpConfig,
-  McpServerConfig,
-  McpTransport,
-} from "./schemas/mcp.js";
-export {
-  McpConfigSchema,
-  McpServerConfigSchema,
-  McpTransportSchema,
-} from "./schemas/mcp.js";
-export type { MemoryConfig } from "./schemas/memory.js";
-export { MemoryConfigSchema } from "./schemas/memory.js";
-export type {
-  MemoryCleanupConfig,
-  MemoryJobsConfig,
-  MemoryRetentionConfig,
-} from "./schemas/memory-lifecycle.js";
-export {
-  MemoryCleanupConfigSchema,
-  MemoryJobsConfigSchema,
-  MemoryRetentionConfigSchema,
-} from "./schemas/memory-lifecycle.js";
-export type {
-  MemoryExtractionConfig,
-  MemorySummarizationConfig,
-} from "./schemas/memory-processing.js";
-export {
-  MemoryExtractionConfigSchema,
-  MemorySummarizationConfigSchema,
-} from "./schemas/memory-processing.js";
-export type { MemoryRetrievalConfig } from "./schemas/memory-retrieval.js";
-export { MemoryRetrievalConfigSchema } from "./schemas/memory-retrieval.js";
-export type {
-  MemoryEmbeddingsConfig,
-  MemorySegmentationConfig,
-  QdrantConfig,
-} from "./schemas/memory-storage.js";
-export {
-  MemoryEmbeddingsConfigSchema,
-  MemorySegmentationConfigSchema,
-  QdrantConfigSchema,
-} from "./schemas/memory-storage.js";
-export type { NotificationsConfig } from "./schemas/notifications.js";
-export { NotificationsConfigSchema } from "./schemas/notifications.js";
-export type {
-  DaemonConfig,
-  PlatformConfig,
-  UiConfig,
-} from "./schemas/platform.js";
-export {
-  DaemonConfigSchema,
-  PlatformConfigSchema,
-  UiConfigSchema,
-} from "./schemas/platform.js";
-export type { SecretDetectionConfig } from "./schemas/security.js";
-export { SecretDetectionConfigSchema } from "./schemas/security.js";
-export type {
-  ImageGenerationService,
-  InferenceService,
-  ServiceMode,
-  Services,
-  WebSearchService,
-} from "./schemas/services.js";
-export {
-  ServicesSchema,
-  VALID_INFERENCE_PROVIDERS,
-} from "./schemas/services.js";
-export type {
-  RemotePolicyConfig,
-  RemoteProviderConfig,
-  RemoteProvidersConfig,
-  SkillEntryConfig,
-  SkillsConfig,
-  SkillsInstallConfig,
-  SkillsLoadConfig,
-} from "./schemas/skills.js";
-export {
-  SkillEntryConfigSchema,
-  SkillsConfigSchema,
-} from "./schemas/skills.js";
-export type { SttProviders, SttService } from "./schemas/stt.js";
-export {
-  SttProvidersSchema,
-  SttServiceSchema,
-  VALID_STT_PROVIDERS,
-} from "./schemas/stt.js";
-export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
-export {
-  RateLimitConfigSchema,
-  TimeoutConfigSchema,
-} from "./schemas/timeouts.js";
-export type {
-  TtsDeepgramProviderConfig,
-  TtsElevenLabsProviderConfig,
-  TtsFishAudioProviderConfig,
-  TtsProviders,
-  TtsService,
-} from "./schemas/tts.js";
-export {
-  TtsServiceSchema,
-  VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
-} from "./schemas/tts.js";
-export type { UpdatesConfig } from "./schemas/updates.js";
-export { UpdatesConfigSchema } from "./schemas/updates.js";
-export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
-export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
+export type { SkillEntryConfig } from "./schemas/skills.js";
 
 // Imports for AssistantConfigSchema composition
 import { AcpConfigSchema } from "./acp-schema.js";

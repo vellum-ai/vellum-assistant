@@ -44,7 +44,7 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
-import { type DbProxyParams,handleDbProxy } from "./routes/db-proxy.js";
+import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -73,9 +73,6 @@ export type IpcResponse = {
   headers?: Record<string, string>;
 };
 
-
-
-
 /**
  * Wrapper returned by route handlers that produce a streaming response.
  * The IPC server detects this and pipes the ReadableStream as chunked
@@ -95,9 +92,7 @@ export interface IpcBinaryResponse {
   headers: Record<string, string>;
 }
 
-export function isIpcStreamingResponse(
-  value: unknown,
-): value is IpcStreamingResponse {
+function isIpcStreamingResponse(value: unknown): value is IpcStreamingResponse {
   return (
     value != null &&
     typeof value === "object" &&
@@ -108,9 +103,7 @@ export function isIpcStreamingResponse(
   );
 }
 
-export function isIpcBinaryResponse(
-  value: unknown,
-): value is IpcBinaryResponse {
+function isIpcBinaryResponse(value: unknown): value is IpcBinaryResponse {
   return (
     value != null &&
     typeof value === "object" &&

@@ -106,7 +106,7 @@ function resolveCanonicalRequestSourceType(
 // Pending-interaction registrar
 // ---------------------------------------------------------------------------
 
-export function makePendingInteractionRegistrar(
+function makePendingInteractionRegistrar(
   conversation: Conversation,
   conversationId: string,
 ): (msg: ServerMessage) => void {
@@ -211,7 +211,7 @@ export function makePendingInteractionRegistrar(
 // prepareConversationForMessage
 // ---------------------------------------------------------------------------
 
-export async function prepareConversationForMessage(
+async function prepareConversationForMessage(
   conversationId: string,
   content: string,
   attachmentIds: string[] | undefined,

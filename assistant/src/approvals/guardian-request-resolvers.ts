@@ -990,7 +990,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
 const resolverRegistry = new Map<string, GuardianRequestResolver>();
 
 /** Register a resolver for a given request kind. */
-export function registerResolver(resolver: GuardianRequestResolver): void {
+function registerResolver(resolver: GuardianRequestResolver): void {
   resolverRegistry.set(resolver.kind, resolver);
 }
 

@@ -57,10 +57,12 @@ import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
   AssistantConfigSchema,
   DEFAULT_ELEVENLABS_VOICE_ID,
-  SttServiceSchema,
-  TtsServiceSchema,
-  VALID_TTS_SERVICE_PROVIDERS,
 } from "../config/schema.js";
+import { SttServiceSchema } from "../config/schemas/stt.js";
+import {
+  TtsServiceSchema,
+  VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
+} from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";

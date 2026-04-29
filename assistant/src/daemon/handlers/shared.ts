@@ -24,7 +24,7 @@ export const CONFIG_RELOAD_DEBOUNCE_MS = 300;
 const HISTORY_ATTACHMENT_TEXT_LIMIT = 500;
 
 // Module-level map for non-conversation secret prompts (e.g. publish_page)
-export const pendingStandaloneSecrets = new Map<
+const pendingStandaloneSecrets = new Map<
   string,
   {
     resolve: (result: SecretPromptResult) => void;
