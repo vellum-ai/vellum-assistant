@@ -23,12 +23,14 @@ import { initializeDb } from "../db-init.js";
 import {
   backfillMemoryV2ActivationMessageId,
   getMemoryV2ActivationLogByMessageIds,
-  type MemoryV2ConceptRowRecord,
-  type MemoryV2ConfigSnapshot,
-  type MemoryV2SkillRowRecord,
   recordMemoryV2ActivationLog,
 } from "../memory-v2-activation-log-store.js";
 import { memoryV2ActivationLogs } from "../schema.js";
+import {
+  sampleConcepts,
+  sampleConfig,
+  sampleSkills,
+} from "./fixtures/memory-v2-activation-fixtures.js";
 
 initializeDb();
 
@@ -36,56 +38,6 @@ function resetTables(): void {
   const db = getDb();
   db.delete(memoryV2ActivationLogs).run();
 }
-
-const sampleConcepts: MemoryV2ConceptRowRecord[] = [
-  {
-    slug: "concept-a",
-    finalActivation: 0.9,
-    ownActivation: 0.7,
-    priorActivation: 0.5,
-    simUser: 0.6,
-    simAssistant: 0.4,
-    simNow: 0.3,
-    spreadContribution: 0.2,
-    source: "both",
-    status: "injected",
-  },
-  {
-    slug: "concept-b",
-    finalActivation: 0.4,
-    ownActivation: 0.3,
-    priorActivation: 0.1,
-    simUser: 0.2,
-    simAssistant: 0.1,
-    simNow: 0.05,
-    spreadContribution: 0.0,
-    source: "ann_top50",
-    status: "not_injected",
-  },
-];
-
-const sampleSkills: MemoryV2SkillRowRecord[] = [
-  {
-    id: "skill-1",
-    activation: 0.8,
-    simUser: 0.5,
-    simAssistant: 0.4,
-    simNow: 0.3,
-    status: "injected",
-  },
-];
-
-const sampleConfig: MemoryV2ConfigSnapshot = {
-  d: 0.85,
-  c_user: 1.0,
-  c_assistant: 0.5,
-  c_now: 0.25,
-  k: 5,
-  hops: 2,
-  top_k: 10,
-  top_k_skills: 3,
-  epsilon: 0.001,
-};
 
 describe("memory-v2-activation-log-store", () => {
   beforeEach(() => {
