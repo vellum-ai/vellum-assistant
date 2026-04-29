@@ -4276,6 +4276,78 @@ paths:
                 - transcription
                 - context
               additionalProperties: false
+  /v1/disk-lock/override:
+    post:
+      operationId: disklock_override_post
+      summary: Override disk lock
+      description:
+        Manually override the disk-space lock so the assistant can continue operating despite high disk usage. The
+        override persists until disk usage drops below the threshold or the daemon restarts.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locked:
+                    type: boolean
+                  overrideActive:
+                    type: boolean
+                  effectivelyLocked:
+                    type: boolean
+                  diskUsagePercent:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  threshold:
+                    type: number
+                required:
+                  - locked
+                  - overrideActive
+                  - effectivelyLocked
+                  - diskUsagePercent
+                  - threshold
+                additionalProperties: false
+  /v1/disk-lock/status:
+    get:
+      operationId: disklock_status_get
+      summary: Disk lock status
+      description:
+        "Returns the current disk-space lock state: whether the assistant is locked, whether an override is active,
+        and the current disk usage percentage."
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locked:
+                    type: boolean
+                  overrideActive:
+                    type: boolean
+                  effectivelyLocked:
+                    type: boolean
+                  diskUsagePercent:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  threshold:
+                    type: number
+                required:
+                  - locked
+                  - overrideActive
+                  - effectivelyLocked
+                  - diskUsagePercent
+                  - threshold
+                additionalProperties: false
   /v1/documents:
     get:
       operationId: documents_get
