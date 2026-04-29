@@ -4,13 +4,6 @@
  * assistant's database (via IPC proxy) for contact lookups and writes.
  *
  * Uses the gateway's own signing key for JWT minting.
- *
- * ⚠️  The assistant DB access uses an IPC proxy (`db_proxy` method) rather
- * than opening the file directly. Direct file access caused database
- * corruption on platform pods where gateway and assistant run in separate
- * containers sharing a volume (fcntl locks don't work across container
- * mount namespaces). Remove the proxy once contacts are fully migrated
- * to the gateway's own database.
  */
 
 import { createHash, randomBytes } from "node:crypto";

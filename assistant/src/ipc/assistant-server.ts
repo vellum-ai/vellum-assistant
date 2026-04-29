@@ -44,7 +44,7 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
-import { handleDbProxy, type DbProxyParams } from "./routes/db-proxy.js";
+import { type DbProxyParams,handleDbProxy } from "./routes/db-proxy.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";

@@ -58,7 +58,7 @@ export async function runPostAssistantReady(): Promise<void> {
 
   // 1. Data migrations (some read/write the assistant DB)
   try {
-    runDataMigrations(getRawDb(getGatewayDb()));
+    await runDataMigrations(getRawDb(getGatewayDb()));
   } catch (err) {
     log.error({ err }, "Post-ready data migrations failed");
   }

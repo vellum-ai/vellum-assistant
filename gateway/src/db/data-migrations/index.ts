@@ -27,8 +27,8 @@ const log = getLogger("data-migrations");
 export type MigrationResult = "done" | "skip";
 
 type MigrationModule = {
-  up: () => MigrationResult;
-  down: () => MigrationResult;
+  up: () => MigrationResult | Promise<MigrationResult>;
+  down: () => MigrationResult | Promise<MigrationResult>;
 };
 
 const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
@@ -41,7 +41,7 @@ const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
  * Must be called after schema migrations so the `one_time_migrations`
  * table exists.
  */
-export function runDataMigrations(db: Database): void {
+export async function runDataMigrations(db: Database): Promise<void> {
   const insert = db.prepare(
     "INSERT OR IGNORE INTO one_time_migrations (key, ran_at) VALUES (?, ?)",
   );
@@ -55,7 +55,7 @@ export function runDataMigrations(db: Database): void {
 
     log.info({ key }, "Running one-time data migration");
     try {
-      const result = mod.up();
+      const result = await mod.up();
       if (result === "done") {
         insert.run(key, Date.now());
         log.info({ key }, "Data migration completed");

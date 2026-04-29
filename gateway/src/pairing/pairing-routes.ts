@@ -299,7 +299,7 @@ export function createPairingHandler(deps: {
      * GET /pairing/status — Unauthenticated (secret-gated).
      * iOS polls for approval status.
      */
-    handlePairingStatus(req: Request): Response {
+    async handlePairingStatus(req: Request): Promise<Response> {
       const url = new URL(req.url);
       const id = url.searchParams.get("id") ?? "";
       const secret = url.searchParams.get("secret") ?? "";
