@@ -55,7 +55,6 @@ let runBackgroundJobOk = true;
 let runBackgroundJobErrorKind:
   | "timeout"
   | "model_provider"
-  | "tool"
   | "exception"
   | undefined = undefined;
 let runBackgroundJobErrorMessage: string | undefined = undefined;

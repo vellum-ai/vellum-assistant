@@ -23,17 +23,43 @@ mock.module("../util/logger.js", () => ({
 // callback used for the reuse path — that way assertions don't have to know
 // which path a given run took.
 const processedMessages: { conversationId: string; message: string }[] = [];
+const runBackgroundJobOptions: Array<{
+  conversationType?: string;
+  scheduleJobId?: string;
+  groupId?: string;
+  suppressFailureNotifications?: boolean;
+  onConversationCreated?: (id: string) => void;
+}> = [];
 let runBackgroundJobShouldFail = false;
 mock.module("../runtime/background-job-runner.js", () => ({
-  runBackgroundJob: async (opts: { prompt: string; groupId?: string }) => {
+  runBackgroundJob: async (opts: {
+    prompt: string;
+    groupId?: string;
+    conversationType?: "background" | "scheduled";
+    scheduleJobId?: string;
+    suppressFailureNotifications?: boolean;
+    onConversationCreated?: (id: string) => void;
+  }) => {
     const { createConversation } =
       await import("../memory/conversation-crud.js");
     const conv = createConversation({
       title: "(test stub)",
-      conversationType: "background",
+      conversationType: opts.conversationType ?? "background",
       source: "schedule",
       ...(opts.groupId ? { groupId: opts.groupId } : {}),
+      ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
     });
+    runBackgroundJobOptions.push({
+      conversationType: opts.conversationType,
+      scheduleJobId: opts.scheduleJobId,
+      groupId: opts.groupId,
+      suppressFailureNotifications: opts.suppressFailureNotifications,
+      onConversationCreated: opts.onConversationCreated,
+    });
+    // Mirror the real runner's contract: fire the SSE callback synchronously
+    // BEFORE the job's processMessage finishes, with the bootstrap-returned
+    // conversation id.
+    opts.onConversationCreated?.(conv.id);
     processedMessages.push({ conversationId: conv.id, message: opts.prompt });
     if (runBackgroundJobShouldFail) {
       return {
@@ -109,6 +135,7 @@ describe("scheduler conversation reuse", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     processedMessages.length = 0;
+    runBackgroundJobOptions.length = 0;
     runBackgroundJobShouldFail = false;
   });
 
@@ -353,5 +380,106 @@ describe("scheduler conversation reuse", () => {
     // (the lookup queries for status="ok", so it picks the first run's conversation)
     expect(processedMessages).toHaveLength(1);
     expect(processedMessages[0].conversationId).toBe(successConversationId);
+  });
+});
+
+describe("scheduler talk-mode runner option propagation", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM conversations");
+    processedMessages.length = 0;
+    runBackgroundJobOptions.length = 0;
+    runBackgroundJobShouldFail = false;
+  });
+
+  test("talk-mode propagates conversationType=scheduled, scheduleJobId, and quiet=>suppressFailureNotifications", async () => {
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = createSchedule({
+      name: "Quiet Talk Mode",
+      cronExpression: rruleExpr,
+      message: "Background work",
+      syntax: "rrule",
+      expression: rruleExpr,
+      quiet: true,
+    });
+    forceScheduleDue(schedule.id);
+
+    const processMessage = async () => {};
+    const scheduler = startScheduler(processMessage, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(runBackgroundJobOptions).toHaveLength(1);
+    const opts = runBackgroundJobOptions[0]!;
+    expect(opts.conversationType).toBe("scheduled");
+    expect(opts.scheduleJobId).toBe(schedule.id);
+    expect(opts.groupId).toBe("system:scheduled");
+    expect(opts.suppressFailureNotifications).toBe(true);
+  });
+
+  test("talk-mode without quiet leaves suppressFailureNotifications=false", async () => {
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = createSchedule({
+      name: "Loud Talk Mode",
+      cronExpression: rruleExpr,
+      message: "Background work",
+      syntax: "rrule",
+      expression: rruleExpr,
+      // quiet defaults to false
+    });
+    forceScheduleDue(schedule.id);
+
+    const processMessage = async () => {};
+    const scheduler = startScheduler(processMessage, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(runBackgroundJobOptions).toHaveLength(1);
+    expect(runBackgroundJobOptions[0]!.suppressFailureNotifications).toBe(
+      false,
+    );
+  });
+
+  test("talk-mode fires onScheduleConversationCreated synchronously via runner callback (BEFORE the runner returns)", async () => {
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = createSchedule({
+      name: "SSE timing",
+      cronExpression: rruleExpr,
+      message: "x",
+      syntax: "rrule",
+      expression: rruleExpr,
+    });
+    forceScheduleDue(schedule.id);
+
+    const sseCalls: Array<{
+      conversationId: string;
+      scheduleJobId: string;
+      title: string;
+    }> = [];
+    const processMessage = async () => {};
+    const scheduler = startScheduler(
+      processMessage,
+      () => {},
+      undefined,
+      (info) => sseCalls.push(info),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler.stop();
+
+    expect(sseCalls).toHaveLength(1);
+    expect(sseCalls[0]).toMatchObject({
+      scheduleJobId: schedule.id,
+      title: "SSE timing",
+    });
+    // The mock runner fires the callback synchronously after creating the
+    // conversation row, so the conversationId must be the same id the runner
+    // ultimately reports.
+    expect(processedMessages).toHaveLength(1);
+    expect(sseCalls[0].conversationId).toBe(
+      processedMessages[0].conversationId,
+    );
   });
 });

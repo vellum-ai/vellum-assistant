@@ -6,11 +6,7 @@ import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
-import {
-  runWatchersOnce,
-  type WatcherEscalator,
-  type WatcherNotifier,
-} from "../watcher/engine.js";
+import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { runScript, type ScriptResult } from "./run-script.js";
 import {
@@ -85,7 +81,6 @@ export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   watcherNotifier?: WatcherNotifier,
-  watcherEscalator?: WatcherEscalator,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): SchedulerHandle {
   let stopped = false;
@@ -99,7 +94,6 @@ export function startScheduler(
         processMessage,
         notifyScheduleOneShot,
         watcherNotifier,
-        watcherEscalator,
         onScheduleConversationCreated,
       );
     } catch (err) {
@@ -121,7 +115,6 @@ export function startScheduler(
         processMessage,
         notifyScheduleOneShot,
         watcherNotifier,
-        watcherEscalator,
         onScheduleConversationCreated,
       );
     },
@@ -136,7 +129,6 @@ async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
   watcherNotifier?: WatcherNotifier,
-  watcherEscalator?: WatcherEscalator,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): Promise<number> {
   const now = Date.now();
@@ -449,6 +441,11 @@ async function runScheduleOnce(
       // unconditionally bootstraps a new conversation and is therefore not a
       // drop-in replacement for the reuse semantics.
       conversationId = reusedConversationId;
+      onScheduleConversationCreated?.({
+        conversationId,
+        scheduleJobId: job.id,
+        title: job.name,
+      });
       try {
         await processMessage(conversationId, job.message, {
           trustClass: "guardian",
@@ -462,6 +459,9 @@ async function runScheduleOnce(
       // Fresh-bootstrap path: route through the shared runner so failures
       // surface via `activity.failed` and we get the standard timeout +
       // error-classification policy applied to every background producer.
+      // The runner fires `onConversationCreated` synchronously after bootstrap
+      // (before `processMessage` starts) so the macOS sidebar gets the new
+      // conversation immediately rather than after the up-to-30-min job ends.
       const result = await runBackgroundJob({
         jobName: `schedule:${job.id}`,
         source: "schedule",
@@ -471,17 +471,22 @@ async function runScheduleOnce(
         timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,
         origin: "schedule",
         groupId: "system:scheduled",
+        conversationType: "scheduled",
+        scheduleJobId: job.id,
+        suppressFailureNotifications: job.quiet === true,
+        onConversationCreated: (newConversationId) => {
+          onScheduleConversationCreated?.({
+            conversationId: newConversationId,
+            scheduleJobId: job.id,
+            title: job.name,
+          });
+        },
       });
       conversationId = result.conversationId;
       ok = result.ok;
       errorMsg = result.error?.message;
     }
 
-    onScheduleConversationCreated?.({
-      conversationId,
-      scheduleJobId: job.id,
-      title: job.name,
-    });
     const runId = createScheduleRun(job.id, conversationId);
 
     if (ok) {
@@ -525,12 +530,9 @@ async function runScheduleOnce(
   }
 
   // ── Watchers (event-driven polling) ────────────────────────────────
-  if (watcherNotifier && watcherEscalator) {
+  if (watcherNotifier) {
     try {
-      const watcherProcessed = await runWatchersOnce(
-        watcherNotifier,
-        watcherEscalator,
-      );
+      const watcherProcessed = await runWatchersOnce(watcherNotifier);
       processed += watcherProcessed;
     } catch (err) {
       log.error({ err }, "Watcher tick failed");

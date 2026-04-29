@@ -218,38 +218,20 @@ export class HeartbeatService {
       return false;
     }
 
+    // The runner enforces its own timeout internally, so we don't need an
+    // outer Promise.race here. The activeRun guard prevents a wedged run
+    // from spawning concurrent heartbeat work; the runner's timeout is
+    // what actually unblocks the in-flight run.
     const run = this.executeRun();
     this.activeRun = run;
-    // Clear activeRun once executeRun finishes. On timeout, runOnce releases
-    // activeRun separately (see catch block below) so future runs aren't
-    // permanently blocked. The .finally() handler still serves as the
-    // normal-completion cleanup path and uses an identity guard to avoid
-    // clearing a different run's activeRun.
-    run
-      .finally(() => {
-        if (this.activeRun === run) {
-          this.activeRun = null;
-        }
-      })
-      .catch(() => {}); // Suppress unhandled rejection if executeRun rejects
-
-    let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
-      const timeout = new Promise<never>((_, reject) => {
-        timerId = setTimeout(
-          () => reject(new Error("Heartbeat execution timed out")),
-          HEARTBEAT_TIMEOUT_MS,
-        );
-      });
-      timeout.catch(() => {}); // Prevent unhandled rejection if run resolves first
-      await Promise.race([run, timeout]);
+      await run;
     } catch (err) {
-      log.warn({ err }, "Heartbeat run timed out");
-      // Release activeRun so the overlap guard doesn't permanently block
-      // future heartbeat runs when executeRun hangs past the timeout.
-      this.activeRun = null;
+      log.warn({ err }, "Heartbeat run threw");
     } finally {
-      clearTimeout(timerId);
+      if (this.activeRun === run) {
+        this.activeRun = null;
+      }
       this._lastRunAt = Date.now();
       this.scheduleNextRun(getConfig().heartbeat.intervalMs);
     }
@@ -382,6 +364,11 @@ export class HeartbeatService {
     // Centralized boundary wrapper: handles bootstrap, processMessage,
     // timeout, and emits `activity.failed` on any failure path. Never
     // re-throws — failures come back as a structured result.
+    //
+    // `onConversationCreated` fires synchronously inside the runner, right
+    // after bootstrap and before processMessage starts. That way the
+    // macOS sidebar gets the new conversation immediately rather than
+    // waiting up to HEARTBEAT_TIMEOUT_MS for the run to finish.
     const result = await runBackgroundJob({
       jobName: "heartbeat",
       source: "heartbeat",
@@ -393,16 +380,12 @@ export class HeartbeatService {
       callSite: "heartbeatAgent",
       timeoutMs: HEARTBEAT_TIMEOUT_MS,
       origin: "heartbeat",
-      groupId: "system:background",
-    });
-
-    // Notify the SSE broadcaster about the conversation so connected
-    // clients (e.g. macOS) add it to the sidebar. Fires after the run
-    // completes — clients see the conversation when the heartbeat
-    // finishes (or fails) rather than when it starts.
-    this.deps.onConversationCreated?.({
-      conversationId: result.conversationId,
-      title: "Heartbeat",
+      onConversationCreated: (conversationId) => {
+        this.deps.onConversationCreated?.({
+          conversationId,
+          title: "Heartbeat",
+        });
+      },
     });
 
     if (result.ok) {

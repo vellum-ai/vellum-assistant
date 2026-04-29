@@ -7,7 +7,7 @@
  * open-coding. Wrapping it here lets us:
  *
  *  - apply a single timeout policy
- *  - classify failures uniformly (timeout / model / tool / generic exception)
+ *  - classify failures uniformly (timeout / model_provider / generic exception)
  *  - emit a single `activity.failed` notification on any failure path so the
  *    home feed and native notification surfaces light up automatically
  *  - never re-throw — the caller always gets a structured result and decides
@@ -16,15 +16,13 @@
  * Producers that have their own bespoke failure UX (e.g. heartbeat's existing
  * alerter banner) can opt out of the failure-emit via
  * `suppressFailureNotifications`.
- *
- * NOTE: This runner is not yet called from any production job. Subsequent PRs
- * migrate each background producer onto it.
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import type { TitleOrigin } from "../memory/conversation-title-service.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { AttentionHints } from "../notifications/signal.js";
@@ -42,11 +40,7 @@ class BackgroundJobTimeoutError extends Error {
   override name = "BackgroundJobTimeoutError";
 }
 
-export type BackgroundJobErrorKind =
-  | "timeout"
-  | "model_provider"
-  | "tool"
-  | "exception";
+export type BackgroundJobErrorKind = "timeout" | "model_provider" | "exception";
 
 export interface RunBackgroundJobOptions {
   /** Short stable identifier for logs/notifications, e.g. "heartbeat", "filing". */
@@ -63,13 +57,51 @@ export interface RunBackgroundJobOptions {
   timeoutMs: number;
   /**
    * When true, failures do NOT emit an `activity.failed` notification.
-   * Use for jobs that own their own failure UX (e.g. heartbeat's alerter).
+   * Use for jobs that own their own failure UX (e.g. heartbeat's alerter)
+   * or for "quiet" scheduled jobs that the user has explicitly asked to
+   * suppress notifications for.
    */
   suppressFailureNotifications?: boolean;
   /** Conversation grouping id. Defaults to `"system:background"`. */
   groupId?: string;
   /** Title origin tag for `bootstrapConversation`. */
   origin: TitleOrigin;
+  /** Conversation type to bootstrap with. Defaults to `"background"`. */
+  conversationType?: "background" | "scheduled";
+  /**
+   * Schedule job id to associate with the conversation row. Only meaningful
+   * for `conversationType: "scheduled"` — propagated so schedule cleanup and
+   * sidebar grouping can find the conversation by job id.
+   */
+  scheduleJobId?: string;
+  /**
+   * Fires synchronously after `bootstrapConversation` returns and BEFORE
+   * `processMessage` starts. Use this to populate the macOS sidebar entry
+   * immediately (the SSE event fires when the job starts) rather than after
+   * the job finishes (which can be up to `timeoutMs` later for long jobs).
+   *
+   * Wrapped in try/catch internally — a callback throw is logged and
+   * swallowed so it cannot kill the job runner.
+   */
+  onConversationCreated?: (conversationId: string) => void;
+  /**
+   * Optional prompt-injection mitigation. When set, the runner adds three
+   * messages to the conversation BEFORE invoking `processMessage`:
+   *
+   *   1. `user` role: `preamble`     — static, trusted instructions.
+   *   2. `assistant` role: `content` — attacker-controllable payload (the LLM
+   *      treats it as its own past output, not as user instructions).
+   *   3. `user` role: `postamble`    — static, trusted action prompt.
+   *
+   * `processMessage` is then invoked with whatever `prompt` the caller set
+   * (often empty or a short kicker) since the conversation already carries
+   * the seed.
+   *
+   * Used by the watcher engine to ingest external provider events safely:
+   * a malicious Linear title or Gmail subject reaches the model only in
+   * the `assistant` role and cannot override the action prompt.
+   */
+  assistantSandwich?: { preamble: string; content: string; postamble: string };
 }
 
 export interface RunBackgroundJobResult {
@@ -84,7 +116,7 @@ function classifyError(err: unknown): BackgroundJobErrorKind {
   if (!(err instanceof Error)) return "exception";
 
   const ctorName = err.constructor?.name ?? "";
-  const { message, name } = err;
+  const { message } = err;
 
   if (
     ctorName.includes("Anthropic") ||
@@ -97,8 +129,6 @@ function classifyError(err: unknown): BackgroundJobErrorKind {
     return "model_provider";
   }
 
-  if (name === "ToolExecutionError") return "tool";
-
   return "exception";
 }
 
@@ -110,15 +140,64 @@ export async function runBackgroundJob(
   opts: RunBackgroundJobOptions,
 ): Promise<RunBackgroundJobResult> {
   const conversation = bootstrapConversation({
-    conversationType: "background",
+    conversationType: opts.conversationType ?? "background",
     source: opts.source,
     origin: opts.origin,
     systemHint: opts.prompt,
     groupId: opts.groupId ?? DEFAULT_GROUP_ID,
+    ...(opts.scheduleJobId ? { scheduleJobId: opts.scheduleJobId } : {}),
   });
+
+  // Fire the sidebar-creation callback synchronously after bootstrap so
+  // connected clients (macOS sidebar, etc.) see the conversation appear
+  // immediately rather than after `processMessage` returns. Wrapped so a
+  // callback throw cannot abort the job.
+  if (opts.onConversationCreated) {
+    try {
+      opts.onConversationCreated(conversation.id);
+    } catch (cbErr) {
+      log.warn(
+        {
+          err: cbErr instanceof Error ? cbErr.message : String(cbErr),
+          jobName: opts.jobName,
+          conversationId: conversation.id,
+        },
+        "onConversationCreated callback threw; continuing job",
+      );
+    }
+  }
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    // SECURITY: Optional anti-injection sandwich. Attacker-controllable data
+    // is wrapped in an assistant-role message between two static user-role
+    // messages. The LLM treats assistant-role content as its own prior
+    // output, not as user instructions, so a malicious payload (e.g. a
+    // crafted Linear title) cannot override the postamble's action prompt.
+    if (opts.assistantSandwich) {
+      await addMessage(
+        conversation.id,
+        "user",
+        opts.assistantSandwich.preamble,
+        undefined,
+        { skipIndexing: true },
+      );
+      await addMessage(
+        conversation.id,
+        "assistant",
+        opts.assistantSandwich.content,
+        undefined,
+        { skipIndexing: true },
+      );
+      await addMessage(
+        conversation.id,
+        "user",
+        opts.assistantSandwich.postamble,
+        undefined,
+        { skipIndexing: true },
+      );
+    }
+
     const work = processMessage(conversation.id, opts.prompt, undefined, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
@@ -161,10 +240,17 @@ export async function runBackgroundJob(
         isAsyncBackground: true,
         visibleInSourceNow: false,
       };
+      // Dedupe by jobName + UTC date so repeated failures of the same
+      // background job (e.g. a watcher whose credentials are revoked)
+      // collapse into a single home-feed entry per day rather than
+      // spamming on every tick.
+      const day = new Date().toISOString().slice(0, 10);
+      const dedupeKey = `activity-failed:${opts.jobName}:${day}`;
       emitNotificationSignal({
         sourceChannel: "assistant_tool",
         sourceContextId: conversation.id,
         sourceEventName: "activity.failed",
+        dedupeKey,
         contextPayload: {
           jobName: opts.jobName,
           errorMessage: error.message,

@@ -515,6 +515,21 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.summary, "An activity has completed"),
   }),
 
+  "activity.failed": (payload) => {
+    const jobName = str(payload.jobName, "background job");
+    const errorKind = str(payload.errorKind, "exception");
+    const rawMessage =
+      typeof payload.errorMessage === "string"
+        ? payload.errorMessage
+        : "no message";
+    const truncated =
+      rawMessage.length > 200 ? rawMessage.slice(0, 200) + "…" : rawMessage;
+    return {
+      title: `Background job failed: ${jobName}`,
+      body: `${errorKind}: ${truncated}`,
+    };
+  },
+
   "quick_chat.response_ready": (payload) => ({
     title: "Response Ready",
     body: str(payload.preview, "Your quick chat response is ready"),
