@@ -7,11 +7,6 @@ import type { ConversationCreateType } from "./conversation-crud.js";
 
 export type ConversationType = ConversationCreateType;
 
-export const BACKGROUND_CONVERSATION_TYPES = [
-  "background",
-  "scheduled",
-] as const;
-
 // Tolerant of null/undefined/unknown strings so it can be called directly on
 // raw DB column values without pre-validation.
 export function isBackgroundConversationType(

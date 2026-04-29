@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  BACKGROUND_CONVERSATION_TYPES,
-  isBackgroundConversationType,
-} from "../conversation-types.js";
+import { isBackgroundConversationType } from "../conversation-types.js";
 
 describe("isBackgroundConversationType", () => {
   test("returns true for background", () => {
@@ -36,19 +33,4 @@ describe("isBackgroundConversationType", () => {
       expect(isBackgroundConversationType(value)).toBe(false);
     },
   );
-});
-
-describe("BACKGROUND_CONVERSATION_TYPES", () => {
-  test("contains exactly background and scheduled", () => {
-    expect([...BACKGROUND_CONVERSATION_TYPES].sort()).toEqual([
-      "background",
-      "scheduled",
-    ]);
-  });
-
-  test("every entry is recognized by isBackgroundConversationType", () => {
-    for (const t of BACKGROUND_CONVERSATION_TYPES) {
-      expect(isBackgroundConversationType(t)).toBe(true);
-    }
-  });
 });
