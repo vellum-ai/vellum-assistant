@@ -120,6 +120,11 @@ mock.module("../permissions/trust-store.js", () => ({
 let _conversationFactory: (() => Conversation) | undefined;
 
 mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: () => {
+    // Return the current test session for any conversation ID lookup.
+    if (!_conversationFactory) return undefined;
+    return _conversationFactory();
+  },
   getOrCreateConversation: async () => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");

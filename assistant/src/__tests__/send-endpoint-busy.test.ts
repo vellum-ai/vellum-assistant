@@ -92,6 +92,10 @@ let _conversationFactory: (() => Conversation) | undefined;
 let _approvalGenerator: unknown;
 
 mock.module("../daemon/conversation-store.js", () => ({
+  findConversation: () => {
+    if (!_conversationFactory) return undefined;
+    return _conversationFactory();
+  },
   getOrCreateConversation: async (..._args: unknown[]) => {
     if (!_conversationFactory)
       throw new Error("_conversationFactory not set in test");
