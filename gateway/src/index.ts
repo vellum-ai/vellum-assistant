@@ -7,10 +7,7 @@ import {
   initSigningKey,
 } from "./auth/token-service.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
-import {
-  ensureVellumGuardianBinding,
-  findGuardianForChannelActor,
-} from "./auth/guardian-bootstrap.js";
+import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { FeatureFlagWatcher } from "./feature-flag-watcher.js";
@@ -156,6 +153,7 @@ import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
 import { initGatewayDb } from "./db/connection.js";
+import { runPostAssistantReady } from "./post-assistant-ready.js";
 
 const log = getLogger("main");
 
@@ -1523,17 +1521,12 @@ async function main() {
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
-  // Ensure a vellum guardian binding exists so the identity system works
-  // without requiring a manual bootstrap step. Dual-writes to both the
-  // assistant and gateway DBs.
-  try {
-    ensureVellumGuardianBinding();
-  } catch (err) {
-    log.warn(
-      { err },
-      "Vellum guardian binding backfill failed — continuing startup",
-    );
-  }
+  // Deferred startup tasks that depend on the assistant runtime being
+  // ready (e.g. guardian binding backfill, data migrations that touch
+  // the assistant DB). Runs in the background — does not block startup.
+  runPostAssistantReady(config).catch((err) => {
+    log.error({ err }, "Post-assistant-ready lifecycle failed");
+  });
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();

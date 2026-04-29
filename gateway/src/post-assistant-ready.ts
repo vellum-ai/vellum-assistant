@@ -1,0 +1,84 @@
+/**
+ * Post-assistant-ready lifecycle.
+ *
+ * The gateway and assistant containers start concurrently. Several gateway
+ * startup tasks depend on the assistant's SQLite database existing (e.g.
+ * guardian binding backfill, data migrations that read/write assistant
+ * tables). When the gateway starts first, these tasks fail because the
+ * assistant DB doesn't exist yet.
+ *
+ * This module polls the assistant health endpoint and, once the assistant
+ * is ready, runs all deferred startup tasks.
+ */
+
+import type { GatewayConfig } from "./config.js";
+import { runDataMigrations } from "./db/data-migrations/index.js";
+import { getGatewayDb, type GatewayDb } from "./db/connection.js";
+import { fetchImpl } from "./fetch.js";
+import { getLogger } from "./logger.js";
+import { ensureVellumGuardianBinding } from "./auth/guardian-bootstrap.js";
+
+import type { Database } from "bun:sqlite";
+
+const log = getLogger("post-assistant-ready");
+
+const POLL_INTERVAL_MS = 2_000;
+const MAX_WAIT_MS = 5 * 60 * 1_000; // 5 minutes
+
+function getRawDb(drizzleDb: GatewayDb): Database {
+  return (drizzleDb as unknown as { $client: Database }).$client;
+}
+
+async function waitForAssistant(config: GatewayConfig): Promise<boolean> {
+  const url = `${config.assistantRuntimeBaseUrl}/v1/health`;
+  const deadline = Date.now() + MAX_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3_000);
+      const res = await fetchImpl(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        log.info("Assistant is ready");
+        return true;
+      }
+    } catch {
+      // Not ready yet — keep polling
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+
+  log.error(
+    { maxWaitMs: MAX_WAIT_MS },
+    "Timed out waiting for assistant to become ready",
+  );
+  return false;
+}
+
+/**
+ * Wait for the assistant runtime to become healthy, then run deferred
+ * startup tasks. Fire-and-forget from the main startup path.
+ */
+export async function runPostAssistantReady(
+  config: GatewayConfig,
+): Promise<void> {
+  const ready = await waitForAssistant(config);
+  if (!ready) return;
+
+  // 1. Data migrations (some read/write the assistant DB)
+  try {
+    runDataMigrations(getRawDb(getGatewayDb()));
+  } catch (err) {
+    log.error({ err }, "Post-ready data migrations failed");
+  }
+
+  // 2. Guardian binding backfill
+  try {
+    ensureVellumGuardianBinding();
+  } catch (err) {
+    log.warn({ err }, "Post-ready guardian binding backfill failed");
+  }
+}
