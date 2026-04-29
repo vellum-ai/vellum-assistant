@@ -982,6 +982,118 @@ describe("injectMemoryV2Block", () => {
     expect(byslug.get("carol-jazz")!.status).toBe("injected");
   });
 
+  test("context-load mode marks every rendered slug as `injected`, never `in_context`", async () => {
+    // Turn 1 (per-turn): seed alice as injected so the next turn's prior
+    // `everInjected` includes her — the same setup the per-turn telemetry
+    // test uses, so the difference between modes is unambiguous.
+    stageTurn([{ slug: "alice-vscode", denseScore: 0.9 }]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+    expect(telemetryState.recordCalls.length).toBe(1);
+
+    // Turn 2 in context-load mode (post-compaction or fresh load). Alice
+    // carries forward AND ranks high again; carol is a brand-new candidate.
+    // Both end up in `topNow` (and therefore in `slugsToRender` since
+    // context-load renders the full top-K). The status field must reflect
+    // that they were physically rendered into the new user message on this
+    // turn — `injected` for both — rather than reading `in_context` for
+    // alice based on stale prior `everInjected` state.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.6 },
+      { slug: "carol-jazz", denseScore: 0.95 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Reload context",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      mode: "context-load",
+      config: makeConfig(),
+    });
+
+    expect(telemetryState.recordCalls.length).toBe(2);
+    const row = telemetryState.recordCalls[1] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("context-load");
+
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    // Both rendered slugs read as `injected` — alice especially, even though
+    // she's in prior `everInjected`, because context-load actually rendered
+    // her into the fresh user message on this turn.
+    expect(byslug.get("alice-vscode")!.status).toBe("injected");
+    expect(byslug.get("carol-jazz")!.status).toBe("injected");
+
+    // No slug reads as `in_context` in context-load mode — the cache was
+    // wiped, so there is no prior cached attachment to reference.
+    for (const concept of row.concepts) {
+      expect(concept.status).not.toBe("in_context");
+    }
+  });
+
+  test("context-load mode marks candidates outside `slugsToRender` as `not_injected`", async () => {
+    // Turn 1 (per-turn): seed both alice and bob with positive activation
+    // so they survive into turn 2's prior-state candidate pool.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.9 },
+      { slug: "bob-coffee", denseScore: 0.8 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 1,
+      userMessage: "Alice's editor and Bob's coffee",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-1",
+      config: makeConfig(),
+    });
+
+    // Turn 2 (context-load) with `top_k: 1`: alice and bob both carry
+    // forward as candidates, but only the top-ranked slug is rendered.
+    // Whichever slug doesn't make the cut must read as `not_injected`.
+    stageTurn([
+      { slug: "alice-vscode", denseScore: 0.95 },
+      { slug: "bob-coffee", denseScore: 0.05 },
+    ]);
+    await injectMemoryV2Block({
+      database: db,
+      conversationId: "conv-1",
+      currentTurn: 2,
+      userMessage: "Reload context",
+      assistantMessage: "",
+      nowText: "Now",
+      messageId: "msg-2",
+      mode: "context-load",
+      config: makeConfig({ top_k: 1 }),
+    });
+
+    expect(telemetryState.recordCalls.length).toBe(2);
+    const row = telemetryState.recordCalls[1] as {
+      mode: string;
+      concepts: Array<{ slug: string; status: string }>;
+    };
+    expect(row.mode).toBe("context-load");
+
+    const byslug = new Map(row.concepts.map((c) => [c.slug, c]));
+    // Alice ranked first → she is in `slugsToRender` → `injected`.
+    expect(byslug.get("alice-vscode")!.status).toBe("injected");
+    // Bob was a candidate but didn't make `top_k: 1` → `not_injected`.
+    expect(byslug.get("bob-coffee")!.status).toBe("not_injected");
+  });
+
   test("telemetry write failure is non-fatal — injection still returns a normal result", async () => {
     telemetryState.recordShouldThrow = true;
 

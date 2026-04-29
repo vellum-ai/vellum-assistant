@@ -245,19 +245,31 @@ export async function injectMemoryV2Block(
   // empty-block return so we capture diagnostics even on no-op turns. Failures
   // are warn-logged and never block memory injection.
   const toInjectSet = new Set(toInject);
+  const renderedSet = new Set(slugsToRender);
   const topSkillIdSet = new Set(topSkillIds);
   const conceptRows: MemoryV2ConceptRowRecord[] = [...candidates].map(
     (slug) => {
       const breakdown = ownBreakdown.get(slug);
       const inPrior = fromPrior.has(slug);
       const inAnn = fromAnn.has(slug);
-      const status: MemoryV2ConceptRowRecord["status"] = everInjectedSet.has(
-        slug,
-      )
-        ? "in_context"
-        : toInjectSet.has(slug)
-          ? "injected"
-          : "not_injected";
+      // Status reflects what was rendered for *this* turn:
+      //   - context-load: cache was wiped (turn 1 / post-compaction), so
+      //     `slugsToRender = topNow` and every rendered slug is freshly
+      //     injected on this turn. `in_context` is unreachable because there
+      //     is no prior cached attachment for the inspector to point at.
+      //   - per-turn: cached attachments from prior turns are still on the
+      //     user message, so prior-everInjected slugs are `in_context` and
+      //     the delta (`toInject`) is `injected`.
+      let status: MemoryV2ConceptRowRecord["status"];
+      if (mode === "context-load") {
+        status = renderedSet.has(slug) ? "injected" : "not_injected";
+      } else if (everInjectedSet.has(slug)) {
+        status = "in_context";
+      } else if (toInjectSet.has(slug)) {
+        status = "injected";
+      } else {
+        status = "not_injected";
+      }
       return {
         slug,
         finalActivation: finalActivation.get(slug) ?? 0,
