@@ -158,6 +158,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "host-transfer-result", scopes: ["approval.write"] },
   { endpoint: "transfers/content", scopes: ["approval.write"] },
   { endpoint: "pending-interactions", scopes: ["approval.read"] },
+  { endpoint: "pending-interactions-all", scopes: ["approval.read"] },
 
   // Guardian actions
   { endpoint: "guardian-actions/pending", scopes: ["approval.read"] },
