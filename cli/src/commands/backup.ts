@@ -4,12 +4,6 @@ import { dirname, join } from "path";
 import { findAssistantByName } from "../lib/assistant-config";
 import { getBackupsDir, formatSize } from "../lib/backup-ops.js";
 import { loadGuardianToken, leaseGuardianToken } from "../lib/guardian-token";
-import {
-  readPlatformToken,
-  platformInitiateExport,
-  platformPollExportStatus,
-  platformDownloadExport,
-} from "../lib/platform-client.js";
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
@@ -73,8 +67,10 @@ export async function backup(): Promise<void> {
   }
 
   if (cloud === "vellum") {
-    await backupPlatform(name, outputArg, entry.runtimeUrl);
-    return;
+    console.error(
+      "Error: Backup is only supported for self-hosted assistants; use 'vellum teleport' for platform-managed assistants.",
+    );
+    process.exit(1);
   }
 
   // Obtain an auth token
@@ -182,111 +178,6 @@ export async function backup(): Promise<void> {
   const manifestSha = response.headers.get("X-Vbundle-Manifest-Sha256");
   console.log(`Backup saved to ${outputPath}`);
   console.log(`Size: ${formatSize(data.byteLength)}`);
-  if (manifestSha) {
-    console.log(`Manifest SHA-256: ${manifestSha}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Platform (Vellum-hosted) backup via Django async migration export
-// ---------------------------------------------------------------------------
-
-async function backupPlatform(
-  name: string,
-  outputArg?: string,
-  runtimeUrl?: string,
-): Promise<void> {
-  // Step 1 — Authenticate
-  const token = readPlatformToken();
-  if (!token) {
-    console.error("Not logged in. Run 'vellum login' first.");
-    process.exit(1);
-  }
-
-  // Step 2 — Initiate export job
-  let jobId: string;
-  try {
-    const result = await platformInitiateExport(
-      token,
-      "CLI backup",
-      runtimeUrl,
-    );
-    jobId = result.jobId;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("401") || msg.includes("403")) {
-      console.error("Authentication failed. Run 'vellum login' to refresh.");
-      process.exit(1);
-    }
-    if (msg.includes("429")) {
-      console.error(
-        "Too many export requests. Please wait before trying again.",
-      );
-      process.exit(1);
-    }
-    throw err;
-  }
-
-  console.log(`Export started (job ${jobId})...`);
-
-  // Step 3 — Poll for completion
-  const POLL_INTERVAL_MS = 2_000;
-  const TIMEOUT_MS = 5 * 60 * 1_000; // 5 minutes
-  const deadline = Date.now() + TIMEOUT_MS;
-  let downloadUrl: string | undefined;
-
-  while (Date.now() < deadline) {
-    let status: { status: string; downloadUrl?: string; error?: string };
-    try {
-      status = await platformPollExportStatus(jobId, token, runtimeUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // Let non-transient errors (e.g. 404 "job not found") propagate immediately
-      if (msg.includes("not found")) {
-        throw err;
-      }
-      console.warn(`Polling failed, retrying... (${msg})`);
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-      continue;
-    }
-
-    if (status.status === "complete") {
-      downloadUrl = status.downloadUrl;
-      break;
-    }
-
-    if (status.status === "failed") {
-      console.error(`Export failed: ${status.error ?? "unknown error"}`);
-      process.exit(1);
-    }
-
-    // Still in progress — wait and retry
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  if (!downloadUrl) {
-    console.error("Export timed out after 5 minutes.");
-    process.exit(1);
-  }
-
-  // Step 4 — Download bundle
-  const isoTimestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outputPath =
-    outputArg || join(getBackupsDir(), `${name}-${isoTimestamp}.vbundle`);
-
-  mkdirSync(dirname(outputPath), { recursive: true });
-
-  const response = await platformDownloadExport(downloadUrl);
-  const arrayBuffer = await response.arrayBuffer();
-  const data = new Uint8Array(arrayBuffer);
-
-  writeFileSync(outputPath, data);
-
-  // Step 5 — Print success
-  console.log(`Backup saved to ${outputPath}`);
-  console.log(`Size: ${formatSize(data.byteLength)}`);
-
-  const manifestSha = response.headers.get("X-Vbundle-Manifest-Sha256");
   if (manifestSha) {
     console.log(`Manifest SHA-256: ${manifestSha}`);
   }
