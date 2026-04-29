@@ -209,6 +209,25 @@ function handleListPendingInteractions({ queryParams }: RouteHandlerArgs) {
   };
 }
 
+/**
+ * GET /v1/pending-interactions-all
+ *
+ * Returns all pending interactions across all conversations. Used by the
+ * `assistant pending` CLI command for diagnostics.
+ */
+function handleListAllPendingInteractions() {
+  const all = pendingInteractions.getAll();
+  return {
+    interactions: all.map((i) => ({
+      requestId: i.requestId,
+      conversationId: i.conversationId,
+      kind: i.kind,
+      toolName: i.confirmationDetails?.toolName,
+      riskLevel: i.confirmationDetails?.riskLevel,
+    })),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
@@ -287,6 +306,29 @@ export const ROUTES: RouteDefinition[] = [
         .object({})
         .passthrough()
         .describe("Pending secret request or null"),
+    }),
+  },
+  {
+    operationId: "pending_interactions_all",
+    endpoint: "pending-interactions-all",
+    method: "GET",
+    handler: handleListAllPendingInteractions,
+    summary: "List all pending interactions",
+    description:
+      "Return all pending interactions across all conversations. Diagnostic endpoint.",
+    tags: ["approvals"],
+    responseBody: z.object({
+      interactions: z
+        .array(
+          z.object({
+            requestId: z.string(),
+            conversationId: z.string(),
+            kind: z.string(),
+            toolName: z.string().optional(),
+            riskLevel: z.string().optional(),
+          }),
+        )
+        .describe("All pending interactions"),
     }),
   },
 ];

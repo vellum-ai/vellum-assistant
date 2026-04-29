@@ -177,11 +177,8 @@ export function makePendingInteractionRegistrar(
         );
       }
     } else if (msg.type === "secret_request") {
-      pendingInteractions.register(msg.requestId, {
-        conversation,
-        conversationId,
-        kind: "secret",
-      });
+      // SecretPrompter.prompt() registers in pendingInteractions directly;
+      // no duplicate registration needed here.
     } else if (msg.type === "host_bash_request") {
       pendingInteractions.register(msg.requestId, {
         conversation,

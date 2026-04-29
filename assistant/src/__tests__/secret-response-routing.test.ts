@@ -11,6 +11,17 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: (msg: ServerMessage) => broadcastedMessages.push(msg),
 }));
 
+mock.module("../runtime/pending-interactions.js", () => ({
+  register: () => {},
+  resolve: () => undefined,
+  get: () => undefined,
+  getAll: () => [],
+  getByConversation: () => [],
+  getByKind: () => [],
+  removeByConversation: () => {},
+  clear: () => {},
+}));
+
 const { SecretPrompter } = await import("../permissions/secret-prompter.js");
 
 describe("secret response routing", () => {

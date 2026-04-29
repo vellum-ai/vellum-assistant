@@ -38,6 +38,18 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Stub pendingInteractions — SecretPrompter registers/resolves there now
+mock.module("../runtime/pending-interactions.js", () => ({
+  register: () => {},
+  resolve: () => undefined,
+  get: () => undefined,
+  getAll: () => [],
+  getByConversation: () => [],
+  getByKind: () => [],
+  removeByConversation: () => {},
+  clear: () => {},
+}));
+
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
 const mockConfig = {
   timeouts: { permissionTimeoutSec: 0.01 },

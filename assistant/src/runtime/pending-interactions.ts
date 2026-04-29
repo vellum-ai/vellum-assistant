@@ -143,6 +143,17 @@ export function getByKind(
   return results;
 }
 
+/**
+ * Return all pending interactions across all conversations.
+ */
+export function getAll(): Array<{ requestId: string } & PendingInteraction> {
+  const results: Array<{ requestId: string } & PendingInteraction> = [];
+  for (const [requestId, interaction] of pending) {
+    results.push({ requestId, ...interaction });
+  }
+  return results;
+}
+
 /** Clear all pending interactions. Useful for testing. */
 export function clear(): void {
   pending.clear();

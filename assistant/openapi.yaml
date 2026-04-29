@@ -7604,6 +7604,45 @@ paths:
           schema:
             type: string
           description: Conversation ID
+  /v1/pending-interactions-all:
+    get:
+      operationId: pendinginteractionsall_get
+      summary: List all pending interactions
+      description: Return all pending interactions across all conversations. Diagnostic endpoint.
+      tags:
+        - approvals
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  interactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        requestId:
+                          type: string
+                        conversationId:
+                          type: string
+                        kind:
+                          type: string
+                        toolName:
+                          type: string
+                        riskLevel:
+                          type: string
+                      required:
+                        - requestId
+                        - conversationId
+                        - kind
+                      additionalProperties: false
+                    description: All pending interactions
+                required:
+                  - interactions
+                additionalProperties: false
   /v1/playground/seed-conversation:
     post:
       operationId: playground_seedconversation_post
