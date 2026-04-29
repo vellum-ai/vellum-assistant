@@ -31,10 +31,6 @@ public class VMenuPanel: NSPanel {
     /// (submenus via showAnchored) are managed by the coordinator, not here.
     private static weak var activeRootPanel: VMenuPanel?
 
-    /// Extra padding added around the VMenu content so its shadow can render
-    /// without being clipped by the hosting view's bounds.
-    static let shadowInset: CGFloat = 14
-
     /// Show SwiftUI content in a floating panel at the given screen point.
     ///
     /// Creates a `VMenuCoordinator` internally so submenu support is always available.
@@ -86,7 +82,7 @@ public class VMenuPanel: NSPanel {
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: false
+            defer: true
         )
         // isFloatingPanel sets level to .floating by default — do not
         // override with .popUpMenu, which is level 101 and causes the panel
@@ -95,7 +91,11 @@ public class VMenuPanel: NSPanel {
         panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        // Native window shadow — the compositor draws this outside the window
+        // bounds and removes it atomically with the window on close/orderOut.
+        // This avoids ghost artifacts caused by SwiftUI .shadow() pixels
+        // persisting in the .buffered backing store after contentView is removed.
+        panel.hasShadow = true
         // ARC manages the panel lifetime — disable AppKit's legacy
         // release-on-close which adds an extra release() call inside
         // super.close() and can conflict with ARC reference counting.
@@ -128,7 +128,6 @@ public class VMenuPanel: NSPanel {
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
             .environment(\.vMenuPanelLevel, 0)
-            .padding(Self.shadowInset)
         // Use NSHostingView directly as contentView — no FirstMouseView wrapper.
         // This preserves the natural NSPanel → NSHostingView → SwiftUI accessibility
         // hierarchy that VoiceOver needs for both navigation and action activation.
@@ -179,21 +178,9 @@ public class VMenuPanel: NSPanel {
             $0.isVisible && $0.frame.contains(screenPoint) && !($0 is VMenuPanel)
         })
 
-        // Show the panel invisible initially. SwiftUI's rendering pipeline
-        // may split into two phases — background/shadow first, then text —
-        // producing a 1-frame flash of an empty rounded rect with shadow
-        // (the "ghost"). Holding alpha at 0 until the next run-loop cycle
-        // guarantees SwiftUI has completed its first full render pass before
-        // the panel becomes visible.
+        // Start invisible — reveal after SwiftUI completes its first render
+        // pass so the panel never flashes an incomplete frame.
         panel.alphaValue = 0
-
-        // Pre-populate the backing store while the panel is still invisible.
-        // With defer:false the window device exists immediately, so display()
-        // forces the compositor to render the current (transparent) content
-        // into the backing store before the window is ordered in. This
-        // eliminates the race where makeKeyAndOrderFront shows a stale or
-        // partially-rendered backing store for a single frame.
-        panel.display()
         panel.makeKeyAndOrderFront(nil)
 
         // Attach as a child window so the menu stays grouped with its
@@ -206,25 +193,18 @@ public class VMenuPanel: NSPanel {
         // Register with coordinator — it installs the unified click monitor
         coordinator.registerRootPanel(panel, sourceWindow: resolvedSourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
-        // Reveal the panel after SwiftUI has completed its full render pass.
-        // A single run-loop cycle is sometimes insufficient — SwiftUI's
-        // Metal-backed rendering pipeline can split across 2+ frames
-        // (background/shadow first, then text layout). Double-pumping
-        // the main queue ensures both phases complete before reveal.
-        // Guard on contentView != nil rather than isVisible: contentView
-        // is set to nil synchronously in close(), making it a reliable
-        // indicator that the panel has been dismissed.
+        // Reveal after SwiftUI completes its render pass. Guard on
+        // contentView != nil (set to nil synchronously in close()) so
+        // a panel dismissed before the reveal fires stays invisible.
         DispatchQueue.main.async { [weak panel] in
-            DispatchQueue.main.async { [weak panel] in
-                guard let panel, panel.contentView != nil else { return }
-                panel.alphaValue = 1
-                NSAccessibility.post(element: panel, notification: .created)
-                if let contentView = panel.contentView,
-                   let firstChild = contentView.accessibilityChildren()?.first {
-                    NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
-                } else if let contentView = panel.contentView {
-                    NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
-                }
+            guard let panel, panel.contentView != nil else { return }
+            panel.alphaValue = 1
+            NSAccessibility.post(element: panel, notification: .created)
+            if let contentView = panel.contentView,
+               let firstChild = contentView.accessibilityChildren()?.first {
+                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+            } else if let contentView = panel.contentView {
+                NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
             }
         }
 
@@ -247,12 +227,12 @@ public class VMenuPanel: NSPanel {
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
-            defer: false
+            defer: true
         )
         panel.isFloatingPanel = true
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = false
+        panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
         panel.setAccessibilityRoleDescription(NSLocalizedString("menu", comment: "Accessibility role description for VMenu panel"))
@@ -269,7 +249,6 @@ public class VMenuPanel: NSPanel {
             .environment(\.vMenuDismiss, { [weak coordinator] in coordinator?.dismissAll() })
             .environment(\.vMenuCoordinator, coordinator)
             .environment(\.vMenuPanelLevel, childLevel)
-            .padding(Self.shadowInset)
             .onHover { hovering in
                 if hovering {
                     coordinator.cancelGraceTimer()
@@ -296,22 +275,18 @@ public class VMenuPanel: NSPanel {
 
         let origin = anchoredOrigin(for: menuSize, anchorRect: itemRect)
         panel.setFrame(CGRect(origin: origin, size: menuSize), display: true)
-        // Fade-in guard + backing store pre-population — same rationale as show().
         panel.alphaValue = 0
-        panel.display()
         panel.makeKeyAndOrderFront(nil)
 
         DispatchQueue.main.async { [weak panel] in
-            DispatchQueue.main.async { [weak panel] in
-                guard let panel, panel.contentView != nil else { return }
-                panel.alphaValue = 1
-                NSAccessibility.post(element: panel, notification: .created)
-                if let contentView = panel.contentView,
-                   let firstChild = contentView.accessibilityChildren()?.first {
-                    NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
-                } else if let contentView = panel.contentView {
-                    NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
-                }
+            guard let panel, panel.contentView != nil else { return }
+            panel.alphaValue = 1
+            NSAccessibility.post(element: panel, notification: .created)
+            if let contentView = panel.contentView,
+               let firstChild = contentView.accessibilityChildren()?.first {
+                NSAccessibility.post(element: firstChild, notification: .focusedUIElementChanged)
+            } else if let contentView = panel.contentView {
+                NSAccessibility.post(element: contentView, notification: .focusedUIElementChanged)
             }
         }
 
@@ -326,19 +301,19 @@ public class VMenuPanel: NSPanel {
             ?? NSScreen.main?.visibleFrame
             ?? .zero
 
-        var x = cursor.x - shadowInset
+        var x = cursor.x
 
         // Horizontal overflow
         if x + size.width > screen.maxX {
-            x = cursor.x - size.width + shadowInset
+            x = cursor.x - size.width
         }
         if x < screen.minX {
             x = screen.minX
         }
 
         // Vertical positioning with flip-then-clamp
-        let belowY = cursor.y - size.height + shadowInset
-        let aboveY = cursor.y - shadowInset
+        let belowY = cursor.y - size.height
+        let aboveY = cursor.y
         var y: CGFloat
 
         switch anchor {
@@ -375,18 +350,14 @@ public class VMenuPanel: NSPanel {
             ?? NSScreen.main?.visibleFrame
             ?? .zero
 
-        // The child panel has `shadowInset` padding on all sides. To align
-        // the child's VISUAL left edge with the anchor's right edge, offset
-        // the panel origin left by shadowInset.
-        var x = anchorRect.maxX - shadowInset
+        var x = anchorRect.maxX
         // Align child's visual top with anchor's top.
         // macOS y-axis is bottom-up: anchorRect.maxY is the top edge.
-        // The child's visual top is at panel.origin.y + size.height - shadowInset.
-        var y = anchorRect.maxY - size.height + shadowInset
+        var y = anchorRect.maxY - size.height
 
         // Right overflow: flip to left side of anchor
         if x + size.width > screen.maxX {
-            x = anchorRect.minX - size.width + shadowInset
+            x = anchorRect.minX - size.width
         }
         // Left overflow
         if x < screen.minX {
@@ -426,32 +397,17 @@ public class VMenuPanel: NSPanel {
         // panelWasClosed() can fire.
         let coord = coordinator
 
-        // 1. Make invisible + strip SwiftUI content, then force the
-        //    backing store to repaint as transparent. With .buffered
-        //    backing, the window server retains the last-rendered frame
-        //    independently of the view hierarchy. Without display(),
-        //    the stale frame (VMenu background + shadow) persists in
-        //    the backing store and can flash if the window is briefly
-        //    re-ordered before orderOut takes effect.
         alphaValue = 0
-        contentView = nil
-        display()
 
-        // 2. Detach from parent BEFORE ordering out. Child windows
-        //    are re-ordered when their parent orders front
-        //    (https://developer.apple.com/documentation/appkit/nswindow/addchildwindow(_:ordered:)).
-        //    If the parent processes a click-through between orderOut
-        //    and removeChildWindow, it could briefly re-order this
-        //    panel back on screen.
+        // Detach from parent BEFORE ordering out. Child windows
+        // are re-ordered when their parent orders front
+        // (https://developer.apple.com/documentation/appkit/nswindow/addchildwindow(_:ordered:)).
         if let parentWindow = parent {
             parentWindow.removeChildWindow(self)
         }
 
-        // 3. Explicitly order out before super.close() so the
-        //    window server removes the surface immediately rather
-        //    than waiting for the close→orderOut path which can
-        //    leave a stale compositor entry for one frame.
         orderOut(nil)
+        contentView = nil
 
         clickMonitor.flatMap(NSEvent.removeMonitor)
         clickMonitor = nil

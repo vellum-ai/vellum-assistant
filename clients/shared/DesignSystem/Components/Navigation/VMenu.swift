@@ -193,8 +193,14 @@ public struct VMenu<Content: View>: View {
         #endif
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        #if os(iOS)
+        // On macOS, shadow is handled natively by VMenuPanel (hasShadow = true)
+        // to avoid ghost artifacts from stale SwiftUI shadow pixels in the
+        // window's backing store. On iOS there is no VMenuPanel, so the
+        // SwiftUI shadow is still needed.
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        #endif
         #if os(macOS)
         // --- SwiftUI-native keyboard focus (WWDC23 "The SwiftUI cookbook for focus") ---
         // Primary key-handling path: the VStack receives focus and .onKeyPress fires.
