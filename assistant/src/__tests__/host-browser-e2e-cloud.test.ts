@@ -301,10 +301,14 @@ describe("host_browser cloud-hosted e2e round-trip", () => {
 
     const proxy = HostBrowserProxy.instance;
 
-    const result = await proxy.request(
-      { cdpMethod: "Browser.getVersion", timeout_seconds: 0.05 },
+    const resultPromise = proxy.request(
+      { cdpMethod: "Browser.getVersion", timeout_seconds: 0.5 },
       "conv-timeout",
     );
+
+    await waitFor(() => mockExt.receivedRequests().length === 1);
+
+    const result = await resultPromise;
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("timed out");
