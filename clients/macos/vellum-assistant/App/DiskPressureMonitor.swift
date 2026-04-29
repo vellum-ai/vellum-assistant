@@ -37,7 +37,7 @@ final class DiskPressureMonitor {
     @ObservationIgnored private var activeAssistantObserver: NSObjectProtocol?
 
     init(
-        fetchUsageFraction: @escaping UsageFractionFetcher = { Self.defaultUsageFraction() },
+        fetchUsageFraction: @escaping UsageFractionFetcher = { DiskPressureMonitor.defaultUsageFraction() },
         activeAssistantIdProvider: @escaping ActiveAssistantIdProvider = {
             LockfileAssistant.loadActiveAssistantId()
         },
@@ -162,7 +162,7 @@ final class DiskPressureMonitor {
     /// iCloud cache) that macOS reclaims under pressure, so the banner agrees
     /// with the user's perceived free space rather than the strict raw-FS
     /// reading from `statfs(2)`.
-    static func defaultUsageFraction() -> Double? {
+    nonisolated static func defaultUsageFraction() -> Double? {
         let url = VellumPaths.current.homeDirectory
         guard let values = try? url.resourceValues(forKeys: [
             .volumeTotalCapacityKey,
